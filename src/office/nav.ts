@@ -75,24 +75,9 @@ export const EDGES: [string, string][] = [
 ]
 
 /**
- * Spots the model doesn't have right yet, as `id:x:z[:ry[:kind]]` (same format as ?debug=1&nav=).
- * Checked with the debug ray test; asked for in the model (#17 log, #20). Once the glb carries these values
- * the patch changes nothing and can be deleted.
- * - desk_side_0..3: off the desks (they were inside a desk edge); ry faces the seat
- * - hall_lounge: off the corner plant's leaves
- * - hall_game, hall_ne: aisles below the board-game table and behind the ping-pong table
+ * Move or add spots: `id:x:z[:ry[:kind]]`, comma separated (ry defaults to the old value or 0, kind to the old
+ * kind or "hall"). Used by ?debug=1&nav=… to try a spot with the ray test before it is baked into the model.
  */
-export const NAV_PATCH = [
-  'desk_side_0:-1.9:-1.72:1.32:stand',
-  'desk_side_1:-0.6:-1.72:1.32:stand',
-  'desk_side_2:-2.1:-0.8:0.969:stand',
-  'desk_side_3:-2.0:-0.2:2.092:stand',
-  'hall_lounge:2.95:1.85:0:hall',
-  'hall_game:-1.35:0.7:0:hall',
-  'hall_ne:3.1:0:0:hall',
-].join(',')
-
-/** move or add spots: `id:x:z[:ry[:kind]]`, comma separated (ry defaults to the old value or 0, kind to the old kind or "hall") */
 export function patchSpots(spots: NavSpot[], spec: string): NavSpot[] {
   if (!spec) return spots
   const byId = new Map(spots.map((s) => [s.id, s]))
