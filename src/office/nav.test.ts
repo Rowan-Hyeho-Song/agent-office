@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { EDGES, buildGraph, dist, facing, pathLength, routeFromEdge, shortestPath, type NavKind, type NavSpot } from './nav'
+import {
+  EDGES,
+  NAV_PATCH,
+  buildGraph,
+  dist,
+  facing,
+  patchSpots,
+  pathLength,
+  routeFromEdge,
+  shortestPath,
+  type NavKind,
+  type NavSpot,
+} from './nav'
 
 // the nav_* empties after the #20 re-bake (desk sides moved off the desks, hall_game / hall_ne added)
 const RAW = `bulletin 1.75 -2.05 0 stand; coffee -2.6 1.32 1.5708 stand; desk_side_0 -1.9 -1.72 1.32 stand; desk_side_1 -0.6 -1.72 1.32 stand; desk_side_2 -2.1 -0.8 0.969 stand; desk_side_3 -2 -0.2 2.092 stand; door -2.95 2.12 1.5708 door; game_a -1.95 1.55 -1.5708 stool; game_b -0.75 1.55 1.5708 stool; hall_door -2.5 2.25 0 hall; hall_east 2 -0.6 0 hall; hall_front 0.1 1.2 0 hall; hall_lounge 2.95 1.85 0 hall; hall_game -1.35 0.7 0 hall; hall_ne 3.1 0 0 hall; hall_mid -0.35 -0.55 0 hall; hall_west -2.3 0.75 0 hall; hall_work -1.8 -1.35 0 hall; meet_a -0.75 -0.55 -1.5708 meet; meet_b 0.05 -0.55 1.5708 meet; meet_c 0 -1.55 -0.7854 meet; meet_d 0.62 -1.55 0.7854 meet; pingpong_a 0.42 0.95 -1.5708 play; pingpong_b 3.08 0.95 1.5708 play; shelf 2.85 -2.05 0 stand; sofa_0 -0.18 2.1 0 sofa; sofa_1 0.35 2.1 0 sofa; sofa_2 0.88 2.1 0 sofa; whiteboard 0.35 -2.05 0 stand; work_0 -2.45 -1.86 0 work; work_1 -1.15 -1.86 0 work; work_2 -2.61 -1.15 1.5708 work; work_3 -2.61 0.15 1.5708 work`
@@ -142,5 +154,21 @@ describe('facing', () => {
   it('meet_a and meet_b face each other', () => {
     expect(Math.abs(facing(byId.meet_a, byId.meet_b) - byId.meet_a.ry)).toBeLessThan(1e-3)
     expect(Math.abs(facing(byId.meet_b, byId.meet_a) - byId.meet_b.ry)).toBeLessThan(1e-3)
+  })
+})
+
+describe('patchSpots / NAV_PATCH', () => {
+  it('moves existing spots, adds missing ones, keeps ry and kind when left out', () => {
+    const base = [sp('a', 0, 0), { ...sp('b', 1, 1), ry: 2, kind: 'stand' as NavKind }]
+    const out = patchSpots(base, 'b:5:6,c:7:8')
+    expect(out.find((s) => s.id === 'b')).toEqual({ id: 'b', x: 5, z: 6, ry: 2, kind: 'stand' })
+    expect(out.find((s) => s.id === 'c')).toEqual({ id: 'c', x: 7, z: 8, ry: 0, kind: 'hall' })
+    expect(out.find((s) => s.id === 'a')).toEqual(sp('a', 0, 0))
+    expect(patchSpots(base, '')).toBe(base)
+  })
+
+  it('is a no-op on a model that already has the patched values (the fixture above)', () => {
+    const out = patchSpots(SPOTS, NAV_PATCH)
+    expect(Object.fromEntries(out.map((s) => [s.id, s]))).toEqual(byId)
   })
 })
