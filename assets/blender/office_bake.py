@@ -15,6 +15,8 @@ Node contract (the app reads glTF extras):
   agent_<i>_face, *_tip, neon_desk_<i>, lamp_shade   live emitters (glow, state)
   screen_work_<i>, screen_door     live "screen" slots the app draws (extras screen, aspect, w, h, ppm); shipped off
   surface_whiteboard|bulletin      empties at the board faces where the app pins cards / notes (extras w, h, normal)
+  agent_<i>_hand_l|r               empties, children of the arms at the hand: attach a held prop here
+  prop_*                           live "prop": paddles, ball, cups, watering can, board pieces (extras prop, home, grip)
   nav_<id>                         empties: where agents go and which way they face (navigation)
 Agents are placeholders until their roster is decided (#5): four seats, four colors.
 """
@@ -240,10 +242,7 @@ def build_lounge():
     for sx in (-tw / 2 + 0.15, tw / 2 - 0.15):
         for sz in (-td / 2 + 0.12, td / 2 - 0.12):
             p.append(box("pp_leg", (0.05, th - 0.04, 0.05), (tx + sx, (th - 0.04) / 2, tz + sz), metal, G))
-    for k, (dx, col) in enumerate(((-0.6, "#c0392b"), (0.62, "#2c3e50"))):
-        p += [cyl("paddle", 0.075, 0.012, (tx + dx, th + 0.006, tz + 0.25 - k * 0.5), plastic(col, 0.6, 0, 0.3, f"paddle_{k}"), G, 24),
-              box("paddle_h", (0.03, 0.02, 0.1), (tx + dx, th + 0.01, tz + 0.36 - k * 0.72), plastic("#c9a36b", 0.6, 0, 0.3, "handle"), G)]
-    p.append(sphere("ball", 0.02, (tx + 0.25, th + 0.02, tz - 0.1), plastic("#ffffff", 0.3, 0, 0, "ball"), G, seg=12, rings=8))
+    # the paddles and the ball are props now (build_props): agents pick them up
     # sofa facing the back wall
     sx, sz = SOFA
     teal = plastic("#2f6f73", 0.95, 0, 0.8, "sofa")
@@ -269,9 +268,13 @@ def build_lounge():
             if (r + c) % 2:
                 p.append(box("sq", (0.044, 0.002, 0.044), (gx - 0.154 + c * 0.044, 0.7555, gz - 0.154 + r * 0.044), plastic("#5a3d26", 0.6, 0, 0.2, "board_dark"), G))
     for k in range(10):
-        r, c = RNG.randint(0, 7), RNG.randint(0, 7)
+        r, c = RNG.randint(0, 7), RNG.randint(0, 7)  # drawn for every piece so the RNG stream (plants below) is unchanged
+        at = (gx - 0.154 + c * 0.044, 0.762, gz - 0.154 + r * 0.044)
+        if k < 2:  # the first black and white piece move: props (build_props)
+            PIECE_HOME.append(at)
+            continue
         col = "#f4f4f0" if k % 2 else "#1b1d22"
-        p.append(cyl("piece", 0.016, 0.012, (gx - 0.154 + c * 0.044, 0.762, gz - 0.154 + r * 0.044), plastic(col, 0.3, 0, 0, f"piece_{k % 2}"), G, 16))
+        p.append(cyl("piece", 0.016, 0.012, at, plastic(col, 0.3, 0, 0, f"piece_{k % 2}"), G, 16))
     for dx in (-0.6, 0.6):
         p += [cyl("stool", 0.18, 0.05, (gx + dx, 0.5, gz), plastic("#d64545", 0.6, 0, 0.3, "stool"), G, 24, bev=0.01),
               cyl("stool_col", 0.025, 0.48, (gx + dx, 0.24, gz), metal, G, 10),
@@ -281,8 +284,8 @@ def build_lounge():
     p += [box("counter", (0.6, 0.9, 0.7), (cx, 0.45, cz), plastic("#2b2f3a", 0.6, 0, 0.2, "counter"), G, bev=0.01),
           box("counter_top", (0.64, 0.04, 0.74), (cx, 0.92, cz), plastic("#e8e4dc", 0.3, 0, 0.3, "counter_top"), G, bev=0.006),
           box("machine", (0.28, 0.36, 0.3), (cx, 1.12, cz - 0.12), plastic("#1b1d22", 0.35, 0.6, 0.05, "machine"), G, bev=0.02),
-          box("spout", (0.06, 0.05, 0.08), (cx + 0.12, 1.02, cz - 0.12), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G),
-          cyl("cup", 0.035, 0.08, (cx + 0.14, 0.98, cz - 0.12), plastic("#f4f4f0", 0.4, 0, 0, "cup"), G, 16)]
+          box("spout", (0.06, 0.05, 0.08), (cx + 0.12, 1.02, cz - 0.12), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G)]
+    # the cup under the spout and one beside it are props (build_props); the stack stays baked
     for k in range(3):
         p.append(cyl("cup", 0.035, 0.08, (cx + 0.05 - k * 0.0, 0.98 + k * 0.08, cz + 0.2), plastic("#f4f4f0", 0.4, 0, 0, "cup"), G, 16, r2=0.03))
     # plants
@@ -300,6 +303,66 @@ def build_lounge():
     lounge = join("lounge", p)
     shade = cyl("lamp_shade", 0.2, 0.26, (lx, 1.62, lz), emitter("#ffcf8a", 2.0, "lamp_shade"), "export", 32, r2=0.13)
     return lounge, apply_all(shade), (lx, 1.55, lz)
+
+
+# ================================================================ PROPS (live, real-time lit)
+# Things agents pick up while playing. Each is built around its pivot (where a hand holds it: paddle handle end,
+# cup and watering-can handle; ball and pieces at their center), exported at its home spot with extras:
+#   prop = kind,  home = {pos, rot} (web, Euler XYZ),  grip = {pos, rot} (offset from agent_i_hand_l|r)
+# They stay in the bake at home (contact shadows read as "put down here"); lifted, the faint shadow stays.
+PIECE_HOME = []  # filled by build_lounge: the two board pieces that became props
+
+
+def prop(name, kind, objs, home_pos, home_rot=(0.0, 0.0, 0.0), grip_pos=(0.0, 0.0, 0.0), grip_rot=(0.0, 0.0, 0.0)):
+    H = Mx(home_pos, *home_rot)
+    o = pivot(join(name, place(objs, H)), H)
+    o["prop"] = kind
+    o["home"] = {"pos": [round(v, 4) for v in home_pos], "rot": [round(v, 4) for v in home_rot]}
+    o["grip"] = {"pos": [round(v, 4) for v in grip_pos], "rot": [round(v, 4) for v in grip_rot]}
+    return o
+
+
+def build_props():
+    G = "prop"
+    out = []
+    tx, tz = PINGPONG
+    th = 0.76
+    wood_h = plastic("#c9a36b", 0.6, 0, 0.3, "handle")
+    # paddles: handle end at the origin, handle along local +y, blade (rubber facing local +z) beyond it.
+    # Home: flat on the table (blade up), handle toward the player at that end. Grip: handle in the fist, blade
+    # carried on along the arm (local +y -> hand -y).
+    for k, (end, bx, bz, rz, col) in enumerate((("a", tx - 0.6, tz + 0.25, -math.pi / 2, "#c0392b"),
+                                                 ("b", tx + 0.62, tz - 0.25, math.pi / 2, "#2c3e50"))):
+        objs = [box("grip", (0.03, 0.1, 0.014), (0, 0.05, 0), wood_h, G, bev=0.004, seg=2),
+                cyl("blade", 0.085, 0.012, (0, 0.18, 0), plastic(col, 0.6, 0, 0.3, f"paddle_{k}"), G, 28, axis="z")]
+        hx = bx + (-0.18 if end == "a" else 0.18)  # handle end sits 0.18 m behind the blade center
+        out.append(prop(f"prop_paddle_{end}", "paddle", objs, (hx, th + 0.007, bz), (-math.pi / 2, 0.0, rz),
+                        grip_pos=(0, -0.02, 0), grip_rot=(math.pi, 0, 0)))
+    out.append(prop("prop_ball", "ball", [sphere("ball", 0.02, (0, 0, 0), plastic("#ffffff", 0.3, 0, 0, "ball"), G, seg=14, rings=10)],
+                    (tx + 0.25, th + 0.02, tz - 0.1), grip_pos=(0, -0.05, 0)))
+    # cups: origin at the handle (on local +x), body hanging beside it. Home on the counter, handle toward the room
+    cx, cz = -HX + 0.3, 1.32
+    for k, (bx, bz) in enumerate(((cx + 0.14, cz - 0.12), (cx + 0.19, cz + 0.07))):
+        # 1.25x the baked mugs so a cup still reads in a robot hand
+        objs = [cyl("cup", 0.045, 0.105, (-0.072, 0, 0), plastic("#f4f4f0", 0.4, 0, 0, "cup"), G, 20),
+                torus("cup_handle", 0.027, 0.0075, (-0.027, 0.0, 0), plastic("#f4f4f0", 0.4, 0, 0, "cup"), G, axis="z", half=True, seg=16, rseg=6)]
+        out.append(prop(f"prop_cup_{k}", "cup", objs, (bx + 0.072, 0.94 + 0.0525, bz)))
+    # watering can: origin at the top of its carry handle; body, spout and rose below. Home on the floor by the
+    # front-right plant
+    green = plastic("#3fa36b", 0.45, 0.2, 0.1, "can")
+    objs = [cyl("can_body", 0.08, 0.14, (0, -0.13, 0), green, G, 28, bev=0.006),
+            cyl("can_lid", 0.05, 0.012, (0, -0.054, 0), green, G, 20),
+            box("can_post", (0.012, 0.06, 0.016), (-0.045, -0.03, 0), green, G),
+            box("can_post", (0.012, 0.06, 0.016), (0.045, -0.03, 0), green, G),
+            box("can_bar", (0.1, 0.014, 0.018), (0, 0, 0), green, G, bev=0.004, seg=2),
+            segment("can_spout", (0.07, -0.17, 0), (0.2, -0.07, 0), 0.012, green, G, r2=0.009),
+            cyl("can_rose", 0.022, 0.014, (0.205, -0.065, 0), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G, 16)]
+    out.append(prop("prop_watering_can", "watering_can", objs, (2.8, 0.2, 2.45), (0.0, 0.6, 0.0)))
+    # board pieces: center pivot, a little larger than the baked ones so they read in a hand
+    for end, (at, col) in zip("ab", zip(PIECE_HOME, ("#1b1d22", "#f4f4f0"))):
+        out.append(prop(f"prop_piece_{end}", "piece", [cyl("piece", 0.019, 0.014, (0, 0, 0), plastic(col, 0.3, 0, 0, f"piece_{end}"), G, 18)],
+                        (at[0], 0.763, at[2]), grip_pos=(0, -0.04, 0)))
+    return out
 
 
 # ================================================================ EXIT DOOR (part of room atlas + live screen)
@@ -377,17 +440,28 @@ def build_agent(i, agent):
                              cyl("ear", 0.035, 0.03, (-0.17, 0.13, 0), accent, G, 16, axis="x"),
                              cyl("ear", 0.035, 0.03, (0.17, 0.13, 0), accent, G, 16, axis="x"),
                              cyl("antenna", 0.008, 0.12, (0.06, 0.31, 0.04), joint, G, 8)], (0, NECK_Y, 0))
+    hands = []
     for side, sx in (("l", -1), ("r", 1)):
         part(f"agent_{i}_arm_{side}", [cyl("shoulder", 0.045, 0.06, (0, 0, 0), joint, G, 14, axis="x"),
                                        cyl("arm", 0.035, 0.3, (0, -0.16, 0), joint, G, 12),
                                        sphere("hand", 0.045, (0, -0.33, 0), shell, G, seg=12, rings=8)],
              (sx * 0.2, SHOULDER_Y, 0))
+        # grab point: an empty parented to the arm at the hand ball's center, so a prop attached here follows it
+        arm = parts[-1]
+        h = bpy.data.objects.new(f"agent_{i}_hand_{side}", None)
+        coll("export").objects.link(h)
+        h.parent = arm
+        h.matrix_world = arm.matrix_world @ Mx((0, -0.33, 0))
+        h["hand"] = side
+        hands.append(h)
     neck = root @ Mx((0, NECK_Y, 0))
     face = quad(f"agent_{i}_face", 0.22, 0.13, screen_mat(f"face_glow_{i}", agent["color"], 0.8), "export")
     face.rotation_euler = (0, 0, math.pi)  # faces local -z (forward)
     face = pivot(apply_all(place(face, neck @ Mx((0, 0.13, -0.138)))[0]), neck)
     tip = sphere(f"agent_{i}_tip", 0.022, (0.06, 0.38, 0.04), emitter(agent["color"], 4.0, f"tip_{i}"), "export", seg=12, rings=8)
     tip = pivot(apply_all(place(tip, neck)[0]), neck)
+    for h in hands:
+        NODES.append({"obj": h, "hand": h["hand"]})
     return parts, [face, tip] + parts_live
 
 
@@ -429,14 +503,18 @@ def facing(fx, fz, tx, tz):
     return math.atan2(-(tx - fx), -(tz - fz))
 
 
+# where a visiting agent stands to talk to the one at desk i: (x, z, ry facing the worker). Measured in the
+# app's nav check (#17: rays along every edge and round each spot, 0.2–1.0 m high, ±0.22 m body width) —
+# the first guesses (0.85 m beside each desk) sat inside the neighbouring desk's corner.
+DESK_SIDE = [(-1.90, -1.72, 1.32), (-0.60, -1.72, 1.32), (-2.10, -0.80, 0.969), (-2.00, -0.20, 2.092)]
+
+
 def build_nav():
     for i, a in enumerate(AGENTS):
         F = frame(a["at"])
         seat = (F @ Mx((0, 0, WORK_Z))).to_translation()
-        side = (F @ Mx((0.85, 0, 0.3))).to_translation()
-        sx, sz = seat.x, -seat.y
-        nav(f"work_{i}", sx, sz, a["at"][2], "work")
-        nav(f"desk_side_{i}", side.x, -side.y, facing(side.x, -side.y, sx, sz), "stand")
+        nav(f"work_{i}", seat.x, -seat.y, a["at"][2], "work")
+        nav(f"desk_side_{i}", *DESK_SIDE[i], "stand")
     nav("whiteboard", 0.35, -2.05, 0.0, "stand")
     nav("bulletin", 1.75, -2.05, 0.0, "stand")
     nav("shelf", SHELF_X, -2.05, 0.0, "stand")
@@ -453,9 +531,12 @@ def build_nav():
     nav("meet_b", 0.05, -0.55, math.pi / 2, "meet")
     nav("meet_c", 0.0, -1.55, -math.pi / 4, "meet")
     nav("meet_d", 0.62, -1.55, math.pi / 4, "meet")
-    # hall nodes: the aisles between the furniture
+    # hall nodes: the aisles between the furniture. hall_game (under the board-game table) and hall_ne (behind the
+    # ping-pong table) came from the app's nav check (#17): west→front grazed the game table by 2 cm and
+    # east→pingpong_b crossed the table top's corner; hall_lounge moved off the corner plant's leaves.
     for name, x, z in (("door", -2.5, 2.25), ("west", -2.3, 0.75), ("work", -1.8, -1.35), ("mid", -0.35, -0.55),
-                       ("east", 2.0, -0.6), ("front", 0.1, 1.2), ("lounge", 3.05, 2.0)):
+                       ("east", 2.0, -0.6), ("front", 0.1, 1.2), ("lounge", 2.95, 1.85), ("game", -1.35, 0.7),
+                       ("ne", 3.1, 0.0)):
         nav(f"hall_{name}", x, z, 0.0, "hall")
 
 
@@ -497,6 +578,8 @@ baked(build_wall_items(), "wall_items")
 lounge, shade, lamp_pos = build_lounge()
 baked(lounge, "lounge")
 live(shade, "neon")
+for o in build_props():
+    live(o, "prop")
 for i, a in enumerate(AGENTS):
     parts, lives = build_agent(i, a)
     for o in parts:
@@ -522,7 +605,29 @@ if PREVIEW:
              "lounge": ((-1.2, 2.2, 4.4), (1.2, 0.6, 1.0)),
              "wall": ((1.4, 1.7, 1.2), (1.7, 1.35, -2.75)),
              "door": ((0.4, 1.7, 2.6), (-3.4, 1.1, 1.7)),
-             "bots": ((1.2, 1.3, 2.9), (0.5, 0.55, 0.95))}
+             "bots": ((1.2, 1.3, 2.9), (0.5, 0.55, 0.95)),
+             "props_table": ((1.0, 1.35, 2.3), (1.6, 0.76, 0.95)),
+             "props_can": ((2.2, 0.95, 3.4), (2.8, 0.2, 2.45)),
+             "props_board": ((-0.85, 1.25, 2.25), (-1.35, 0.76, 1.55)),
+             # preview-only poses (not exported): a hand holding a prop by its grip offset
+             "hold_paddle": ((1.25, 1.15, 1.75), (0.55, 0.8, 0.95)),
+             "hold_cup": ((1.35, 1.05, -1.25), (0.5, 0.85, -2.1))}
+
+    def hold(i, side, prop_name, raise_x, upright=False):
+        """raise an agent's arm forward and put a prop in that hand using the prop's grip extras. grip is defined
+        for the arm hanging at rest; upright=True turns the prop back by the arm's raise (a cup kept level)"""
+        arm = bpy.data.objects[f"agent_{i}_arm_{side}"]
+        arm.matrix_world = arm.matrix_world @ Mx(rx=raise_x)
+        bpy.context.view_layer.update()
+        hand = bpy.data.objects[f"agent_{i}_hand_{side}"]
+        p = bpy.data.objects[prop_name]
+        g = p["grip"]
+        level = Mx(rx=-raise_x) if upright else Mx()
+        p.matrix_world = hand.matrix_world @ level @ Mx(tuple(g["pos"]), *[float(v) for v in g["rot"]])
+        bpy.context.view_layer.update()
+
+    hold(0, "r", "prop_paddle_a", math.radians(100))
+    hold(3, "r", "prop_cup_1", math.radians(95), upright=True)
     only = [a for a in ARGS if a.startswith("--shot=")]
     if only:
         want = only[0].split("=")[1].split(",")
