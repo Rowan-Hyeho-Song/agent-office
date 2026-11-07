@@ -4,7 +4,7 @@
 // sheet lies a little askew like a paper just dropped on the pile; past five a small amber '+' tab sticks out of
 // the top so "more than this" still reads.
 
-import { BufferAttribute, CanvasTexture, DoubleSide, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace, type BufferGeometry, type Object3D } from 'three'
+import { BufferAttribute, CanvasTexture, DoubleSide, Mesh, MeshStandardMaterial, PlaneGeometry, SRGBColorSpace, type BufferGeometry, type Object3D } from 'three'
 
 /** drawn thickness of one sheet, m (#59: about 0.8 cm) */
 export const SHEET_H = 0.008
@@ -23,6 +23,9 @@ const TAB_W = 0.03
 const TAB_H = 0.03
 const TAB_IN = 0.012
 const TAB_UP = 0.96
+const TAB_GLOW = 0.6
+/** the paper's own warm glow, as a fraction of its colour */
+const PAPER_GLOW = 0.25
 const AMBER = '#ffb347' // --agent-0 / --color-amber
 const INK = '#2a1e1a'
 
@@ -91,6 +94,14 @@ export class TrayPile {
     this.rest = node.scale.y
     this.ends = sortSheets(node.geometry, this.sheetH, this.sheets)
 
+    // the room's cool real-time light turns the warm white paper (#efece4) blue-grey, like metal plates: a faint
+    // warm glow of its own keeps it reading as paper (designer, #59). A copy, so nothing else sharing it changes.
+    if (node.material instanceof MeshStandardMaterial) {
+      const paper = node.material.clone()
+      paper.emissive.copy(paper.color).multiplyScalar(PAPER_GLOW)
+      node.material = paper
+    }
+
     // the top sheet: the bottom sheet's triangles again, as a child (inherits the sheet scale)
     const one = node.geometry.clone()
     one.setDrawRange(0, this.ends[0])
@@ -101,7 +112,13 @@ export class TrayPile {
     node.add(this.top)
 
     // the '+' tab lives next to the pile, not under it, so the pile's y scale doesn't stretch it
-    this.tab = new Mesh(new PlaneGeometry(TAB_W, TAB_H), new MeshBasicMaterial({ map: TrayPile.tabTexture(), side: DoubleSide, transparent: true }))
+    // lit like the pile, plus a weak glow of its own so it still shows as a dot from the default camera (designer:
+    // amber, about 0.6, tone mapped; no brighter). The texture is also the glow map, so the '+' stays dark.
+    const label = TrayPile.tabTexture()
+    this.tab = new Mesh(
+      new PlaneGeometry(TAB_W, TAB_H),
+      new MeshStandardMaterial({ map: label, emissive: 0xffffff, emissiveMap: label, emissiveIntensity: TAB_GLOW, roughness: 0.9, side: DoubleSide, transparent: true }),
+    )
     this.tab.name = `${node.name}_more`
     this.tab.visible = false
     node.parent?.add(this.tab)
