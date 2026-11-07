@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>결재함과 문서 UI</title>
+<!-- 시안 열람용으로만 CDN에서 갈무리를 불러온다(앱은 자체 서빙, office-ui.md 7절). -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/galmuri.css" />
+<link rel="stylesheet" href="../../src/styles/tokens.css" />
+<style>
+/* 색·글꼴·간격·시간은 tokens.css만 쓴다. 클래스 이름은 #25 구현(.approval-*)에 맞춤 */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--color-void); color: var(--color-text); font-family: var(--font-text); font-size: 15px; line-height: 1.6; color-scheme: dark; }
+:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.page { max-width: 1240px; margin: 0 auto; padding: var(--space-8) var(--space-4) 96px; }
+h1, h2, h3 { font-family: var(--font-pixel); font-weight: 400; margin: 0; }
+h1 { font-size: var(--font-size-2); line-height: 36px; }
+h2 { font-size: var(--font-size-2); line-height: 36px; margin-top: 56px; }
+h3 { font-size: var(--font-size-1); line-height: var(--line-height-1); color: var(--color-text-muted); letter-spacing: var(--letter-spacing-label); margin: var(--space-6) 0 var(--space-2); }
+.kicker { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-amber); letter-spacing: var(--letter-spacing-label); }
+p.lead, .note { color: var(--color-text-muted); }
+p.lead { max-width: 74ch; margin: var(--space-2) 0 0; }
+.note { font-size: 13px; }
+header.top { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: end; justify-content: space-between; border-bottom: 1px solid var(--color-line); padding-bottom: var(--space-4); }
+.btn-doc { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-line); padding: var(--space-1) var(--space-3); cursor: pointer; }
+.btn-doc[aria-pressed='true'] { background: var(--color-cyan); color: var(--color-ink); }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-3); margin-top: var(--space-4); }
+.rule { border: 1px solid var(--color-line); background: var(--color-surface); padding: var(--space-3) var(--space-4); font-size: 14px; color: var(--color-text-muted); }
+.rule b { display: block; font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); color: var(--color-text); margin-bottom: var(--space-1); }
+.frames { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: var(--space-4); margin-top: var(--space-2); }
+.frame { position: relative; border: 1px solid var(--color-line); min-height: 560px; overflow: hidden;
+  background: radial-gradient(ellipse 70% 50% at 30% 90%, color-mix(in srgb, var(--color-amber) 10%, transparent), transparent 70%), var(--color-void); }
+.frame > .cap { position: absolute; left: var(--space-2); bottom: var(--space-1); font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.phone { width: 392px; max-width: 100%; }
+.phone iframe { width: 100%; height: 760px; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-void); }
+[data-seat='0'] { --agent: var(--agent-0); --agent-ink: var(--agent-0-ink); }
+[data-seat='1'] { --agent: var(--agent-1); --agent-ink: var(--agent-1-ink); }
+[data-seat='2'] { --agent: var(--agent-2); --agent-ink: var(--agent-2-ink); }
+[data-seat='3'] { --agent: var(--agent-3); --agent-ink: var(--agent-3-ink); }
+
+/* ═════════ 결재함 패널 ═════════ */
+.approval-box {
+  position: absolute; top: var(--space-4); right: var(--space-4); bottom: var(--space-8);
+  width: min(var(--approval-panel-w), calc(100% - 2 * var(--space-4)));
+  display: flex; flex-direction: column;
+  filter: drop-shadow(0 0 1px var(--color-halo)) drop-shadow(0 12px 24px var(--color-halo));
+}
+.frame.inline .approval-box { position: relative; inset: auto; margin: var(--space-4) var(--space-4) var(--space-8) auto; height: 520px; }
+.approval-tab { align-self: flex-start; display: flex; gap: var(--space-2); align-items: center; height: 22px; padding: 0 var(--space-3) 0 var(--space-2);
+  font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: 22px; background: var(--approval-accent); color: var(--color-ink);
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%); }
+.approval-tab svg { width: 12px; height: 12px; }
+.approval-body { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--color-surface-alpha); border: 1px solid color-mix(in srgb, var(--approval-accent) 45%, transparent); border-top: 2px solid var(--approval-accent);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%); }
+.approval-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-3) var(--space-4) 0; }
+.approval-head h2, .approval-head h3 { font-size: var(--font-size-2); line-height: 30px; margin: 0; color: var(--color-text); letter-spacing: 0; }
+.approval-close { font-family: var(--font-pixel); font-size: var(--font-size-1); background: none; border: 1px solid var(--color-line); color: var(--color-text-muted); padding: 2px var(--space-2); cursor: pointer; }
+.approval-tabs { display: flex; gap: var(--space-1); padding: var(--space-3) var(--space-4) 0; border-bottom: 1px solid var(--color-line); }
+.approval-tabs button { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1); background: none; border: 0; border-bottom: 2px solid transparent; color: var(--color-text-muted); padding: var(--space-1) var(--space-2) var(--space-2); cursor: pointer; }
+.approval-tabs button[aria-selected='true'] { color: var(--color-text); border-bottom-color: var(--approval-accent); }
+.approval-tabs b { font-weight: 400; color: var(--approval-accent); }
+.approval-scroll { flex: 1; min-height: 0; overflow: auto; padding: var(--space-3) var(--space-4) var(--space-4); }
+
+/* 목록 */
+.approval-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.approval-item { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  background: var(--surface-raised); border: 1px solid var(--color-line); border-left: var(--bubble-stripe) solid var(--agent); padding: var(--space-2) var(--space-3); }
+.approval-item:hover { border-color: color-mix(in srgb, var(--approval-accent) 60%, var(--color-line)); border-left-color: var(--agent); }
+.approval-item .row1 { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); }
+.approval-item .t { display: block; margin: var(--space-1) 0; font-size: 15px; line-height: 1.45; color: var(--color-text); }
+.approval-item .meta { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.approval-item .meta .who { color: var(--agent-ink); }
+.approval-date { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.approval-result { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--approval-accent); }
+
+/* 종류 배지: 같은 호박, 모양으로 구분 */
+.approval-badge { display: inline-flex; align-items: center; gap: var(--space-1); height: 20px; padding: 0 var(--space-2) 0 var(--space-1); font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: 20px; color: var(--approval-accent); border: 1px solid var(--approval-accent); }
+.approval-badge svg { width: 12px; height: 12px; }
+.approval-badge[data-kind='publish'] { background: var(--approval-accent); color: var(--color-ink); }
+.approval-badge[data-kind='review'] { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--approval-accent) 28%, transparent) 0 3px, transparent 3px 6px); }
+
+/* 한 건 */
+.approval-detail { position: relative; }
+.approval-back { font-family: var(--font-pixel); font-size: var(--font-size-1); background: none; border: 0; color: var(--color-text-muted); padding: 0; cursor: pointer; margin-bottom: var(--space-2); }
+.approval-back:hover { color: var(--color-text); }
+.approval-title { font-family: var(--font-text); font-size: 17px; font-weight: 600; line-height: 1.45; margin: var(--space-2) 0 var(--space-1); color: var(--color-text); letter-spacing: 0; }
+.approval-meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.approval-meta .who { color: var(--agent-ink); }
+.approval-meta a { color: var(--color-cyan); }
+.approval-content { margin: var(--space-3) 0; padding: var(--space-3); background: var(--surface-raised); border-left: var(--bubble-stripe) solid var(--agent); font-size: 14px; line-height: 1.65; }
+.approval-content p { margin: 0 0 var(--space-2); }
+.approval-content p:last-child { margin: 0; }
+.approval-content code { font-family: var(--font-pixel); font-size: var(--font-size-1); background: var(--color-surface); padding: 0 var(--space-1); }
+.md-table { overflow-x: auto; margin: var(--space-2) 0; }
+.md-table table { border-collapse: collapse; font-size: 13px; min-width: 100%; }
+.md-table th, .md-table td { border-bottom: 1px solid var(--color-line); padding: var(--space-1) var(--space-2); text-align: left; white-space: nowrap; }
+.md-table th { font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); color: var(--color-text-muted); }
+fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.approval-options legend { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); margin-bottom: var(--space-2); padding: 0; }
+.approval-option { position: relative; display: flex; gap: var(--space-3); align-items: flex-start; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-line); background: var(--surface-raised); cursor: pointer; }
+.approval-option input { appearance: none; flex: none; width: 16px; height: 16px; margin: 3px 0 0; border: 2px solid var(--color-text-muted); background: transparent; }
+.approval-option input:checked { border-color: var(--approval-accent); background: radial-gradient(var(--approval-accent) 0 3px, transparent 4px); }
+.approval-option:has(input:checked) { border-color: var(--approval-accent); }
+.approval-option:has(input:focus-visible) { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+.approval-option .num { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.approval-option .lbl { flex: 1; font-size: 14px; line-height: 1.5; }
+.approval-rec { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: 18px; padding: 0 var(--space-1); background: var(--approval-accent); color: var(--color-ink); flex: none; }
+.approval-option[data-reject] .lbl { color: var(--color-text-muted); }
+.approval-option.stamped { padding-right: 96px; border-color: var(--stamp-red); }
+.approval-option.stamped .approval-rec { display: none; }
+.approval-reason { margin: var(--space-2) 0 0; font-size: 13px; color: var(--color-text-muted); }
+.approval-reason summary { font-family: var(--font-pixel); font-size: var(--font-size-1); cursor: pointer; color: var(--color-text-muted); }
+.approval-reason div { padding: var(--space-2) 0 0 var(--space-3); border-left: 1px solid var(--color-line); margin-top: var(--space-1); }
+.approval-note { display: grid; gap: var(--space-1); margin-top: var(--space-3); }
+.approval-note label { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.approval-note label b { font-weight: 400; color: var(--stamp-red); }
+.approval-note textarea { font: inherit; font-size: 14px; color: var(--color-text); background: var(--surface-raised); border: 1px solid var(--color-line); padding: var(--space-2); min-height: 64px; resize: vertical; }
+.approval-note textarea[aria-invalid='true'] { border-color: var(--stamp-red); }
+.approval-note .err { font-size: 13px; color: var(--stamp-red); }
+.approval-actions { display: flex; gap: var(--space-2); justify-content: flex-end; align-items: center; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--color-line); background: var(--color-surface); }
+.approval-actions .hint { flex: 1; font-size: 12px; color: var(--color-text-muted); }
+.btn-primary { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1); padding: var(--space-2) var(--space-4); background: var(--approval-accent); color: var(--color-ink); border: 0; cursor: pointer;
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%); }
+.btn-primary:disabled { background: var(--color-line); color: var(--color-text-muted); cursor: not-allowed; }
+.btn-ghost { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1); padding: var(--space-2) var(--space-3); background: none; color: var(--color-text-muted); border: 1px solid var(--color-line); cursor: pointer; }
+
+/* 결재 도장 */
+.approval-stamp { position: absolute; top: 50%; right: 6px; margin-top: -44px; width: 88px; height: 88px; z-index: 1; pointer-events: none; color: var(--stamp-red);
+  transform: rotate(-12deg); opacity: 0.92; animation: stamp-in calc(var(--approval-stamp-ms) * 1ms) cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+.approval-stamp svg { width: 100%; height: 100%; }
+@keyframes stamp-in { 0% { transform: rotate(-12deg) scale(1.9); opacity: 0; } 70% { transform: rotate(-12deg) scale(0.94); opacity: 1; } 100% { transform: rotate(-12deg) scale(1); opacity: 0.92; } }
+.approval-body.thud { animation: thud calc(var(--approval-stamp-ms) * 1ms) ease-out; }
+@keyframes thud { 60% { translate: 0 2px; } }
+.approval-done { display: flex; gap: var(--space-2); align-items: center; padding: var(--space-2) var(--space-3); margin-top: var(--space-3); background: color-mix(in srgb, var(--approval-accent) 14%, var(--surface-raised)); border: 1px solid var(--approval-accent); font-size: 14px; }
+.approval-done svg { width: 12px; height: 12px; color: var(--approval-accent); flex: none; }
+.approval-error { display: flex; gap: var(--space-2); align-items: center; padding: var(--space-2) var(--space-3); margin-top: var(--space-3); border: 1px solid var(--stamp-red); font-size: 14px; }
+.approval-empty { text-align: center; padding: var(--space-8) var(--space-4); color: var(--color-text-muted); }
+.approval-empty svg { width: 48px; height: 48px; color: var(--approval-accent); opacity: 0.6; }
+
+/* 방문자 */
+.approval-count { padding: var(--space-4); text-align: center; }
+.approval-count b { display: block; font-family: var(--font-pixel); font-weight: 400; font-size: 48px; line-height: 52px; color: var(--approval-accent); }
+.approval-count span { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.secret-list { list-style: none; margin: 0; padding: 0 var(--space-4) var(--space-4); display: grid; gap: var(--space-2); }
+.secret-cover { position: relative; display: flex; gap: var(--space-3); align-items: center; padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4); background: var(--manila); color: var(--manila-ink); clip-path: polygon(0 6px, 22% 6px, 26% 0, 100% 0, 100% 100%, 0 100%); }
+.secret-cover::before { content: ''; position: absolute; left: 0; top: 6px; bottom: 0; width: 4px; background: var(--agent); }
+.secret-cover .k { font-family: var(--font-pixel); font-size: var(--font-size-1); }
+.secret-cover .k svg { width: 12px; height: 12px; vertical-align: -1px; }
+.secret-cover .d { font-family: var(--font-pixel); font-size: var(--font-size-1); opacity: 0.8; }
+.secret-cover .bar { flex: 1; height: 10px; background: var(--secret-ink); }
+.secret-stamp { font-family: var(--font-pixel); font-weight: 700; font-size: 24px; line-height: 28px; color: var(--secret-stamp); border: 3px double var(--secret-stamp); padding: 0 var(--space-1); transform: rotate(-8deg); }
+.approval-signin { text-align: center; padding: 0 var(--space-4) var(--space-4); font-size: 13px; color: var(--color-text-muted); }
+
+/* 로그인 입구·OWNER 꼬리표 */
+.door-corner { position: relative; width: 205px; height: 220px; background: var(--door-bg); border: 6px solid var(--color-text); overflow: hidden; }
+.door-corner .frame-line { position: absolute; inset: 10px; border: 2px solid var(--door-phosphor-dim); }
+.door-corner .txt { position: absolute; left: 0; right: 0; top: 70px; text-align: center; font-family: var(--font-pixel); font-weight: 700; font-size: 24px; color: var(--door-phosphor); }
+.door-key { position: absolute; right: 16px; bottom: 16px; width: 20px; height: 20px; display: grid; place-items: center; background: none; border: 0; padding: 0; color: var(--door-phosphor-dim); opacity: 0.25; cursor: pointer; }
+.door-key svg { width: 12px; height: 12px; }
+.door-key:hover, .door-key:focus-visible, .door-corner.show .door-key { opacity: 1; color: var(--door-hover); }
+.owner-tag { display: inline-flex; gap: var(--space-2); align-items: center; height: 22px; padding: 0 var(--space-2); font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-ink); background: var(--approval-accent); }
+.owner-tag button { font: inherit; background: none; border: 0; border-left: 1px solid color-mix(in srgb, var(--color-ink) 40%, transparent); padding-left: var(--space-2); color: var(--color-ink); cursor: pointer; }
+.hud-demo { display: flex; gap: var(--space-3); align-items: center; padding: var(--space-3); border: 1px solid var(--color-line); background: var(--color-surface); font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+
+body.embed .page { padding: 0; }
+body.embed .hide-embed { display: none !important; }
+body.embed .frame { border: 0; min-height: 100vh; }
+@media (max-width: 640px) { .approval-box { top: 0; right: 0; bottom: 0; width: 100%; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="top hide-embed">
+  <div>
+    <div class="kicker">AGENT OFFICE · #45 · 결재 전 시안 (1/2: 결재함)</div>
+    <h1>결재함 · 문서 뷰어 · 화이트보드</h1>
+    <p class="lead">#18 말풍선·출입문과 같은 가족: 서류철 탭, 아이보리 글자, 깎은 모서리. 결재는 <b>호박</b> 하나로 통일하고(메모의 결재 도장, 책상 방 단말기 색), 종류는 아이콘·글자·배지 모양으로, 누가 올렸는지는 에이전트 색 띠로 보인다. 클래스 이름은 #25 구현(<code>.approval-*</code>)에 맞췄다.</p>
+  </div>
+  <button class="btn-doc" id="motion" type="button" aria-pressed="false">움직임 줄이기</button>
+</header>
+
+<section id="box">
+  <h2 class="hide-embed">1. 결재함</h2>
+  <div class="rules hide-embed">
+    <div class="rule"><b>목록 → 한 건 → 결재</b>목록 카드 = 종류 배지 · 제목 · 요청 에이전트 · 파일철. 한 건 = 내용(제한된 마크다운, 표는 가로 스크롤) → 선택지(추천 꼬리표, 추천 이유는 접힘) → 의견 → 결재. 오래된 것부터.</div>
+    <div class="rule"><b>종류는 모양으로</b>결정 요청 = 갈림길 아이콘·테두리 배지, 문서 공개 = 문서 아이콘·채운 배지, 산출물 확인 = 도장 아이콘·사선 배지. 색은 같은 호박: 에이전트 색과 섞이지 않게.</div>
+    <div class="rule"><b>반려는 이유가 있어야</b>반려·“계속 SECRET”을 고르면 의견 칸이 필수로 바뀌고(빨간 *), 비어 있으면 결재 버튼이 꺼진다. 서버도 400으로 막는다(#25).</div>
+    <div class="rule"><b>결재 = 쾅</b>메모의 결재 도장이 0.4초 만에 찍히고 판이 2px 눌린다. “#이슈에 ✅ 댓글을 남겼어요” 뒤 1.2초에 다음 건. 움직임 줄이기면 도장이 찍힌 채 바로 나타난다.</div>
+  </div>
+
+  <h3 class="hide-embed">주인 · 직접 해 보기 (목록 → 한 건 → 선택 → 결재)</h3>
+  <div class="frame" id="proto"><span class="cap hide-embed">3D 사무실 위에 뜨는 오른쪽 패널 · 좁은 화면에선 전체 화면</span></div>
+
+  <div class="hide-embed">
+    <h3>상태별</h3>
+    <div class="frames">
+      <div class="frame inline" id="st-detail-review"><span class="cap">산출물 확인 · 반려를 고르면 의견 필수</span></div>
+      <div class="frame inline" id="st-stamped"><span class="cap">결재 직후 · 도장</span></div>
+      <div class="frame inline" id="st-empty"><span class="cap">대기 없음</span></div>
+      <div class="frame inline" id="st-error"><span class="cap">보내기 실패 · 고른 것은 그대로</span></div>
+    </div>
+
+    <h3>방문자 · “결재 대기 N건” + SECRET 서류만</h3>
+    <div class="frames">
+      <div class="frame inline" id="st-visitor"><span class="cap">방문자: 내용·선택지·이슈 제목 없음 (종류·요청 에이전트·날짜만)</span></div>
+      <div>
+        <h3 style="margin-top:0">주인 로그인 입구 · 로그인됨 표시</h3>
+        <div style="display:flex;gap:var(--space-4);flex-wrap:wrap;align-items:flex-start">
+          <div class="door-corner" id="door"><div class="frame-line"></div><div class="txt">책상으로</div><button class="door-key" type="button" aria-label="주인 로그인"><svg data-icon="key"></svg></button></div>
+          <div style="display:grid;gap:var(--space-3);max-width:320px">
+            <p class="note" style="margin:0">출입문 화면 오른쪽 아래 구석의 열쇠 점. 평소엔 25% 밝기로 거의 안 보이고, 마우스를 올리거나 키보드 초점이 오면 청록으로 켜진다(누를 수 있음). <code>?owner</code> 주소로도 바로 연다. 방문자에게 로그인 버튼을 내밀지 않는다(plan 6.6).</p>
+            <div class="hud-demo">HUD 오른쪽 위 <span class="owner-tag">OWNER <button type="button">나가기</button></span></div>
+            <p class="note" style="margin:0">로그인되면 HUD에 작은 OWNER 꼬리표와 결재 대기 건수가 붙는다. 방문자에게 “주인 접속 중”은 보이지 않는다(plan 9절 기본값).</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3>모바일 390px</h3>
+    <div class="phone"><iframe title="결재함 모바일" data-src="?embed=box"></iframe></div>
+  </div>
+  <div class="sr-only" role="status" aria-live="polite" id="live"></div>
+</section>
+
+<section class="hide-embed">
+  <h2>2. 서재 문서 뷰어</h2>
+  <p class="lead">다음 단계(결재함 결재 뒤 함께 올림).</p>
+  <h2>3. 화이트보드 칸반</h2>
+  <p class="lead">다음 단계.</p>
+</section>
+
+</div>
+
+<script>
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim()
+const N = (n) => parseFloat(css(n))
+
+/* ── 12px 비트맵 아이콘 (#18과 같은 방식) ── */
+const ICONS = {
+  decision: ['.....##.....', '.....##.....', '.....##.....', '.....##.....', '....####....', '...##..##...', '..##....##..', '.##......##.', '##........##', '#..........#', '............', '............'],
+  publish: ['.#######....', '.#.....##...', '.#.....###..', '.#........#.', '.#.######.#.', '.#........#.', '.#.######.#.', '.#........#.', '.#.####...#.', '.#........#.', '.##########.', '............'],
+  review: ['....####....', '....####....', '.....##.....', '.....##.....', '..########..', '.##########.', '.##########.', '............', '.##########.', '.#........#.', '.##########.', '............'],
+  key: ['............', '............', '..###.......', '.#...#......', '.#...#######', '.#...#..#.##', '..###...#..#', '............', '............', '............', '............', '............'],
+  check: ['............', '...........#', '..........##', '.........##.', '#.......##..', '##.....##...', '.##...##....', '..##.##.....', '...###......', '....#.......', '............', '............'],
+  lock: ['...######...', '..#......#..', '..#......#..', '..#......#..', '############', '############', '####....####', '####....####', '#####..#####', '#####..#####', '############', '############'],
+  inbox: ['............', '############', '#..........#', '#..........#', '#..........#', '#..........#', '####....####', '#..#....#..#', '#...####...#', '#..........#', '############', '............'],
+}
+function svgIcon(name) {
+  let d = ''
+  ICONS[name].forEach((r, y) => [...r].forEach((c, x) => { if (c === '#') d += `M${x} ${y}h1v1h-1z` }))
+  return `<svg viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true"><path fill="currentColor" d="${d}"/></svg>`
+}
+const hydrate = (root) => root.querySelectorAll('svg[data-icon]').forEach((s) => (s.outerHTML = svgIcon(s.dataset.icon)))
+
+/* ── 예시: 실제 결재 요청(#26·#28·#32)과 rowansong.dev 문서 공개 하나 ── */
+const AGENT = [['메모', 'MEMO', '기획'], ['메시', 'MESH', '3D'], ['휴', 'HUE', '디자인'], ['루프', 'LOOP', '코더']]
+const KIND = { decision: '결정 요청', publish: '문서 공개', review: '산출물 확인' }
+const REQUESTS = [
+  { id: 'a1', kind: 'decision', repo: 'agent-office', issue: 28, title: '몸통 없는 에이전트: 떠 있는 머리 + 떠 있는 두 손', seat: 2, date: '11.08 01:55',
+    content: '떠 있는 두 손의 모양을 골라 주세요. 네 명 모두 손 버릇에 **검지**를 따로 씁니다(메모 머리 톡톡, 메시 사각 프레임, 휴 스포이트, 루프 화면 가리키기).',
+    options: ['A 엄지·검지 장갑: 손바닥 + 엄지 + 검지 + 나머지 세 손가락 한 덩어리', 'B 벙어리장갑: 손바닥 + 엄지', 'C 만화 네 손가락: 손바닥 + 손가락 넷'], rec: 1,
+    reason: 'A는 네 명의 손 버릇을 모두 하면서 부품이 4조각(회전축 3)으로 적습니다. B는 가리키기를 못 하고, C는 손이 17px 남짓이라 A와 차이가 안 보입니다.' },
+  { id: 'a2', kind: 'review', repo: 'agent-office', issue: 32, title: '자리별 책상 꾸미기: 각 에이전트가 고른 소품 반영', seat: 2, date: '11.08 02:09',
+    content: '네 에이전트가 고른 책상 소품을 배치했습니다.\n\n| 자리 | 소품 | 뺀 것 |\n|---|---|---|\n| 메모 | IN/OUT 서류함, 결재 도장, 달력, 모래시계 | 머그, 화분 |\n| 메시 | 턴테이블, 컬러 체커, 링 조명, 기본 도형 | 서류 더미 |\n| 휴 | 색견본 부채, 펜 태블릿, 다육이, 램프 | 머그, 마우스 |\n| 루프 | 신호등 램프, 고무 오리, 세로 모니터 | 머그, 서류 |',
+    options: ['승인', '반려'], rec: 1, reason: '키보드 앞 손 자리를 비워 #28 손 동작을 막지 않고, 소품을 양 끝에 모아 일할 때도 보입니다.' },
+  { id: 'a3', kind: 'publish', repo: 'rowansong.dev', issue: 3, title: '로봇 대사가 끝날 때까지 다른 상호작용이 덮지 않게', seat: 3, date: '11.08 02:20',
+    content: '`rowansong.dev` #3 보고서가 SECRET(review)입니다. 공개할까요? 서버 필터에 걸린 곳은 없습니다.',
+    options: ['공개', '고쳐서 공개', '계속 SECRET'], rec: 1, reason: '개인 포트폴리오 저장소의 버그 수정 보고서라 숨길 내용이 없습니다.' },
+]
+const DONE = [
+  { kind: 'decision', issue: 26, repo: 'agent-office', title: '에이전트 4명의 정체성: 이름 안', seat: 2, date: '11.08 01:24', result: '선택지 1' },
+  { kind: 'review', issue: 26, repo: 'agent-office', title: '외형 포인트·이름표·성격', seat: 2, date: '11.08 01:24', result: '승인' },
+]
+
+/* 제한된 마크다운: 문단, 목록, 굵게, 인라인 코드, 링크, 표(가로 스크롤) */
+function md(src) {
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+  const inline = (s) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2">$1</a>')
+  return src.split(/\n{2,}/).map((block) => {
+    const lines = block.split('\n')
+    if (lines.length > 1 && /^\|.*\|$/.test(lines[0]) && /^\|[-| ]+\|$/.test(lines[1])) {
+      const cells = (l) => l.slice(1, -1).split('|').map((c) => c.trim())
+      return `<div class="md-table" tabindex="0" role="region" aria-label="표"><table><thead><tr>${cells(lines[0]).map((c) => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>${lines.slice(2).map((l) => `<tr>${cells(l).map((c) => `<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
+    }
+    if (lines.every((l) => /^[-*] /.test(l))) return `<ul>${lines.map((l) => `<li>${inline(l.slice(2))}</li>`).join('')}</ul>`
+    return `<p>${inline(block).replace(/\n/g, '<br>')}</p>`
+  }).join('')
+}
+
+const badge = (k) => `<span class="approval-badge" data-kind="${k}">${svgIcon(k)}${KIND[k]}</span>`
+const who = (seat) => `<span class="who">${AGENT[seat][1]} · ${AGENT[seat][2]}</span>`
+const isReject = (r, i) => (r.kind === 'review' && i === 1) || (r.kind === 'publish' && i === 2)
+
+function listView(pending, done, tab) {
+  const items = tab === 'pending' ? pending : done
+  const body = items.length
+    ? `<ul class="approval-list">${items.map((r) => `<li><button class="approval-item" type="button" data-seat="${r.seat}" data-id="${r.id ?? ''}">
+        <span class="row1">${badge(r.kind)}<span class="approval-date">${r.date}</span></span>
+        <span class="t">${r.title}</span>
+        <span class="meta">${who(r.seat)}<span>${r.repo} #${r.issue}</span>${r.result ? `<span class="approval-result">✅ ${r.result}</span>` : ''}</span>
+      </button></li>`).join('')}</ul>`
+    : `<div class="approval-empty">${svgIcon('inbox')}<p>결재할 것이 없어요.<br>에이전트들이 알아서 일하는 중입니다.</p></div>`
+  return `<div class="approval-tabs" role="tablist" aria-label="결재함">
+      <button role="tab" type="button" data-tab="pending" aria-selected="${tab === 'pending'}">대기 <b>${pending.length}</b></button>
+      <button role="tab" type="button" data-tab="done" aria-selected="${tab === 'done'}">처리됨 ${done.length}</button>
+    </div><div class="approval-scroll" role="tabpanel">${body}</div>`
+}
+let groupN = 0
+function detailView(r, st = {}) {
+  const g = `opt-${r.id}-${++groupN}` // 같은 건이 페이지에 두 번 그려져도 라디오 그룹이 섞이지 않게
+  const sel = st.selected ?? null
+  const reject = sel != null && isReject(r, sel)
+  const noteEmpty = !(st.note ?? '').trim()
+  const canSubmit = sel != null && !(reject && noteEmpty) && !st.stamped
+  return `<div class="approval-scroll"><div class="approval-detail" data-seat="${r.seat}">
+      <button class="approval-back" type="button" data-back>← 목록</button>
+      <div>${badge(r.kind)}</div>
+      <h3 class="approval-title" id="t-${r.id}">${r.title}</h3>
+      <div class="approval-meta">${who(r.seat)}<span>파일철 <a href="https://github.com/Rowan-Hyeho-Song/${r.repo}/issues/${r.issue}">${r.repo} #${r.issue} ↗</a></span><span>${r.date}</span></div>
+      <div class="approval-content">${md(r.content)}</div>
+      <fieldset class="approval-options" ${st.stamped ? 'disabled' : ''}>
+        <legend>${r.kind === 'decision' ? '선택지' : '결과'}</legend>
+        ${r.options.map((o, i) => `<label class="approval-option ${st.stamped && sel === i ? 'stamped' : ''}" ${isReject(r, i) ? 'data-reject' : ''}><input type="radio" name="${g}" value="${i}" ${sel === i ? 'checked' : ''}><span class="num">${i + 1}</span><span class="lbl">${o}</span>${r.rec === i + 1 ? '<span class="approval-rec">추천</span>' : ''}${st.stamped && sel === i ? stampSVG() : ''}</label>`).join('')}
+        ${r.kind === 'decision' ? `<label class="approval-option" data-reject><input type="radio" name="${g}" value="${r.options.length}" ${sel === r.options.length ? 'checked' : ''}><span class="num">✕</span><span class="lbl">반려 (의견으로 다시 요청)</span></label>` : ''}
+      </fieldset>
+      <details class="approval-reason"><summary>추천 이유</summary><div>${md(r.reason)}</div></details>
+      <div class="approval-note"><label for="note-${r.id}">의견 ${reject || (r.kind === 'decision' && sel === r.options.length) ? '<b>* 반려에는 이유가 필요해요</b>' : '(선택)'}</label>
+        <textarea id="note-${r.id}" ${st.stamped ? 'disabled' : ''} aria-invalid="${(reject || (r.kind === 'decision' && sel === r.options.length)) && noteEmpty && st.tried ? 'true' : 'false'}">${st.note ?? ''}</textarea></div>
+      ${st.error ? `<div class="approval-error" role="alert">결재를 보내지 못했어요. 고른 것은 그대로 있어요. <button class="btn-ghost" type="button">다시 보내기</button></div>` : ''}
+      ${st.stamped ? `<div class="approval-done">${svgIcon('check')}<span>${r.repo} #${r.issue}에 ✅ 결재 댓글을 남겼어요. ${AGENT[r.seat][0]}에게 알림이 갑니다.</span></div>` : ''}
+    </div></div>
+    <div class="approval-actions"><span class="hint">${st.stamped ? '' : 'Enter로 결재 · Esc로 목록'}</span><button class="btn-ghost" type="button" data-back>나중에</button><button class="btn-primary" type="button" data-submit ${canSubmit ? '' : 'disabled'}>결재</button></div>`
+}
+function stampSVG() {
+  const d = new Date()
+  return `<div class="approval-stamp" aria-hidden="true"><svg viewBox="0 0 112 112"><circle cx="56" cy="56" r="50" fill="none" stroke="currentColor" stroke-width="5"/><circle cx="56" cy="56" r="42" fill="none" stroke="currentColor" stroke-width="2"/><text x="56" y="60" text-anchor="middle" font-family="Galmuri11" font-weight="700" font-size="26" fill="currentColor">결재</text><text x="56" y="80" text-anchor="middle" font-family="Galmuri11" font-size="12" fill="currentColor">${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}</text><text x="56" y="34" text-anchor="middle" font-family="Galmuri11" font-size="11" fill="currentColor">ROWAN</text></svg></div>`
+}
+function boxShell(inner, { visitor = false, title = '결재함' } = {}) {
+  return `<section class="approval-box" aria-label="${title}">
+    <div class="approval-tab">${svgIcon('inbox')}${visitor ? '결재함' : '결재함 · OWNER'}</div>
+    <div class="approval-body">
+      <div class="approval-head"><h2>${title}</h2><button class="approval-close" type="button" aria-label="닫기">Esc</button></div>
+      ${inner}
+    </div></section>`
+}
+function visitorView(pending) {
+  return boxShell(`<div class="approval-count"><b>${pending.length}</b><span>결재 대기 · 주인이 확인하면 공개돼요</span></div>
+    <ul class="secret-list">${pending.map((r) => `<li class="secret-cover" data-seat="${r.seat}"><span class="k">${svgIcon(r.kind)} ${KIND[r.kind]}</span><span class="bar" aria-label="가려진 제목"></span><span class="d">${AGENT[r.seat][0]} · ${r.date.split(' ')[0]}</span><span class="secret-stamp" aria-hidden="true">SECRET</span></li>`).join('')}</ul>
+    <p class="approval-signin">내용은 주인만 볼 수 있어요.</p>`, { visitor: true })
+}
+
+/* ── 직접 해 보기 ── */
+const S = { view: 'list', tab: 'pending', pending: [...REQUESTS], done: [...DONE], cur: null, sel: null, note: '', tried: false, stamped: false }
+const live = (t) => { document.getElementById('live').textContent = t }
+function draw() {
+  const host = document.getElementById('proto')
+  const cap = host.querySelector('.cap')
+  const inner = S.view === 'list' ? listView(S.pending, S.done, S.tab) : detailView(S.cur, { selected: S.sel, note: S.note, tried: S.tried, stamped: S.stamped })
+  host.innerHTML = boxShell(inner)
+  if (cap) host.append(cap)
+}
+function openItem(id) {
+  S.cur = S.pending.find((r) => r.id === id); S.view = 'detail'; S.sel = null; S.note = ''; S.tried = false; S.stamped = false
+  draw(); document.querySelector(`#proto #t-${id}`)?.setAttribute('tabindex', '-1'); document.querySelector(`#proto #t-${id}`)?.focus()
+}
+function submit() {
+  const r = S.cur, rejectSel = S.sel != null && (isReject(r, S.sel) || (r.kind === 'decision' && S.sel === r.options.length))
+  S.tried = true
+  if (S.sel == null || (rejectSel && !S.note.trim())) { draw(); return }
+  S.stamped = true
+  const result = rejectSel ? '반려' : r.kind === 'decision' ? `선택지 ${S.sel + 1}` : r.options[S.sel]
+  draw()
+  const body = document.querySelector('#proto .approval-body'); body?.classList.add('thud')
+  live(`결재했어요: ${r.title} — ${result}. ${r.repo} #${r.issue}에 댓글을 남겼어요.`)
+  setTimeout(() => {
+    S.pending = S.pending.filter((x) => x !== r); S.done = [{ ...r, result }, ...S.done]
+    const next = S.pending[0]
+    if (next) openItem(next.id); else { S.view = 'list'; S.tab = 'pending'; draw() }
+  }, N('--approval-stamp-ms') + N('--approval-next-ms'))
+}
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('#proto button, #proto input')
+  if (!t) return
+  if (t.dataset.tab) { S.tab = t.dataset.tab; draw(); document.querySelector(`#proto [data-tab="${S.tab}"]`)?.focus() }
+  else if (t.classList.contains('approval-item') && t.dataset.id) openItem(t.dataset.id)
+  else if (t.hasAttribute('data-back')) { S.view = 'list'; draw() }
+  else if (t.hasAttribute('data-submit')) submit()
+})
+document.addEventListener('change', (e) => {
+  if (e.target.closest('#proto') && e.target.type === 'radio') { S.sel = +e.target.value; const note = S.note; draw(); document.querySelector(`#proto input[value="${S.sel}"]`)?.focus(); S.note = note }
+})
+document.addEventListener('input', (e) => {
+  if (e.target.closest('#proto') && e.target.tagName === 'TEXTAREA') { S.note = e.target.value; const btn = document.querySelector('#proto [data-submit]'); const r = S.cur; const rej = S.sel != null && (isReject(r, S.sel) || (r.kind === 'decision' && S.sel === r.options.length)); btn.disabled = S.sel == null || (rej && !S.note.trim()) }
+})
+document.addEventListener('keydown', (e) => {
+  if (!document.getElementById('proto').contains(document.activeElement) && document.activeElement !== document.body) return
+  if (e.key === 'Escape' && S.view === 'detail') { S.view = 'list'; draw(); document.querySelector('#proto .approval-item')?.focus() }
+  if (e.key === 'Enter' && S.view === 'detail' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'A') { e.preventDefault(); submit() }
+})
+
+/* ── 고정 상태들 ── */
+function statics() {
+  const put = (id, html) => { const el = document.getElementById(id); if (!el) return; const cap = el.querySelector('.cap'); el.innerHTML = html; if (cap) el.append(cap) }
+  put('st-detail-review', boxShell(detailView(REQUESTS[1], { selected: 1, note: '', tried: true })))
+  put('st-stamped', boxShell(detailView(REQUESTS[0], { selected: 0, note: '', stamped: true })))
+  put('st-empty', boxShell(listView([], DONE, 'pending')))
+  put('st-error', boxShell(detailView(REQUESTS[2], { selected: 0, note: '', error: true })))
+  put('st-visitor', visitorView(REQUESTS))
+  for (const id of ['st-detail-review', 'st-error']) { const sc = document.querySelector('#' + id + ' .approval-scroll'); if (sc) sc.scrollTop = sc.scrollHeight }
+  hydrate(document)
+}
+
+const root = document.documentElement
+const isReduced = () => root.dataset.motion === 'reduce' || (root.dataset.motion !== 'full' && matchMedia('(prefers-reduced-motion: reduce)').matches)
+const mBtn = document.getElementById('motion')
+mBtn.addEventListener('click', () => { root.dataset.motion = isReduced() ? 'full' : 'reduce'; mBtn.setAttribute('aria-pressed', String(isReduced())) })
+const q = new URLSearchParams(location.search)
+if (q.get('motion')) root.dataset.motion = q.get('motion')
+if (q.get('embed')) document.body.classList.add('embed')
+document.fonts.load('12px Galmuri11').finally(() => {
+  mBtn.setAttribute('aria-pressed', String(isReduced()))
+  draw(); statics()
+  if (!q.get('embed')) document.querySelectorAll('iframe[data-src]').forEach((f) => (f.src = location.pathname + f.dataset.src))
+})
+</script>
+</body>
+</html>
