@@ -7,7 +7,7 @@
 //   wrapping, quiet for 2 min → idle
 //   anything, quiet for 2 h   → off       (gone home)
 
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AgentState, AgentStatus, OfficeMessage, StatusMap, StatusSource } from './status'
 
 export interface StatusRow {
@@ -55,8 +55,8 @@ export class LiveStatusSource implements StatusSource {
   /** set when the first load or the subscription failed (shown in the list) */
   error: string | null = null
 
-  constructor(url: string, key: string, agents: string[], now: () => number = Date.now) {
-    this.client = createClient(url, key, { auth: { persistSession: false } })
+  constructor(client: SupabaseClient, agents: string[], now: () => number = Date.now) {
+    this.client = client
     this.agents = agents
     this.now = now
     this.snapshot = toStatusMap([], agents, now())

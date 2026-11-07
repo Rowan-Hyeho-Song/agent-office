@@ -37,6 +37,14 @@ const supabase: DocStore = {
   upsert: (rows) => rest('docs?on_conflict=source_url', { method: 'POST', headers: MERGE, body: JSON.stringify(rows) }),
   setOpenIssues: (repo, open, at) =>
     rest('projects?on_conflict=repo', { method: 'POST', headers: MERGE, body: JSON.stringify({ repo, open_issues: open, updated_at: at }) }),
+  // a re-sent (edited) request updates its text; status and the decision columns are not in the row, so stay
+  upsertApprovals: (rows) => rest('approvals?on_conflict=source_url', { method: 'POST', headers: MERGE, body: JSON.stringify(rows) }),
+  decide: (requestUrl, d) =>
+    rest(`approvals?source_url=eq.${encodeURIComponent(requestUrl)}`, {
+      method: 'PATCH',
+      headers: { prefer: 'return=minimal' },
+      body: JSON.stringify({ status: 'decided', ...d, updated_at: d.decided_at }),
+    }),
 }
 
 export async function POST(request: Request) {

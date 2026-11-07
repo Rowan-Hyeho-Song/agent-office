@@ -3,6 +3,7 @@ import { Canvas } from '@react-three/fiber'
 import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing'
 import { Suspense, useEffect, useState } from 'react'
 import { AgentList } from './office/AgentList'
+import { ApprovalBox } from './office/ApprovalBox'
 import { DebugPanel } from './office/DebugPanel'
 import { Office } from './office/Office'
 import { createWorld } from './office/world'
@@ -58,6 +59,7 @@ export function App() {
         <b>AGENT OFFICE</b> · 드래그해서 돌려 보기
       </p>
       <AgentList world={world} />
+      <ApprovalBox />
       {world.debug && <DebugPanel world={world} />}
     </>
   )

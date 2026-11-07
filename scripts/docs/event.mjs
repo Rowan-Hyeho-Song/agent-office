@@ -4,7 +4,7 @@
 //      so the workflow is harmless before the office is deployed.
 
 import { readFileSync } from 'node:fs'
-import { docForComment, docForIssue, docForPull, github, send } from './build.mjs'
+import { approvalForComment, docForComment, docForIssue, docForPull, github, send } from './build.mjs'
 
 const { GITHUB_EVENT_NAME: name, GITHUB_EVENT_PATH: path, GITHUB_REPOSITORY: repo, GITHUB_TOKEN: ghToken } = process.env
 const { OFFICE_DOCS_URL: url, OFFICE_DOCS_TOKEN: token } = process.env
@@ -17,6 +17,7 @@ if (!url || !token) {
 const event = JSON.parse(readFileSync(path, 'utf8'))
 const gh = github(ghToken)
 let docs = []
+let approvals = []
 let project
 
 if (name === 'issues') {
@@ -25,14 +26,17 @@ if (name === 'issues') {
 } else if (name === 'issue_comment') {
   const earlier = /✅/.test(event.comment.body ?? '') ? await gh.all(`/repos/${repo}/issues/${event.issue.number}/comments`) : []
   docs = [docForComment(event.comment, event.issue, repo, earlier)]
+  approvals = [approvalForComment(event.comment, event.issue, repo, earlier)]
 } else if (name === 'pull_request') {
   docs = [docForPull(event.pull_request, repo)]
 }
 
 docs = docs.filter(Boolean)
-if (!docs.length && !project) {
+approvals = approvals.filter(Boolean)
+if (!docs.length && !approvals.length && !project) {
   console.log(`office docs: ${name} is not a document, nothing to send`)
   process.exit(0)
 }
-const [result] = await send(url, token, docs, project)
-console.log(`office docs: ${docs.map((d) => `${d.kind} #${d.folder}`).join(', ') || 'no documents'} → ${JSON.stringify(result)}`)
+const results = await send(url, token, docs, project, approvals)
+const what = [...docs.map((d) => `${d.kind} #${d.folder}`), ...approvals.map((a) => `approval ${a.type} #${a.folder}`)]
+console.log(`office docs: ${what.join(', ') || 'no documents'} → ${JSON.stringify(results)}`)
