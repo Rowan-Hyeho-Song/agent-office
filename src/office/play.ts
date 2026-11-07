@@ -24,6 +24,18 @@ export const PLAYS: PlayDef[] = [
   { kind: 'books', label: '책 고르기', spots: ['shelf'], weight: 1 },
 ]
 
+/**
+ * What each agent likes (#28 personalities): a multiplier on an activity's weight. The planner (메모) and the
+ * 3D agent (메시) love board games and are bad at ping-pong (they still play, and miss); the coder (루프) loves
+ * ping-pong. Anything not listed is 1.
+ */
+export const LIKES: Record<string, Partial<Record<PlayKind, number>>> = {
+  agent_0: { boardgame: 3, pingpong: 0.4 },
+  agent_1: { boardgame: 3, pingpong: 0.4 },
+  agent_3: { pingpong: 3 },
+}
+const like = (agent: string, kind: PlayKind) => LIKES[agent]?.[kind] ?? 1
+
 /** activities change every this many minutes (long enough to get there and play a while) */
 export const BLOCK_MINUTES = 3
 
@@ -88,11 +100,14 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
   const out: Record<string, PlayAssignment> = {}
   const freeSpot = (p: PlayDef) => p.spots.find((s) => !used.has(s))
 
-  const pick = (candidates: PlayDef[]) => {
-    const total = candidates.reduce((sum, p) => sum + p.weight, 0)
+  // a pair game is as likely as both players like it
+  const weight = (p: PlayDef, agent: string, partner?: string) =>
+    p.weight * like(agent, p.kind) * (p.pair && partner ? like(partner, p.kind) : 1)
+  const pick = (candidates: PlayDef[], agent: string, partner?: string) => {
+    const total = candidates.reduce((sum, p) => sum + weight(p, agent, partner), 0)
     let r = rand() * total
     for (const p of candidates) {
-      r -= p.weight
+      r -= weight(p, agent, partner)
       if (r < 0) return p
     }
     return candidates[candidates.length - 1]
@@ -109,7 +124,7 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
     if (out[agent]) continue
     const partner = order.slice(i + 1).find((a) => !out[a])
     const open = PLAYS.filter((p) => (p.pair ? partner && !taken.has(p.kind) : freeSpot(p)))
-    const p = pick(open.length ? open : solos)
+    const p = pick(open.length ? open : solos, agent, partner)
     if (p.pair && partner) {
       taken.add(p.kind)
       assign(agent, p, p.spots[0], partner)

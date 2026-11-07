@@ -147,22 +147,51 @@ export function docForPull(pr, repo) {
 }
 
 /**
- * POST documents to /api/docs in batches.
+ * 🖊 requests and ✅ results for the approval box (#25). A request becomes a pending approval; a result closes
+ * the request it answers (written by the office's /api/approve or by the owner directly on GitHub; both are the
+ * owner's account). Only the owner's 🖊 / ✅ count (#38), and a result only pairs with the owner's requests.
+ * @param {any} comment
+ * @param {any} issue
+ * @param {string} repo
+ * @param {{ body: string, created_at: string, html_url?: string }[]} [comments]  the issue's comments (for a result)
+ */
+export function approvalForComment(comment, issue, repo, comments = []) {
+  if (!comment || !issue || issue.pull_request || !trusted(comment, APPROVERS)) return null
+  const kind = commentKind(comment.body)
+  if (kind !== 'request' && kind !== 'result') return null
+  const base = {
+    repo,
+    folder: issue.number,
+    url: comment.html_url,
+    title: issue.title ?? '',
+    body: comment.body ?? '',
+    author: author(comment),
+    created_at: comment.created_at,
+    updated_at: comment.updated_at,
+  }
+  if (kind === 'request') return { type: 'request', ...base }
+  return { type: 'result', ...base, answers: requestAnswered(comment, ownerApprovals(comments))?.html_url ?? null }
+}
+
+/**
+ * POST documents (and approvals) to /api/docs in batches.
  * @param {string} url
  * @param {string} token
  * @param {DocInput[]} docs
  * @param {{ repo: string, open_issues: number }} [project]
+ * @param {any[]} [approvals]  approvalForComment results, in batches of their own
  */
-export async function send(url, token, docs, project) {
+export async function send(url, token, docs, project, approvals = []) {
   const batches = []
-  for (let i = 0; i < docs.length; i += 50) batches.push(docs.slice(i, i + 50))
-  if (!batches.length) batches.push([]) // nothing to file, but the project count may still change
+  for (let i = 0; i < docs.length; i += 50) batches.push({ docs: docs.slice(i, i + 50) })
+  for (let i = 0; i < approvals.length; i += 50) batches.push({ docs: [], approvals: approvals.slice(i, i + 50) })
+  if (!batches.length) batches.push({ docs: [] }) // nothing to file, but the project count may still change
   const results = []
   for (const [n, batch] of batches.entries()) {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify({ docs: batch, ...(n === 0 && project ? { project } : {}) }),
+      body: JSON.stringify({ ...batch, ...(n === 0 && project ? { project } : {}) }),
     })
     const text = await res.text()
     if (!res.ok) throw new Error(`/api/docs ${res.status}: ${text}`)

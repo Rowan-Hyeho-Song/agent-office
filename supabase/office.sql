@@ -32,8 +32,16 @@ create table if not exists public.agent_status (
   activity text check (activity in ('edit', 'read', 'test', 'build', 'install', 'git', 'run', 'other', 'delegate', 'think', 'private')),
   -- when the current state began (a new wrap-up = a new since) and when the last signal came
   since timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- the last test / build outcome (#44: the coder's signal light). One boolean, nothing of the command
+  last_result_activity text check (last_result_activity in ('test', 'build')),
+  last_result_ok boolean,
+  last_result_at timestamptz
 );
+-- (for a table created before #44)
+alter table public.agent_status add column if not exists last_result_activity text check (last_result_activity in ('test', 'build'));
+alter table public.agent_status add column if not exists last_result_ok boolean;
+alter table public.agent_status add column if not exists last_result_at timestamptz;
 
 insert into public.agent_status (seat) select seat from public.agents on conflict do nothing;
 
@@ -42,10 +50,16 @@ insert into public.agent_status (seat) select seat from public.agents on conflic
 create table if not exists public.agent_events (
   id bigint generated always as identity primary key,
   seat smallint not null references public.agents (seat),
-  kind text not null check (kind in ('start', 'activity', 'stop', 'end')),
+  kind text not null check (kind in ('start', 'activity', 'stop', 'end', 'result')),
   activity text check (activity in ('edit', 'read', 'test', 'build', 'install', 'git', 'run', 'other', 'delegate', 'think', 'private')),
+  -- a result: did the test / build pass (#44). null for every other kind
+  ok boolean,
   created_at timestamptz not null default now()
 );
+-- (for a table created before #44)
+alter table public.agent_events add column if not exists ok boolean;
+alter table public.agent_events drop constraint if exists agent_events_kind_check;
+alter table public.agent_events add constraint agent_events_kind_check check (kind in ('start', 'activity', 'stop', 'end', 'result'));
 
 create index if not exists agent_events_created_at on public.agent_events (created_at desc);
 

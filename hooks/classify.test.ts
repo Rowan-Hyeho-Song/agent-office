@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BASH_RULES, DEFAULT_SEATS, classifyCommand, classifyTool, insideProjects, seatFor, signalFor } from './classify.mjs'
+import { BASH_RULES, DEFAULT_SEATS, classifyCommand, classifyTool, insideProjects, resultFor, seatFor, signalFor } from './classify.mjs'
 
 const ACTIVITIES = ['edit', 'read', 'test', 'build', 'install', 'git', 'run', 'other', 'delegate', 'think']
 
@@ -241,5 +241,97 @@ describe('DEFAULT_SEATS (#34)', () => {
     ['loophole hunt', null],
   ])('%s → %s', (title, seat) => {
     expect(seatFor(title, DEFAULT_SEATS)).toBe(seat)
+  })
+})
+
+describe('resultFor / signalFor results (#44)', () => {
+  const ev = (hook_event_name: string, tool_name: string, command: string, extra: Record<string, unknown> = {}) => ({
+    hook_event_name,
+    tool_name,
+    tool_input: { command },
+    ...extra,
+  })
+
+  it('pnpm test → test result, ok from the event name', () => {
+    expect(resultFor(ev('PostToolUse', 'Bash', 'pnpm test'))).toEqual({ kind: 'result', activity: 'test', ok: true })
+    expect(resultFor(ev('PostToolUseFailure', 'Bash', 'pnpm test'))).toEqual({ kind: 'result', activity: 'test', ok: false })
+    expect(signalFor(ev('PostToolUse', 'Bash', 'pnpm test'))).toEqual({ kind: 'result', activity: 'test', ok: true })
+    expect(signalFor(ev('PostToolUseFailure', 'Bash', 'pnpm test'))).toEqual({ kind: 'result', activity: 'test', ok: false })
+  })
+
+  it.each([
+    'pnpm build',
+    'tsc -b',
+    'blender --background --python x.py',
+    'C:/Blender/blender.exe -b f.blend',
+    './build-office.sh',
+    'bash assets/blender/build-desk.sh',
+  ])('%s → build', (command) => {
+    expect(signalFor(ev('PostToolUse', 'Bash', command))).toEqual({ kind: 'result', activity: 'build', ok: true })
+    expect(signalFor(ev('PostToolUseFailure', 'Bash', command))).toEqual({ kind: 'result', activity: 'build', ok: false })
+  })
+
+  // BUG: the blender rule's path part is S*, so a path with a space (Program Files) is not recognised
+  it('a blender.exe path with a space is a build', () => {
+    expect(resultFor(ev('PostToolUse', 'Bash', '"C:/Program Files/Blender/blender.exe" -b f.blend'))).toEqual({ kind: 'result', activity: 'build', ok: true })
+    expect(resultFor(ev('PostToolUse', 'Bash', 'C:/Program Files/Blender/blender.exe -b f.blend'))).toEqual({ kind: 'result', activity: 'build', ok: true })
+  })
+
+  it('non test/build commands and other tools report nothing', () => {
+    for (const event of ['PostToolUse', 'PostToolUseFailure']) {
+      for (const command of ['git status', 'ls', 'pnpm dev']) {
+        expect(resultFor(ev(event, 'Bash', command))).toBeNull()
+        expect(signalFor(ev(event, 'Bash', command))).toBeNull()
+      }
+      for (const tool of ['Edit', 'Read', 'Write', 'Agent']) {
+        expect(resultFor(ev(event, tool, 'pnpm test'))).toBeNull()
+        expect(signalFor(ev(event, tool, 'pnpm test'))).toBeNull()
+      }
+    }
+  })
+
+  it('PowerShell works the same', () => {
+    expect(resultFor(ev('PostToolUse', 'PowerShell', 'pnpm test'))).toEqual({ kind: 'result', activity: 'test', ok: true })
+    expect(resultFor(ev('PostToolUseFailure', 'PowerShell', 'pnpm build'))).toEqual({ kind: 'result', activity: 'build', ok: false })
+    expect(resultFor(ev('PostToolUse', 'PowerShell', 'git status'))).toBeNull()
+  })
+
+  it('privacy: only kind, activity and ok leave, never tool_response / error', () => {
+    const SECRET = 'sk-SECRET-12345'
+    for (const event of ['PostToolUse', 'PostToolUseFailure']) {
+      const r = resultFor({
+        hook_event_name: event,
+        tool_name: 'Bash',
+        tool_input: { command: `API_KEY=${SECRET} pnpm test`, description: SECRET },
+        tool_response: { stdout: SECRET, stderr: SECRET },
+        error: SECRET,
+      } as never)
+      expect(r).not.toBeNull()
+      expect(Object.keys(r!)).toEqual(['kind', 'activity', 'ok'])
+      expect(JSON.stringify(r)).not.toContain(SECRET)
+      const s = signalFor({ hook_event_name: event, tool_name: 'Bash', tool_input: { command: `echo ${SECRET}; pnpm build` }, error: SECRET } as never)
+      expect(Object.keys(s!)).toEqual(['kind', 'activity', 'ok'])
+      expect(JSON.stringify(s)).not.toContain(SECRET)
+    }
+  })
+
+  it('fuzz: 300 random commands only ever give the allowed shape', () => {
+    const words = ['pnpm', 'test', 'build', 'blender', '-b', '&&', ';', '|', 'git', 'ls', 'tsc', 'cd', 'x.sh', 'bash', 'secret-xyz', '\n', 'vitest', 'run', '--', 'echo', 'make', '"', "'", '$(x)']
+    let seed = 12345
+    const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296
+    for (let n = 0; n < 300; n++) {
+      const command = Array.from({ length: 1 + Math.floor(rnd() * 6) }, () => words[Math.floor(rnd() * words.length)]).join(rnd() < 0.5 ? ' ' : '')
+      for (const event of ['PostToolUse', 'PostToolUseFailure']) {
+        for (const tool of ['Bash', 'PowerShell']) {
+          const r = resultFor(ev(event, tool, command, { tool_response: 'secret-xyz', error: 'secret-xyz' }))
+          if (r === null) continue
+          expect(Object.keys(r)).toEqual(['kind', 'activity', 'ok'])
+          expect(r.kind).toBe('result')
+          expect(['test', 'build']).toContain(r.activity)
+          expect(r.ok).toBe(event === 'PostToolUse')
+          expect(JSON.stringify(r)).not.toContain('secret-xyz')
+        }
+      }
+    }
   })
 })
