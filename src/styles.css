@@ -1,0 +1,27 @@
+:root {
+  --bg: #07090c;
+  color-scheme: dark;
+}
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: radial-gradient(ellipse at 50% 55%, #0d1118 0%, var(--bg) 70%);
+  color: #e8e6e1;
+  font-family: system-ui, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+}
+.hud {
+  position: fixed;
+  left: 16px;
+  bottom: 14px;
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: #9aa3b2;
+  pointer-events: none;
+}
+.hud b {
+  color: #ffb347;
+  font-weight: 600;
+}
