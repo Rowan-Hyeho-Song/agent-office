@@ -193,7 +193,7 @@ def build_desk(i, agent):
 # the keyboard (x ±0.28, z -0.03..0.31) and the mouse spot stay empty.
 DESK_H = 0.74
 RED = "#ff5a5f"  # --color-red
-TRAY = (-0.44, -0.16, 0.24, 0.30)  # MEMO's IN/OUT tray: x, z, width, depth
+TRAY = (0.44, -0.16, 0.24, 0.30)  # MEMO's IN/OUT tray: x, z, width, depth (right end: the left end hides behind HUE's head)
 
 
 def paper_plane(name, s, material, group, two_sided=False):
@@ -248,7 +248,7 @@ def desk_props_memo(G):
     s += [box("ink_pad", (0.07, 0.015, 0.05), (0.44, h + 0.0075, 0.13), plastic("#2a2c31", 0.5, 0.3, 0.05, "ink_case"), G, bev=0.003, seg=1),
           box("ink", (0.06, 0.001, 0.04), (0.44, h + 0.0155, 0.13), plastic(RED, 0.8, 0, 0.1, "ink"), G)]
     # 4 desk calendar (tent): front face = canvas slot screen_cal_0 (today), a red band above it
-    cx, cz = 0.24, -0.13
+    cx, cz = -0.24, -0.13
     bm = bmesh.new()
     v = [bm.verts.new(W(cx + sx * 0.06, h + y, cz + z)) for sx in (-1, 1) for (y, z) in ((0, 0.035), (0.10, 0), (0, -0.035))]
     for f in ((v[0], v[3], v[4], v[1]), (v[1], v[4], v[5], v[2]), (v[2], v[5], v[3], v[0]), (v[0], v[1], v[2]), (v[5], v[4], v[3])):
@@ -272,7 +272,7 @@ def desk_props_memo(G):
     for k in range(3):
         a = 2 * math.pi * k / 3
         hg.append(cyl("hg_post", 0.003, 0.094, (0.027 * math.cos(a), 0, 0.027 * math.sin(a)), wood_m, G, 6))
-    Hg = Mx((0.50, h + 0.055, -0.22))
+    Hg = Mx((-0.50, h + 0.055, -0.22))
     L.append(LIVE("desk_0_hourglass", "bot", place(hg, Hg), Hg))
     return s, L
 
