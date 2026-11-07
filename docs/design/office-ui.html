@@ -76,10 +76,10 @@ p.lead { color: var(--color-text-muted); max-width: 70ch; margin: var(--space-2)
 .bot[data-face='left']::after { left: -15px; }
 .bot[data-face='right']::after { left: -7px; }
 
+[data-agent='0'] { --agent: var(--agent-0); --agent-ink: var(--agent-0-ink); }
 [data-agent='1'] { --agent: var(--agent-1); --agent-ink: var(--agent-1-ink); }
 [data-agent='2'] { --agent: var(--agent-2); --agent-ink: var(--agent-2-ink); }
 [data-agent='3'] { --agent: var(--agent-3); --agent-ink: var(--agent-3-ink); }
-[data-agent='4'] { --agent: var(--agent-4); --agent-ink: var(--agent-4-ink); }
 [data-agent='x'] { --agent: var(--agent-x); --agent-ink: var(--agent-x-ink); }
 
 /* ───── 말풍선 ─────
@@ -268,60 +268,60 @@ body.embed[data-embed='mobile'] .stage { grid-template-columns: 1fr; }
 
 <!-- 무대 내용: data-bg마다 복제된다. --x/--y는 무대 안 비율. data-pref-side는 기본 방향(겹침·가장자리에서 fit()이 바꿈) -->
 <template id="t-talk">
-  <div class="bot" data-agent="1" data-face="right" style="--x:48%;--y:70%"></div>
-  <div class="bot" data-agent="2" data-face="left" style="--x:60%;--y:70%"></div>
-  <div class="ob" data-agent="2" data-kind="talk" data-pref-side="right" data-order="1" data-pair data-dim style="--x:60%;--y:70%">
+  <div class="bot" data-agent="0" data-face="right" style="--x:48%;--y:70%"></div>
+  <div class="bot" data-agent="1" data-face="left" style="--x:60%;--y:70%"></div>
+  <div class="ob" data-agent="1" data-kind="talk" data-pref-side="right" data-order="1" data-pair data-dim style="--x:60%;--y:70%">
     <i class="ob-lead"></i><i class="ob-dot"></i>
     <div class="ob-card"><div class="ob-tab">AGENT 02 · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text">네, 볼게요.</p></div></div></div>
   </div>
-  <div class="ob" data-agent="1" data-kind="talk" data-pref-side="left" data-order="2" data-pair style="--x:48%;--y:70%">
+  <div class="ob" data-agent="0" data-kind="talk" data-pref-side="left" data-order="2" data-pair style="--x:48%;--y:70%">
     <i class="ob-lead"></i><i class="ob-dot"></i>
     <div class="ob-card"><div class="ob-tab">AGENT 01 · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-type data-speaker="에이전트 01" data-to="에이전트 02">토큰 파일 올렸어요. 이름 같이 봐 줄래요?</p></div></div></div>
   </div>
 </template>
 
 <template id="t-meeting">
-  <div class="bot" data-agent="1" data-face="right" style="--x:48%;--y:72%"></div>
-  <div class="bot" data-agent="3" data-face="left" style="--x:60%;--y:72%"></div>
+  <div class="bot" data-agent="0" data-face="right" style="--x:48%;--y:72%"></div>
+  <div class="bot" data-agent="2" data-face="left" style="--x:60%;--y:72%"></div>
 </template>
 
 <template id="t-react">
-  <div class="bot" data-agent="3" style="--x:22%;--y:72%"></div>
-  <div class="ob" data-agent="3" data-kind="react" data-pref-side="right" style="--x:22%;--y:72%">
+  <div class="bot" data-agent="2" style="--x:22%;--y:72%"></div>
+  <div class="ob" data-agent="2" data-kind="react" data-pref-side="right" style="--x:22%;--y:72%">
     <i class="ob-lead"></i><i class="ob-dot"></i>
     <div class="ob-card"><div class="ob-tab"><svg data-icon="heart"></svg>AGENT 03 · 반응</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-log data-speaker="에이전트 03">간식 고마워요! 힘이 나요</p></div></div></div>
   </div>
-  <div class="bot" data-agent="4" style="--x:84%;--y:72%"></div>
-  <div class="ob" data-agent="4" data-kind="private" data-pref-side="left" style="--x:84%;--y:72%">
+  <div class="bot" data-agent="3" style="--x:84%;--y:72%"></div>
+  <div class="ob" data-agent="3" data-kind="private" data-pref-side="left" style="--x:84%;--y:72%">
     <i class="ob-lead"></i><i class="ob-dot"></i>
     <div class="ob-card"><div class="ob-tab">AGENT 04 · 비공개</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-log data-speaker="에이전트 04"><svg data-icon="lock"></svg>비공개 대화</p></div></div></div>
   </div>
 </template>
 
 <template id="t-tags">
-  <div class="bot" data-agent="1" style="--x:14%;--y:70%"></div>
-  <div class="ot" data-agent="1" style="--x:14%;--y:70%"><div class="ot-chip"><svg data-icon="edit"></svg><span>파일 편집 중</span></div></div>
-  <div class="bot" data-agent="2" style="--x:38%;--y:52%"></div>
-  <div class="ot" data-agent="2" style="--x:38%;--y:52%"><div class="ot-chip"><svg data-icon="cmd"></svg><span>명령 실행 중</span></div></div>
-  <div class="bot" data-agent="3" style="--x:62%;--y:70%"></div>
-  <div class="ot" data-agent="3" style="--x:62%;--y:70%"><div class="ot-chip"><svg data-icon="test"></svg><span>테스트 실행 중</span></div></div>
-  <div class="bot" data-agent="4" style="--x:86%;--y:52%"></div>
-  <div class="ot" data-agent="4" data-kind="private" style="--x:86%;--y:52%"><div class="ot-chip"><svg data-icon="lock"></svg><span>비공개 작업 중</span></div></div>
+  <div class="bot" data-agent="0" style="--x:14%;--y:70%"></div>
+  <div class="ot" data-agent="0" style="--x:14%;--y:70%"><div class="ot-chip"><svg data-icon="edit"></svg><span>파일 편집 중</span></div></div>
+  <div class="bot" data-agent="1" style="--x:38%;--y:52%"></div>
+  <div class="ot" data-agent="1" style="--x:38%;--y:52%"><div class="ot-chip"><svg data-icon="cmd"></svg><span>명령 실행 중</span></div></div>
+  <div class="bot" data-agent="2" style="--x:62%;--y:70%"></div>
+  <div class="ot" data-agent="2" style="--x:62%;--y:70%"><div class="ot-chip"><svg data-icon="test"></svg><span>테스트 실행 중</span></div></div>
+  <div class="bot" data-agent="3" style="--x:86%;--y:52%"></div>
+  <div class="ot" data-agent="3" data-kind="private" style="--x:86%;--y:52%"><div class="ot-chip"><svg data-icon="lock"></svg><span>비공개 작업 중</span></div></div>
 </template>
 
 <template id="t-edge">
-  <div class="bot" data-agent="2" style="--x:10%;--y:12%"></div>
-  <div class="ob" data-agent="2" data-kind="talk" data-pref-side="right" style="--x:10%;--y:12%">
+  <div class="bot" data-agent="1" style="--x:10%;--y:12%"></div>
+  <div class="ob" data-agent="1" data-kind="talk" data-pref-side="right" style="--x:10%;--y:12%">
     <i class="ob-lead"></i><i class="ob-dot"></i>
     <div class="ob-card"><div class="ob-tab">AGENT 02 · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-type data-speaker="에이전트 02">화면 위쪽이라 아래로 펼쳐요.</p></div></div></div>
   </div>
-  <div class="bot" data-agent="1" style="--x:74%;--y:84%"></div>
-  <div class="bot" data-agent="3" style="--x:80%;--y:72%"></div>
-  <div class="ob" data-agent="1" data-kind="talk" data-pref-side="right" data-order="1" style="--x:74%;--y:84%">
+  <div class="bot" data-agent="0" style="--x:74%;--y:84%"></div>
+  <div class="bot" data-agent="2" style="--x:80%;--y:72%"></div>
+  <div class="ob" data-agent="0" data-kind="talk" data-pref-side="right" data-order="1" style="--x:74%;--y:84%">
     <i class="ob-lead"></i><i class="ob-dot"></i>
     <div class="ob-card"><div class="ob-tab">AGENT 01 · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text">앞뒤로 겹친 두 사람.</p></div></div></div>
   </div>
-  <div class="ob" data-agent="3" data-kind="talk" data-pref-side="right" data-order="2" style="--x:80%;--y:72%">
+  <div class="ob" data-agent="2" data-kind="talk" data-pref-side="right" data-order="2" style="--x:80%;--y:72%">
     <i class="ob-lead"></i><i class="ob-dot"></i>
     <div class="ob-card"><div class="ob-tab">AGENT 03 · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-type data-speaker="에이전트 03">새 말풍선은 위로 쌓고, 오른쪽 끝에 닿으면 왼쪽으로 펼쳐요. 아주 긴 문장은 세 줄에서 자르고 원문은 화면 읽기 로그로 보냅니다.</p></div></div></div>
   </div>
@@ -566,9 +566,9 @@ const holdMs = (text) => Math.min(N('--hold-max-ms'), N('--hold-base-ms') + [...
 
 /* ── 회의 재연: 회의록에서 자른 문장을 차례로 ── */
 const MEETING = [
-  { a: 1, to: 3, side: 'left', text: '3번 안건이요. 말풍선 길이는 36자로 끊기로 했죠.' },
-  { a: 3, to: 1, side: 'right', text: '네. 넘치는 부분은 서재 회의록에서 읽게 하고요.' },
-  { a: 1, to: 3, side: 'left', text: '좋아요, 그럼 다음 안건으로.' },
+  { a: 0, to: 2, side: 'left', text: '3번 안건이요. 말풍선 길이는 36자로 끊기로 했죠.' },
+  { a: 2, to: 0, side: 'right', text: '네. 넘치는 부분은 서재 회의록에서 읽게 하고요.' },
+  { a: 0, to: 2, side: 'left', text: '좋아요, 그럼 다음 안건으로.' },
 ]
 let meetingTimer
 function makeBubble(pane, { a, to, side, text }, order, kind) {
@@ -579,10 +579,10 @@ function makeBubble(pane, { a, to, side, text }, order, kind) {
   ob.setAttribute('style', bot.getAttribute('style'))
   const max = N('--bubble-max-chars')
   const shown = [...text].length > max ? [...text].slice(0, max - 1).join('') + '…' : text
-  ob.innerHTML = `<i class="ob-lead"></i><i class="ob-dot"></i><div class="ob-card"><div class="ob-tab">AGENT 0${a} · ${kind}</div><div class="ob-box"><div class="ob-body"><p class="ob-text"></p></div></div></div>`
+  ob.innerHTML = `<i class="ob-lead"></i><i class="ob-dot"></i><div class="ob-card"><div class="ob-tab">AGENT 0${a + 1} · ${kind}</div><div class="ob-box"><div class="ob-body"><p class="ob-text"></p></div></div></div>`
   const p = ob.querySelector('.ob-text')
   p.textContent = shown
-  Object.assign(p.dataset, { full: text, speaker: `에이전트 0${a}`, to: `에이전트 0${to}`, turn: order })
+  Object.assign(p.dataset, { full: text, speaker: `에이전트 0${a + 1}`, to: `에이전트 0${to + 1}`, turn: order })
   pane.append(ob)
   return p
 }
@@ -607,12 +607,12 @@ function playMeeting(turn = 0) {
 /* ═════════════ 2. 모니터 캔버스 ═════════════ */
 const MW = 584, MH = 338
 const MONITORS = [
-  { state: 'work', agent: 1, act: 'edit', title: '작업 중', desc: '아이콘 + 활동 문구 + 흐르는 진행 띠. 진짜 진행률은 모르므로 “움직이고 있다”만 보인다. 오른쪽 아래는 이번 작업 경과 시간.' },
-  { state: 'work', agent: 2, act: 'test', title: '작업 중 · 다른 활동', desc: '도구가 바뀌면 아이콘과 문구만 바뀐다. 에이전트 색은 바탕 틴트(8%)·이름·진행 띠에만.' },
-  { state: 'wrap', agent: 3, act: 'wrap', title: '정리 중', desc: '작업 카드의 네 칸(목표·한 일·결정·다음)이 차례로 채워진다. 화이트보드로 가기 전 잠깐.' },
-  { state: 'rest', agent: 4, act: 'rest', title: '휴식 (화면 보호기)', desc: '거의 어두운 화면에 에이전트 표시가 천천히 튕긴다. 멀리서 “자리 비움”으로 읽힌다.' },
-  { state: 'off', agent: 1, act: 'off', title: '퇴근 (꺼짐 · 대기)', desc: '빛을 거의 내지 않는다(불이 하나씩 꺼지는 연출과 맞춤). 대기 표시등만 호박색 점.' },
-  { state: 'private', agent: 2, act: 'private', title: '비공개 작업 중', desc: '내용·도구 종류를 숨긴다. 사선 무늬 + 자물쇠 + 회색. 진행 띠는 남겨 “지금 일하고 있음”은 보인다.' },
+  { state: 'work', agent: 0, act: 'edit', title: '작업 중', desc: '아이콘 + 활동 문구 + 흐르는 진행 띠. 진짜 진행률은 모르므로 “움직이고 있다”만 보인다. 오른쪽 아래는 이번 작업 경과 시간.' },
+  { state: 'work', agent: 1, act: 'test', title: '작업 중 · 다른 활동', desc: '도구가 바뀌면 아이콘과 문구만 바뀐다. 에이전트 색은 바탕 틴트(8%)·이름·진행 띠에만.' },
+  { state: 'wrap', agent: 2, act: 'wrap', title: '정리 중', desc: '작업 카드의 네 칸(목표·한 일·결정·다음)이 차례로 채워진다. 화이트보드로 가기 전 잠깐.' },
+  { state: 'rest', agent: 3, act: 'rest', title: '휴식 (화면 보호기)', desc: '거의 어두운 화면에 에이전트 표시가 천천히 튕긴다. 멀리서 “자리 비움”으로 읽힌다.' },
+  { state: 'off', agent: 0, act: 'off', title: '퇴근 (꺼짐 · 대기)', desc: '빛을 거의 내지 않는다(불이 하나씩 꺼지는 연출과 맞춤). 대기 표시등만 호박색 점.' },
+  { state: 'private', agent: 1, act: 'private', title: '비공개 작업 중', desc: '내용·도구 종류를 숨긴다. 사선 무늬 + 자물쇠 + 회색. 진행 띠는 남겨 “지금 일하고 있음”은 보인다.' },
 ]
 const startedAt = performance.now()
 function clock() { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
@@ -658,7 +658,7 @@ function drawMonitor(ctx, m, t, reduced) {
 
   // 윗줄: 이름 · 시각
   ctx.font = pixel(fsS); ctx.fillStyle = m.state === 'private' ? lock : ink
-  ctx.fillText(`AGENT 0${m.agent}`, pad, pad)
+  ctx.fillText(`AGENT 0${m.agent + 1}`, pad, pad)
   ctx.textAlign = 'right'; ctx.fillStyle = muted; ctx.fillText(clock(), MW - pad, pad); ctx.textAlign = 'left'
   ctx.fillStyle = mix(m.state === 'private' ? lock : col, bg, 0.7); ctx.fillRect(pad, pad + fsS + 10, MW - 2 * pad, 2)
 

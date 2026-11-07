@@ -32,16 +32,16 @@
   --color-red: #ff5a5f;
   --color-lock: #b8b2a6; /* 비공개 표시(자물쇠·문구) 9.2:1 */
 
-  /* ── 에이전트 색 ── 임시(#5 결정 전). Blender AGENTS 색과 같은 순서.
+  /* ── 에이전트 색 ── 임시(#26 결정 전). 번호는 glb·앱과 같게 0부터(agent_0..3, screen_work_0..3).
      --agent-N: 테두리·탭 바탕·화면 틴트 / --agent-N-ink: 어두운 바탕 위 글자로 쓸 때 */
-  --agent-1: #4df3ff;
-  --agent-1-ink: #4df3ff; /* 14.3:1 */
-  --agent-2: #ff3ea5;
-  --agent-2-ink: #ff6fbd; /* 원색 6.0:1 → 작은 글자용으로 밝힘 7.6:1 */
-  --agent-3: #ffb347;
-  --agent-3-ink: #ffb347; /* 10.9:1 */
-  --agent-4: #7dff9b;
-  --agent-4-ink: #7dff9b; /* 15.3:1 */
+  --agent-0: #4df3ff;
+  --agent-0-ink: #4df3ff; /* 14.3:1 */
+  --agent-1: #ff3ea5;
+  --agent-1-ink: #ff6fbd; /* 원색 6.0:1 → 작은 글자용으로 밝힘 7.6:1 */
+  --agent-2: #ffb347;
+  --agent-2-ink: #ffb347; /* 10.9:1 */
+  --agent-3: #7dff9b;
+  --agent-3-ink: #7dff9b; /* 15.3:1 */
   --agent-x: #a39d90; /* 처음 보는 세션 = 임시 직원 */
   --agent-x-ink: #a39d90;
 
