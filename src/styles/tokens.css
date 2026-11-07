@@ -107,6 +107,36 @@
   --door-fs-l: 120; /* 전경(약 1/8)에서도 15px */
   --door-icon: 288; /* 화살표 12px 비트맵 × 24 */
 
+  /* ── 결재함 (#45) ── 결재 UI는 호박 하나. 종류는 아이콘·글자·배지 모양으로 구분(색은 요청 에이전트 --agent-N에만) */
+  --approval-accent: #ffb347; /* 탭·주 버튼·선택 표시. 판 위 10.9:1, 버튼 위 검정 글자 10.9:1 */
+  --approval-panel-w: 440px;
+  --surface-raised: #161a21; /* 판 안의 카드 */
+  --stamp-red: #ff5a5f; /* 어두운 판 위 결재 도장 6.3:1 */
+  --approval-stamp-ms: 400; /* 도장 쾅 */
+  --approval-next-ms: 1200; /* 도장 뒤 다음 건으로 */
+
+  /* ── 종이 (#45 문서 뷰어·SECRET 표지) ── 긴 글은 어두운 판보다 종이 위가 읽기 편하다 */
+  --paper: #efe6d2;
+  --paper-ink: #1f1b14; /* 13.8:1 */
+  --paper-muted: #6b6152; /* 4.9:1 */
+  --paper-link: #2b5f9e; /* 5.2:1 */
+  --paper-stamp: #b3261e; /* 종이 위 도장 5.3:1 */
+  --manila: #d9b877; /* SECRET 표지(서류철) */
+  --manila-ink: #1f1b14; /* 9.0:1 */
+  --secret-ink: #1f1b14; /* 검게 지운 줄 */
+  --secret-stamp: #b3261e; /* 표지 위 SECRET 도장. 큰 글자(굵게 24px 이상)로만, 3.5:1 */
+
+  /* ── 화이트보드 (#45, surface_whiteboard 1.5 × 1.0 m, 캔버스) ──
+     캔버스 1536 × 1024(1024 px/m), 투명 바탕: 구운 흰 보드 음영이 비치게 카드·메모지·마커만 그린다 */
+  --board-white: #f4f4f0; /* 모델의 보드 색(시안 바탕용) */
+  --board-frame: #9aa0a8;
+  --board-marker: #1f2a44; /* 마커 글씨 12.9:1 */
+  --board-card: #fbf8f1; /* 카드 종이 */
+  --board-card-ink: #1f1b14; /* 카드 위 16.2:1, 메모지 위 13.4:1 */
+  --board-note: #ffe27a; /* 결정 메모지 */
+  --board-fs-l: 48; /* 칸 제목·카드 제목: 1/4 거리에서 12px */
+  --board-fs-s: 24; /* #번호·에이전트 이름: 가까이서만 */
+
   /* ── 움직임 ── 시간은 ms(단위 없음은 JS용) */
   --dur-instant: 80ms;
   --dur-fast: 160ms;
@@ -130,6 +160,7 @@
   :root {
     --bubble-max-w: 200px;
     --tag-max-w: 28px;
+    --approval-panel-w: 100vw; /* 좁은 화면: 결재함은 전체 화면 */
     --safe-top: 56px;
     --safe-side: 12px;
   }
@@ -148,6 +179,7 @@
     --caret-blink: 0s;
     --bob-px: 0;
     --door-press-ms: 120;
+    --approval-stamp-ms: 0; /* 도장이 찍힌 상태로 바로 나타남 */
   }
 }
 :root[data-motion='reduce'] {
@@ -161,4 +193,5 @@
   --caret-blink: 0s;
   --bob-px: 0;
   --door-press-ms: 120;
+  --approval-stamp-ms: 0;
 }
