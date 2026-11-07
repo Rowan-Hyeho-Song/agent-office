@@ -76,6 +76,29 @@ describe('parseSignal', () => {
     expect(parseSignal({ seat: 0, kind: 'activity', activity: 'test', ok: true })).toBeNull()
     expect(parseSignal({ seat: 0, kind: 'start', ok: null })).toBeNull()
   })
+
+  it('accepts a handoff to another seat (#51)', () => {
+    for (const seat of [0, 1, 2, 3])
+      for (const to of [0, 1, 2, 3]) {
+        if (to === seat) continue
+        expect(parseSignal({ seat, kind: 'handoff', to })).toEqual({ seat, kind: 'handoff', to })
+      }
+  })
+
+  it('rejects a bad handoff: missing / unknown / own seat, or anything riding along', () => {
+    expect(parseSignal({ seat: 0, kind: 'handoff' })).toBeNull()
+    for (const to of [-1, 4, 1.5, NaN, '1', null, [1], {}]) expect(parseSignal({ seat: 0, kind: 'handoff', to })).toBeNull()
+    expect(parseSignal({ seat: 2, kind: 'handoff', to: 2 })).toBeNull()
+    expect(parseSignal({ seat: 0, kind: 'handoff', to: 3, activity: 'delegate' })).toBeNull()
+    expect(parseSignal({ seat: 0, kind: 'handoff', to: 3, ok: true })).toBeNull()
+    expect(parseSignal({ seat: 0, kind: 'handoff', to: 3, message: '비밀 문자열' })).toBeNull()
+  })
+
+  it('rejects to on other kinds', () => {
+    for (const kind of ['start', 'stop', 'end']) expect(parseSignal({ seat: 0, kind, to: 1 })).toBeNull()
+    expect(parseSignal({ seat: 0, kind: 'activity', activity: 'edit', to: 1 })).toBeNull()
+    expect(parseSignal({ seat: 0, kind: 'result', activity: 'test', ok: true, to: 1 })).toBeNull()
+  })
 })
 
 describe('sameToken', () => {
@@ -156,6 +179,19 @@ describe('nextStatus', () => {
     const r = nextStatus(null, res('test', false), T1)
     expect(r.changed).toBe(true)
     expect(r.row).toMatchObject({ seat: 1, state: 'working', since: T1, updated_at: T1, last_result_activity: 'test', last_result_ok: false, last_result_at: T1 })
+  })
+
+  it('a handoff keeps state, activity, since and the last result; it is always an event (#51)', () => {
+    const prev = row({ state: 'working', activity: 'edit', last_result_activity: 'build', last_result_ok: true, last_result_at: T0 })
+    const r = nextStatus(prev, { seat: 1, kind: 'handoff', to: 3 }, T1)
+    expect(r.changed).toBe(true)
+    expect(r.row).toEqual({ ...prev, updated_at: T1 })
+  })
+
+  it('a handoff as the very first signal: working, delegating', () => {
+    const r = nextStatus(null, { seat: 1, kind: 'handoff', to: 0 }, T1)
+    expect(r.changed).toBe(true)
+    expect(r.row).toEqual({ seat: 1, state: 'working', activity: 'delegate', since: T1, updated_at: T1, ...NONE })
   })
 })
 
@@ -275,6 +311,28 @@ describe('handle', () => {
     const res = await handle(post({ seat: 3, kind: 'result', activity: 'test', ok: true, output: 'secret' }), m.store, TOKEN, NOW)
     expect(res.status).toBe(400)
     untouched(m)
+  })
+
+  it('a handoff stores an event with to_seat only (#51)', async () => {
+    const m = memoryStore()
+    const res = await handle(post({ seat: 0, kind: 'handoff', to: 3 }), m.store, TOKEN, NOW)
+    expect(res.status).toBe(200)
+    expect(m.calls.addEvent).toEqual([{ seat: 0, kind: 'handoff', activity: null, ok: null, to_seat: 3, created_at: NOW.toISOString() }])
+    expect(m.calls.prune).toEqual([])
+  })
+
+  it('400 on a handoff carrying anything else, store untouched', async () => {
+    for (const body of [
+      { seat: 0, kind: 'handoff', to: 3, message: '비밀 문자열' },
+      { seat: 0, kind: 'handoff', to: 0 },
+      { seat: 0, kind: 'handoff', to: 9 },
+      { seat: 0, kind: 'handoff' },
+    ]) {
+      const m = memoryStore()
+      const res = await handle(post(body), m.store, TOKEN, NOW)
+      expect(res.status).toBe(400)
+      untouched(m)
+    }
   })
 
   it('event for a stop has a null activity', async () => {

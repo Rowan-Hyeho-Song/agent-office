@@ -57,6 +57,7 @@ export function parseSignal(body: unknown): Signal | null {
   if (typeof seat !== 'number' || !(SEATS as readonly number[]).includes(seat)) return null
   if (typeof kind !== 'string' || !(KINDS as readonly string[]).includes(kind)) return null
   if (kind === 'result') {
+    if (to !== undefined) return null
     if (typeof activity !== 'string' || !(RESULT_ACTIVITIES as readonly string[]).includes(activity)) return null
     if (typeof ok !== 'boolean') return null
     return { seat, kind, activity: activity as ResultActivity, ok }
