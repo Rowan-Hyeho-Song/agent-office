@@ -2,7 +2,7 @@ import { Html } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BufferGeometry, Color, Float32BufferAttribute, Line, LineBasicMaterial, LineSegments, type Group, type Mesh } from 'three'
-import { buildGraph, NAV_PATCH, patchSpots, type NavGraph } from './nav'
+import { buildGraph, patchSpots, type NavGraph } from './nav'
 import { checkNav, edgeKey } from './navcheck'
 import { meshesOf, useOffice } from './nodes'
 import { AgentRig, buildRig } from './rig'
@@ -39,7 +39,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
   const graph = useMemo(() => {
     // ?debug=1&nav=… tries spots before they are re-baked into the model
     const tryout = world.debug ? (new URLSearchParams(location.search).get('nav') ?? '') : ''
-    return buildGraph(patchSpots(patchSpots(spots, NAV_PATCH), tryout))
+    return buildGraph(patchSpots(spots, tryout))
   }, [world, spots])
   const rigs = useMemo(
     () => Object.fromEntries(world.director.agents.map((id, i) => [id, new AgentRig(id, i, buildRig(scene, nodes, i))])),

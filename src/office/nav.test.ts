@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   EDGES,
-  NAV_PATCH,
   buildGraph,
   dist,
   facing,
@@ -157,7 +156,7 @@ describe('facing', () => {
   })
 })
 
-describe('patchSpots / NAV_PATCH', () => {
+describe('patchSpots (?debug=1&nav=)', () => {
   it('moves existing spots, adds missing ones, keeps ry and kind when left out', () => {
     const base = [sp('a', 0, 0), { ...sp('b', 1, 1), ry: 2, kind: 'stand' as NavKind }]
     const out = patchSpots(base, 'b:5:6,c:7:8')
@@ -165,10 +164,5 @@ describe('patchSpots / NAV_PATCH', () => {
     expect(out.find((s) => s.id === 'c')).toEqual({ id: 'c', x: 7, z: 8, ry: 0, kind: 'hall' })
     expect(out.find((s) => s.id === 'a')).toEqual(sp('a', 0, 0))
     expect(patchSpots(base, '')).toBe(base)
-  })
-
-  it('is a no-op on a model that already has the patched values (the fixture above)', () => {
-    const out = patchSpots(SPOTS, NAV_PATCH)
-    expect(Object.fromEntries(out.map((s) => [s.id, s]))).toEqual(byId)
   })
 })
