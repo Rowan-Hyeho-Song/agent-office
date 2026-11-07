@@ -9,6 +9,8 @@ export interface AgentStatus {
   activity?: string
   /** ms since the epoch when this state began (a new wrap-up is a new `since`) */
   since: number
+  /** the last test / build outcome the hook reported (#44: the coder's signal light, the 3D ring light) */
+  lastResult?: { activity: 'test' | 'build'; ok: boolean; at: number }
 }
 
 /** one agent asking or handing work to another: they meet face to face */
@@ -52,7 +54,15 @@ export class FakeStatusSource implements StatusSource {
   }
 
   set(agent: string, state: AgentState, activity?: string) {
-    this.snapshot = { ...this.snapshot, [agent]: { state, activity, since: Date.now() } }
+    const lastResult = this.snapshot[agent]?.lastResult
+    this.snapshot = { ...this.snapshot, [agent]: { state, activity, since: Date.now(), ...(lastResult ? { lastResult } : {}) } }
+    for (const l of this.listeners) l()
+  }
+
+  /** a test / build finished (the debug panel's pass / fail buttons) */
+  setResult(agent: string, activity: 'test' | 'build', ok: boolean) {
+    const s = this.snapshot[agent]
+    this.snapshot = { ...this.snapshot, [agent]: { ...s, lastResult: { activity, ok, at: Date.now() } } }
     for (const l of this.listeners) l()
   }
 

@@ -20,7 +20,9 @@
     "vite.config.ts",
     "api",
     "src/signal",
-    "src/docs"
+    "src/docs",
+    "src/approvals",
+    "src/server"
   ],
   "exclude": [
     "**/*.test.ts"

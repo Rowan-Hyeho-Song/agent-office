@@ -2,11 +2,12 @@
 // stored document: filter (paths, emails, keys, banned words), grade, parse the structure, summarize.
 // Pure apart from the store, so it's unit tested.
 
+import { ingestApprovals, type ApprovalStore } from '../approvals/ingest'
 import { gradeFor, redact } from './filter'
 import { agentsIn, parseApprovalRequest, parseApprovalResult, parseMinutes, section, summarize } from './parse'
 import { DOC_KINDS, type DocInput, type DocRow, type Speaker } from './types'
 
-export interface DocStore {
+export interface DocStore extends ApprovalStore {
   upsert(rows: DocRow[]): Promise<void>
   setOpenIssues(repo: string, open: number, at: string): Promise<void>
 }
@@ -42,6 +43,8 @@ export interface Payload {
   docs: DocInput[]
   /** the repo's open issue count, sent with issue events */
   project?: { repo: string; open_issues: number }
+  /** 🖊 requests and ✅ results (#25), see src/approvals/ingest.ts */
+  approvals?: unknown[]
 }
 
 const MAX_DOCS = 100
@@ -147,6 +150,9 @@ export async function handle(request: Request, store: DocStore, cfg: IngestConfi
   }
   const p = body as Partial<Payload> | null
   if (!p || !Array.isArray(p.docs) || p.docs.length > MAX_DOCS) return Response.json({ error: 'bad payload' }, { status: 400 })
+  if (p.approvals !== undefined && (!Array.isArray(p.approvals) || p.approvals.length > MAX_DOCS)) {
+    return Response.json({ error: 'bad payload' }, { status: 400 })
+  }
   const docs = p.docs.map(parseDoc)
   const bad = docs.findIndex((d) => !d)
   if (bad >= 0) return Response.json({ error: `bad doc ${bad}` }, { status: 400 })
@@ -159,5 +165,14 @@ export async function handle(request: Request, store: DocStore, cfg: IngestConfi
   if (project && typeof project.repo === 'string' && REPO.test(project.repo) && Number.isInteger(project.open_issues) && project.open_issues >= 0) {
     await store.setOpenIssues(project.repo, project.open_issues, now.toISOString())
   }
-  return Response.json({ ok: true, stored: rows.length, skipped: docs.length - kept.length, grades: rows.map((r) => r.grade) })
+  const approvals = p.approvals?.length
+    ? await ingestApprovals(p.approvals, store, { banned: cfg.banned, approvers: cfg.approvers ?? APPROVERS })
+    : undefined
+  return Response.json({
+    ok: true,
+    stored: rows.length,
+    skipped: docs.length - kept.length,
+    grades: rows.map((r) => r.grade),
+    ...(approvals ? { approvals } : {}),
+  })
 }
