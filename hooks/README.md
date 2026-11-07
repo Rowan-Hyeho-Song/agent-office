@@ -8,16 +8,25 @@ Claude Code 세션이 일하는 모습을 사무실로 보내는 훅입니다. �
 
 명령을 종류로 나누는 일은 내 PC 안에서 `classify.mjs`가 합니다. 서버는 목록에 없는 값을 받지 않습니다.
 
+## 어떤 세션이 보내나: 허용 폴더 (#34)
+
+훅은 사용자 설정에 등록되므로 이 PC의 **모든** Claude Code 세션에서 실행됩니다. 그래서 세션의 작업 폴더(`cwd`)가 허용 폴더 안일 때만 보냅니다. 회사 업무 같은 다른 프로젝트 세션은 이름이 무엇이든 **아무것도 보내지 않습니다**(`hook.log`에는 `skip: outside projects`).
+
+- 기본 허용 폴더는 `**/agent-office*`, `**/rowansong.dev*`입니다. 이 두 저장소와 그 worktree(`agent-office-17` 같은 폴더)를 어디에 받아 두었든 맞습니다.
+- 바꾸려면 `hook.json`에 `"projects"`를 둡니다. 형식은 `["D:/code/office", "**/agent-office*"]`처럼 씁니다. `*`는 폴더 이름 하나 안의 아무 글자, `**`는 폴더 여러 단계입니다. 대소문자와 `\`·`/` 구분은 무시하고, 맞은 폴더 아래는 모두 포함합니다.
+- 선택: `"outside": "private"`이면 허용 폴더 밖 세션도 자리가 정해질 때 활동 없이 "비공개 작업 중"(`private`)만 보냅니다. 기본은 꺼져 있습니다.
+- 작업 폴더 경로는 판단에만 쓰고, 보내지도 `hook.log`에 남기지도 않습니다.
+
 ## 자리 정하기
 
-세션 이름(Claude Code의 `/rename`, 또는 에디터에서 붙인 이름)으로 자리를 정합니다. 먼저 맞는 규칙이 이깁니다.
+허용 폴더 안의 세션은 세션 이름(Claude Code의 `/rename`, 또는 에디터에서 붙인 이름)으로 자리를 정합니다. 먼저 맞는 규칙이 이깁니다. `design`·`3d`·`planning`·`coder`처럼 흔한 영어 낱말은 넣지 않았습니다(#34).
 
 | 자리 | 에이전트 | 세션 이름에 이 말이 있으면 |
 |---|---|---|
-| 0 | 메모 MEMO (기획) | 기획, planning, 메모, memo |
-| 1 | 메시 MESH (3D) | blender, 3d, 메시, mesh |
-| 2 | 휴 HUE (디자인) | 디자이너, 디자인, design, 휴, hue |
-| 3 | 루프 LOOP (코더) | 코더, coder, 루프, loop |
+| 0 | 메모 MEMO (기획) | 기획, 메모, memo(낱말) |
+| 1 | 메시 MESH (3D) | blender, 메시, mesh(낱말) |
+| 2 | 휴 HUE (디자인) | 디자이너, 디자인, hue(낱말) |
+| 3 | 루프 LOOP (코더) | 코더, 루프, loop(낱말) |
 
 - 이름은 SessionStart와 UserPromptSubmit에 들어옵니다. 한 번 정해지면 그 세션의 다른 이벤트에도 같은 자리를 씁니다. 자리는 `~/.agent-office/sessions/<세션>.json`에 로컬로만 기록하고, 3일이 지나면 지웁니다.
 - 이름이 없거나 맞는 규칙이 없는 세션은 아무것도 보내지 않습니다.
@@ -38,6 +47,7 @@ Claude Code 세션이 일하는 모습을 사무실로 보내는 훅입니다. �
 | PreToolUse | Bash · PowerShell, git · gh | `git` | 버전 기록 중 |
 | PreToolUse | Bash · PowerShell, 앱·스크립트 실행 | `run` | 앱 실행 중 |
 | PreToolUse | 그 밖의 명령과 도구 | `other` | 명령 실행 중 |
+| (허용 폴더 밖, `"outside": "private"`일 때만) | 모든 활동 | `private` | 비공개 작업 중 |
 
 - Bash 명령은 `&&`, `;`, `|`로 나눈 조각 중에서 준비 단계(`cd`, 환경 변수, `echo`, `ls` …)가 아닌 첫 조각으로 판단합니다. 규칙은 `classify.mjs`의 `BASH_RULES`에 있습니다.
 - 같은 활동이 이어지면 30초에 한 번만 보냅니다(`keepaliveSeconds`).
