@@ -418,6 +418,8 @@ export class AgentRig {
   private blinkAt = 0
   /** what it is holding this frame (read by the PropBank) */
   want: { kind: string; side: 'l' | 'r'; prefer?: string } | null = null
+  /** a point to turn the head to while resting (the coder's rubber duck when a test fails, #44) */
+  watch: Vector3 | null = null
 
   constructor(id: string, index: number, parts: RigParts, color: string) {
     this.id = id
@@ -634,6 +636,14 @@ export class AgentRig {
     const m = reduced ? 0.3 : 1
     const s = (f: number, o = 0) => Math.sin(t * f + this.phase + o) * m
     const idle = { pitch: 0, yaw: reduced ? 0 : s(0.35) * 0.25, roll: 0 }
+    // looking at something on the desk (the duck): turn toward it and look down at it
+    if (this.watch && pose !== 'move') {
+      const dx = this.watch.x - this.x
+      const dz = this.watch.z - this.z
+      const yaw = MathUtils.clamp(wrap(Math.atan2(-dx, -dz) - this.heading), -1.2, 1.2)
+      const pitch = MathUtils.clamp(Math.atan2(this.watch.y - (this.parts.headRestY + this.seat), Math.hypot(dx, dz)), -0.6, 0.3)
+      return { pitch, yaw, roll: 0.08 } // a small tilt: puzzled
+    }
     switch (pose) {
       case 'move':
         return { pitch: 0, yaw: 0, roll: 0 }
