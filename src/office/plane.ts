@@ -4,7 +4,7 @@
 // isn't in (gone home), it glides down onto the receiver's desk. Then the plane goes back home onto the planner's
 // tray. With reduced motion it just appears on the receiver's desk for a moment.
 
-import { Matrix4, Quaternion, Vector3, type Object3D } from 'three'
+import { Box3, Matrix4, Quaternion, Raycaster, Vector3, type Object3D } from 'three'
 import type { NavGraph } from './nav'
 import { GESTURE_S, type AgentRig, type PropBank } from './rig'
 import type { OfficeMessage } from './status'
@@ -17,6 +17,8 @@ const QUEUE_MAX = 8
 /** the desk top, a little in from the front edge, in front of a seat */
 const DESK_Y = 0.78
 const DESK_IN = 0.33
+/** look for the desk's surface (its keyboard, papers, …) from this height down: below the monitor and lamp heads */
+const PROBE_Y = 1.0
 
 type Phase = 'fold' | 'fly' | 'held' | 'landed'
 
@@ -40,9 +42,40 @@ export class PaperPlanes {
   /** handoffs flown so far (the debug panel shows it) */
   flown = 0
 
-  constructor(props: PropBank) {
+  private nodes: Record<string, Object3D>
+  /** node origin above the plane's underside (it rests on a surface at this height) */
+  private lift = 0
+  private rests = new Map<string, Vector3>()
+
+  constructor(props: PropBank, nodes: Record<string, Object3D> = {}) {
     this.props = props
+    this.nodes = nodes
     this.plane = props.find('plane')
+    if (this.plane) {
+      const node = this.plane.node
+      node.updateWorldMatrix(true, true)
+      this.lift = Math.max(0, node.getWorldPosition(new Vector3()).y - new Box3().setFromObject(node).min.y)
+    }
+  }
+
+  /**
+   * where the plane lies on the receiver's desk: in front of its seat, on top of whatever is there (usually the
+   * keyboard: a note left on it gets noticed). Only that desk's own meshes are probed, never an agent's hands.
+   */
+  restPoint(graph: NavGraph, agent: string, out = new Vector3()) {
+    const known = this.rests.get(agent)
+    if (known) return out.copy(known)
+    const p = PaperPlanes.deskPoint(graph, agent, new Vector3())
+    const desk = this.nodes[`desk_${agent.split('_')[1]}`]
+    let top = DESK_Y
+    if (desk) {
+      desk.updateWorldMatrix(true, true)
+      const hit = new Raycaster(new Vector3(p.x, PROBE_Y, p.z), new Vector3(0, -1, 0), 0, PROBE_Y).intersectObject(desk, true)[0]
+      if (hit) top = hit.point.y
+    }
+    p.y = top + this.lift
+    if (desk) this.rests.set(agent, p.clone())
+    return out.copy(p)
   }
 
   receive(m: OfficeMessage) {
@@ -115,7 +148,7 @@ export class PaperPlanes {
         break
       case 'fly': {
         // an arc from the release point to the receiver's hand (followed as it moves) or its desk
-        const end = f.toHand && receiver.visible ? this.inHand(receiver, this.p) : PaperPlanes.deskPoint(graph, f.to, this.p)
+        const end = f.toHand && receiver.visible ? this.inHand(receiver, this.p) : this.restPoint(graph, f.to, this.p)
         const k = Math.min(age / f.flyFor, 1)
         const span = f.start.distanceTo(end)
         const apex = 0.3 + span * 0.15
@@ -136,7 +169,7 @@ export class PaperPlanes {
         if (age >= HOLD_S) this.finish()
         break
       case 'landed':
-        PaperPlanes.deskPoint(graph, f.to, plane.node.position)
+        this.restPoint(graph, f.to, plane.node.position)
         plane.node.rotation.set(0, (graph.spots[`work_${f.to.split('_')[1]}`]?.ry ?? 0) + 0.4, 0)
         plane.node.visible = true
         if (age >= (reduced ? REDUCED_S : LAND_S)) this.finish()
@@ -147,7 +180,7 @@ export class PaperPlanes {
   private beginFlight(t: number, graph: NavGraph, rigs: Record<string, AgentRig>) {
     const f = this.flight!
     const receiver = rigs[f.to]
-    const end = f.toHand && receiver.visible ? this.inHand(receiver, this.p) : PaperPlanes.deskPoint(graph, f.to, this.p)
+    const end = f.toHand && receiver.visible ? this.inHand(receiver, this.p) : this.restPoint(graph, f.to, this.p)
     f.flyFor = Math.min(1.8, Math.max(0.9, f.start.distanceTo(end) / 2.2))
     f.phase = 'fly'
     f.since = t

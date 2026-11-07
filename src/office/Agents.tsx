@@ -56,7 +56,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
   // the LIVE desk props (#44): what each desk shows about its agent
   const desks = useMemo(() => new DeskLive(nodes), [nodes])
   // handoffs between agents fly as a paper plane (#51)
-  const planes = useMemo(() => (scene.userData.planes ??= new PaperPlanes(props)) as PaperPlanes, [scene, props])
+  const planes = useMemo(() => (scene.userData.planes ??= new PaperPlanes(props, nodes)) as PaperPlanes, [scene, props, nodes])
   world.planes = planes
   const reduced = useReducedMotion()
   world.rigs = rigs
