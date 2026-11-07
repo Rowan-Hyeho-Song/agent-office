@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { handle, parseDoc, toRow, type DocStore, type IngestConfig } from './ingest'
+import { fromTrustedAuthor, handle, parseDoc, toRow, type DocStore, type IngestConfig } from './ingest'
 import type { DocInput, DocRow } from './types'
 
 const raw = import.meta.glob('./fixtures/*.md', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
@@ -7,6 +7,8 @@ const fixture = (name: string) => raw[`./fixtures/${name}`]
 
 const REPO = 'Rowan-Hyeho-Song/agent-office'
 const cfg: IngestConfig = { token: 'secret-token', publicRepos: [REPO], banned: ['Acme Corp'] }
+const OWNER = { login: 'Rowan-Hyeho-Song', association: 'OWNER' }
+const by = (association: string) => ({ login: 'someone', association })
 
 const doc = (over: Partial<DocInput> = {}): DocInput => ({
   kind: 'minutes',
@@ -14,6 +16,7 @@ const doc = (over: Partial<DocInput> = {}): DocInput => ({
   folder: 17,
   title: '회의록: 사무실 이동·놀이',
   body: fixture('minutes-6709681788.md'),
+  author: OWNER,
   source: { kind: 'comment', url: `https://github.com/${REPO}/issues/17#issuecomment-6709681788` },
   created_at: '2026-11-08T01:00:00Z',
   updated_at: '2026-11-08T01:00:00Z',
@@ -62,7 +65,7 @@ describe('handle', () => {
     const m = memoryStore()
     const res = await handle(post({ docs: [doc()] }), m.store, cfg)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ ok: true, stored: 1, grades: ['public'] })
+    expect(await res.json()).toEqual({ ok: true, stored: 1, skipped: 0, grades: ['public'] })
     await handle(post({ docs: [doc({ updated_at: '2026-11-08T02:00:00Z' })] }), m.store, cfg)
     expect(m.rows.size).toBe(1)
     expect([...m.rows.values()][0].updated_at).toBe('2026-11-08T02:00:00Z')
@@ -129,7 +132,7 @@ describe('toRow', () => {
         title: '결정: 신호 통로',
         body: fixture('approval-6710239720.md'),
         source: { kind: 'comment', url: `https://github.com/${REPO}/issues/1#issuecomment-6710239720` },
-        meta: { request: fixture('approval-6710165774.md') },
+        meta: { request: fixture('approval-6710165774.md'), requestAuthor: OWNER },
       }),
       cfg,
     )
@@ -160,5 +163,46 @@ describe('toRow', () => {
       expect(r.grade, name).toBe('public')
       expect(r.body, name).toBe(body)
     }
+  })
+})
+
+describe('who may file, checked again on the server (#38)', () => {
+  const decision = (author: { login: string; association: string }, requestAuthor?: unknown) =>
+    doc({ kind: 'decision', body: fixture('approval-6710239720.md'), author, meta: { request: fixture('approval-6710165774.md'), requestAuthor } })
+
+  it.each([
+    ['OWNER', true, true],
+    ['COLLABORATOR', true, false],
+    ['MEMBER', false, false],
+    ['CONTRIBUTOR', false, false],
+    ['NONE', false, false],
+    ['owner', true, true], // case doesn't matter
+  ])('%s: documents %s, decisions %s', (association, docs, decisions) => {
+    expect(fromTrustedAuthor(doc({ author: by(association) }))).toBe(docs)
+    expect(fromTrustedAuthor(decision(by(association), OWNER))).toBe(decisions)
+  })
+
+  it("a decision needs the owner on the 🖊 request too", () => {
+    expect(fromTrustedAuthor(decision(OWNER, by('NONE')))).toBe(false)
+    expect(fromTrustedAuthor(decision(OWNER, undefined))).toBe(false)
+  })
+
+  it('a document without an author is refused as malformed', () => {
+    const { author: _drop, ...rest } = doc()
+    expect(parseDoc(rest)).toBeNull()
+    expect(parseDoc(doc({ author: { login: 'x' } as unknown as DocInput['author'] }))).toBeNull()
+  })
+
+  it("strangers' items are skipped (not stored), the rest of the batch still goes in", async () => {
+    const m = memoryStore()
+    const strangers = doc({ author: by('NONE'), source: { kind: 'comment', url: `https://github.com/${REPO}/issues/17#issuecomment-1` } })
+    const fake = decision(by('CONTRIBUTOR'), OWNER)
+    const res = await handle(post({ docs: [doc(), strangers, fake] }), m.store, cfg)
+    expect(await res.json()).toMatchObject({ ok: true, stored: 1, skipped: 2 })
+    expect([...m.rows.keys()]).toEqual([doc().source.url])
+  })
+
+  it('the trusted lists can be configured', () => {
+    expect(fromTrustedAuthor(doc({ author: by('MEMBER') }), { trusted: ['OWNER', 'MEMBER'] })).toBe(true)
   })
 })

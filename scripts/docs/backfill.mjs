@@ -8,7 +8,7 @@
 // asks for: files = issues.
 
 import { execFileSync } from 'node:child_process'
-import { docForComment, docForIssue, docForPull, github, send } from './build.mjs'
+import { commentKind, docForComment, docForIssue, docForPull, github, send, trusted } from './build.mjs'
 
 const repo = process.argv[2]
 const dry = process.argv.includes('--dry-run')
@@ -42,9 +42,17 @@ const docs = [
 
 const count = (k) => docs.filter((d) => d.kind === k).length
 const folders = new Set(docs.filter((d) => d.kind === 'plan').map((d) => d.folder))
+// items written by someone other than the owner / collaborators: skipped (#38), listed so it's visible
+const strangers = [
+  ...issues.filter((i) => !trusted(i)).map((i) => `issue #${i.number}`),
+  ...comments.filter((c) => commentKind(c.body) && !trusted(c)).map((c) => `comment ${c.html_url.split('/').pop()}`),
+  ...pulls.filter((p) => p.merged_at && !trusted(p)).map((p) => `PR #${p.number}`),
+]
+const ownIssues = issues.filter((i) => trusted(i)).length
 console.log(`${repo}: ${issues.length} issues, ${comments.length} comments, ${pulls.length} closed PRs`)
 console.log(`documents: plan ${count('plan')}, minutes ${count('minutes')}, decision ${count('decision')}, report ${count('report')}`)
-console.log(`files (folders with a plan) ${folders.size} = issues ${issues.length}: ${folders.size === issues.length ? 'ok' : 'MISMATCH'}`)
+console.log(`written by strangers (skipped): ${strangers.length}${strangers.length ? ` → ${strangers.join(', ')}` : ''}`)
+console.log(`files (folders with a plan) ${folders.size} = own issues ${ownIssues}: ${folders.size === ownIssues ? 'ok' : 'MISMATCH'}`)
 const strays = docs.filter((d) => d.kind !== 'plan' && !folders.has(d.folder))
 if (strays.length) console.log(`filed outside an issue (PRs without "Closes #n"): ${strays.map((d) => `${d.kind} #${d.folder}`).join(', ')}`)
 

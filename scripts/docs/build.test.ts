@@ -1,21 +1,71 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { commentKind, docForComment, docForIssue, docForPull, requestAnswered } from './build.mjs'
+import { commentKind, docForComment, docForIssue, docForPull, requestAnswered, trusted } from './build.mjs'
 
 const REPO = 'Rowan-Hyeho-Song/agent-office'
 const URL = `https://github.com/${REPO}`
 const FIX = join(__dirname, '../../src/docs/fixtures')
 const fixture = (name: string) => readFileSync(join(FIX, name), 'utf8')
 
-const issue = { number: 26, title: '에이전트 정체성', html_url: `${URL}/issues/26`, created_at: '2026-11-08T00:00:00Z', updated_at: '2026-11-08T01:00:00Z' }
+const OWNER = { author_association: 'OWNER', user: { login: 'Rowan-Hyeho-Song' } }
+const STRANGER = { author_association: 'NONE', user: { login: 'someone' } }
+const issue = { ...OWNER, number: 26, title: '에이전트 정체성', html_url: `${URL}/issues/26`, created_at: '2026-11-08T00:00:00Z', updated_at: '2026-11-08T01:00:00Z' }
 let t = 0
-const comment = (body: string) => {
+const comment = (body: string, who: object = OWNER) => {
   t++
-  return { body, html_url: `${URL}/issues/26#issuecomment-${t}`, created_at: `2026-11-08T02:${String(t).padStart(2, '0')}:00Z`, updated_at: `2026-11-08T02:${String(t).padStart(2, '0')}:00Z` }
+  return { ...who, body, html_url: `${URL}/issues/26#issuecomment-${t}`, created_at: `2026-11-08T02:${String(t).padStart(2, '0')}:00Z`, updated_at: `2026-11-08T02:${String(t).padStart(2, '0')}:00Z` }
 }
-const request = (kind: string) => comment(`### 🖊 결재 요청 (2026-11-08)\n**종류**: ${kind}\n**요청**: 기획\n**내용**: …`)
-const result = (r: string) => comment(`### ✅ 결재 (2026-11-08)\n**결과**: ${r}\n**의견**: …`)
+const request = (kind: string, who: object = OWNER) => comment(`### 🖊 결재 요청 (2026-11-08)\n**종류**: ${kind}\n**요청**: 기획\n**내용**: …`, who)
+const result = (r: string, who: object = OWNER) => comment(`### ✅ 결재 (2026-11-08)\n**결과**: ${r}\n**의견**: …`, who)
+
+describe('who may file (#38)', () => {
+  const as = (association: string) => ({ author_association: association, user: { login: 'x' } })
+  it.each([
+    ['OWNER', true, true],
+    ['COLLABORATOR', true, false],
+    ['MEMBER', false, false],
+    ['CONTRIBUTOR', false, false],
+    ['FIRST_TIME_CONTRIBUTOR', false, false],
+    ['NONE', false, false],
+  ])('%s: documents %s, approvals %s', (association, docs, approvals) => {
+    const who = as(association)
+    expect(docForIssue({ ...issue, ...who, body: 'b' }, REPO) !== null).toBe(docs)
+    expect(docForComment(comment(fixture('minutes-6709681788.md'), who), issue, REPO) !== null).toBe(docs)
+    expect(docForPull({ ...who, number: 9, html_url: `${URL}/pull/9`, created_at: 'x', merged_at: '2026-11-08T00:00:00Z', body: 'Closes #1' }, REPO) !== null).toBe(docs)
+    const q = request('결정 요청')
+    const r = result('선택지 1', who)
+    expect(docForComment(r, issue, REPO, [q, r]) !== null).toBe(approvals)
+  })
+
+  it('a missing association is a stranger', () => {
+    expect(trusted({})).toBe(false)
+    expect(docForIssue({ ...issue, author_association: undefined }, REPO)).toBeNull()
+  })
+
+  it("a stranger's fake ✅ makes no decision, and a stranger's 🖊 / ✅ can't shift the owner's pairing", () => {
+    const q1 = request('결정 요청')
+    const fakeRequest = request('산출물 확인', STRANGER)
+    const fakeResult = result('승인', STRANGER)
+    const r1 = result('선택지 2')
+    const all = [q1, fakeRequest, fakeResult, r1]
+    expect(docForComment(fakeResult, issue, REPO, all)).toBeNull()
+    // the owner's result still answers the owner's 결정 요청
+    const d = docForComment(r1, issue, REPO, all)
+    expect(d?.kind).toBe('decision')
+    expect(d!.meta).toMatchObject({ request: q1.body, requestAuthor: { association: 'OWNER' } })
+  })
+
+  it("a ✅ answering a stranger's 🖊 is not a decision", () => {
+    const fake = request('결정 요청', STRANGER)
+    const r = result('승인')
+    expect(docForComment(r, issue, REPO, [fake, r])).toBeNull()
+  })
+
+  it('documents carry their author for the server check', () => {
+    expect(docForIssue({ ...issue, body: '' }, REPO)!.author).toEqual({ login: 'Rowan-Hyeho-Song', association: 'OWNER' })
+  })
+})
 
 describe('commentKind', () => {
   it('recognizes every real fixture', () => {
@@ -58,7 +108,7 @@ describe('docForComment', () => {
     expect(results.map((r) => requestAnswered(r, all))).toEqual(reqs)
     const docs = results.map((r) => docForComment(r, issue, REPO, all))
     expect(docs.map((d) => d?.kind ?? null)).toEqual(['decision', 'decision', null])
-    expect(docs[0]!.meta).toEqual({ request: reqs[0].body })
+    expect(docs[0]!.meta).toEqual({ request: reqs[0].body, requestAuthor: { login: 'Rowan-Hyeho-Song', association: 'OWNER' } })
     expect(docs[0]!.title).toBe('결정: 에이전트 정체성')
   })
 
@@ -85,7 +135,7 @@ describe('docForComment', () => {
 })
 
 describe('docForPull', () => {
-  const pr = { number: 31, title: '사무실 이동·놀이', html_url: `${URL}/pull/31`, created_at: '2026-11-08T03:00:00Z', merged_at: '2026-11-08T04:00:00Z' }
+  const pr = { ...OWNER, number: 31, title: '사무실 이동·놀이', html_url: `${URL}/pull/31`, created_at: '2026-11-08T03:00:00Z', merged_at: '2026-11-08T04:00:00Z' }
   it('a merged PR is a report filed under the issue it closes', () => {
     expect(docForPull({ ...pr, body: '<!-- 대상 -->\n\nCloses #17\n\n## 무엇을, 왜' }, REPO)).toMatchObject({
       kind: 'report',
