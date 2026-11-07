@@ -19,6 +19,10 @@
   "include": [
     "vite.config.ts",
     "api",
-    "src/signal"
+    "src/signal",
+    "src/docs"
+  ],
+  "exclude": [
+    "**/*.test.ts"
   ]
 }
