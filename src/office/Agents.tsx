@@ -5,7 +5,7 @@ import { BufferGeometry, Color, Float32BufferAttribute, Line, LineBasicMaterial,
 import { buildGraph, patchSpots, type NavGraph } from './nav'
 import { checkNav, edgeKey } from './navcheck'
 import { meshesOf, useOffice } from './nodes'
-import { AgentRig, buildRig } from './rig'
+import { AgentRig, PropBank, buildRig } from './rig'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
 
 /**
@@ -42,9 +42,14 @@ export function Agents({ world }: { world: OfficeWorld }) {
     return buildGraph(patchSpots(spots, tryout))
   }, [world, spots])
   const rigs = useMemo(
-    () => Object.fromEntries(world.director.agents.map((id, i) => [id, new AgentRig(id, i, buildRig(scene, nodes, i))])),
+    () =>
+      Object.fromEntries(
+        world.director.agents.map((id, i) => [id, new AgentRig(id, i, buildRig(scene, nodes, i), AGENT_COLORS[id])]),
+      ),
     [world, scene, nodes],
   )
+  // the props agents pick up while playing (#20, #27); once per loaded scene
+  const props = useMemo(() => (scene.userData.props ??= new PropBank(scene, nodes)) as PropBank, [scene, nodes])
   const reduced = useReducedMotion()
   world.rigs = rigs
   world.graph = graph
@@ -53,10 +58,13 @@ export function Agents({ world }: { world: OfficeWorld }) {
 
   useFrame((state, dt) => {
     const now = officeNow(world)
-    const goals = world.director.goals(now, Math.floor(now / 60000), world.source.getSnapshot(), (a) => rigs[a].arrived)
+    const status = world.source.getSnapshot()
+    const goals = world.director.goals(now, Math.floor(now / 60000), status, (a) => rigs[a].arrived)
     world.goals = goals
     for (const id in rigs) rigs[id].setGoal(goals[id], graph)
-    for (const id in rigs) rigs[id].update(dt, state.clock.elapsedTime, graph, rigs, reduced)
+    for (const id in rigs) rigs[id].update(dt, state.clock.elapsedTime, graph, rigs, reduced, status[id])
+    props.hold(new Map(Object.values(rigs).map((r) => [r, r.want])))
+    props.update(Math.min(dt, 0.1))
   })
 
   return (
@@ -75,7 +83,7 @@ function Bubble({ world, rig }: { world: OfficeWorld; rig: AgentRig }) {
   const box = useRef<HTMLDivElement>(null)
   useFrame(() => {
     const text = world.goals[rig.id]?.bubble
-    anchor.current?.position.set(rig.group.position.x, rig.group.position.y + 1.42, rig.group.position.z)
+    anchor.current?.position.set(rig.group.position.x, rig.parts.head.position.y + 0.55, rig.group.position.z)
     const el = box.current
     if (!el) return
     el.style.display = text && !rig.hidden ? 'block' : 'none'

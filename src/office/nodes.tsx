@@ -118,12 +118,14 @@ function prepare(scene: Object3D, atlases: Texture[]): OfficeNodes {
   const top = scene.children.filter((o) => o.userData.atlas || o.userData.live)
   for (const node of top) {
     const { atlas, live } = node.userData as { atlas?: string; live?: string }
-    rebase(node, live === 'bot')
+    // agents and the props they hold (#20, #27) move, so they keep their PBR material and real-time light
+    const lit = live === 'bot' || live === 'prop'
+    rebase(node, lit)
     for (const o of meshesOf(node)) {
       const src = o.material as MeshStandardMaterial
       let material: Material = src
-      if (live === 'bot') {
-        // keep the exported PBR material: agents take the scene's real-time lights
+      if (lit) {
+        // keep the exported PBR material: agents and props take the scene's real-time lights
       } else if (atlas) {
         material = new MeshBasicMaterial({ map: byName[atlas] })
       } else if (live) {

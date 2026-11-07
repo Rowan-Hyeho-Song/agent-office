@@ -120,3 +120,38 @@ describe('playAt stability under busy', () => {
     expect(seen).toBeGreaterThan(0)
   })
 })
+
+describe('likes (#28)', () => {
+  const agents = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
+  // over many blocks, who plays what
+  const tally = () => {
+    const t: Record<string, Record<string, number>> = {}
+    for (let b = 0; b < 3000; b++) {
+      const out = playAt(b * BLOCK_MINUTES, agents)
+      for (const [a, p] of Object.entries(out)) {
+        t[a] ??= {}
+        t[a][p.kind] = (t[a][p.kind] ?? 0) + 1
+      }
+    }
+    return t
+  }
+  const t = tally()
+  const share = (a: string, k: string) => (t[a][k] ?? 0) / 3000
+
+  it('the coder plays ping-pong the most', () => {
+    for (const other of ['agent_0', 'agent_1', 'agent_2']) expect(share('agent_3', 'pingpong')).toBeGreaterThan(share(other, 'pingpong'))
+  })
+  it('the planner and the 3D agent play board games more than ping-pong, and more than the others do', () => {
+    for (const a of ['agent_0', 'agent_1']) {
+      expect(share(a, 'boardgame')).toBeGreaterThan(share(a, 'pingpong'))
+      expect(share(a, 'boardgame')).toBeGreaterThan(share('agent_3', 'boardgame'))
+    }
+  })
+  it('they are bad at ping-pong, not banned from it', () => {
+    expect(share('agent_0', 'pingpong')).toBeGreaterThan(0)
+    expect(share('agent_1', 'pingpong')).toBeGreaterThan(0)
+  })
+  it('likes are the same for every visitor (same minute, same answer)', () => {
+    expect(playAt(12345, agents)).toEqual(playAt(12345, [...agents].reverse()))
+  })
+})
