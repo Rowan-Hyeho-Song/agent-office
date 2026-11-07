@@ -26,6 +26,9 @@ export interface DeskProps {
   inbox: number
   /** desk_0_out: sheets in the OUT tray, 0..5 = work handed out today */
   outbox: number
+  /** more than 5: a small amber '+' tab on top of that pile (#59) */
+  inboxMore: boolean
+  outboxMore: boolean
   /** screen_cal_0: today's date on the desk calendar (the visitor's clock) */
   calendar: { year: number; month: number; day: number; weekday: string }
   /** desk_0_hourglass: sand runs while the planner waits for an approval */
@@ -74,6 +77,8 @@ export function deskProps(i: PropsInput): DeskProps {
   return {
     inbox: sheets(i.pending),
     outbox: sheets(i.handoffsToday),
+    inboxMore: i.pending > MAX_SHEETS,
+    outboxMore: i.handoffsToday > MAX_SHEETS,
     calendar: { year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate(), weekday: WEEKDAYS[date.getDay()] },
     hourglass: i.waitingSeats.includes(0),
     stamp: i.decidedAt !== null && i.now - i.decidedAt >= 0 && i.now - i.decidedAt < STAMP_MS,
