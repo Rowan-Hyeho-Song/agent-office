@@ -425,6 +425,8 @@ const HOLD_CURL = { index: 1.2, fingers: 1.35, thumb: 0.8 }
  * other three fingers only half bend so they don't cover what's held. Angles from a search over the hand parts.
  */
 const PINCH_CURL: HandShape = { index: 2.38, fingers: 0.8, thumb: 1.72, iz: -0.4, tz: -0.3 }
+/** how far the hand holding a caught plane moves out from the head's centre line, m (designer, #62) */
+const CAUGHT_OUT = 0.055
 /** named hand shapes, for anything that holds something (the plane's catch; later 휴's dropper, 메시's vertex pick) */
 export const HAND_SHAPES = { rest: REST_CURL, hold: HOLD_CURL, pinch: PINCH_CURL } as const satisfies Record<string, HandShape>
 /** how long the paper plane's gestures last, seconds (#51) */
@@ -743,8 +745,11 @@ export class AgentRig {
       const k = MathUtils.clamp(1 - (g.until - t) / GESTURE_S.throw, 0, 1) // 0 → 1 over the gesture
       return at(0.2, 1.05 + sit + Math.sin(k * Math.PI) * 0.2, -0.15 - k * 0.35, NONE, HOLD_CURL)
     }
-    if (g?.kind === 'catch' && (side === 'r' || !g.oneHand))
-      return at(sx * 0.16, 1.32 + sit, -0.32, NONE, side === 'r' && g.caught ? PINCH_CURL : { index: 0.1, fingers: 0.3, thumb: 0.2 })
+    if (g?.kind === 'catch' && (side === 'r' || !g.oneHand)) {
+      // once caught, the pinching hand moves out a little so it doesn't cover the face screen (its reaction shows)
+      const caught = side === 'r' && g.caught
+      return at(sx * (0.16 + (caught ? CAUGHT_OUT : 0)), 1.32 + sit, -0.32, NONE, caught ? PINCH_CURL : { index: 0.1, fingers: 0.3, thumb: 0.2 })
+    }
     switch (pose) {
       case 'move':
         return at(rest.x, rest.y - 0.03, rest.z + 0.08)

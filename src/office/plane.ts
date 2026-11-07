@@ -4,7 +4,7 @@
 // isn't in (gone home), it glides down onto the receiver's desk. Then the plane goes back home onto the planner's
 // tray. With reduced motion it just appears on the receiver's desk for a moment.
 
-import { Box3, MathUtils, Matrix4, Quaternion, Raycaster, Vector3, type Mesh, type Object3D } from 'three'
+import { Box3, MathUtils, Matrix4, MeshStandardMaterial, Quaternion, Raycaster, Vector3, type Mesh, type Object3D } from 'three'
 import type { NavGraph } from './nav'
 import { GESTURE_S, type AgentRig, type PropBank } from './rig'
 import type { OfficeMessage } from './status'
@@ -19,6 +19,8 @@ const HOLD_S = 1.2
 const PINCH_FROM_TAIL = 0.15
 const NOSE_UP = MathUtils.degToRad(30)
 const WOBBLE = { s: 0.2, deg: 8 }
+/** the plane's own warm glow, as a fraction of its colour */
+const PAPER_GLOW = 0.25
 const LAND_S = 3
 const REDUCED_S = 2.5
 const QUEUE_MAX = 8
@@ -64,6 +66,15 @@ export class PaperPlanes {
       node.updateWorldMatrix(true, true)
       this.lift = Math.max(0, node.getWorldPosition(new Vector3()).y - new Box3().setFromObject(node).min.y)
       this.pinchLocal = PaperPlanes.pinchSpot(node)
+      // under the room's cool light the sticky-note yellow (#ffe27a) turns olive: a faint warm glow of its own keeps
+      // it a yellow paper plane, in flight too (designer, #62; same as the tray's paper, #59). A copy per mesh.
+      node.traverse((o) => {
+        const mesh = o as Mesh
+        if (!(mesh.material instanceof MeshStandardMaterial)) return
+        const m = mesh.material.clone()
+        m.emissive.copy(m.color).multiplyScalar(PAPER_GLOW)
+        mesh.material = m
+      })
     }
   }
 
