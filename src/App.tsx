@@ -2,6 +2,7 @@ import { OrbitControls } from '@react-three/drei'
 import { Canvas } from '@react-three/fiber'
 import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing'
 import { Suspense, useEffect, useState } from 'react'
+import { AgentList } from './office/AgentList'
 import { DebugPanel } from './office/DebugPanel'
 import { Office } from './office/Office'
 import { createWorld } from './office/world'
@@ -16,7 +17,7 @@ export function App() {
   const [{ world, top }] = useState(() => {
     const q = new URLSearchParams(location.search)
     const debug = q.has('debug')
-    return { world: createWorld(debug), top: debug && q.get('view') === 'top' }
+    return { world: createWorld(debug, q), top: debug && q.get('view') === 'top' }
   })
   useEffect(() => {
     // debug only: lets screenshot scripts read the nav check and drive the fake source
@@ -56,6 +57,7 @@ export function App() {
       <p className="hud">
         <b>AGENT OFFICE</b> · 드래그해서 돌려 보기
       </p>
+      <AgentList world={world} />
       {world.debug && <DebugPanel world={world} />}
     </>
   )
