@@ -2,6 +2,7 @@
 
 > 시안: [docs-ui.html](docs-ui.html) (브라우저로 열기) · 토큰: [`src/styles/tokens.css`](../../src/styles/tokens.css) (`--approval-*`, `--paper*`, `--manila*`, `--secret-*`, `--stamp-red`, `--surface-raised` 추가)
 > 2026-11-08 · 그래픽 디자이너 세션. 1절(결재함)은 첫 번째 결재 요청, 2·3절(문서 뷰어·화이트보드)은 두 번째 결재 요청.
+> **확정 2026-11-08**: 두 결재 모두 승인([#45 ✅ 결재](https://github.com/Rowan-Hyeho-Song/agent-office/issues/45#issuecomment-6714656244)). 구현은 코더 #64 결재함 · #65 문서 뷰어 · #66 화이트보드, Blender #67 결재함 서류함 · 서재 파일철 · SECRET 책.
 
 ## 1. 결재함
 
