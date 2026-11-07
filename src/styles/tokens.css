@@ -126,6 +126,17 @@
   --secret-ink: #1f1b14; /* 검게 지운 줄 */
   --secret-stamp: #b3261e; /* 표지 위 SECRET 도장. 큰 글자(굵게 24px 이상)로만, 3.5:1 */
 
+  /* ── 화이트보드 (#45, surface_whiteboard 1.5 × 1.0 m, 캔버스) ──
+     캔버스 1536 × 1024(1024 px/m), 투명 바탕: 구운 흰 보드 음영이 비치게 카드·메모지·마커만 그린다 */
+  --board-white: #f4f4f0; /* 모델의 보드 색(시안 바탕용) */
+  --board-frame: #9aa0a8;
+  --board-marker: #1f2a44; /* 마커 글씨 12.9:1 */
+  --board-card: #fbf8f1; /* 카드 종이 */
+  --board-card-ink: #1f1b14; /* 카드 위 16.2:1, 메모지 위 13.4:1 */
+  --board-note: #ffe27a; /* 결정 메모지 */
+  --board-fs-l: 48; /* 칸 제목·카드 제목: 1/4 거리에서 12px */
+  --board-fs-s: 24; /* #번호·에이전트 이름: 가까이서만 */
+
   /* ── 움직임 ── 시간은 ms(단위 없음은 JS용) */
   --dur-instant: 80ms;
   --dur-fast: 160ms;
