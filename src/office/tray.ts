@@ -8,9 +8,13 @@ import { BufferAttribute, CanvasTexture, DoubleSide, Mesh, MeshBasicMaterial, Pl
 
 /** drawn thickness of one sheet, m (#59: about 0.8 cm) */
 export const SHEET_H = 0.008
-/** the top sheet: turned and nudged so the pile doesn't look like a block */
-const TOP_TURN = 0.12
-const TOP_NUDGE = { x: 0.006, z: 0.004 }
+/**
+ * the top sheet: turned and nudged so the pile doesn't look like a block. The tray leaves ~5 mm either side of a
+ * sheet (wider turns poke through its side walls), and the sheets sit against its front rail, so the offset goes
+ * back, where there is room.
+ */
+const TOP_TURN = 0.035
+const TOP_NUDGE = { x: 0, z: -0.01 }
 /**
  * the '+' tab: a flag standing on the top sheet near its front-right corner, leaning toward the room. Its height
  * stays under the tier above (about 3 cm over a full pile): 0.03 × sin 55° ≈ 2.5 cm.
