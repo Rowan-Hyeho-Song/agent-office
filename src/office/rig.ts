@@ -113,6 +113,23 @@ export const FLOOR_POOL = { opacity: 0.45 }
  * (the cone has no UVs; its pivot is at the top, the model spans 0 → −BEAM_H), so however far the rig stretches
  * or cuts it, the fade keeps its proportions.
  */
+/**
+ * The hover ring and the wrist cuffs (#54): bright, but still the agent's own color. The live default
+ * (emissive × 2.6, not tone mapped) pushes lavender past 1 in every channel and it washes out to white, and the
+ * cuff's color is how you tell whose hand it is. So: color × min(1.2, 1 / its largest channel).
+ */
+function keepHue(node: Object3D | undefined) {
+  node?.traverse((o) => {
+    const mesh = o as Mesh
+    const base = mesh.userData.baseColor as Color | undefined
+    if (!mesh.isMesh || !base || mesh.userData.hueKept) return
+    mesh.userData.hueKept = true
+    const c = base.clone().multiplyScalar(1 / GLOW.neon) // back to the agent's color
+    const top = Math.max(c.r, c.g, c.b, 1e-6)
+    ;(mesh.material as MeshBasicMaterial).color.copy(c.multiplyScalar(Math.min(1.2, 1 / top)))
+  })
+}
+
 function fadeBeam(mesh: Mesh) {
   const m = mesh.material as MeshBasicMaterial
   if (m.userData.faded) return
@@ -183,6 +200,9 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
     m.blending = AdditiveBlending
     m.opacity = FLOOR_POOL.opacity
   }
+  keepHue(n('_glow'))
+  keepHue(n('_hand_l_cuff'))
+  keepHue(n('_hand_r_cuff'))
   const beam = n('_beam')
   beam?.traverse((o) => {
     if ((o as Mesh).isMesh) fadeBeam(o as Mesh)
