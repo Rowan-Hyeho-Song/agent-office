@@ -7,10 +7,11 @@ BLENDER="${BLENDER:-blender}"
 OUT="$PWD/out/office"
 "$BLENDER" --background --factory-startup --python office_bake.py -- "$OUT" "$@" | grep -E "cycles device|baked|saved|denoise|Error|DONE"
 # --prune-attributes false keeps TEXCOORD_0: the glb has no textures (the app binds the atlases),
-# so the default prune would drop the UVs as "unused".
+# so the default prune would drop the UVs as "unused". --flatten false --prune false keep the empty nodes
+# (nav_* waypoints, surface_* slots): flattening dropped them; the nodes are already flat in the export.
 pnpm dlx @gltf-transform/cli@4 optimize "$OUT/office.glb" "$OUT/office.opt.glb" \
   --compress meshopt --simplify false --instance false --join false --palette false --texture-compress false \
-  --prune-attributes false
+  --prune-attributes false --flatten false --prune false
 mkdir -p ../../public/models
 cp "$OUT/office.opt.glb" ../../public/models/office.glb
 cp "$OUT"/{room,work,wall_items,lounge}.webp ../../public/models/

@@ -12,7 +12,9 @@ Node contract (the app reads glTF extras):
   room, work, wall_items, lounge   baked, one atlas each -> MeshBasicMaterial + atlas
   agent_<i>[_head|_arm_l|_arm_r]   live "bot": real-time lit parts with pivots (they hover and glide)
   agent_<i>_glow                   live: the hover pod light ring
-  agent_<i>_face, *_tip, screen_<i>, neon_desk_<i>, door_screen, lamp_shade   live emitters (glow, state)
+  agent_<i>_face, *_tip, neon_desk_<i>, lamp_shade   live emitters (glow, state)
+  screen_work_<i>, screen_door     live "screen" slots the app draws (extras screen, aspect, w, h, ppm); shipped off
+  surface_whiteboard|bulletin      empties at the board faces where the app pins cards / notes (extras w, h, normal)
   nav_<id>                         empties: where agents go and which way they face (navigation)
 Agents are placeholders until their roster is decided (#5): four seats, four colors.
 """
@@ -47,6 +49,18 @@ SHELF_X = 2.85
 def frame(at):
     x, z, ry = at
     return Mx((x, 0, z), ry=ry)
+
+
+PPM = 1024  # suggested canvas resolution for screen slots, pixels per meter (monitor ≈ 584 × 338)
+
+
+def slot(o, w, h):
+    """a screen the app draws (canvas texture): UV fills 0..1 (v = 1 at the top), extras say so"""
+    o["screen"] = True
+    o["aspect"] = round(w / h, 4)
+    o["w"], o["h"] = w, h
+    o["ppm"] = PPM
+    return o
 
 
 # ================================================================ ROOM SHELL (atlas: room)
@@ -150,9 +164,9 @@ def build_desk(i, agent):
     # no chair: agents hover at their desk. A floor pad in the agent's color marks the spot instead.
     pad = rounded_slab("pad", 0.62, 0.006, 0.5, 0.12, (0, 0.003, 0), plastic(agent["color"], 0.9, 0, 0.6, f"pad_{i}"), G)
     pad = join(f"pad_{i}", place([pad], F @ Mx((0, 0, WORK_Z))))
-    # live parts: the screen and a neon strip under the desk's front edge
-    scr = quad(f"screen_{i}", 0.57, 0.33, screen_mat(f"screen_glow_{i}", agent["color"], 0.9), "export")
-    screen = apply_all(place(scr, F @ Mx((0, h + 0.36, -0.178)))[0])
+    # live parts: the screen slot and a neon strip under the desk's front edge
+    scr = quad(f"screen_work_{i}", 0.57, 0.33, screen_mat(f"screen_glow_{i}", agent["color"], 0.45), "export")
+    screen = slot(apply_all(place(scr, F @ Mx((0, h + 0.36, -0.178)))[0]), 0.57, 0.33)
     strip = box(f"neon_desk_{i}", (w - 0.04, 0.006, 0.006), (0, 0, 0), emitter(agent["color"], 3.0, f"neon_desk_{i}"), "export")
     neon = apply_all(place(strip, F @ Mx((0, h - 0.04, d / 2 - 0.004)))[0])
     return [desk, pad], [screen, neon]
@@ -168,22 +182,12 @@ def build_wall_items():
     p = [box("wb_frame", (1.56, 1.06, 0.03), (0.35, 1.5, z), frame_m, G, bev=0.006),
          box("wb", (1.5, 1.0, 0.02), (0.35, 1.5, z + 0.01), board, G),
          box("wb_tray", (1.3, 0.025, 0.06), (0.35, 0.985, z + 0.03), frame_m, G)]
-    card_cols = ["#ffd166", "#9be7ff", "#ff9ecf", "#b8f2a1", "#ffffff"]
-    for r in range(3):
-        for c in range(5):
-            if RNG.random() < 0.25:
-                continue
-            p.append(box("card", (0.2, 0.14, 0.004), (0.35 - 0.6 + c * 0.3 + RNG.uniform(-0.02, 0.02), 1.82 - r * 0.24, z + 0.022),
-                         plastic(RNG.choice(card_cols), 0.8, 0, 0.1, "card"), G, rot_y=0))
+    # the cards and the visitor notes are the app's (surface_whiteboard / surface_bulletin): the boards stay empty
     for k, col in enumerate(("#1f6feb", "#d64545", "#111111")):
         p.append(cyl("marker", 0.008, 0.12, (0.0 + k * 0.05, 1.0, z + 0.04), plastic(col, 0.4, 0, 0, f"marker_{k}"), G, 10, axis="x"))
     # bulletin board for visitor notes
     p += [box("cork_frame", (0.86, 0.96, 0.03), (1.75, 1.45, z), plastic("#5a3d26", 0.6, 0, 0.3, "cork_frame"), G, bev=0.006),
           box("cork", (0.8, 0.9, 0.02), (1.75, 1.45, z + 0.01), cork, G)]
-    for _ in range(9):
-        x, y = 1.75 + RNG.uniform(-0.3, 0.3), 1.45 + RNG.uniform(-0.35, 0.35)
-        p += [box("note", (0.12, 0.12, 0.003), (x, y, z + 0.022), plastic(RNG.choice(card_cols), 0.9, 0, 0.1, "note"), G),
-              sphere("pin", 0.008, (x, y + 0.045, z + 0.028), plastic(RNG.choice(("#d64545", "#1f6feb", "#2bb673")), 0.3, 0, 0, "pin"), G, seg=8, rings=5)]
     # bookshelf (the library): 5 shelves of books and binders
     sw, sh, sd = 1.1, 2.1, 0.34
     shelf_m = plastic("#6b4a30", 0.6, 0, 0.4, "shelf_wood")
@@ -310,8 +314,8 @@ def build_door():
         p.append(cyl("knob", 0.03, 0.03, (dx, -0.98, 0.07), plastic("#2a2c31", 0.4, 0.6, 0, "knob"), G, 16, axis="z"))
     M = Mx((x + 0.06, 1.12, DOOR_Z), ry=math.pi / 2)
     door = join("door", place(p, M))
-    scr = quad("door_screen", 0.8, 1.78, screen_mat("door_glow", "#ffb347", 0.7), "export")
-    screen = apply_all(place(scr, M @ Mx((0, 0.02, 0.072)))[0])
+    scr = quad("screen_door", 0.8, 1.78, screen_mat("door_glow", "#ffb347", 0.45), "export")
+    screen = slot(apply_all(place(scr, M @ Mx((0, 0.02, 0.072)))[0]), 0.8, 1.78)
     return door, screen
 
 
@@ -337,9 +341,14 @@ SPAWN = [  # where each agent hovers in the exported (idle) pose: ping-pong, cof
 
 def build_agent(i, agent):
     G = "bot"
-    shell = plastic("#e6e2d8", 0.45, 0, 0.15, "bot_shell")
-    joint = plastic("#2a2c31", 0.4, 0.6, 0.05, "bot_joint")
-    accent = plastic(agent["color"], 0.5, 0, 0.1, f"bot_accent_{i}")
+    # tuned for the app's real-time light (they read too dark at first): a brighter, smoother shell, lighter
+    # joints, and the color band glowing faintly so an agent still reads with the office lights off
+    shell = plastic("#f6f3ec", 0.32, 0, 0.08, "bot_shell")
+    joint = plastic("#4a505c", 0.35, 0.35, 0.05, "bot_joint")
+    accent = plastic(agent["color"], 0.4, 0, 0.05, f"bot_accent_{i}")
+    ab = accent.node_tree.nodes["Principled BSDF"]
+    ab.inputs["Emission Color"].default_value = rgba(agent["color"])
+    ab.inputs["Emission Strength"].default_value = 0.35
     x, z, ry = SPAWN[i]
     root = Mx((x, 0, z), ry=ry)  # floor under the hip, facing local -z
     parts = []
@@ -355,9 +364,12 @@ def build_agent(i, agent):
                         cyl("waist", 0.12, 0.05, (0, -0.005, 0), joint, G, 24),
                         cyl("pod", 0.15, 0.16, (0, -0.11, 0), shell, G, 32, r2=0.1, bev=0.01),
                         cyl("pod_skirt", 0.105, 0.04, (0, -0.205, 0), joint, G, 32, r2=0.08)], (0, HIP_Y, 0))
-    ring = torus(f"agent_{i}_glow", 0.08, 0.012, (0, -0.225, 0), emitter(agent["color"], 4.0, f"glow_{i}"), "export", seg=32, rseg=8)
+    # pod light: a ring round the skirt's lower edge (reads from the side and from above) and a disc under it
+    glow_m = emitter(agent["color"], 6.0, f"glow_{i}")
     hip = root @ Mx((0, HIP_Y, 0))
-    parts_live = [pivot(apply_all(place(ring, hip)[0]), hip)]
+    glow = join(f"agent_{i}_glow", place([torus("pod_ring", 0.097, 0.017, (0, -0.212, 0), glow_m, "export", seg=40, rseg=8),
+                                          cyl("pod_disc", 0.082, 0.006, (0, -0.227, 0), glow_m, "export", 32)], hip))
+    parts_live = [pivot(glow, hip)]
     part(f"agent_{i}_head", [rounded_slab("head", 0.32, 0.24, 0.26, 0.07, (0, 0.13, 0), shell, G, edge=0.02),
                              cyl("neck", 0.04, 0.05, (0, 0.0, 0), joint, G, 12),
                              panel("face_bezel", 0.26, 0.17, 0.01, 0.04, (0, 0.13, -0.132),
@@ -392,6 +404,24 @@ def nav(name, x, z, ry, kind):
     o["ry"] = round(ry, 4)
     NODES.append({"obj": o, "nav": kind})
     return o
+
+
+def surface(name, center, w, h):
+    """where the app pins things (cards, visitor notes): an empty at the board's front face, facing web +z"""
+    o = bpy.data.objects.new(f"surface_{name}", None)
+    coll("export").objects.link(o)
+    o.matrix_world = Mx(center)
+    o["surface"] = name
+    o["w"], o["h"] = w, h
+    o["normal"] = [0, 0, 1]
+    NODES.append({"obj": o, "surface": name})
+    return o
+
+
+def build_surfaces():
+    z = -HZ + 0.02 + 0.021  # just in front of the board faces (board front at z + 0.02)
+    surface("whiteboard", (0.35, 1.5, z), 1.5, 1.0)
+    surface("bulletin", (1.75, 1.45, z), 0.8, 0.9)
 
 
 def facing(fx, fz, tx, tz):
@@ -454,7 +484,7 @@ room = build_room()
 door, door_screen = build_door()
 baked(room, "room", density=0.9)
 baked(door, "room")
-live(door_screen, "door")
+live(door_screen, "screen")
 work = []
 for i, a in enumerate(AGENTS):
     statics, lives = build_desk(i, a)
@@ -475,6 +505,7 @@ for i, a in enumerate(AGENTS):
     live(lives[1], "neon")
     live(lives[2], "neon")
 build_nav()
+build_surfaces()
 build_lights(lamp_pos)
 
 if PREVIEW:
@@ -557,6 +588,12 @@ for n in NODES:
     if "atlas" in n:
         n["obj"].data.materials.clear()
         n["obj"].data.materials.append(plain)
+# screen slots lit the bake softly (monitor light on the desks); they ship switched off: the app draws them
+screen_off = plastic("#07080a", 0.18, 0, 0.0, "screen_off")
+for n in NODES:
+    if n["obj"].get("screen"):
+        n["obj"].data.materials.clear()
+        n["obj"].data.materials.append(screen_off)
 bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUT, "office.blend"))
 bpy.ops.object.select_all(action="DESELECT")
 for n in NODES:
