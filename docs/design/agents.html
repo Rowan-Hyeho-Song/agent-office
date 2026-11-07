@@ -490,6 +490,45 @@ function demoState(id, t, dt) {
 function buildDemos() {
   document.getElementById('anims').innerHTML = DEMOS.map((d) => `<figure class="panel"><div id="demo-${d.id}"></div><figcaption>${d.title}</figcaption></figure>`).join('')
 }
+
+/* ── 종이비행기: 짧은 일 넘기기(메시지·이슈 배정). 메모가 포스트잇을 접어 던지고 루프가 한 손으로 받음 ──
+   한 바퀴 3.2초: 0~0.25 접어 들고 뒤로 / 0.25~0.7 날아감(포물선) / 0.55~ 받는 손 올라옴 / 0.7~ 받아 쥠 */
+const PLANE = { W: 2.8, H: 1.62, s: 200, from: 0.7, to: 2.1 }
+function planeFrame(t) {
+  const red = isReduced()
+  const p = red ? 0.5 : (t % 3.2) / 3.2
+  const ease = (x) => x * x * (3 - 2 * x)
+  const clamp = (x) => Math.max(0, Math.min(1, x))
+  // 메모 오른손: 들어 올렸다가 앞으로 튕김
+  const wind = clamp(p / 0.25), flick = clamp((p - 0.25) / 0.1)
+  const mR = { x: REST.x + 0.02 * wind + 0.12 * flick, y: REST.y + 0.2 * ease(wind) - 0.06 * flick, pose: p < 0.25 ? 'grip' : 'open', rot: -20 - 40 * wind + 60 * flick }
+  // 루프 왼손: 받으려고 듦
+  const lift = ease(clamp((p - 0.5) / 0.2))
+  const lL = { x: -REST.x + 0.04 * lift, y: REST.y + 0.28 * lift, pose: p > 0.7 ? 'grip' : lift > 0.1 ? 'open' : 'rest', rot: 12 - 20 * lift }
+  const memo = agentSVG('plan', 'front', PLANE.s, { W: 1.4, H: PLANE.H, state: { hy: HEAD.y, tilt: -3 * wind, R: mR } })
+  const loop = agentSVG('code', 'front', PLANE.s, { W: 1.4, H: PLANE.H, state: { hy: HEAD.y, tilt: 4 * lift, L: lL } })
+  // 비행 경로(미터, 바닥 원점): 메모 손 → 루프 손
+  const a = { x: PLANE.from + mR.x, y: REST.y + 0.2 }, b = { x: PLANE.to + lL.x, y: REST.y + 0.3 }, c = { x: (a.x + b.x) / 2, y: 1.55 }
+  const X = (x) => x * PLANE.s, Y = (y) => (PLANE.H - 0.02 - y) * PLANE.s
+  const f = red ? 0.55 : clamp((p - 0.25) / 0.45)
+  const q = (u) => ({ x: (1 - u) ** 2 * a.x + 2 * (1 - u) * u * c.x + u * u * b.x, y: (1 - u) ** 2 * a.y + 2 * (1 - u) * u * c.y + u * u * b.y })
+  const pos = p > 0.7 && !red ? { x: PLANE.to + lL.x, y: REST.y + 0.28 * lift + 0.08 } : q(f), nxt = q(Math.min(1, f + 0.02))
+  const ang = (Math.atan2(-(nxt.y - pos.y), nxt.x - pos.x) * 180) / Math.PI
+  const showPlane = red || p > 0.25
+  const paper = css('--paper-1'), edge = css('--paper-2')
+  const overlay = `<svg viewBox="0 0 ${PLANE.W * PLANE.s} ${PLANE.H * PLANE.s}" style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true">
+    <path d="M ${X(a.x)} ${Y(a.y)} Q ${X(c.x)} ${Y(c.y)} ${X(b.x)} ${Y(b.y)}" fill="none" stroke="${css('--agent-0')}" stroke-width="1.5" stroke-dasharray="3 6" opacity="0.6"/>
+    ${showPlane ? `<g transform="translate(${X(pos.x)} ${Y(pos.y)}) rotate(${ang})"><polygon points="16,0 -12,-9 -6,0 -12,9" fill="${paper}"/><polygon points="16,0 -6,0 -12,9" fill="${edge}"/></g>` : ''}
+  </svg>`
+  return `<div style="position:relative;display:flex">${memo}${loop}${overlay}</div>`
+}
+function buildPlane() {
+  const fig = document.createElement('figure')
+  fig.className = 'panel'
+  fig.innerHTML = '<div id="demo-plane"></div><figcaption>일 넘기기 · 종이비행기: 메모가 포스트잇을 접어 던지고, 루프가 한 손을 들어 받는다 (회의록은 대면 회의 재연)</figcaption>'
+  fig.style.marginTop = 'var(--space-4)'
+  document.getElementById('anims').after(fig)
+}
 let last = performance.now()
 function loop(now) {
   requestAnimationFrame(loop)
@@ -497,13 +536,14 @@ function loop(now) {
   if (dt < 1 / 30) return
   last = now
   for (const d of DEMOS) document.getElementById('demo-' + d.id).innerHTML = agentSVG(d.role, d.view, 230, { W: 1.4, H: 1.62, state: demoState(d.id, now / 1000, Math.min(dt, 0.05)), desk: d.desk })
+  document.getElementById('demo-plane').innerHTML = planeFrame(now / 1000)
 }
 
 const motionBtn = document.getElementById('motion')
 const sync = () => motionBtn.setAttribute('aria-pressed', String(isReduced()))
 motionBtn.addEventListener('click', () => { document.documentElement.dataset.motion = isReduced() ? 'full' : 'reduce'; sync(); render() })
 const q = new URLSearchParams(location.search).get('motion'); if (q) document.documentElement.dataset.motion = q
-document.fonts.load('12px Galmuri11').finally(() => { sync(); render(); buildDemos(); requestAnimationFrame(loop) })
+document.fonts.load("12px Galmuri11").finally(() => { sync(); render(); buildDemos(); buildPlane(); requestAnimationFrame(loop) })
 </script>
 </body>
 </html>
