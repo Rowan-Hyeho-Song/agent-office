@@ -55,6 +55,9 @@ export interface Hand {
   index: Object3D | undefined
   fingers: Object3D | undefined
   thumb: Object3D | undefined
+  /** the index and thumb tips in their own part's frame (the vertex farthest from the pivot), for the pinch */
+  indexTip: Vector3 | null
+  thumbTip: Vector3 | null
   /** rest pose in the root's frame */
   restPos: Vector3
   restQuat: Quaternion
@@ -156,6 +159,26 @@ function fadeBeam(mesh: Mesh) {
   m.needsUpdate = true
 }
 
+/** the vertex of a part farthest from its pivot, in the part's own frame (a finger's tip) */
+function tipOf(part: Object3D | undefined): Vector3 | null {
+  if (!part) return null
+  part.updateWorldMatrix(true, true)
+  const inv = new Matrix4().copy(part.matrixWorld).invert()
+  const rel = new Matrix4()
+  const v = new Vector3()
+  let best: Vector3 | null = null
+  part.traverse((o) => {
+    const pos = (o as Mesh).geometry?.getAttribute('position')
+    if (!pos) return
+    rel.multiplyMatrices(inv, o.matrixWorld)
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(rel)
+      if (!best || v.lengthSq() > best.lengthSq()) best = v.clone()
+    }
+  })
+  return best
+}
+
 /**
  * Regroup an agent's flat glb parts (each already at its pivot, see nodes.tsx rebase) into
  * agent_i → head → face / tip / glow / role parts, agent_i → beam / floor. The hands stay in the scene (they
@@ -186,6 +209,8 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
       index: n(`_hand_${side}_index`),
       fingers: n(`_hand_${side}_fingers`),
       thumb: n(`_hand_${side}_thumb`),
+      indexTip: tipOf(n(`_hand_${side}_index`)),
+      thumbTip: tipOf(n(`_hand_${side}_thumb`)),
       restPos: root.worldToLocal(node.getWorldPosition(new Vector3())),
       restQuat: rootQuatInv.clone().multiply(node.getWorldQuaternion(new Quaternion())),
       vel: new Vector3(),
@@ -376,8 +401,16 @@ interface HandPose {
   pos: Vector3
   /** extra rotation in the root's frame, applied before the rest rotation */
   turn: Quaternion
-  /** finger curls (+ = toward the palm) */
-  curl: { index: number; fingers: number; thumb: number }
+  /** finger curls (+ = toward the palm); iz / tz turn the index / thumb sideways (the pinch) */
+  curl: HandShape
+}
+
+export interface HandShape {
+  index: number
+  fingers: number
+  thumb: number
+  iz?: number
+  tz?: number
 }
 
 const v = (x: number, y: number, z: number) => new Vector3(x, y, z)
@@ -386,6 +419,16 @@ const qy = (a: number) => new Quaternion().setFromAxisAngle(UP, a)
 const NONE = new Quaternion()
 const REST_CURL = { index: 0.15, fingers: 0.25, thumb: 0.1 }
 const HOLD_CURL = { index: 1.2, fingers: 1.35, thumb: 0.8 }
+/**
+ * thumb and index tips meet (#62). The glove's thumb is short and curls on the same axis as the index, so the
+ * index folds well over (136°) onto the thumb pad and both turn in a little: an 'OK' ring, read as a pinch. The
+ * other three fingers only half bend so they don't cover what's held. Angles from a search over the hand parts.
+ */
+const PINCH_CURL: HandShape = { index: 2.38, fingers: 0.8, thumb: 1.72, iz: -0.4, tz: -0.3 }
+/** how far the hand holding a caught plane moves out from the head's centre line, m (designer, #62) */
+const CAUGHT_OUT = 0.055
+/** named hand shapes, for anything that holds something (the plane's catch; later 휴's dropper, 메시's vertex pick) */
+export const HAND_SHAPES = { rest: REST_CURL, hold: HOLD_CURL, pinch: PINCH_CURL } as const satisfies Record<string, HandShape>
 /** how long the paper plane's gestures last, seconds (#51) */
 export const GESTURE_S = { throw: 0.7, catch: 1.6 }
 
@@ -425,7 +468,7 @@ export class AgentRig {
   private seat = 0
   private surface = 0
   private look = { pitch: 0, yaw: 0, roll: 0 }
-  private curls = { l: { ...REST_CURL }, r: { ...REST_CURL } }
+  private curls: Record<'l' | 'r', Required<HandShape>> = { l: { ...REST_CURL, iz: 0, tz: 0 }, r: { ...REST_CURL, iz: 0, tz: 0 } }
   private spin = { orbit: 0, ring: 0 }
   private blinkAt = 0
   /** what it is holding this frame (read by the PropBank) */
@@ -433,7 +476,7 @@ export class AgentRig {
   /** a point to turn the head to while resting (the coder's rubber duck when a test fails, #44) */
   watch: Vector3 | null = null
   /** a short gesture set by the paper plane (#51): until = the scene clock time it ends */
-  gesture: { kind: 'throw' | 'catch'; until: number; oneHand?: boolean } | null = null
+  gesture: { kind: 'throw' | 'catch'; until: number; oneHand?: boolean; caught?: boolean } | null = null
 
   constructor(id: string, index: number, parts: RigParts, color: string) {
     this.id = id
@@ -702,7 +745,11 @@ export class AgentRig {
       const k = MathUtils.clamp(1 - (g.until - t) / GESTURE_S.throw, 0, 1) // 0 → 1 over the gesture
       return at(0.2, 1.05 + sit + Math.sin(k * Math.PI) * 0.2, -0.15 - k * 0.35, NONE, HOLD_CURL)
     }
-    if (g?.kind === 'catch' && (side === 'r' || !g.oneHand)) return at(sx * 0.16, 1.32 + sit, -0.32, NONE, { index: 0.1, fingers: 0.3, thumb: 0.2 })
+    if (g?.kind === 'catch' && (side === 'r' || !g.oneHand)) {
+      // once caught, the pinching hand moves out a little so it doesn't cover the face screen (its reaction shows)
+      const caught = side === 'r' && g.caught
+      return at(sx * (0.16 + (caught ? CAUGHT_OUT : 0)), 1.32 + sit, -0.32, NONE, caught ? PINCH_CURL : { index: 0.1, fingers: 0.3, thumb: 0.2 })
+    }
     switch (pose) {
       case 'move':
         return at(rest.x, rest.y - 0.03, rest.z + 0.08)
@@ -740,6 +787,26 @@ export class AgentRig {
     }
   }
 
+  /** where a hand's index and thumb tips meet, in world space (the hand itself if it has no tips) */
+  pinchPoint(side: 'l' | 'r', out = new Vector3()) {
+    const h = this.parts.hands[side]
+    if (!h.index || !h.thumb || !h.indexTip || !h.thumbTip) return h.node.getWorldPosition(out)
+    h.node.updateWorldMatrix(true, true)
+    out.copy(h.indexTip).applyMatrix4(h.index.matrixWorld)
+    return out.add(this.tmpTip.copy(h.thumbTip).applyMatrix4(h.thumb.matrixWorld)).multiplyScalar(0.5)
+  }
+
+  /** where a hand's fingers point, flattened to the floor (the way the agent faces if they point straight up / down) */
+  fingerDir(side: 'l' | 'r', out = new Vector3()) {
+    const h = this.parts.hands[side]
+    out.set(0, 1, 0).applyQuaternion(h.node.getWorldQuaternion(this.tmpQuat2))
+    out.y = 0
+    if (out.lengthSq() < 0.1) this.parts.root.getWorldDirection(out).negate().setY(0) // the agent faces its −z
+    return out.normalize()
+  }
+
+  private tmpTip = new Vector3()
+  private tmpQuat2 = new Quaternion()
   private tmpPos = new Vector3()
   private tmpQuat = new Quaternion()
   private rootQuat = new Quaternion()
@@ -780,9 +847,11 @@ export class AgentRig {
       c.index = damp(c.index, p.curl.index, 10, dt)
       c.fingers = damp(c.fingers, p.curl.fingers, 10, dt)
       c.thumb = damp(c.thumb, p.curl.thumb, 10, dt)
-      if (hand.index) hand.index.rotation.x = c.index
+      c.iz = damp(c.iz, p.curl.iz ?? 0, 10, dt)
+      c.tz = damp(c.tz, p.curl.tz ?? 0, 10, dt)
+      if (hand.index) hand.index.rotation.set(c.index, 0, c.iz)
       if (hand.fingers) hand.fingers.rotation.x = c.fingers
-      if (hand.thumb) hand.thumb.rotation.x = c.thumb
+      if (hand.thumb) hand.thumb.rotation.set(c.thumb, 0, c.tz)
     }
     this.snapHands = false
   }

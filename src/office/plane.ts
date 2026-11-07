@@ -4,13 +4,23 @@
 // isn't in (gone home), it glides down onto the receiver's desk. Then the plane goes back home onto the planner's
 // tray. With reduced motion it just appears on the receiver's desk for a moment.
 
-import { Box3, Matrix4, Quaternion, Raycaster, Vector3, type Object3D } from 'three'
+import { Box3, MathUtils, Matrix4, MeshStandardMaterial, Quaternion, Raycaster, Vector3, type Mesh, type Object3D } from 'three'
 import type { NavGraph } from './nav'
 import { GESTURE_S, type AgentRig, type PropBank } from './rig'
 import type { OfficeMessage } from './status'
 
 const FOLD_S = GESTURE_S.throw
-const HOLD_S = 0.9
+/** long enough to see what was caught (#62) */
+const HOLD_S = 1.2
+/**
+ * the catch (#62, designer): pinched by the keel this far in from the tail (of the plane's length), so most of it
+ * shows past the fingers; nose up from where the fingers point; one damped wobble as it's caught
+ */
+const PINCH_FROM_TAIL = 0.15
+const NOSE_UP = MathUtils.degToRad(30)
+const WOBBLE = { s: 0.2, deg: 8 }
+/** the plane's own warm glow, as a fraction of its colour */
+const PAPER_GLOW = 0.25
 const LAND_S = 3
 const REDUCED_S = 2.5
 const QUEUE_MAX = 8
@@ -55,7 +65,64 @@ export class PaperPlanes {
       const node = this.plane.node
       node.updateWorldMatrix(true, true)
       this.lift = Math.max(0, node.getWorldPosition(new Vector3()).y - new Box3().setFromObject(node).min.y)
+      this.pinchLocal = PaperPlanes.pinchSpot(node)
+      // under the room's cool light the sticky-note yellow (#ffe27a) turns olive: a faint warm glow of its own keeps
+      // it a yellow paper plane, in flight too (designer, #62; same as the tray's paper, #59). A copy per mesh.
+      node.traverse((o) => {
+        const mesh = o as Mesh
+        if (!(mesh.material instanceof MeshStandardMaterial)) return
+        const m = mesh.material.clone()
+        m.emissive.copy(m.color).multiplyScalar(PAPER_GLOW)
+        mesh.material = m
+      })
     }
+  }
+
+  /** where the fingers hold the plane, in its own frame: on the keel, near the tail (the model: nose −z, keel −y) */
+  private pinchLocal = new Vector3()
+  static pinchSpot(node: Object3D) {
+    const box = new Box3()
+    const inv = new Matrix4().copy(node.matrixWorld).invert()
+    const v = new Vector3()
+    node.traverse((o) => {
+      const pos = (o as Mesh).geometry?.getAttribute('position')
+      if (!pos) return
+      const rel = new Matrix4().multiplyMatrices(inv, o.matrixWorld)
+      for (let i = 0; i < pos.count; i++) box.expandByPoint(v.fromBufferAttribute(pos, i).applyMatrix4(rel))
+    })
+    if (box.isEmpty()) return new Vector3()
+    const len = box.max.z - box.min.z
+    // the keel runs from the nose (y ≈ 0) down to the tail's bottom: halfway down it, at the pinch
+    const z = box.max.z - len * PINCH_FROM_TAIL
+    const keelY = box.min.y * ((z - box.min.z) / len)
+    return new Vector3(0, keelY / 2, z)
+  }
+
+  private up = new Vector3(0, 1, 0)
+  private ax = new Vector3()
+  private ay = new Vector3()
+  private az = new Vector3()
+  private wob = new Quaternion()
+
+  /**
+   * the plane pinched in the receiver's right hand: the pinch spot where the index and thumb tips meet, nose 30°
+   * up from where the fingers point, wings level; `since` = when it was caught (the wobble)
+   */
+  private pinched(rig: AgentRig, t: number, since: number | null, reduced: boolean, pos: Vector3, quat: Quaternion) {
+    const at = rig.pinchPoint('r', this.p)
+    const fwd = rig.fingerDir('r', this.s)
+    // nose = forward tipped up; the plane's −z is its nose, +x along the wings (kept level)
+    this.az.copy(fwd).multiplyScalar(-Math.cos(NOSE_UP)).addScaledVector(this.up, -Math.sin(NOSE_UP))
+    this.ax.crossVectors(this.up, this.az).normalize()
+    this.ay.crossVectors(this.az, this.ax)
+    quat.setFromRotationMatrix(this.m.makeBasis(this.ax, this.ay, this.az))
+    if (since !== null && !reduced) {
+      // one swing either way, dying out over 0.2 s (peaks near ±8°), about the wings' axis through the fingers
+      const u = (t - since) / WOBBLE.s
+      if (u < 1) quat.multiply(this.wob.setFromAxisAngle(this.ax.set(1, 0, 0), MathUtils.degToRad(WOBBLE.deg / 0.76) * Math.sin(u * Math.PI * 2) * (1 - u)))
+    }
+    // place it so its pinch spot sits between the fingertips
+    return pos.copy(this.pinchLocal).applyQuaternion(quat).negate().add(at)
   }
 
   /**
@@ -88,6 +155,7 @@ export class PaperPlanes {
   }
 
   private m = new Matrix4()
+  private end = new Vector3()
   private p = new Vector3()
   private q = new Quaternion()
   private s = new Vector3()
@@ -148,7 +216,7 @@ export class PaperPlanes {
         break
       case 'fly': {
         // an arc from the release point to the receiver's hand (followed as it moves) or its desk
-        const end = f.toHand && receiver.visible ? this.inHand(receiver, this.p) : this.restPoint(graph, f.to, this.p)
+        const end = f.toHand && receiver.visible ? this.pinched(receiver, t, null, reduced, this.end, this.q) : this.restPoint(graph, f.to, this.end)
         const k = Math.min(age / f.flyFor, 1)
         const span = f.start.distanceTo(end)
         const apex = 0.3 + span * 0.15
@@ -161,11 +229,13 @@ export class PaperPlanes {
         if (k >= 1) {
           f.phase = f.toHand && receiver.visible ? 'held' : 'landed'
           f.since = t
+          // the fingers close on it (rig.ts: the pinch shape while caught)
+          if (f.phase === 'held' && receiver.gesture?.kind === 'catch') receiver.gesture.caught = true
         }
         break
       }
       case 'held':
-        this.inHand(receiver, plane.node.position, plane.node.quaternion)
+        this.pinched(receiver, t, f.since, reduced, plane.node.position, plane.node.quaternion)
         if (age >= HOLD_S) this.finish()
         break
       case 'landed':
@@ -180,7 +250,7 @@ export class PaperPlanes {
   private beginFlight(t: number, graph: NavGraph, rigs: Record<string, AgentRig>) {
     const f = this.flight!
     const receiver = rigs[f.to]
-    const end = f.toHand && receiver.visible ? this.inHand(receiver, this.p) : this.restPoint(graph, f.to, this.p)
+    const end = f.toHand && receiver.visible ? this.pinched(receiver, t, null, false, this.end, this.q) : this.restPoint(graph, f.to, this.end)
     f.flyFor = Math.min(1.8, Math.max(0.9, f.start.distanceTo(end) / 2.2))
     f.phase = 'fly'
     f.since = t
