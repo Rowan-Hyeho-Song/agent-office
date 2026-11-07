@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 작업 방식
+    url: https://github.com/Rowan-Hyeho-Song/agent-office/blob/dev/docs/workflow.md
+    about: 이슈 → 브랜치 → dev → 배포 때 main. 이미지 첨부 방법도 여기에.

@@ -1,0 +1,63 @@
+name: 오류
+description: 의도와 다르게 동작하는 것. 다시 일으킬 수 있게 적는다.
+title: "[오류] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        재현 단계와 환경이 있으면 에이전트도 바로 원인을 좁힐 수 있다. 화면 문제는 스크린샷이나 짧은 영상을 꼭 붙인다.
+  - type: textarea
+    id: symptom
+    attributes:
+      label: 증상
+      description: 무엇이 잘못 보이거나 동작하나. 한두 문장.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 재현 단계
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대한 동작
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: 환경
+      description: 기기·OS·브라우저, 배포 주소 또는 로컬, 커밋(가능하면)
+      placeholder: |
+        - 기기: Galaxy S23+ / Chrome
+        - 주소: https://… (배포본) / localhost
+        - 커밋: abc1234
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 스크린샷·영상·로그
+      description: CLI에서는 `scripts/gh-image.sh 파일.png`로 올려 나온 마크다운을 붙인다. 로그는 코드 블록으로.
+  - type: textarea
+    id: guess
+    attributes:
+      label: 짐작 가는 원인 (선택)
+      description: 확인했으면 어떻게 확인했는지, 짐작이면 짐작이라고.
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 기준
+      description: 고쳐졌다고 볼 조건
+      value: |
+        - [ ] 재현 단계대로 해도 증상이 없다
+        - [ ]
+    validations:
+      required: true
