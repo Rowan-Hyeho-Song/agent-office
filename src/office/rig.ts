@@ -5,6 +5,7 @@
 // home into a hand's grip and put back. The Director says where to go and what to do; the rig only moves.
 
 import {
+  AdditiveBlending,
   CanvasTexture,
   Color,
   Euler,
@@ -19,6 +20,7 @@ import {
 } from 'three'
 import type { Goal } from './director'
 import { dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
+import { GLOW } from './nodes'
 import type { AgentStatus } from './status'
 
 const SPEED = 0.75 // m/s cruising
@@ -91,6 +93,53 @@ function radialAlpha() {
 let alphaMap: CanvasTexture | null = null
 
 /**
+ * The light under the head (#54, the designer's numbers, agents.md 2.1/2.3): ring under the head → a faint beam
+ * that is gone well before the floor → a pool of light on the floor. Two lights, not a cone, so it never reads
+ * as a body again.
+ */
+export const BEAM = {
+  /** alpha right under the head */
+  opacity: 0.28,
+  /** alpha = opacity × (1 − t)^falloff, t = 0 under the head → 1 at `reach` of the beam's length, 0 below */
+  falloff: 1.6,
+  reach: 0.75,
+  /** color = the agent's color × this (the live default would be ×2.6) */
+  color: 0.9,
+}
+export const FLOOR_POOL = { opacity: 0.45 }
+
+/**
+ * Additive, no depth writes, front faces only. The fade is computed from the beam's own height in the shader
+ * (the cone has no UVs; its pivot is at the top, the model spans 0 → −BEAM_H), so however far the rig stretches
+ * or cuts it, the fade keeps its proportions.
+ */
+function fadeBeam(mesh: Mesh) {
+  const m = mesh.material as MeshBasicMaterial
+  if (m.userData.faded) return
+  m.userData.faded = true
+  const base = mesh.userData.baseColor as Color | undefined // emissive × GLOW.neon, from nodes.tsx
+  if (base) m.color.copy(base).multiplyScalar(BEAM.color / GLOW.neon)
+  m.transparent = true
+  m.depthWrite = false
+  m.blending = AdditiveBlending
+  m.opacity = BEAM.opacity
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.beamReach = { value: BEAM_H * BEAM.reach }
+    shader.uniforms.beamFalloff = { value: BEAM.falloff }
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vBeamY;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBeamY = position.y;')
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vBeamY;\nuniform float beamReach;\nuniform float beamFalloff;')
+      .replace(
+        '#include <opaque_fragment>',
+        'float beamT = clamp(-vBeamY / beamReach, 0.0, 1.0);\ndiffuseColor.a *= pow(1.0 - beamT, beamFalloff);\n#include <opaque_fragment>',
+      )
+  }
+  m.needsUpdate = true
+}
+
+/**
  * Regroup an agent's flat glb parts (each already at its pivot, see nodes.tsx rebase) into
  * agent_i → head → face / tip / glow / role parts, agent_i → beam / floor. The hands stay in the scene (they
  * follow on a spring), fingers and cuff go under their hand. Object3D.attach keeps every world pose.
@@ -131,9 +180,13 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
     m.alphaMap = alphaMap ??= radialAlpha()
     m.transparent = true
     m.depthWrite = false
+    m.blending = AdditiveBlending
+    m.opacity = FLOOR_POOL.opacity
   }
   const beam = n('_beam')
-  if (beam) for (const o of [beam, ...beam.children]) if ((o as Mesh).material) Object.assign((o as Mesh).material, { transparent: true, depthWrite: false, opacity: 0.55 })
+  beam?.traverse((o) => {
+    if ((o as Mesh).isMesh) fadeBeam(o as Mesh)
+  })
   const rig: RigParts = {
     root,
     head,
@@ -534,6 +587,13 @@ export class AgentRig {
       const top = BEAM_H + dy
       beam.position.y = top
       beam.scale.y = Math.max(0.02, (top - this.surface) / BEAM_H)
+    }
+    // the pool of light on the floor: fainter and wider the higher the head floats (#54)
+    const pool = this.parts.floor
+    if (pool) {
+      const up = MathUtils.clamp(dy, 0, 0.3) / 0.3
+      pool.scale.setScalar(1 + up * 0.35)
+      ;(pool.material as MeshBasicMaterial).opacity = FLOOR_POOL.opacity * (1 - up * 0.45)
     }
 
     this.updateHands(dt, t, pose, reduced, others)
