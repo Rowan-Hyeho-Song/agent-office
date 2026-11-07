@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { OFF_AFTER, WORKING_FOR, WRAPPING_FOR, effective, toStatusMap, type StatusRow } from './liveStatus'
+import { OFF_AFTER, WORKING_FOR, WRAPPING_FOR, effective, toHandoff, toStatusMap, type EventRow, type StatusRow } from './liveStatus'
 
 const MIN = 60_000
 const NOW = Date.parse('2026-03-15T12:00:00.000Z')
@@ -96,5 +96,56 @@ describe('toStatusMap', () => {
   it('only includes the given agents', () => {
     const m = toStatusMap([row({ seat: 1 }), row({ seat: 3 })], ['agent_1'], NOW)
     expect(Object.keys(m)).toEqual(['agent_1'])
+  })
+})
+
+describe('effective lastResult (#44)', () => {
+  const T = iso(NOW - 5 * MIN)
+  const withResult = { last_result_activity: 'test', last_result_ok: false, last_result_at: T } as const
+
+  it('is included when the row has all three fields', () => {
+    const e = effective(row({ quietMs: MIN, ...withResult }), NOW)
+    expect(e.lastResult).toEqual({ activity: 'test', ok: false, at: Date.parse(T) })
+    expect(e.state).toBe('working')
+  })
+
+  it('is omitted when absent or partial', () => {
+    expect(effective(row({ quietMs: MIN }), NOW)).not.toHaveProperty('lastResult')
+    expect(effective(row({ quietMs: MIN, last_result_activity: null, last_result_ok: null, last_result_at: null }), NOW)).not.toHaveProperty('lastResult')
+    expect(effective(row({ quietMs: MIN, last_result_activity: 'build', last_result_ok: true, last_result_at: null }), NOW)).not.toHaveProperty('lastResult')
+    expect(effective(row({ quietMs: MIN, last_result_activity: 'build', last_result_ok: null, last_result_at: T }), NOW)).not.toHaveProperty('lastResult')
+  })
+
+  it('ok: false still counts as present', () => {
+    expect(effective(row({ quietMs: MIN, ...withResult }), NOW).lastResult?.ok).toBe(false)
+  })
+
+  it('stays when the state decays to idle or off', () => {
+    const idle = effective(row({ quietMs: WORKING_FOR + 1, ...withResult }), NOW)
+    expect(idle.state).toBe('idle')
+    expect(idle.lastResult).toEqual({ activity: 'test', ok: false, at: Date.parse(T) })
+    const off = effective(row({ quietMs: OFF_AFTER + 1, ...withResult }), NOW)
+    expect(off.state).toBe('off')
+    expect(off.lastResult?.ok).toBe(false)
+    expect(effective(row({ state: 'off', activity: null, ...withResult }), NOW).lastResult).toBeDefined()
+  })
+})
+
+describe('toHandoff (#51)', () => {
+  const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
+  const ev = (over: Partial<EventRow> = {}): EventRow => ({ id: 7, seat: 0, kind: 'handoff', to_seat: 3, created_at: iso(NOW), ...over })
+
+  it('a handoff row → a paper plane message', () => {
+    expect(toHandoff(ev(), AGENTS)).toEqual({ id: 'e7', kind: 'handoff', from: 'agent_0', to: 'agent_3', at: NOW })
+  })
+
+  it('null for other kinds, a missing target, unknown seats or a plane to itself', () => {
+    expect(toHandoff(null, AGENTS)).toBeNull()
+    expect(toHandoff(undefined, AGENTS)).toBeNull()
+    expect(toHandoff(ev({ kind: 'activity' }), AGENTS)).toBeNull()
+    expect(toHandoff(ev({ to_seat: null }), AGENTS)).toBeNull()
+    expect(toHandoff(ev({ to_seat: 7 }), AGENTS)).toBeNull()
+    expect(toHandoff(ev({ seat: 9 }), AGENTS)).toBeNull()
+    expect(toHandoff(ev({ seat: 2, to_seat: 2 }), AGENTS)).toBeNull()
   })
 })

@@ -54,7 +54,8 @@ export class Director {
   }
 
   receive(m: OfficeMessage) {
-    if (m.from !== m.to) this.queue.push(m)
+    // only talks gather the two agents; a handoff is a paper plane (plane.ts), not a meeting
+    if (m.kind === 'talk' && m.from !== m.to) this.queue.push(m)
   }
 
   private inTalk = (a: string) => this.talks.some((t) => a in t.spots)

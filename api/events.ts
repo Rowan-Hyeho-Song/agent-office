@@ -28,7 +28,7 @@ async function rest<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 const supabase: Store = {
   async status(seat) {
-    const rows = await rest<StatusRow[]>(`agent_status?select=seat,state,activity,since,updated_at&seat=eq.${seat}`)
+    const rows = await rest<StatusRow[]>(`agent_status?select=seat,state,activity,since,updated_at,last_result_activity,last_result_ok,last_result_at&seat=eq.${seat}`)
     return rows[0] ?? null
   },
   async setStatus(row) {

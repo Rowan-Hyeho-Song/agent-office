@@ -72,6 +72,7 @@
 | PreToolUse | `activity`: edit · read · delegate, Bash는 test · build · install · git · run · other | 작업 중 · 활동 문구 |
 | Stop(턴 끝) | `stop` | 정리 중 → 작업 일지 초안(6절) |
 | SessionEnd | `end` | 퇴근 |
+| PostToolUse / PostToolUseFailure(test·build 명령) | `result` + `ok`(성공/실패 하나) | 책상 LIVE 소품: 신호등·링 조명(#44). 어느 이벤트가 불렸는지만 보고, 출력은 읽지 않음 |
 
 - 하위 에이전트의 도구 호출은 부모 세션(같은 자리)의 활동으로 센다.
 - 서버는 마지막 신호만 기록한다. 신호가 끊긴 뒤의 판단은 페이지가 타임스탬프로 한다. 작업 중에 3분 동안 신호가 없으면 쉬는 중, 정리 중은 2분 뒤 쉬는 중, 2시간 동안 신호가 없으면 퇴근이다.

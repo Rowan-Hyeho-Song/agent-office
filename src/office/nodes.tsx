@@ -30,7 +30,7 @@ export const ATLASES = ['room', 'work', 'wall_items', 'lounge'] as const
 const ATLAS_URLS = ATLASES.map((a) => `/models/${a}.webp`)
 
 /** runtime glow per live kind (the bake used its own strengths for the light the emitters cast) */
-const GLOW: Record<string, number> = { screen: 1.1, face: 1.4, neon: 2.6, door: 1.0 }
+export const GLOW: Record<string, number> = { screen: 1.1, face: 1.4, neon: 2.6, door: 1.0 }
 
 export type OfficeNodes = Record<string, Object3D>
 
@@ -118,12 +118,14 @@ function prepare(scene: Object3D, atlases: Texture[]): OfficeNodes {
   const top = scene.children.filter((o) => o.userData.atlas || o.userData.live)
   for (const node of top) {
     const { atlas, live } = node.userData as { atlas?: string; live?: string }
-    rebase(node, live === 'bot')
+    // agents and the props they hold (#20, #27) move, so they keep their PBR material and real-time light
+    const lit = live === 'bot' || live === 'prop'
+    rebase(node, lit)
     for (const o of meshesOf(node)) {
       const src = o.material as MeshStandardMaterial
       let material: Material = src
-      if (live === 'bot') {
-        // keep the exported PBR material: agents take the scene's real-time lights
+      if (lit) {
+        // keep the exported PBR material: agents and props take the scene's real-time lights
       } else if (atlas) {
         material = new MeshBasicMaterial({ map: byName[atlas] })
       } else if (live) {

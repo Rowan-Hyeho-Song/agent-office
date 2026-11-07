@@ -7,7 +7,7 @@
 //   wrapping, quiet for 2 min → idle
 //   anything, quiet for 2 h   → off       (gone home)
 
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AgentState, AgentStatus, OfficeMessage, StatusMap, StatusSource } from './status'
 
 export interface StatusRow {
@@ -16,7 +16,13 @@ export interface StatusRow {
   activity: string | null
   since: string
   updated_at: string
+  /** #44: the last test / build outcome (absent on rows from before it) */
+  last_result_activity?: 'test' | 'build' | null
+  last_result_ok?: boolean | null
+  last_result_at?: string | null
 }
+
+export const COLUMNS = 'seat,state,activity,since,updated_at,last_result_activity,last_result_ok,last_result_at'
 
 export const WORKING_FOR = 3 * 60_000
 export const WRAPPING_FOR = 2 * 60_000
@@ -27,11 +33,17 @@ export function effective(row: StatusRow, now: number): AgentStatus {
   const updated = Date.parse(row.updated_at)
   const since = Date.parse(row.since)
   const quiet = now - updated
-  if (row.state === 'off') return { state: 'off', since }
-  if (quiet > OFF_AFTER) return { state: 'off', since: updated + OFF_AFTER }
-  if (row.state === 'working' && quiet > WORKING_FOR) return { state: 'idle', since: updated + WORKING_FOR }
-  if (row.state === 'wrapping' && quiet > WRAPPING_FOR) return { state: 'idle', since: updated + WRAPPING_FOR }
-  return row.activity ? { state: row.state, activity: row.activity, since } : { state: row.state, since }
+  const result =
+    row.last_result_activity && typeof row.last_result_ok === 'boolean' && row.last_result_at
+      ? { lastResult: { activity: row.last_result_activity, ok: row.last_result_ok, at: Date.parse(row.last_result_at) } }
+      : {}
+  let s: AgentStatus
+  if (row.state === 'off') s = { state: 'off', since }
+  else if (quiet > OFF_AFTER) s = { state: 'off', since: updated + OFF_AFTER }
+  else if (row.state === 'working' && quiet > WORKING_FOR) s = { state: 'idle', since: updated + WORKING_FOR }
+  else if (row.state === 'wrapping' && quiet > WRAPPING_FOR) s = { state: 'idle', since: updated + WRAPPING_FOR }
+  else s = row.activity ? { state: row.state, activity: row.activity, since } : { state: row.state, since }
+  return { ...s, ...result }
 }
 
 const agentOf = (seat: number) => `agent_${seat}`
@@ -55,8 +67,8 @@ export class LiveStatusSource implements StatusSource {
   /** set when the first load or the subscription failed (shown in the list) */
   error: string | null = null
 
-  constructor(url: string, key: string, agents: string[], now: () => number = Date.now) {
-    this.client = createClient(url, key, { auth: { persistSession: false } })
+  constructor(client: SupabaseClient, agents: string[], now: () => number = Date.now) {
+    this.client = client
     this.agents = agents
     this.now = now
     this.snapshot = toStatusMap([], agents, now())
@@ -75,11 +87,16 @@ export class LiveStatusSource implements StatusSource {
           this.recompute()
         }
       })
+      // a new handoff row = a paper plane (#51)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'agent_events', filter: 'kind=eq.handoff' }, (p) => {
+        const m = toHandoff(p.new as EventRow, this.agents)
+        if (m) for (const l of this.messageListeners) l(m)
+      })
       .subscribe((status) => {
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') this.error = '실시간 연결이 끊겼어요'
         if (status === 'SUBSCRIBED') this.error = null
       })
-    const { data, error } = await this.client.from('agent_status').select('seat,state,activity,since,updated_at')
+    const { data, error } = await this.client.from('agent_status').select(COLUMNS)
     if (error) {
       this.error = '상태를 불러오지 못했어요'
       return
@@ -102,6 +119,28 @@ export class LiveStatusSource implements StatusSource {
     return () => void this.listeners.delete(listener)
   }
 
-  // face-to-face messages come with a later hook (SendMessage between sessions); none yet
-  onMessage = (_listener: (m: OfficeMessage) => void) => () => {}
+  private messageListeners = new Set<(m: OfficeMessage) => void>()
+
+  // handoffs only for now; face-to-face talks come with the meeting replays (minutes, #24 docs)
+  onMessage = (listener: (m: OfficeMessage) => void) => {
+    this.messageListeners.add(listener)
+    return () => void this.messageListeners.delete(listener)
+  }
+}
+
+export interface EventRow {
+  id: number
+  seat: number
+  kind: string
+  to_seat: number | null
+  created_at: string
+}
+
+/** an agent_events handoff row → a paper plane message (null for anything else or an unknown seat) */
+export function toHandoff(row: EventRow | null | undefined, agents: string[]): OfficeMessage | null {
+  if (!row || row.kind !== 'handoff' || typeof row.to_seat !== 'number') return null
+  const from = agentOf(row.seat)
+  const to = agentOf(row.to_seat)
+  if (!agents.includes(from) || !agents.includes(to) || from === to) return null
+  return { id: `e${row.id}`, kind: 'handoff', from, to, at: Date.parse(row.created_at) }
 }

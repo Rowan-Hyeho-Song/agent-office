@@ -3,6 +3,7 @@ import { Canvas } from '@react-three/fiber'
 import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing'
 import { Suspense, useEffect, useState } from 'react'
 import { AgentList } from './office/AgentList'
+import { ApprovalBox } from './office/ApprovalBox'
 import { DebugPanel } from './office/DebugPanel'
 import { Office } from './office/Office'
 import { createWorld } from './office/world'
@@ -14,10 +15,13 @@ const CAMERA: [number, number, number] = [6.6, 6.2, 7.4]
 const TOP: [number, number, number] = [0, 13, 0.01]
 
 export function App() {
-  const [{ world, top }] = useState(() => {
+  const [{ world, top, close }] = useState(() => {
     const q = new URLSearchParams(location.search)
     const debug = q.has('debug')
-    return { world: createWorld(debug, q), top: debug && q.get('view') === 'top' }
+    // ?debug=1&cam=x,y,z,tx,ty,tz: a close-up for screenshots (any angle, no orbit limits)
+    const cam = debug ? (q.get('cam')?.split(',').map(Number) ?? null) : null
+    const close = cam?.length === 6 && cam.every(Number.isFinite) ? cam : null
+    return { world: createWorld(debug, q), top: debug && q.get('view') === 'top', close }
   })
   useEffect(() => {
     // debug only: lets screenshot scripts read the nav check and drive the fake source
@@ -27,7 +31,7 @@ export function App() {
     <>
       <Canvas
         dpr={[1, 1.5]}
-        camera={{ fov: 32, near: 0.1, far: 60, position: top ? TOP : CAMERA }}
+        camera={{ fov: 32, near: 0.1, far: 60, position: close ? (close.slice(0, 3) as [number, number, number]) : top ? TOP : CAMERA }}
         gl={{ antialias: true }}
       >
         <Suspense fallback={null}>
@@ -43,21 +47,22 @@ export function App() {
           </EffectComposer>
         </Suspense>
         <OrbitControls
-          target={top ? [0, 0, 0] : TARGET}
+          target={close ? (close.slice(3) as [number, number, number]) : top ? [0, 0, 0] : TARGET}
           enablePan={false}
           enableDamping
-          minDistance={4}
+          minDistance={close ? 0.3 : 4}
           maxDistance={14}
-          minPolarAngle={top ? 0 : 0.35}
-          maxPolarAngle={1.25}
-          minAzimuthAngle={top ? -Infinity : -0.15}
-          maxAzimuthAngle={top ? Infinity : 1.45}
+          minPolarAngle={top || close ? 0 : 0.35}
+          maxPolarAngle={close ? Math.PI : 1.25}
+          minAzimuthAngle={top || close ? -Infinity : -0.15}
+          maxAzimuthAngle={top || close ? Infinity : 1.45}
         />
       </Canvas>
       <p className="hud">
         <b>AGENT OFFICE</b> · 드래그해서 돌려 보기
       </p>
       <AgentList world={world} />
+      <ApprovalBox />
       {world.debug && <DebugPanel world={world} />}
     </>
   )

@@ -26,6 +26,7 @@ const doc = (over: Partial<DocInput> = {}): DocInput => ({
 function memoryStore() {
   const rows = new Map<string, DocRow>()
   const projects = new Map<string, number>()
+  const handoffs: { seat: number; to_seat: number; created_at: string }[] = []
   const store: DocStore = {
     async upsert(rs) {
       for (const r of rs) rows.set(r.source_url, r)
@@ -33,8 +34,13 @@ function memoryStore() {
     async setOpenIssues(repo, n) {
       projects.set(repo, n)
     },
+    async upsertApprovals() {},
+    async decide() {},
+    async addHandoffs(events: { seat: number; to_seat: number; created_at: string }[]) {
+      handoffs.push(...events)
+    },
   }
-  return { store, rows, projects }
+  return { store, rows, projects, handoffs }
 }
 
 const post = (body: unknown, token: string | null = 'secret-token') =>
@@ -204,5 +210,37 @@ describe('who may file, checked again on the server (#38)', () => {
 
   it('the trusted lists can be configured', () => {
     expect(fromTrustedAuthor(doc({ author: by('MEMBER') }), { trusted: ['OWNER', 'MEMBER'] })).toBe(true)
+  })
+})
+
+describe('a newly opened issue is a paper plane (#51)', () => {
+  const plan = (meta: Record<string, unknown>) =>
+    doc({
+      kind: 'plan',
+      title: '[기능] 종이비행기',
+      body: '## 배경과 목표\n일 넘기기.\n\n## 누가 하나\n코더. 디자이너 확인',
+      source: { kind: 'issue', url: `https://github.com/${REPO}/issues/51` },
+      meta,
+    })
+
+  it('the planner throws one to each seat "누가 하나" names (not to itself)', async () => {
+    const m = memoryStore()
+    await handle(post({ docs: [plan({ state: 'open', opened: true })] }), m.store, cfg)
+    expect(m.handoffs.map((h) => [h.seat, h.to_seat]).sort()).toEqual([
+      [0, 2],
+      [0, 3],
+    ])
+  })
+
+  it('edits, closes and the backfill (no "opened" flag) throw nothing', async () => {
+    const m = memoryStore()
+    await handle(post({ docs: [plan({ state: 'open' }), plan({ state: 'closed', opened: false })] }), m.store, cfg)
+    expect(m.handoffs).toEqual([])
+  })
+
+  it("a stranger's issue is skipped before it can throw anything", async () => {
+    const m = memoryStore()
+    await handle(post({ docs: [{ ...plan({ opened: true }), author: { login: 'x', association: 'NONE' } }] }), m.store, cfg)
+    expect(m.handoffs).toEqual([])
   })
 })
