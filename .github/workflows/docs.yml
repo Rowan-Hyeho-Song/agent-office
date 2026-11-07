@@ -23,11 +23,16 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    # comments on PRs and unmerged PRs are not documents; skip them before starting a runner
+    # comments on PRs, unmerged PRs and anything written by someone other than the owner / collaborators are
+    # not documents (#38: this repo is public); skip them before starting a runner. event.mjs and /api/docs
+    # check the author again (approvals: owner only).
     if: >-
-      (github.event_name == 'issues') ||
-      (github.event_name == 'issue_comment' && !github.event.issue.pull_request) ||
-      (github.event_name == 'pull_request' && github.event.pull_request.merged)
+      (github.event_name == 'issues' &&
+        contains(fromJSON('["OWNER","COLLABORATOR"]'), github.event.issue.author_association)) ||
+      (github.event_name == 'issue_comment' && !github.event.issue.pull_request &&
+        contains(fromJSON('["OWNER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged &&
+        contains(fromJSON('["OWNER","COLLABORATOR"]'), github.event.pull_request.author_association))
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
