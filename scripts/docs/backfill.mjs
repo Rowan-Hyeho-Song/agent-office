@@ -8,7 +8,7 @@
 // asks for: files = issues.
 
 import { execFileSync } from 'node:child_process'
-import { commentKind, docForComment, docForIssue, docForPull, github, send, trusted } from './build.mjs'
+import { approvalForComment, commentKind, docForComment, docForIssue, docForPull, github, send, trusted } from './build.mjs'
 
 const repo = process.argv[2]
 const dry = process.argv.includes('--dry-run')
@@ -39,6 +39,12 @@ const docs = [
   }),
   ...pulls.map((p) => docForPull(p, repo)),
 ].filter(Boolean)
+const approvals = comments
+  .map((c) => {
+    const n = Number(c.issue_url.split('/').pop())
+    return approvalForComment(c, byIssue.get(n), repo, commentsOf.get(n))
+  })
+  .filter(Boolean)
 
 const count = (k) => docs.filter((d) => d.kind === k).length
 const folders = new Set(docs.filter((d) => d.kind === 'plan').map((d) => d.folder))
@@ -51,6 +57,7 @@ const strangers = [
 const ownIssues = issues.filter((i) => trusted(i)).length
 console.log(`${repo}: ${issues.length} issues, ${comments.length} comments, ${pulls.length} closed PRs`)
 console.log(`documents: plan ${count('plan')}, minutes ${count('minutes')}, decision ${count('decision')}, report ${count('report')}`)
+console.log(`approvals: ${approvals.filter((a) => a.type === 'request').length} requests, ${approvals.filter((a) => a.type === 'result').length} results`)
 console.log(`written by strangers (skipped): ${strangers.length}${strangers.length ? ` → ${strangers.join(', ')}` : ''}`)
 console.log(`files (folders with a plan) ${folders.size} = own issues ${ownIssues}: ${folders.size === ownIssues ? 'ok' : 'MISMATCH'}`)
 const strays = docs.filter((d) => d.kind !== 'plan' && !folders.has(d.folder))
@@ -63,5 +70,5 @@ if (!url || !token) {
   process.exit(2)
 }
 const project = { repo, open_issues: issues.filter((i) => i.state === 'open').length }
-const results = await send(url, token, docs, project)
+const results = await send(url, token, docs, project, approvals)
 console.log(`sent ${results.reduce((n, r) => n + r.stored, 0)} documents in ${results.length} batches`)

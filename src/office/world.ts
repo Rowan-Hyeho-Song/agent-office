@@ -6,6 +6,7 @@ import type { NavGraph } from './nav'
 import type { NavCheck } from './navcheck'
 import type { AgentRig } from './rig'
 import { FakeStatusSource, type StatusSource } from './status'
+import { supabase } from './supabase'
 
 /** the four agents = desks 0..3 (#5); agent_<seat> in the glb */
 export const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
@@ -42,9 +43,7 @@ export const officeNow = (w: OfficeWorld) => Date.now() + w.timeOffsetMs
  * or the fake with everyone idle when nothing is configured (local development).
  */
 export function createWorld(debug: boolean, query = new URLSearchParams()): OfficeWorld {
-  const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
-  const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined
-  const live = url && key && (!debug || query.has('live')) ? new LiveStatusSource(url, key, AGENTS) : null
+  const live = supabase && (!debug || query.has('live')) ? new LiveStatusSource(supabase, AGENTS) : null
   const fake = live ? null : new FakeStatusSource(AGENTS)
   return {
     debug,

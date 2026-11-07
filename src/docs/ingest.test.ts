@@ -33,6 +33,8 @@ function memoryStore() {
     async setOpenIssues(repo, n) {
       projects.set(repo, n)
     },
+    async upsertApprovals() {},
+    async decide() {},
   }
   return { store, rows, projects }
 }

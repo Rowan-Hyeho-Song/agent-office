@@ -70,13 +70,21 @@ Claude Code 세션이 일하는 모습을 사무실로 보내는 훅입니다. �
 
    설치를 확인할 때는 `"log": true`를 더합니다. `~/.agent-office/hook.log`에 이벤트마다 한 줄이 남습니다(이벤트, 자리, 보낸 것, 응답 코드만 기록).
 
-2. 사용자 설정 `~/.claude/settings.json`의 `hooks`에 아래를 더합니다. 이벤트 다섯 개 모두 같은 명령이고, `async`라서 도구 호출을 기다리게 하지 않습니다. `<저장소>`는 이 저장소를 받아 둔 경로입니다.
+2. 사용자 설정 `~/.claude/settings.json`의 `hooks`에 아래를 더합니다. `<저장소>`는 이 저장소를 받아 둔 경로입니다.
+   - 신호 훅 `office-hook.mjs`: 이벤트 다섯 개 모두 같은 명령입니다. `async`라서 도구 호출을 기다리게 하지 않습니다.
+   - 결재 훅 `approval-hook.mjs`(#25): SessionStart와 UserPromptSubmit에만 겁니다. 출력이 문맥에 들어가야 하므로 `async`가 **아니고**, 대신 짧은 `timeout`을 둡니다(서버를 3초까지만 기다림).
 
    ```json
    {
      "hooks": {
-       "SessionStart":     [{ "hooks": [{ "type": "command", "command": "node \"<저장소>/hooks/office-hook.mjs\"", "async": true }] }],
-       "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node \"<저장소>/hooks/office-hook.mjs\"", "async": true }] }],
+       "SessionStart": [{ "hooks": [
+         { "type": "command", "command": "node \"<저장소>/hooks/office-hook.mjs\"", "async": true },
+         { "type": "command", "command": "node \"<저장소>/hooks/approval-hook.mjs\"", "timeout": 5 }
+       ] }],
+       "UserPromptSubmit": [{ "hooks": [
+         { "type": "command", "command": "node \"<저장소>/hooks/office-hook.mjs\"", "async": true },
+         { "type": "command", "command": "node \"<저장소>/hooks/approval-hook.mjs\"", "timeout": 5 }
+       ] }],
        "PreToolUse":       [{ "matcher": "*", "hooks": [{ "type": "command", "command": "node \"<저장소>/hooks/office-hook.mjs\"", "async": true }] }],
        "Stop":             [{ "hooks": [{ "type": "command", "command": "node \"<저장소>/hooks/office-hook.mjs\"", "async": true }] }],
        "SessionEnd":       [{ "hooks": [{ "type": "command", "command": "node \"<저장소>/hooks/office-hook.mjs\"", "async": true }] }]
@@ -85,6 +93,15 @@ Claude Code 세션이 일하는 모습을 사무실로 보내는 훅입니다. �
    ```
 
 3. 확인: 세션에서 아무 도구나 쓰고 `hook.log`에 `activity/… → 200`이 찍히는지 봅니다. 사무실 왼쪽 위 목록에서 그 에이전트의 문구가 1~2초 안에 바뀌면 됩니다.
+
+## 결재 훅 (#25)
+
+`approval-hook.mjs`는 세션이 시작되거나 내가 입력할 때, **그 세션 자리**가 올린 `🖊 결재 요청`에 새 `✅ 결재`가 났는지 `/api/approvals`에 묻습니다. 있으면 한 번만 문맥에 넣습니다. 마지막으로 넘긴 시각은 `~/.agent-office/approvals-seat-<자리>.json`에 남깁니다.
+
+- 넣을 수 있는 내용은 처음부터 좁습니다. 서버는 주인 계정이 쓴 `🖊` 요청과 주인 계정이 쓴 `✅` 결과만 보관합니다(#38). 그래서 외부인이 이 통로로 에이전트에게 말을 넣을 수 없습니다.
+- 보내는 것은 자리 번호뿐이고, 허용 폴더 밖 세션에서는 아무것도 하지 않습니다.
+- Claude Code의 도구 권한 묻기(명령 실행 허용 등)는 결재로 넘기지 않습니다(plan.md 6.5).
+- 결재 주소는 `hook.json`의 `endpoint`에서 `/api/events`를 `/api/approvals`로 바꾼 것이고, `"approvalsEndpoint"`로 따로 줄 수 있습니다.
 
 문제가 있을 때 훅은 조용히 끝납니다(종료 코드는 항상 0). 원인을 보려면 터미널에서 직접 실행합니다:
 `echo '{"session_id":"t","hook_event_name":"PreToolUse","tool_name":"Read"}' | AGENT_OFFICE_SEAT=3 AGENT_OFFICE_DEBUG=1 node hooks/office-hook.mjs`
