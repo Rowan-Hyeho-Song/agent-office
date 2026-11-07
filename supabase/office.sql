@@ -29,7 +29,7 @@ on conflict (seat) do update set key = excluded.key, name = excluded.name, role 
 create table if not exists public.agent_status (
   seat smallint primary key references public.agents (seat),
   state text not null default 'off' check (state in ('working', 'wrapping', 'idle', 'off')),
-  activity text check (activity in ('edit', 'read', 'test', 'build', 'install', 'git', 'run', 'other', 'delegate', 'think')),
+  activity text check (activity in ('edit', 'read', 'test', 'build', 'install', 'git', 'run', 'other', 'delegate', 'think', 'private')),
   -- when the current state began (a new wrap-up = a new since) and when the last signal came
   since timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -43,7 +43,7 @@ create table if not exists public.agent_events (
   id bigint generated always as identity primary key,
   seat smallint not null references public.agents (seat),
   kind text not null check (kind in ('start', 'activity', 'stop', 'end')),
-  activity text check (activity in ('edit', 'read', 'test', 'build', 'install', 'git', 'run', 'other', 'delegate', 'think')),
+  activity text check (activity in ('edit', 'read', 'test', 'build', 'install', 'git', 'run', 'other', 'delegate', 'think', 'private')),
   created_at timestamptz not null default now()
 );
 

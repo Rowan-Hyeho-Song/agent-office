@@ -77,6 +77,8 @@ export const ACTIVITY_LABELS: Record<string, string> = {
   other: '명령 실행 중',
   delegate: '일 나누는 중',
   think: '생각하는 중',
+  // a session outside the office's projects, with "outside": "private" in hook.json (#34)
+  private: '비공개 작업 중',
 }
 
 export const activityLabel = (activity?: string) => (activity && ACTIVITY_LABELS[activity]) || '작업 중'

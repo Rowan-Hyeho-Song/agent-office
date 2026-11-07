@@ -11,6 +11,8 @@
 //   { "endpoint": "https://<office>/api/events", "token": "<OFFICE_HOOK_TOKEN>",
 //     "seats": [{ "seat": 3, "title": "코더" }, …],   optional, defaults below
 //     "keepaliveSeconds": 30,                          optional
+//     "projects": ["**/agent-office*", …],          optional: folders that may report (default below)
+//     "outside": "private",                         optional: outside them, say only "비공개 작업 중"
 //     "log": true }                                    optional: one line per event in ~/.agent-office/hook.log
 //                                                    (event, seat, what was sent; no titles or content)
 // AGENT_OFFICE_SEAT=0..3 in the environment pins the seat for sessions started from that shell.
@@ -18,17 +20,10 @@
 import { appendFileSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { seatFor, signalFor } from './classify.mjs'
+import { DEFAULT_PROJECTS, DEFAULT_SEATS, insideProjects, seatFor, signalFor } from './classify.mjs'
 
 const HOME = process.env.AGENT_OFFICE_HOME ?? join(homedir(), '.agent-office')
 const SESSIONS = join(HOME, 'sessions')
-/** default title → seat (#26: 0 기획 메모, 1 3D 메시, 2 디자인 휴, 3 코더 루프) */
-const SEATS = [
-  { seat: 0, title: '기획|planning|메모|memo' },
-  { seat: 1, title: 'blender|3d|메시|mesh' },
-  { seat: 2, title: '디자이너|디자인|design|휴|hue' },
-  { seat: 3, title: '코더|coder|루프|loop' },
-]
 
 const readJson = (file) => {
   try {
@@ -57,7 +52,7 @@ async function main() {
   const config = readJson(process.env.AGENT_OFFICE_CONFIG ?? join(HOME, 'hook.json'))
   if (!config?.endpoint || !config?.token) return
   const input = await readStdin()
-  const signal = signalFor(input)
+  let signal = signalFor(input)
   if (!signal || typeof input.session_id !== 'string') return
 
   mkdirSync(SESSIONS, { recursive: true })
@@ -68,11 +63,16 @@ async function main() {
 
   // the title arrives on SessionStart and UserPromptSubmit (when the session has one); remember the seat
   const pinned = Number.parseInt(process.env.AGENT_OFFICE_SEAT ?? '', 10)
-  const fromTitle = seatFor(input.session_title, config.seats ?? SEATS)
+  const fromTitle = seatFor(input.session_title, config.seats ?? DEFAULT_SEATS)
   const seat = Number.isInteger(pinned) && pinned >= 0 && pinned <= 3 ? pinned : (fromTitle ?? saved.seat ?? null)
   const log = (what) =>
     config.log &&
     appendFileSync(join(HOME, 'hook.log'), `${new Date().toISOString()} ${input.hook_event_name} titled=${Boolean(input.session_title)} seat=${seat} ${what}\n`)
+  // only sessions working inside the office's own repositories report (#34); the cwd is not logged or sent
+  if (!insideProjects(input.cwd, config.projects ?? DEFAULT_PROJECTS)) {
+    if (config.outside !== 'private') return log('skip: outside projects')
+    if (signal.kind === 'activity') signal = { kind: 'activity', activity: 'private' }
+  }
   if (seat === null) return log('skip: no seat') // a session that isn't one of the four agents: say nothing
 
   // the same activity again within the keepalive window: nothing new to say

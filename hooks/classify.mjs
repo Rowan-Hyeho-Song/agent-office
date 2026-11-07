@@ -2,7 +2,7 @@
 // inside the Claude Code hook (office-hook.mjs); the command text, arguments, paths and tool input never
 // leave it (plan.md 5.1, #1 decision log). No dependencies, so the hook runs with plain `node`.
 
-/** @typedef {'edit'|'read'|'test'|'build'|'install'|'git'|'run'|'other'|'delegate'|'think'} Activity */
+/** @typedef {'edit'|'read'|'test'|'build'|'install'|'git'|'run'|'other'|'delegate'|'think'|'private'} Activity */
 
 /** tool name → activity; shell tools are classified by their command */
 const TOOLS = {
@@ -102,6 +102,45 @@ export function classifyTool(tool, input, rules) {
     return classifyCommand(command ?? '', rules)
   }
   return Object.hasOwn(TOOLS, tool) ? TOOLS[tool] : 'other'
+}
+
+/**
+ * Default title → seat (#26: 0 기획 메모, 1 3D 메시, 2 디자인 휴, 3 코더 루프). Role words and agent names only;
+ * common English words like design / 3d / planning are left out (#34). Override with "seats" in hook.json.
+ */
+export const DEFAULT_SEATS = [
+  { seat: 0, title: '기획|메모|\\bmemo\\b' },
+  { seat: 1, title: 'blender|메시|\\bmesh\\b' },
+  { seat: 2, title: '디자이너|디자인|\\bhue\\b' },
+  { seat: 3, title: '코더|루프|\\bloop\\b' },
+]
+
+/**
+ * Folders whose sessions may report to the office (#34). The hook runs for every session on the PC (it lives
+ * in the user settings), so anything outside these, such as work projects, sends nothing at all.
+ * Patterns are matched against the whole cwd, with `/` separators and case ignored: `*` = any characters
+ * within one folder name, `**` = any number of folders. A match also covers everything below it.
+ * The defaults match these two repositories and their worktrees wherever they are checked out.
+ */
+export const DEFAULT_PROJECTS = ['**/agent-office*', '**/rowansong.dev*']
+
+const norm = (p) => String(p ?? '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+
+/**
+ * @param {string|undefined} cwd  hook input cwd
+ * @param {string[]} [projects]
+ * @returns {boolean}
+ */
+export function insideProjects(cwd, projects = DEFAULT_PROJECTS) {
+  const path = norm(cwd)
+  if (!path) return false
+  return projects.some((pattern) => {
+    const source = norm(pattern)
+      .split(/(\*\*\/?|\*)/)
+      .map((part) => (part === '*' ? '[^/]*' : part.startsWith('**') ? '(?:.*/)?' : part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')))
+      .join('')
+    return new RegExp(`^${source}(?:/|$)`).test(path)
+  })
 }
 
 /**

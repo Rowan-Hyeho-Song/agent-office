@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BASH_RULES, classifyCommand, classifyTool, seatFor, signalFor } from './classify.mjs'
+import { BASH_RULES, DEFAULT_SEATS, classifyCommand, classifyTool, insideProjects, seatFor, signalFor } from './classify.mjs'
 
 const ACTIVITIES = ['edit', 'read', 'test', 'build', 'install', 'git', 'run', 'other', 'delegate', 'think']
 
@@ -182,5 +182,64 @@ describe('signalFor', () => {
       expect(signalFor({ hook_event_name: e })).toBeNull()
     }
     expect(signalFor({})).toBeNull()
+  })
+})
+
+/** a Windows path from a /-separated one (hook input on Windows uses backslashes) */
+const win = (p: string) => p.replace(/\//g, '\\')
+
+describe('insideProjects (#34)', () => {
+  it.each([
+    // the two repositories and their worktrees, wherever they are, any separator and case
+    [win('C:/Repo/agent-office'), true],
+    [win('C:/Repo/agent-office/src/office'), true],
+    [win('C:/Repo/agent-office-17'), true],
+    ['c:/repo/AGENT-OFFICE-1/hooks', true],
+    [win('C:/Repo/rowansong.dev'), true],
+    [win('C:/Repo/rowansong.dev/'), true],
+    ['/home/me/code/rowansong.dev/api', true],
+    ['/Users/me/rowansong.dev-worktree', true],
+    // elsewhere: work projects, look-alikes, nothing
+    [win('C:/Work/design-system'), false],
+    [win('C:/Repo/my-agent-office'), false],
+    [win('C:/Repo/agentoffice'), false],
+    [win('C:/Users/me/Documents'), false],
+    [win('C:/Repo/rowansong'), false],
+    ['', false],
+    [undefined, false],
+  ])('%s → %s', (cwd, expected) => {
+    expect(insideProjects(cwd as string | undefined)).toBe(expected)
+  })
+
+  it('custom patterns: absolute folders cover everything below them, * stays within one folder name', () => {
+    const projects = ['D:/code/office', 'D:/sandbox/*/notes']
+    expect(insideProjects(win('D:/code/office/a/b'), projects)).toBe(true)
+    expect(insideProjects(win('D:/code/office-old'), projects)).toBe(false)
+    expect(insideProjects(win('D:/sandbox/x/notes/today'), projects)).toBe(true)
+    expect(insideProjects(win('D:/sandbox/x/y/notes'), projects)).toBe(false)
+    expect(insideProjects(win('D:/code/office'), [])).toBe(false)
+  })
+
+  it('regex characters in a pattern are literal (the dot in rowansong.dev)', () => {
+    expect(insideProjects(win('C:/Repo/rowansongXdev'))).toBe(false)
+  })
+})
+
+describe('DEFAULT_SEATS (#34)', () => {
+  it.each([
+    ['프로젝트 기획·설계 총괄', 0],
+    ['프로젝트 Blender 작업', 1],
+    ['프로젝트 그래픽 디자이너', 2],
+    ['프로젝트 코더', 3],
+    ['메모 MEMO', 0],
+    ['LOOP', 3],
+    // common English words no longer pick a seat
+    ['design review', null],
+    ['3d printing notes', null],
+    ['sprint planning', null],
+    ['coder interview', null],
+    ['loophole hunt', null],
+  ])('%s → %s', (title, seat) => {
+    expect(seatFor(title, DEFAULT_SEATS)).toBe(seat)
   })
 })
