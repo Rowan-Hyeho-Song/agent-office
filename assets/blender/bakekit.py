@@ -411,9 +411,12 @@ def pivot(o, M):
     o.data.transform(M.inverted())
     o.matrix_world = M
     # meshopt quantization folds a dequantize scale/offset into the node transform; the app uses this
-    # (web coordinates) to rebuild a clean pivot frame after loading
+    # (web coordinates) to rebuild a clean pivot frame after loading.
+    # Named pivot_at, not pivot: three's GLTFLoader (r187+) treats a node with extras.pivot AND child nodes as a
+    # GLTFExporter pivot container — it subtracts the pivot from the node position, zeroes the first child's
+    # position and deletes the key. Arms carry a child (the hand grab point), so "pivot" broke them.
     t = M.to_translation()
-    o["pivot"] = [round(t.x, 5), round(t.z, 5), round(-t.y, 5)]
+    o["pivot_at"] = [round(t.x, 5), round(t.z, 5), round(-t.y, 5)]
     return o
 
 
