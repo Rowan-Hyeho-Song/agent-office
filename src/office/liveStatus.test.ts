@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { OFF_AFTER, WORKING_FOR, WRAPPING_FOR, effective, toStatusMap, type StatusRow } from './liveStatus'
+import { OFF_AFTER, WORKING_FOR, WRAPPING_FOR, effective, toHandoff, toStatusMap, type EventRow, type StatusRow } from './liveStatus'
 
 const MIN = 60_000
 const NOW = Date.parse('2026-03-15T12:00:00.000Z')
@@ -128,5 +128,24 @@ describe('effective lastResult (#44)', () => {
     expect(off.state).toBe('off')
     expect(off.lastResult?.ok).toBe(false)
     expect(effective(row({ state: 'off', activity: null, ...withResult }), NOW).lastResult).toBeDefined()
+  })
+})
+
+describe('toHandoff (#51)', () => {
+  const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
+  const ev = (over: Partial<EventRow> = {}): EventRow => ({ id: 7, seat: 0, kind: 'handoff', to_seat: 3, created_at: iso(NOW), ...over })
+
+  it('a handoff row → a paper plane message', () => {
+    expect(toHandoff(ev(), AGENTS)).toEqual({ id: 'e7', kind: 'handoff', from: 'agent_0', to: 'agent_3', at: NOW })
+  })
+
+  it('null for other kinds, a missing target, unknown seats or a plane to itself', () => {
+    expect(toHandoff(null, AGENTS)).toBeNull()
+    expect(toHandoff(undefined, AGENTS)).toBeNull()
+    expect(toHandoff(ev({ kind: 'activity' }), AGENTS)).toBeNull()
+    expect(toHandoff(ev({ to_seat: null }), AGENTS)).toBeNull()
+    expect(toHandoff(ev({ to_seat: 7 }), AGENTS)).toBeNull()
+    expect(toHandoff(ev({ seat: 9 }), AGENTS)).toBeNull()
+    expect(toHandoff(ev({ seat: 2, to_seat: 2 }), AGENTS)).toBeNull()
   })
 })

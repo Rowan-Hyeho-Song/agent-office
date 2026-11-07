@@ -10,6 +10,15 @@ import { DOC_KINDS, type DocInput, type DocRow, type Speaker } from './types'
 export interface DocStore extends ApprovalStore {
   upsert(rows: DocRow[]): Promise<void>
   setOpenIssues(repo: string, open: number, at: string): Promise<void>
+  /** paper planes for newly assigned issues (agent_events kind handoff, #51) */
+  addHandoffs(events: { seat: number; to_seat: number; created_at: string }[]): Promise<void>
+}
+
+/** the planner (seat 0) hands a newly opened issue to the seats its "누가 하나" names (#51) */
+export const PLANNER_SEAT = 0
+export function handoffsFor(d: DocInput, row: DocRow) {
+  if (d.kind !== 'plan' || d.meta?.opened !== true) return []
+  return row.agents.filter((s) => s !== PLANNER_SEAT).map((to_seat) => ({ seat: PLANNER_SEAT, to_seat, created_at: d.created_at }))
 }
 
 export interface IngestConfig {
@@ -161,6 +170,8 @@ export async function handle(request: Request, store: DocStore, cfg: IngestConfi
   const kept = (docs as DocInput[]).filter((d) => fromTrustedAuthor(d, cfg))
   const rows = kept.map((d) => toRow(d, cfg))
   if (rows.length) await store.upsert(rows)
+  const handoffs = kept.flatMap((d, i) => handoffsFor(d, rows[i]))
+  if (handoffs.length) await store.addHandoffs(handoffs)
   const project = p.project
   if (project && typeof project.repo === 'string' && REPO.test(project.repo) && Number.isInteger(project.open_issues) && project.open_issues >= 0) {
     await store.setOpenIssues(project.repo, project.open_issues, now.toISOString())

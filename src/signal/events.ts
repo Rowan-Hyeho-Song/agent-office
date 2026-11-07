@@ -14,9 +14,10 @@ export type ResultActivity = (typeof RESULT_ACTIVITIES)[number]
 
 /**
  * SessionStart → start, UserPromptSubmit / PreToolUse → activity, Stop → stop, SessionEnd → end,
- * and after a test / build command: result (did it pass: one boolean, nothing of the command or its output, #44)
+ * after a test / build command: result (did it pass: one boolean, nothing of the command or its output, #44),
+ * and a message to another agent: handoff (only the receiver's seat, never the message, #51)
  */
-export const KINDS = ['start', 'activity', 'stop', 'end', 'result'] as const
+export const KINDS = ['start', 'activity', 'stop', 'end', 'result', 'handoff'] as const
 export type Kind = (typeof KINDS)[number]
 
 export type State = 'working' | 'wrapping' | 'idle' | 'off'
@@ -37,11 +38,12 @@ export type Signal =
   | { seat: number; kind: 'start' | 'stop' | 'end' }
   | { seat: number; kind: 'activity'; activity: Activity }
   | { seat: number; kind: 'result'; activity: ResultActivity; ok: boolean }
+  | { seat: number; kind: 'handoff'; to: number }
 
 export interface Store {
   status(seat: number): Promise<StatusRow | null>
   setStatus(row: StatusRow): Promise<void>
-  addEvent(e: { seat: number; kind: Kind; activity: Activity | null; ok: boolean | null; created_at: string }): Promise<void>
+  addEvent(e: { seat: number; kind: Kind; activity: Activity | null; ok: boolean | null; to_seat: number | null; created_at: string }): Promise<void>
   /** drop events older than this (keeps the table small) */
   prune(before: string): Promise<void>
 }
@@ -50,16 +52,23 @@ const KEEP_DAYS = 14
 
 export function parseSignal(body: unknown): Signal | null {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null
-  const { seat, kind, activity, ok, ...rest } = body as Record<string, unknown>
+  const { seat, kind, activity, ok, to, ...rest } = body as Record<string, unknown>
   if (Object.keys(rest).length) return null // nothing else may ride along
   if (typeof seat !== 'number' || !(SEATS as readonly number[]).includes(seat)) return null
   if (typeof kind !== 'string' || !(KINDS as readonly string[]).includes(kind)) return null
   if (kind === 'result') {
+    if (to !== undefined) return null
     if (typeof activity !== 'string' || !(RESULT_ACTIVITIES as readonly string[]).includes(activity)) return null
     if (typeof ok !== 'boolean') return null
     return { seat, kind, activity: activity as ResultActivity, ok }
   }
   if (ok !== undefined) return null
+  if (kind === 'handoff') {
+    if (activity !== undefined) return null
+    if (typeof to !== 'number' || !(SEATS as readonly number[]).includes(to) || to === seat) return null
+    return { seat, kind, to }
+  }
+  if (to !== undefined) return null
   if (kind === 'activity') {
     if (typeof activity !== 'string' || !(ACTIVITIES as readonly string[]).includes(activity)) return null
     return { seat, kind, activity: activity as Activity }
@@ -91,6 +100,11 @@ export function nextStatus(prev: StatusRow | null, s: Signal, now: string): { ro
       changed: true,
     }
   }
+  if (s.kind === 'handoff') {
+    // handing work over is a moment, not a state: the agent goes on working; the event row carries the plane
+    const base = prev ?? { seat: s.seat, state: 'working' as State, activity: 'delegate' as Activity, since: now, updated_at: now, ...kept }
+    return { row: { ...base, seat: s.seat, updated_at: now }, changed: true }
+  }
   const state: State = s.kind === 'activity' ? 'working' : s.kind === 'stop' ? 'wrapping' : s.kind === 'end' ? 'off' : 'idle'
   const activity = s.kind === 'activity' ? s.activity : null
   const sameState = prev?.state === state
@@ -120,8 +134,9 @@ export async function handle(request: Request, store: Store, token: string, now 
   await store.setStatus(row)
   if (changed) {
     const ok = signal.kind === 'result' ? signal.ok : null
-    const activity = signal.kind === 'result' ? signal.activity : row.activity
-    await store.addEvent({ seat: row.seat, kind: signal.kind, activity, ok, created_at: at })
+    const activity = signal.kind === 'result' ? signal.activity : signal.kind === 'handoff' ? null : row.activity
+    const to_seat = signal.kind === 'handoff' ? signal.to : null
+    await store.addEvent({ seat: row.seat, kind: signal.kind, activity, ok, to_seat, created_at: at })
   }
   if (signal.kind === 'start') await store.prune(new Date(now.getTime() - KEEP_DAYS * 86400000).toISOString())
   return Response.json({ ok: true, state: row.state, changed })

@@ -4,6 +4,7 @@ import { Director, type Goal } from './director'
 import { LiveStatusSource } from './liveStatus'
 import type { NavGraph } from './nav'
 import type { NavCheck } from './navcheck'
+import type { PaperPlanes } from './plane'
 import type { AgentRig } from './rig'
 import { FakePropsFeed, LivePropsFeed, type PropsFeed } from './propsFeed'
 import { FakeStatusSource, type StatusSource } from './status'
@@ -35,6 +36,8 @@ export interface OfficeWorld {
   timeOffsetMs: number
   goals: Record<string, Goal>
   rigs: Record<string, AgentRig>
+  /** the paper planes in flight (#51), set by the scene */
+  planes: PaperPlanes | null
   graph: NavGraph | null
   check: NavCheck | null
 }
@@ -61,6 +64,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     timeOffsetMs: 0,
     goals: {},
     rigs: {},
+    planes: null,
     graph: null,
     check: null,
   }

@@ -50,16 +50,19 @@ insert into public.agent_status (seat) select seat from public.agents on conflic
 create table if not exists public.agent_events (
   id bigint generated always as identity primary key,
   seat smallint not null references public.agents (seat),
-  kind text not null check (kind in ('start', 'activity', 'stop', 'end', 'result')),
+  kind text not null check (kind in ('start', 'activity', 'stop', 'end', 'result', 'handoff')),
   activity text check (activity in ('edit', 'read', 'test', 'build', 'install', 'git', 'run', 'other', 'delegate', 'think', 'private')),
   -- a result: did the test / build pass (#44). null for every other kind
   ok boolean,
+  -- a handoff: the seat the work went to (#51 paper plane). null for every other kind
+  to_seat smallint references public.agents (seat),
   created_at timestamptz not null default now()
 );
 -- (for a table created before #44)
 alter table public.agent_events add column if not exists ok boolean;
+alter table public.agent_events add column if not exists to_seat smallint references public.agents (seat);
 alter table public.agent_events drop constraint if exists agent_events_kind_check;
-alter table public.agent_events add constraint agent_events_kind_check check (kind in ('start', 'activity', 'stop', 'end', 'result'));
+alter table public.agent_events add constraint agent_events_kind_check check (kind in ('start', 'activity', 'stop', 'end', 'result', 'handoff'));
 
 create index if not exists agent_events_created_at on public.agent_events (created_at desc);
 

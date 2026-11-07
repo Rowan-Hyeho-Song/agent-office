@@ -37,6 +37,12 @@ const supabase: DocStore = {
   upsert: (rows) => rest('docs?on_conflict=source_url', { method: 'POST', headers: MERGE, body: JSON.stringify(rows) }),
   setOpenIssues: (repo, open, at) =>
     rest('projects?on_conflict=repo', { method: 'POST', headers: MERGE, body: JSON.stringify({ repo, open_issues: open, updated_at: at }) }),
+  addHandoffs: (events) =>
+    rest('agent_events', {
+      method: 'POST',
+      headers: { prefer: 'return=minimal' },
+      body: JSON.stringify(events.map((e) => ({ ...e, kind: 'handoff' }))),
+    }),
   // a re-sent (edited) request updates its text; status and the decision columns are not in the row, so stay
   upsertApprovals: (rows) => rest('approvals?on_conflict=source_url', { method: 'POST', headers: MERGE, body: JSON.stringify(rows) }),
   decide: (requestUrl, d) =>

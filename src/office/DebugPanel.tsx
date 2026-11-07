@@ -180,7 +180,18 @@ export function DebugPanel({ world }: { world: OfficeWorld }) {
             ))}
           </select>
           <button onClick={() => fake.send(from, to)} disabled={from === to}>
-            보내기
+            대화
+          </button>
+          <button
+            onClick={() => {
+              fake.send(from, to, 'handoff')
+              // the planner's OUT tray counts the planes it sent today (#51)
+              const fp = world.fakeProps
+              if (fp && from === 'agent_0') fp.set({ handoffsToday: fp.getSnapshot().handoffsToday + 1 })
+            }}
+            disabled={from === to}
+          >
+            종이비행기
           </button>
         </div>
       )}

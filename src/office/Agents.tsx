@@ -6,6 +6,7 @@ import { buildGraph, patchSpots, type NavGraph } from './nav'
 import { checkNav, edgeKey } from './navcheck'
 import { meshesOf, useOffice } from './nodes'
 import { DeskLive } from './deskLive'
+import { PaperPlanes } from './plane'
 import { deskProps } from './props'
 import { AgentRig, PropBank, buildRig } from './rig'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
@@ -54,11 +55,21 @@ export function Agents({ world }: { world: OfficeWorld }) {
   const props = useMemo(() => (scene.userData.props ??= new PropBank(scene, nodes)) as PropBank, [scene, nodes])
   // the LIVE desk props (#44): what each desk shows about its agent
   const desks = useMemo(() => new DeskLive(nodes), [nodes])
+  // handoffs between agents fly as a paper plane (#51)
+  const planes = useMemo(() => (scene.userData.planes ??= new PaperPlanes(props, nodes)) as PaperPlanes, [scene, props, nodes])
+  world.planes = planes
   const reduced = useReducedMotion()
   world.rigs = rigs
   world.graph = graph
 
-  useEffect(() => world.source.onMessage((m) => world.director.receive(m)), [world])
+  useEffect(
+    () =>
+      world.source.onMessage((m) => {
+        world.director.receive(m)
+        planes.receive(m)
+      }),
+    [world, planes],
+  )
 
   useFrame((state, dt) => {
     const now = officeNow(world)
@@ -74,6 +85,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
     // the planner picks up its stamp the moment the owner decides something
     if (desk.stamp && rigs.agent_0?.visible) rigs.agent_0.want = { kind: 'stamp', side: 'r' }
     props.hold(new Map(Object.values(rigs).map((r) => [r, r.want])))
+    planes.update(state.clock.elapsedTime, graph, rigs, reduced)
     props.update(Math.min(dt, 0.1))
     desks.update(desk, t, Math.min(dt, 0.1), reduced)
   })

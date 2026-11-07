@@ -335,9 +335,19 @@ export class PropBank {
   private quat = new Quaternion()
   private scl = new Vector3()
 
+  /** props someone else moves right now (the paper plane in flight, plane.ts); update() leaves them alone */
+  readonly borrowed = new Set<Object3D>()
+
+  /** a prop node of this kind (the first), with its grip offset, for animations that move it themselves */
+  find(kind: string): { node: Object3D; gripLocal: Matrix4 } | undefined {
+    const p = this.props.find((x) => x.kind === kind)
+    return p && { node: p.node, gripLocal: p.gripLocal }
+  }
+
   update(dt: number) {
     const k = 1 - Math.exp(-PROP_OMEGA * dt)
     for (const p of this.props) {
+      if (this.borrowed.has(p.node)) continue
       const grip = p.holder && p.holder.rig.parts.hands[p.holder.side].grip
       if (grip && p.holder!.rig.visible) {
         grip.updateWorldMatrix(true, false)
@@ -376,6 +386,8 @@ const qy = (a: number) => new Quaternion().setFromAxisAngle(UP, a)
 const NONE = new Quaternion()
 const REST_CURL = { index: 0.15, fingers: 0.25, thumb: 0.1 }
 const HOLD_CURL = { index: 1.2, fingers: 1.35, thumb: 0.8 }
+/** how long the paper plane's gestures last, seconds (#51) */
+export const GESTURE_S = { throw: 0.7, catch: 1.6 }
 
 /** what an activity does with its hands, and which prop it takes (side = the hand that holds it) */
 const PROP_FOR: Record<string, { kind: string; side: 'l' | 'r' }> = {
@@ -420,6 +432,8 @@ export class AgentRig {
   want: { kind: string; side: 'l' | 'r'; prefer?: string } | null = null
   /** a point to turn the head to while resting (the coder's rubber duck when a test fails, #44) */
   watch: Vector3 | null = null
+  /** a short gesture set by the paper plane (#51): until = the scene clock time it ends */
+  gesture: { kind: 'throw' | 'catch'; until: number; oneHand?: boolean } | null = null
 
   constructor(id: string, index: number, parts: RigParts, color: string) {
     this.id = id
@@ -682,6 +696,13 @@ export class AgentRig {
     const down = qz(-sx * Math.PI / 2) // palm down (#27 rest: palms face each other)
     const at = (x: number, y: number, z: number, turn = NONE, curl = REST_CURL): HandPose => ({ pos: v(x, y, z), turn, curl })
     const sit = this.seat
+    // a moment's gesture on top of whatever the agent does (#51): throw the plane, raise a hand to catch it
+    const g = this.gesture && t < this.gesture.until ? this.gesture : null
+    if (g?.kind === 'throw' && side === 'r') {
+      const k = MathUtils.clamp(1 - (g.until - t) / GESTURE_S.throw, 0, 1) // 0 → 1 over the gesture
+      return at(0.2, 1.05 + sit + Math.sin(k * Math.PI) * 0.2, -0.15 - k * 0.35, NONE, HOLD_CURL)
+    }
+    if (g?.kind === 'catch' && (side === 'r' || !g.oneHand)) return at(sx * 0.16, 1.32 + sit, -0.32, NONE, { index: 0.1, fingers: 0.3, thumb: 0.2 })
     switch (pose) {
       case 'move':
         return at(rest.x, rest.y - 0.03, rest.z + 0.08)
