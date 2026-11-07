@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>사무실 에이전트 정체성</title>
+<!-- 시안 열람용으로만 CDN에서 갈무리를 불러온다(앱은 자체 서빙, office-ui.md 7절). -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/galmuri.css" />
+<link rel="stylesheet" href="../../src/styles/tokens.css" />
+<style>
+/* 역할 색 = tokens.css의 --agent-0..3(자리 번호). 아래는 시안 안에서 읽기 쉽게 붙인 별칭 */
+:root {
+  --role-plan: var(--agent-0); --role-plan-ink: var(--agent-0-ink);
+  --role-3d: var(--agent-1); --role-3d-ink: var(--agent-1-ink);
+  --role-design: var(--agent-2); --role-design-ink: var(--agent-2-ink);
+  --role-code: var(--agent-3); --role-code-ink: var(--agent-3-ink);
+  /* 스케치 재질: Blender office_bake.py의 로봇 재질 값 */
+  --bot-shell: #f6f3ec; --bot-joint: #4a505c; --bot-bezel: #111216;
+  --axis-x: var(--color-red); --axis-y: var(--color-green); --axis-z: #4d8bff;
+  --paper-1: #ffe27a; --paper-2: #ffc46b; --paper-3: #fff1b8;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--color-void); color: var(--color-text); font-family: var(--font-text); font-size: 15px; line-height: 1.6; color-scheme: dark; }
+:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+.page { max-width: 1240px; margin: 0 auto; padding: var(--space-8) var(--space-4) 96px; }
+h1, h2, h3 { font-family: var(--font-pixel); font-weight: 400; margin: 0; }
+h1 { font-size: var(--font-size-2); line-height: 36px; }
+h2 { font-size: var(--font-size-2); line-height: 36px; margin-top: 56px; }
+h3 { font-size: var(--font-size-1); line-height: var(--line-height-1); color: var(--color-text-muted); letter-spacing: var(--letter-spacing-label); margin: var(--space-6) 0 var(--space-2); }
+.kicker { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-amber); letter-spacing: var(--letter-spacing-label); }
+p.lead, .note { color: var(--color-text-muted); }
+p.lead { max-width: 72ch; margin: var(--space-2) 0 0; }
+.note { font-size: 13px; }
+header.top { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: end; justify-content: space-between; border-bottom: 1px solid var(--color-line); padding-bottom: var(--space-4); }
+.seg { display: inline-flex; border: 1px solid var(--color-line); }
+.seg button { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1); color: var(--color-text); background: var(--color-surface); border: 0; border-right: 1px solid var(--color-line); padding: var(--space-1) var(--space-3); cursor: pointer; }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed='true'] { background: var(--color-cyan); color: var(--color-ink); }
+
+[data-role='plan'] { --agent: var(--role-plan); --agent-ink: var(--role-plan-ink); }
+[data-role='3d'] { --agent: var(--role-3d); --agent-ink: var(--role-3d-ink); }
+[data-role='design'] { --agent: var(--role-design); --agent-ink: var(--role-design-ink); }
+[data-role='code'] { --agent: var(--role-code); --agent-ink: var(--role-code-ink); }
+
+/* ── 네 명 카드 ── */
+.cast { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: var(--space-4); margin-top: var(--space-4); }
+.card { border: 1px solid var(--color-line); border-top: 3px solid var(--agent); background: var(--color-surface); padding: var(--space-4); min-width: 0; }
+.nametag { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1); display: inline-flex; gap: var(--space-1); align-items: center; padding: 0 var(--space-2); background: var(--agent); color: var(--color-ink); clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%); }
+.who { display: flex; align-items: baseline; gap: var(--space-2); margin: var(--space-2) 0 0; }
+.who b { font-family: var(--font-pixel); font-weight: 700; font-size: var(--font-size-2); line-height: 30px; color: var(--agent-ink); }
+.who span { color: var(--color-text-muted); font-size: 14px; }
+.views { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-1); margin: var(--space-3) 0; background: color-mix(in srgb, var(--color-void) 70%, var(--color-surface)); border: 1px solid var(--color-line); }
+.views figure { margin: 0; text-align: center; }
+.views svg { width: 100%; height: auto; display: block; }
+.views figcaption { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); padding-bottom: var(--space-1); }
+.points { margin: 0; padding-left: 1.2em; font-size: 14px; }
+.points li { margin-bottom: var(--space-1); }
+.points li::marker { color: var(--agent); }
+.persona { margin: var(--space-3) 0 0; font-size: 14px; color: var(--color-text-muted); }
+.persona b { color: var(--color-text); font-weight: 600; }
+.chip { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); margin-top: var(--space-2); }
+.chip i { width: 14px; height: 14px; background: var(--agent); display: inline-block; }
+
+/* 말풍선 견본 (#18 규칙의 축약) */
+.bub { margin-top: var(--space-3); width: max-content; max-width: 100%; filter: drop-shadow(0 0 1px var(--color-halo)); }
+.bub-tab { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--bubble-tab-h); height: var(--bubble-tab-h); padding: 0 var(--space-2) 0 var(--space-1); background: var(--agent); color: var(--color-ink); width: max-content; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%); }
+.bub-box { padding: 1px; background: color-mix(in srgb, var(--agent) 55%, transparent); clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--bubble-cut)), calc(100% - var(--bubble-cut)) 100%, 0 100%); max-width: var(--bubble-max-w); }
+.bub-body { padding: var(--bubble-pad-y) var(--bubble-pad-x); background: var(--color-surface-alpha); border-left: var(--bubble-stripe) solid var(--agent); clip-path: inherit; font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1); word-break: keep-all; }
+
+/* ── 실제 크기 무대 ── */
+.stage { position: relative; display: flex; justify-content: center; align-items: flex-end; gap: var(--space-8); padding: var(--space-6) var(--space-4) var(--space-4); border: 1px solid var(--color-line); overflow: hidden;
+  background: radial-gradient(ellipse 80% 50% at 50% 100%, color-mix(in srgb, var(--color-amber) 12%, transparent), transparent 70%), var(--color-void); }
+.stage.light { background: linear-gradient(180deg, var(--color-text), color-mix(in srgb, var(--color-amber) 30%, var(--color-text))); }
+.stage figure { margin: 0; text-align: center; }
+.stage figcaption { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); margin-top: var(--space-1); }
+.stage.light figcaption { color: var(--color-ink); }
+.row { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-4); }
+
+/* ── 표 ── */
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; margin-top: var(--space-2); }
+th, td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-line); vertical-align: middle; }
+th { font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); color: var(--color-text-muted); }
+td.pick { color: var(--color-amber); font-family: var(--font-pixel); font-size: var(--font-size-1); }
+.sw { display: inline-block; width: 44px; height: 24px; vertical-align: middle; border: 1px solid var(--color-line); }
+code { font-family: var(--font-pixel); font-size: var(--font-size-1); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="top">
+  <div>
+    <div class="kicker">AGENT OFFICE · #26 · 확정 (2026-11-08 결재)</div>
+    <h1>네 명의 에이전트</h1>
+    <p class="lead">역할 = 자리 = 색 = 실루엣. 같은 로봇 몸(몸통·머리·양팔·호버 포드)에 <b>머리 위</b>와 <b>몸통</b>의 부품 두 개씩만 바꿔, 전경 거리(키 약 120px)와 일할 때 보이는 <b>뒷모습</b>에서 누가 누구인지 읽히게 했다. 손은 비워 둔다(타자·탁구채·컵을 들어야 하므로).</p>
+  </div>
+  <div>
+    <div class="note" id="set-label">이름 안</div>
+    <div class="seg" role="group" aria-labelledby="set-label">
+      <button type="button" data-set="A" aria-pressed="true">A 사물 (확정)</button>
+      <button type="button" data-set="B">B 사람 이름</button>
+      <button type="button" data-set="C">C 우리말</button>
+    </div>
+  </div>
+</header>
+
+<section>
+  <h2>1. 네 명</h2>
+  <p class="note"><b>#28에서 바뀜</b>: 외형(몸통·팔·포드)은 “머리만 떠 있고 손이 따로 떠다니는” 형태로 다시 설계한다. 아래 스케치는 #26 결재 당시 기록이다. 이름·색·이름표·성격은 그대로.</p>
+  <div class="cast" id="cast"></div>
+  <p class="note">스케치는 Blender 로봇의 실제 치수(m)를 그대로 썼다. 몸통 0.34 × 0.36, 머리 0.32 × 0.24, 호버 포드 r 0.15→0.10, 바닥에서 안테나 끝까지 1.18. 회색 점선 = 바뀌는 부품. 측면은 왼쪽이 앞(-z).</p>
+</section>
+
+<section>
+  <h2>2. 실제 크기에서 읽히나</h2>
+  <h3>기본 카메라 · 키 약 120px · 정면</h3>
+  <div class="stage" id="stage-front"></div>
+  <h3>일할 때 보이는 뒷모습 · 책상에서 벽을 보고 앉음</h3>
+  <div class="stage" id="stage-back"></div>
+  <div class="row">
+    <div><h3>실루엣만 · 정면</h3><div class="stage light" id="stage-sil"></div></div>
+    <div><h3>더 멀리 · 키 60px</h3><div class="stage" id="stage-far"></div></div>
+  </div>
+  <p class="note">실루엣 시험: 색을 다 빼도 머리 위 모양(안테나+마이크 붐 / 축 기즈모 / 베레모 / 헤드폰 띠)이 넷 다 다르다. 기획의 헤드셋에 머리띠를 뺀 이유: 띠가 있으면 코더의 헤드폰과 윤곽이 비슷해졌다. 60px에서는 색과 머리 윤곽만 남는다. 그래서 색이 서로 구분되는 게 중요하다(4절).</p>
+</section>
+
+<section>
+  <h2>3. 이름 안</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>안</th><th>기획</th><th>3D</th><th>디자인</th><th>코더</th><th>느낌</th></tr></thead>
+    <tbody id="names"></tbody>
+  </table></div>
+  <p class="note">이름표 표기는 책상 방 로봇 <code>RB-01 · THINKING</code>과 같은 계열이다. 오피스 넷은 10번대 형제 <code>RB-10..13</code>(자리 번호 0..3과 끝자리가 같음).</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>어디</th><th>표기</th><th>예 (A안 기획)</th></tr></thead>
+    <tbody>
+      <tr><td>말풍선 탭</td><td><code>이름 · 종류</code></td><td><code>MEMO · 대화</code></td></tr>
+      <tr><td>모니터 윗줄</td><td><code>이름 · 코드</code></td><td><code>MEMO · RB-10</code></td></tr>
+      <tr><td>에이전트를 눌렀을 때 카드</td><td>한글 이름 크게 + <code>이름 · 코드 · 역할</code></td><td><b>메모</b> <code>MEMO · RB-10 · 기획</code></td></tr>
+      <tr><td>화면 읽기</td><td>한글 이름 + 역할</td><td>“메모(기획) → 루프(코더): …”</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>4. 색</h2>
+  <p class="lead">3D를 초록 → <b>노멀 맵 라벤더</b>로 바꿨다(결재). 지금 4색은 제3색약(tritan)에서 초록과 청록이 거의 같아지고(ΔE00 5.3), 적·녹색약에서는 호박과 초록이 가깝다(11.2). 라벤더로 바꾸면 모든 경우에 가장 가까운 두 색의 차이가 17.6 이상이 된다.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>역할</th><th>색</th><th>보통</th><th>적색약</th><th>녹색약</th><th>청색약</th><th>판 위 글자 대비</th><th>뜻</th></tr></thead>
+    <tbody id="colors"></tbody>
+  </table></div>
+  <h3>가장 가까운 두 색의 차이 (CIEDE2000, Machado 2009 시뮬레이션)</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>팔레트</th><th>보통</th><th>적색약</th><th>녹색약</th><th>청색약</th></tr></thead>
+    <tbody>
+      <tr><td>지금 (청록·분홍·호박·초록)</td><td>29.4</td><td>13.7 호박–초록</td><td>11.2 호박–초록</td><td><b>5.3 초록–청록</b></td></tr>
+      <tr><td>확정 (호박·라벤더·분홍·청록)</td><td>32.8</td><td>17.6 라벤더–분홍</td><td>17.9 라벤더–청록</td><td>20.5 호박–분홍</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">색만으로 구별하지 않는다: 이름표·머리 실루엣·말풍선 탭의 이름이 늘 함께 간다.</p>
+</section>
+
+</div>
+
+<script>
+/* ═════════ 데이터 ═════════ */
+const ROLES = [
+  { key: 'plan', seat: 0, role: '기획', code: 'RB-10',
+    color: '#ffb347', sim: ['#ceb739', '#dfc94a', '#ffa09d'], contrast: '10.9 : 1',
+    meaning: '서류철·결재 도장의 호박색. 책상 방(주인)과 이어지는 색 — 주인과 가장 많이 말하는 역할',
+    points: ['오른쪽 귀에 거는 헤드셋 + 입 앞으로 휜 마이크 붐(머리띠 없음): 늘 누군가와 이야기하는 사람', '등에 붙은 포스트잇 세 장: 책상에서 등을 보이고 일할 때 “할 일이 붙어 있는” 뒷모습'],
+    persona: '결론부터 말하고, 할 일은 번호를 붙인다.', line: '정리하면 두 가지예요. 1) 토큰 확정 2) 결재.' },
+  { key: '3d', seat: 1, role: '3D', code: 'RB-11',
+    color: '#8f9bff', sim: ['#76a7ff', '#6e9ffd', '#69afc1'], contrast: '7.6 : 1',
+    meaning: '노멀 맵의 라벤더(#8080ff 계열). 3D 작업자라면 바로 아는 색',
+    points: ['안테나 대신 XYZ 축 기즈모(빨·초·파 막대, 가운데 구 = 상태등)', '머리 옆을 천천히 도는 와이어프레임 큐브 위성(10 cm)'],
+    persona: '말보다 손이 먼저, 숫자로 말한다.', line: '포드를 2 cm 올렸어요. 그림자 다시 구울게요.' },
+  { key: 'design', seat: 2, role: '디자인', code: 'RB-12',
+    color: '#ff3ea5', sim: ['#6379a8', '#9a9ca1', '#ff296d'], contrast: '6.0 : 1 (글자는 #ff6fbd 7.6 : 1)',
+    meaning: '인쇄의 마젠타(CMYK의 M). 책상 방 네온과 같은 값',
+    points: ['안테나 대신 비스듬히 쓴 베레모(꼭지 = 상태등)', '가슴 띠가 팀 4색 색견본 칩'],
+    persona: '예쁜 것보다 읽히는 것. 감탄사가 잦다.', line: '오, 이 색 좋다! 대비만 조금 올려요.' },
+  { key: 'code', seat: 3, role: '코더', code: 'RB-13',
+    color: '#4df3ff', sim: ['#e1e9ff', '#c7d6ff', '#00fcf6'], contrast: '14.3 : 1',
+    meaning: '터미널 커서의 청록. 사무실에서 “누르면 반응하는” 네온과 같은 색',
+    points: ['귀 대신 오버이어 헤드폰(머리 위 띠, 상태등은 오른쪽 컵)', '등판이 스티커 붙은 노트북 뚜껑: 일할 때 뒤에서 보임'],
+    persona: '돌려 보고 말한다. 짧고 건조, 가끔 농담.', line: '돌려 봤어요. 테스트 12개 통과, 하나는 제 탓.' },
+]
+const NAME_SETS = {
+  A: { label: 'A 사물 (확정)', feel: '역할에서 바로 떠오르는 영단어 하나. 넷 다 짧고(1~2음절), 이름표에 그대로 쓰기 좋다. 휴(HUE)는 “휴식”과 겹치는 말장난',
+    names: { plan: ['메모', 'MEMO'], '3d': ['메시', 'MESH'], design: ['휴', 'HUE'], code: ['루프', 'LOOP'] } },
+  B: { label: 'B 사람 이름', feel: '역할 머리글자(Plan·Render·Design·Code)로 지은 사람 이름. 부르기 친근하지만 역할은 덜 보인다',
+    names: { plan: ['피아', 'PIA'], '3d': ['레니', 'RENI'], design: ['디디', 'DIDI'], code: ['코디', 'CODY'] } },
+  C: { label: 'C 우리말', feel: '하는 일을 동사에서 지은 우리말(짜다·빚다·그리다·엮다). 뜻이 예쁘지만 영문 이름표가 길어 한글로만 표기',
+    names: { plan: ['짜임', '짜임'], '3d': ['빚음', '빚음'], design: ['그림', '그림'], code: ['엮음', '엮음'] } },
+}
+let currentSet = 'A'
+
+/* ═════════ 로봇 스케치 (단위 m, y 위로) ═════════ */
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim()
+function robot(roleKey, view, { scale = 300, silhouette = false, ghost = true } = {}) {
+  const W = 0.8, H = 1.42, ox = W / 2
+  const X = (x) => (ox + x) * scale, Y = (y) => (H - y) * scale, S = (v) => v * scale
+  const C = (name) => (silhouette ? css('--color-ink') : css(name))
+  const agent = silhouette ? css('--color-ink') : ROLES.find((r) => r.key === roleKey).color
+  const out = []
+  const rect = (x0, y0, x1, y1, fill, r = 0, extra = '') => out.push(`<rect x="${X(Math.min(x0, x1))}" y="${Y(Math.max(y0, y1))}" width="${S(Math.abs(x1 - x0))}" height="${S(Math.abs(y1 - y0))}" rx="${S(r)}" fill="${fill}" ${extra}/>`)
+  const circ = (x, y, r, fill, extra = '') => out.push(`<circle cx="${X(x)}" cy="${Y(y)}" r="${S(r)}" fill="${fill}" ${extra}/>`)
+  const poly = (pts, fill, extra = '') => out.push(`<polygon points="${pts.map(([x, y]) => `${X(x)},${Y(y)}`).join(' ')}" fill="${fill}" ${extra}/>`)
+  const line = (pts, stroke, w, extra = '') => out.push(`<polyline points="${pts.map(([x, y]) => `${X(x)},${Y(y)}`).join(' ')}" fill="none" stroke="${stroke}" stroke-width="${S(w)}" stroke-linecap="round" stroke-linejoin="round" ${extra}/>`)
+  const shell = C('--bot-shell'), joint = C('--bot-joint'), bezel = C('--bot-bezel')
+  const side = view === 'side', back = view === 'back'
+  const ghostAttr = ghost && !silhouette ? `stroke="${css('--color-text-muted')}" stroke-width="1" stroke-dasharray="3 2"` : ''
+
+  // 바닥 빛
+  if (!silhouette) out.push(`<ellipse cx="${X(0)}" cy="${Y(0.01)}" rx="${S(0.22)}" ry="${S(0.03)}" fill="${agent}" opacity="0.35" filter="url(#blur)"/>`)
+  // 호버 포드
+  poly([[-0.15, 0.37], [0.15, 0.37], [0.1, 0.21], [-0.1, 0.21]], shell)
+  poly([[-0.105, 0.215], [0.105, 0.215], [0.08, 0.175], [-0.08, 0.175]], joint)
+  rect(-0.097, 0.18, 0.097, 0.196, silhouette ? agent : agent, 0.008)
+  rect(-0.12, 0.37, 0.12, 0.42, joint)
+  // 몸통 (측면은 깊이 0.26)
+  const tw = side ? 0.13 : 0.17
+  rect(-tw, 0.42, tw, 0.78, shell, 0.08)
+  // 가슴 띠
+  if (roleKey === 'design' && !silhouette) {
+    const sw = [css('--role-plan'), css('--role-3d'), css('--role-design'), css('--role-code')]
+    const n = side ? 2 : 4, w = (tw * 2 + 0.005) / n
+    for (let i = 0; i < n; i++) rect(-tw - 0.0025 + i * w + 0.004, 0.64, -tw - 0.0025 + (i + 1) * w - 0.004, 0.68, side ? sw[i + 2] : sw[i], 0, ghostAttr)
+  } else rect(-tw - 0.0025, 0.64, tw + 0.0025, 0.68, silhouette ? agent : agent)
+  // 등 쪽: 뒷면에서 보이는 것 / 측면에서 튀어나온 것
+  if (back) {
+    if (roleKey === 'plan') {
+      const papers = ['--paper-1', '--paper-2', '--paper-3']
+      ;[[-0.075, 0.6, -8], [0.03, 0.63, 6], [-0.02, 0.5, -3]].forEach(([x, y, rot], i) =>
+        out.push(`<rect x="${X(x - 0.04)}" y="${Y(y + 0.04)}" width="${S(0.08)}" height="${S(0.08)}" fill="${C(papers[i])}" transform="rotate(${rot} ${X(x)} ${Y(y)})" ${ghostAttr}/>`))
+    } else if (roleKey === 'code') {
+      rect(-0.1, 0.5, 0.1, 0.645, C('--bot-joint'), 0.012, ghostAttr)
+      if (!silhouette) {
+        circ(-0.05, 0.6, 0.022, css('--role-plan')); rect(0.01, 0.54, 0.07, 0.575, css('--role-design'), 0.006)
+        circ(0.05, 0.615, 0.016, css('--role-3d'))
+        out.push(`<text x="${X(-0.075)}" y="${Y(0.52)}" font-family="Galmuri11" font-size="${S(0.04)}" fill="${css('--role-code')}">&gt;_</text>`)
+      }
+    } else rect(-0.07, 0.53, 0.07, 0.67, agent)
+  }
+  if (side) {
+    if (roleKey === 'plan') rect(0.13, 0.48, 0.14, 0.7, C('--paper-2'), 0, ghostAttr)
+    else if (roleKey === 'code') rect(0.13, 0.5, 0.145, 0.645, joint, 0, ghostAttr)
+    else rect(0.13, 0.53, 0.14, 0.67, agent)
+  }
+  // 팔
+  const arm = (x) => { rect(x - 0.035, 0.43, x + 0.035, 0.73, joint); circ(x, 0.41, 0.045, shell); side ? circ(x, 0.74, 0.045, joint) : rect(x - 0.03, 0.695, x + 0.03, 0.785, joint, 0.02) }
+  if (side) arm(0); else { arm(-0.2); arm(0.2) }
+  // 목·머리
+  rect(-0.04, 0.775, 0.04, 0.825, joint)
+  rect(side ? -0.13 : -0.16, 0.81, side ? 0.13 : 0.16, 1.05, shell, 0.07)
+  // 얼굴
+  if (view === 'front') {
+    rect(-0.13, 0.845, 0.13, 1.015, bezel, 0.02)
+    if (!silhouette) { rect(-0.11, 0.865, 0.11, 0.995, agent, 0.01, 'opacity="0.22"'); rect(-0.065, 0.915, -0.035, 0.955, agent, 0.004); rect(0.035, 0.915, 0.065, 0.955, agent, 0.004) }
+  }
+  if (side) rect(-0.142, 0.845, -0.13, 1.015, bezel)
+  // 귀 (코더는 헤드폰 컵으로 바뀜)
+  if (roleKey !== 'code') {
+    if (side) circ(0, 0.93, 0.035, agent); else { rect(-0.185, 0.895, -0.155, 0.965, agent, 0.01); rect(0.155, 0.895, 0.185, 0.965, agent, 0.01) }
+  }
+
+  /* ── 역할 부품 ── */
+  const ax = back ? -0.06 : 0.06 // 안테나는 머리 오른쪽 뒤(뒷면에선 왼쪽에 보임)
+  if (roleKey === 'plan') {
+    rect(ax - 0.008, 1.05, ax + 0.008, 1.17, joint); circ(ax, 1.18, 0.022, agent)
+    // 헤드셋: 머리띠 없이 귀에 거는 한쪽 컵 + 마이크 붐(코더의 헤드폰 띠와 실루엣이 겹치지 않게)
+    if (side) {
+      circ(0, 0.93, 0.05, joint, ghostAttr)
+      line([[-0.02, 0.9], [-0.1, 0.87], [-0.17, 0.87]], joint, 0.014, ghostAttr); circ(-0.175, 0.87, 0.017, agent)
+    } else {
+      const ex = back ? -0.19 : 0.19
+      rect(ex - 0.025, 0.88, ex + 0.025, 0.98, joint, 0.02, ghostAttr)
+      if (!back) { line([[0.19, 0.9], [0.17, 0.85], [0.07, 0.83]], joint, 0.014, ghostAttr); circ(0.06, 0.83, 0.017, agent) }
+    }
+  } else if (roleKey === '3d') {
+    // 축 기즈모: 받침대 + X(빨) Y(초) Z(파) + 가운데 상태등
+    const cx = 0, cy = 1.15
+    rect(-0.008, 1.05, 0.008, 1.13, joint, 0, ghostAttr)
+    const ax3 = (dx, dy, col) => { line([[cx, cy], [cx + dx, cy + dy]], C(col), 0.014, ghostAttr); circ(cx + dx, cy + dy, 0.02, C(col)) }
+    if (side) { ax3(0, 0.1, '--axis-y'); ax3(-0.1, 0, '--axis-z') } else if (back) { ax3(-0.1, 0, '--axis-x'); ax3(0, 0.1, '--axis-y'); ax3(-0.05, -0.045, '--axis-z') } else { ax3(0.1, 0, '--axis-x'); ax3(0, 0.1, '--axis-y'); ax3(-0.055, -0.05, '--axis-z') }
+    circ(cx, cy, 0.024, agent)
+    // 와이어프레임 큐브 위성 + 궤도
+    const qx = side ? -0.22 : back ? -0.27 : 0.27, qy = 1.02, h = 0.05
+    if (!silhouette) out.push(`<ellipse cx="${X(0)}" cy="${Y(1.0)}" rx="${S(0.28)}" ry="${S(0.06)}" fill="none" stroke="${agent}" stroke-width="1" stroke-dasharray="2 4" opacity="0.7"/>`)
+    const o = 0.025
+    line([[qx - h, qy - h], [qx + h, qy - h], [qx + h, qy + h], [qx - h, qy + h], [qx - h, qy - h]], agent, 0.008, ghostAttr)
+    line([[qx - h + o, qy - h + o], [qx + h + o, qy - h + o], [qx + h + o, qy + h + o], [qx - h + o, qy + h + o], [qx - h + o, qy - h + o]], agent, 0.008)
+    ;[[-h, -h], [h, -h], [h, h], [-h, h]].forEach(([a, b]) => line([[qx + a, qy + b], [qx + a + o, qy + b + o]], agent, 0.008))
+  } else if (roleKey === 'design') {
+    // 베레모: 비스듬한 납작한 돔 + 꼭지(상태등)
+    const tilt = side ? 6 : back ? 10 : -10
+    const beret = silhouette ? css('--color-ink') : `color-mix(in srgb, ${agent} 70%, ${css('--color-void')})`
+    out.push(`<g transform="rotate(${tilt} ${X(0)} ${Y(1.06)})" ${ghostAttr}>
+      <ellipse cx="${X(0.025)}" cy="${Y(1.075)}" rx="${S(0.2)}" ry="${S(0.045)}" fill="${beret}"/>
+      <ellipse cx="${X(0.015)}" cy="${Y(1.05)}" rx="${S(0.165)}" ry="${S(0.018)}" fill="${silhouette ? beret : css('--bot-joint')}"/>
+      <rect x="${X(0.015) - S(0.008)}" y="${Y(1.15)}" width="${S(0.016)}" height="${S(0.04)}" fill="${beret}"/>
+    </g>`)
+    const tx = side ? 0.025 : back ? -0.01 : 0.04
+    circ(tx, 1.155, 0.022, agent)
+  } else if (roleKey === 'code') {
+    // 헤드폰: 머리띠 + 큰 컵, 상태등은 오른쪽 컵
+    if (side) {
+      line([[0, 1.0], [0, 1.11]], joint, 0.03, ghostAttr)
+      circ(0, 0.93, 0.07, joint, ghostAttr); circ(0, 0.93, 0.045, agent)
+      circ(0.0, 0.93, 0.02, silhouette ? agent : css('--color-text'))
+    } else {
+      line([[-0.2, 0.97], [-0.19, 1.08], [-0.1, 1.12], [0.1, 1.12], [0.19, 1.08], [0.2, 0.97]], joint, 0.03, ghostAttr)
+      rect(-0.235, 0.86, -0.165, 1.0, joint, 0.025, ghostAttr); rect(0.165, 0.86, 0.235, 1.0, joint, 0.025, ghostAttr)
+      rect(-0.235, 0.9, -0.225, 0.96, agent); rect(0.225, 0.9, 0.235, 0.96, agent)
+      circ(back ? -0.243 : 0.243, 0.93, 0.018, agent)
+    }
+  }
+  return `<svg viewBox="0 0 ${S(W)} ${S(H)}" width="${S(W)}" height="${S(H)}" role="img" aria-label="${ROLES.find((r) => r.key === roleKey).role} 로봇 ${view === 'front' ? '정면' : view === 'side' ? '측면' : '뒷면'}"><defs><filter id="blur"><feGaussianBlur stdDeviation="${S(0.015)}"/></filter></defs>${out.join('')}</svg>`
+}
+
+/* ═════════ 그리기 ═════════ */
+const nameOf = (key) => NAME_SETS[currentSet].names[key]
+function render() {
+  document.getElementById('cast').innerHTML = ROLES.map((r) => {
+    const [ko, en] = nameOf(r.key)
+    const tag = currentSet === 'C' ? `${ko} · ${r.code}` : `${en} · ${r.code}`
+    return `<article class="card" data-role="${r.key}">
+      <span class="nametag">${tag} · ${r.role}</span>
+      <div class="who"><b>${ko}</b><span>${r.role} · 자리 ${r.seat}</span></div>
+      <div class="chip"><i></i>${r.color} · --agent-${r.seat}</div>
+      <div class="views">
+        <figure>${robot(r.key, 'front', { scale: 150 })}<figcaption>정면</figcaption></figure>
+        <figure>${robot(r.key, 'side', { scale: 150 })}<figcaption>측면</figcaption></figure>
+        <figure>${robot(r.key, 'back', { scale: 150 })}<figcaption>뒷면</figcaption></figure>
+      </div>
+      <ol class="points">${r.points.map((p) => `<li>${p}</li>`).join('')}</ol>
+      <p class="persona"><b>성격</b> ${r.persona}<br><b>색</b> ${r.meaning}</p>
+      <div class="bub"><div class="bub-tab">${currentSet === 'C' ? ko : en} · 대화</div><div class="bub-box"><div class="bub-body">${r.line}</div></div></div>
+    </article>`
+  }).join('')
+  const stage = (id, view, scale, opts = {}) => {
+    document.getElementById(id).innerHTML = ROLES.map((r) => `<figure>${robot(r.key, view, { scale, ghost: false, ...opts })}<figcaption>${nameOf(r.key)[0]}</figcaption></figure>`).join('')
+  }
+  stage('stage-front', 'front', 100)
+  stage('stage-back', 'back', 100)
+  stage('stage-sil', 'front', 100, { silhouette: true })
+  stage('stage-far', 'front', 50)
+  document.getElementById('names').innerHTML = Object.entries(NAME_SETS).map(([k, s]) =>
+    `<tr><td class="${k === 'A' ? 'pick' : ''}">${s.label}</td>${ROLES.map((r) => `<td>${s.names[r.key][0]}${s.names[r.key][1] !== s.names[r.key][0] ? ` <code>${s.names[r.key][1]}</code>` : ''}</td>`).join('')}<td class="note">${s.feel}</td></tr>`).join('')
+  document.getElementById('colors').innerHTML = ROLES.map((r) =>
+    `<tr data-role="${r.key}"><td>${r.role}</td><td><code>${r.color}</code></td><td><span class="sw" style="background:${r.color}"></span></td>${r.sim.map((h) => `<td><span class="sw" style="background:${h}"></span></td>`).join('')}<td>${r.contrast}</td><td class="note">${r.meaning}</td></tr>`).join('')
+}
+document.querySelectorAll('[data-set]').forEach((b) => b.addEventListener('click', () => {
+  currentSet = b.dataset.set
+  document.querySelectorAll('[data-set]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))
+  render()
+}))
+document.fonts.load('12px Galmuri11').finally(render)
+</script>
+</body>
+</html>
