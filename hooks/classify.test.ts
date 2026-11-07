@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BASH_RULES, DEFAULT_SEATS, classifyCommand, classifyTool, insideProjects, resultFor, seatFor, signalFor } from './classify.mjs'
+import { handoffFor, BASH_RULES, DEFAULT_SEATS, classifyCommand, classifyTool, insideProjects, resultFor, seatFor, signalFor } from './classify.mjs'
 
 const ACTIVITIES = ['edit', 'read', 'test', 'build', 'install', 'git', 'run', 'other', 'delegate', 'think']
 
@@ -332,6 +332,48 @@ describe('resultFor / signalFor results (#44)', () => {
           expect(JSON.stringify(r)).not.toContain('secret-xyz')
         }
       }
+    }
+  })
+})
+
+describe('handoffFor (#51 paper plane)', () => {
+  const SECRET = 'SECRET-plane-c0ffee'
+  const send = (to: unknown, message: unknown = `please look at ${SECRET}`) => ({
+    hook_event_name: 'PreToolUse',
+    tool_name: 'SendMessage',
+    tool_input: { to, message, summary: SECRET },
+  })
+
+  it.each([
+    ['프로젝트 기획·설계 총괄', 0],
+    ['프로젝트 Blender 작업', 1],
+    ['프로젝트 그래픽 디자이너', 2],
+    ['프로젝트 코더', 3],
+    ['프로젝트 코더 [f76c26]', 3],
+  ])('to %s → seat %s, and nothing else', (to, seat) => {
+    const s = handoffFor(send(to), DEFAULT_SEATS)
+    expect(s).toEqual({ kind: 'handoff', to: seat })
+    expect(Object.keys(s!)).toEqual(['kind', 'to'])
+    expect(JSON.stringify(signalFor(send(to), undefined, DEFAULT_SEATS))).not.toContain(SECRET)
+  })
+
+  it('a receiver that is not one of the four agents → no plane (the call is just "other")', () => {
+    expect(handoffFor(send('main'), DEFAULT_SEATS)).toBeNull()
+    expect(handoffFor(send('abe9b8f2d273bfa8f'), DEFAULT_SEATS)).toBeNull()
+    expect(signalFor(send('someone else'), undefined, DEFAULT_SEATS)).toEqual({ kind: 'activity', activity: 'other' })
+  })
+
+  it('other tools and odd inputs → no plane', () => {
+    expect(handoffFor({ tool_name: 'Edit', tool_input: { to: '프로젝트 코더' } }, DEFAULT_SEATS)).toBeNull()
+    expect(handoffFor({ tool_name: 'SendMessage', tool_input: { to: 3 } }, DEFAULT_SEATS)).toBeNull()
+    expect(handoffFor({ tool_name: 'SendMessage' }, DEFAULT_SEATS)).toBeNull()
+  })
+
+  it('privacy fuzz: whatever the message says, only kind and a seat come out', () => {
+    for (let i = 0; i < 200; i++) {
+      const junk = `${SECRET} ${Math.random().toString(36)} ${'#'.repeat(i % 7)} ${i}`
+      const s = signalFor(send('프로젝트 코더', junk), undefined, DEFAULT_SEATS)
+      expect(JSON.stringify(s)).toBe('{"kind":"handoff","to":3}')
     }
   })
 })

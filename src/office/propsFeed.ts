@@ -64,8 +64,7 @@ export class LivePropsFeed extends Base {
         .from('agent_events')
         .select('id', { count: 'exact', head: true })
         .eq('seat', 0)
-        .eq('kind', 'activity')
-        .eq('activity', 'delegate')
+        .eq('kind', 'handoff')
         .gte('created_at', todayStart(this.now())),
     ])
     if (covers.error || handoffs.error) return // keep what we had (tables not there yet, or offline)

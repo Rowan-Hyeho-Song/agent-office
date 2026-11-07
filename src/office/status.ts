@@ -13,9 +13,13 @@ export interface AgentStatus {
   lastResult?: { activity: 'test' | 'build'; ok: boolean; at: number }
 }
 
-/** one agent asking or handing work to another: they meet face to face */
+/**
+ * One agent reaching another (plan.md 4.1, #28 decision): a talk is a face-to-face meeting; a handoff (a message
+ * between sessions, an issue assigned) is a paper plane thrown to the other desk (#51).
+ */
 export interface OfficeMessage {
   id: string
+  kind: 'talk' | 'handoff'
   from: string
   to: string
   at: number
@@ -66,8 +70,8 @@ export class FakeStatusSource implements StatusSource {
     for (const l of this.listeners) l()
   }
 
-  send(from: string, to: string) {
-    const m: OfficeMessage = { id: `m${++this.seq}`, from, to, at: Date.now() }
+  send(from: string, to: string, kind: OfficeMessage['kind'] = 'talk') {
+    const m: OfficeMessage = { id: `m${++this.seq}`, kind, from, to, at: Date.now() }
     for (const l of this.messageListeners) l(m)
   }
 }

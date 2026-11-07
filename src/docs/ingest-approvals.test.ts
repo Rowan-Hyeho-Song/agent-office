@@ -25,6 +25,7 @@ function store() {
     setOpenIssues: vi.fn(async () => {}),
     upsertApprovals: vi.fn(async (_rows: ApprovalRow[]) => {}),
     decide: vi.fn(async (_u: string, _d: Decision) => {}),
+    addHandoffs: vi.fn(async () => {}),
   } satisfies DocStore
 }
 

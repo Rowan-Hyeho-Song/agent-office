@@ -247,7 +247,7 @@ describe('handle', () => {
     expect(await res.json()).toEqual({ ok: true, state: 'working', changed: true })
     const at = NOW.toISOString()
     expect(m.rows.get(2)).toEqual({ seat: 2, state: 'working', activity: 'edit', since: at, updated_at: at, ...NONE })
-    expect(m.calls.addEvent).toEqual([{ seat: 2, kind: 'activity', activity: 'edit', ok: null, created_at: at }])
+    expect(m.calls.addEvent).toEqual([{ seat: 2, kind: 'activity', activity: 'edit', ok: null, to_seat: null, created_at: at }])
     expect(m.calls.prune).toEqual([])
   })
 
@@ -266,7 +266,7 @@ describe('handle', () => {
     const res = await handle(post({ seat: 3, kind: 'result', activity: 'test', ok: false }), m.store, TOKEN, NOW)
     expect(res.status).toBe(200)
     const at = NOW.toISOString()
-    expect(m.calls.addEvent).toEqual([{ seat: 3, kind: 'result', activity: 'test', ok: false, created_at: at }])
+    expect(m.calls.addEvent).toEqual([{ seat: 3, kind: 'result', activity: 'test', ok: false, to_seat: null, created_at: at }])
     expect(m.rows.get(3)).toMatchObject({ last_result_activity: 'test', last_result_ok: false, last_result_at: at })
   })
 

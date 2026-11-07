@@ -13,7 +13,7 @@ export interface PropsInput {
   waitingSeats: number[]
   /** when the owner last decided something (the pending count went down), ms */
   decidedAt: number | null
-  /** work the planner handed out today (its delegate activity starts, #1 agent_events) */
+  /** work the planner handed out today (its handoff events: paper planes, #51) */
   handoffsToday: number
   now: number
 }

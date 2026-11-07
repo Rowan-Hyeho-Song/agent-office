@@ -87,6 +87,11 @@ export class LiveStatusSource implements StatusSource {
           this.recompute()
         }
       })
+      // a new handoff row = a paper plane (#51)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'agent_events', filter: 'kind=eq.handoff' }, (p) => {
+        const m = toHandoff(p.new as EventRow, this.agents)
+        if (m) for (const l of this.messageListeners) l(m)
+      })
       .subscribe((status) => {
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') this.error = '실시간 연결이 끊겼어요'
         if (status === 'SUBSCRIBED') this.error = null
@@ -114,6 +119,28 @@ export class LiveStatusSource implements StatusSource {
     return () => void this.listeners.delete(listener)
   }
 
-  // face-to-face messages come with a later hook (SendMessage between sessions); none yet
-  onMessage = (_listener: (m: OfficeMessage) => void) => () => {}
+  private messageListeners = new Set<(m: OfficeMessage) => void>()
+
+  // handoffs only for now; face-to-face talks come with the meeting replays (minutes, #24 docs)
+  onMessage = (listener: (m: OfficeMessage) => void) => {
+    this.messageListeners.add(listener)
+    return () => void this.messageListeners.delete(listener)
+  }
+}
+
+export interface EventRow {
+  id: number
+  seat: number
+  kind: string
+  to_seat: number | null
+  created_at: string
+}
+
+/** an agent_events handoff row → a paper plane message (null for anything else or an unknown seat) */
+export function toHandoff(row: EventRow | null | undefined, agents: string[]): OfficeMessage | null {
+  if (!row || row.kind !== 'handoff' || typeof row.to_seat !== 'number') return null
+  const from = agentOf(row.seat)
+  const to = agentOf(row.to_seat)
+  if (!agents.includes(from) || !agents.includes(to) || from === to) return null
+  return { id: `e${row.id}`, kind: 'handoff', from, to, at: Date.parse(row.created_at) }
 }

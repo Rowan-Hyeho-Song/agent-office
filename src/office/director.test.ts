@@ -10,7 +10,7 @@ const TALK_MS = 6000
 
 const idle = (since = 0): AgentStatus => ({ state: 'idle', since })
 const allIdle = (): StatusMap => Object.fromEntries(AGENTS.map((a) => [a, idle()]))
-const msg = (from: string, to: string, id = 'm1'): OfficeMessage => ({ id, from, to, at: 0 })
+const msg = (from: string, to: string, id = 'm1'): OfficeMessage => ({ id, kind: 'talk', from, to, at: 0 })
 
 /** arrivedAt stub: a record you control */
 function makeArrived() {
@@ -209,6 +209,17 @@ describe('messages', () => {
   it('a message to oneself is ignored', () => {
     const d = new Director(AGENTS)
     d.receive(msg('agent_0', 'agent_0'))
+    expect(d.pending.queued).toBe(0)
+  })
+})
+
+describe('handoffs are paper planes, not meetings (#51)', () => {
+  it('a handoff message gathers nobody', () => {
+    const d = new Director(AGENTS)
+    d.receive({ id: 'h1', kind: 'handoff', from: 'agent_0', to: 'agent_3', at: 0 })
+    const g = d.goals(0, 0, allIdle(), () => null)
+    expect(Object.values(g).some((x) => x.bubble)).toBe(false)
+    expect(d.pending.talks).toEqual([])
     expect(d.pending.queued).toBe(0)
   })
 })

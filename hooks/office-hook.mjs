@@ -20,7 +20,7 @@
 
 import { appendFileSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { DEFAULT_PROJECTS, insideProjects, signalFor } from './classify.mjs'
+import { DEFAULT_PROJECTS, DEFAULT_SEATS, insideProjects, signalFor } from './classify.mjs'
 import { HOME, SESSIONS, readConfig, readJson, readStdin, resolveSeat, sessionFile } from './session.mjs'
 
 /** session files older than three days are from sessions long gone */
@@ -36,7 +36,7 @@ async function main() {
   const config = readConfig()
   if (!config?.endpoint || !config?.token) return
   const input = await readStdin()
-  let signal = signalFor(input)
+  let signal = signalFor(input, undefined, config.seats ?? DEFAULT_SEATS)
   if (!signal || typeof input.session_id !== 'string') return
 
   mkdirSync(SESSIONS, { recursive: true })
@@ -52,11 +52,13 @@ async function main() {
   // only sessions working inside the office's own repositories report (#34); the cwd is not logged or sent
   if (!insideProjects(input.cwd, config.projects ?? DEFAULT_PROJECTS)) {
     if (config.outside !== 'private') return log('skip: outside projects')
-    // a private session says only that it works: no test / build outcomes
-    if (signal.kind === 'result') return log('skip: private result')
+    // a private session says only that it works: no test / build outcomes, no paper planes
+    if (signal.kind === 'result' || signal.kind === 'handoff') return log(`skip: private ${signal.kind}`)
     if (signal.kind === 'activity') signal = { kind: 'activity', activity: 'private' }
   }
   if (seat === null) return log('skip: no seat') // a session that isn't one of the four agents: say nothing
+  // a message to itself (or to its own role) is just a tool call
+  if (signal.kind === 'handoff' && signal.to === seat) signal = { kind: 'activity', activity: 'other' }
 
   // the same activity again within the keepalive window: nothing new to say
   const now = Date.now()
@@ -70,7 +72,8 @@ async function main() {
     body: JSON.stringify({ seat, ...signal }),
     signal: AbortSignal.timeout(4000),
   })
-  log(`${signal.kind}${signal.activity ? `/${signal.activity}` : ''}${'ok' in signal ? (signal.ok ? ' pass' : ' fail') : ''} → ${res.status}`)
+  const detail = signal.activity ? `/${signal.activity}` : 'to' in signal ? ` to seat ${signal.to}` : ''
+  log(`${signal.kind}${detail}${'ok' in signal ? (signal.ok ? ' pass' : ' fail') : ''} → ${res.status}`)
   if (res.ok) writeFileSync(file, JSON.stringify({ seat, kind: signal.kind, activity: signal.activity, sentAt: now }))
 }
 
