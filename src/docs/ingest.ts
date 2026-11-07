@@ -17,6 +17,25 @@ export interface IngestConfig {
   publicRepos: string[]
   /** extra words to hide (company names …), from server config, never from the repo */
   banned: string[]
+  /** author_association values whose items are filed (#38); default OWNER, COLLABORATOR */
+  trusted?: string[]
+  /** author_association values whose ✅ results (and the 🖊 requests they answer) count; default OWNER */
+  approvers?: string[]
+}
+
+export const TRUSTED = ['OWNER', 'COLLABORATOR']
+export const APPROVERS = ['OWNER']
+
+/**
+ * The second check of who wrote it (#38): the Action already skips strangers, but a document that slips past
+ * (an edited Action, a leaked token) is still dropped here. Decisions need the owner on both the ✅ and the 🖊.
+ */
+export function fromTrustedAuthor(d: DocInput, cfg: Pick<IngestConfig, 'trusted' | 'approvers'> = {}): boolean {
+  const is = (who: unknown, allowed: string[]) =>
+    !!who && typeof who === 'object' && allowed.includes(String((who as { association?: unknown }).association ?? '').toUpperCase())
+  const approvers = cfg.approvers ?? APPROVERS
+  if (d.kind === 'decision') return is(d.author, approvers) && is(d.meta?.requestAuthor, approvers)
+  return is(d.author, cfg.trusted ?? TRUSTED)
 }
 
 export interface Payload {
@@ -42,6 +61,8 @@ export function parseDoc(d: unknown): DocInput | null {
   if (typeof x.folder !== 'number' || !Number.isInteger(x.folder) || x.folder < 1) return null
   if (typeof x.title !== 'string' || x.title.length > 300) return null
   if (typeof x.body !== 'string' || x.body.length > MAX_BODY) return null
+  const author = x.author as Record<string, unknown> | undefined
+  if (!author || typeof author.login !== 'string' || typeof author.association !== 'string') return null
   if (!source || !['issue', 'comment', 'pr'].includes(source.kind as string) || typeof source.url !== 'string') return null
   // a document must point at its own repo on GitHub: a leaked token still can't file arbitrary pages
   if (!source.url.toLowerCase().startsWith(`https://github.com/${x.repo.toLowerCase()}/`)) return null
@@ -130,11 +151,13 @@ export async function handle(request: Request, store: DocStore, cfg: IngestConfi
   const bad = docs.findIndex((d) => !d)
   if (bad >= 0) return Response.json({ error: `bad doc ${bad}` }, { status: 400 })
 
-  const rows = (docs as DocInput[]).map((d) => toRow(d, cfg))
+  // strangers' items are skipped, not refused: one bad item must not stop a backfill batch
+  const kept = (docs as DocInput[]).filter((d) => fromTrustedAuthor(d, cfg))
+  const rows = kept.map((d) => toRow(d, cfg))
   if (rows.length) await store.upsert(rows)
   const project = p.project
   if (project && typeof project.repo === 'string' && REPO.test(project.repo) && Number.isInteger(project.open_issues) && project.open_issues >= 0) {
     await store.setOpenIssues(project.repo, project.open_issues, now.toISOString())
   }
-  return Response.json({ ok: true, stored: rows.length, grades: rows.map((r) => r.grade) })
+  return Response.json({ ok: true, stored: rows.length, skipped: docs.length - kept.length, grades: rows.map((r) => r.grade) })
 }

@@ -6,8 +6,22 @@
 //   comment "### ✅ 결재" answering a 결정 요청     → decision  (the 🖊 request body rides along in meta.request)
 //   merged pull request                           → report    (file = the issue it closes, else the PR)
 // Comments on pull requests and every other comment are not documents.
+//
+// Who may file (#38): this is a public repo, so anyone with a GitHub account can open issues and comment.
+// Only the owner's and collaborators' items become documents; approvals (🖊 requests, ✅ results) only the
+// owner's. Everything else is skipped here, and /api/docs checks the same again.
 
 /** @typedef {import('../../src/docs/types').DocInput} DocInput */
+
+/** author_association values whose issues, comments and PRs become documents */
+export const TRUSTED = ['OWNER', 'COLLABORATOR']
+/** author_association values whose 🖊 / ✅ count: the owner's account (the sessions write as the owner) */
+export const APPROVERS = ['OWNER']
+
+const association = (item) => String(item?.author_association ?? 'NONE').toUpperCase()
+/** @param {any} item  issue, comment or PR @param {string[]} [allowed] */
+export const trusted = (item, allowed = TRUSTED) => allowed.includes(association(item))
+const author = (item) => ({ login: String(item?.user?.login ?? ''), association: association(item) })
 
 const MINUTES = /^\s*###\s*🗂\s*에이전트 간 협의 기록/m
 const RESULT = /^\s*###\s*✅\s*결재/m
@@ -34,13 +48,14 @@ const isDecisionRequest = (body) => /\*\*종류\*\*\s*:?\s*결정 요청/.test(b
  * @returns {DocInput | null}
  */
 export function docForIssue(issue, repo) {
-  if (!issue || issue.pull_request) return null
+  if (!issue || issue.pull_request || !trusted(issue)) return null
   return {
     kind: 'plan',
     repo,
     folder: issue.number,
     title: issue.title ?? '',
     body: issue.body ?? '',
+    author: author(issue),
     source: { kind: 'issue', url: issue.html_url },
     created_at: issue.created_at,
     updated_at: issue.updated_at,
@@ -88,19 +103,25 @@ export function docForComment(comment, issue, repo, earlier = []) {
     repo,
     folder: issue.number,
     body: comment.body ?? '',
+    author: author(comment),
     source: { kind: 'comment', url: comment.html_url },
     created_at: comment.created_at,
     updated_at: comment.updated_at,
   }
-  if (kind === 'minutes') return { ...base, kind: 'minutes', title: `회의록: ${issue.title}` }
+  if (kind === 'minutes') return trusted(comment) ? { ...base, kind: 'minutes', title: `회의록: ${issue.title}` } : null
   if (kind === 'result') {
+    if (!trusted(comment, APPROVERS)) return null
+    // pair with the owner's requests and results only: someone else's 🖊 / ✅ can't shift the order
+    const request = requestAnswered(comment, ownerApprovals(earlier))
     // only a 결정 요청 makes a decision document
-    const request = requestAnswered(comment, earlier)
     if (!request || !isDecisionRequest(request.body)) return null
-    return { ...base, kind: 'decision', title: `결정: ${issue.title}`, meta: { request: request.body } }
+    return { ...base, kind: 'decision', title: `결정: ${issue.title}`, meta: { request: request.body, requestAuthor: author(request) } }
   }
   return null
 }
+
+/** the issue's comments that count for approvals (the owner's) */
+export const ownerApprovals = (comments) => comments.filter((c) => trusted(c, APPROVERS))
 
 /**
  * @param {any} pr  GitHub pull request
@@ -108,7 +129,7 @@ export function docForComment(comment, issue, repo, earlier = []) {
  * @returns {DocInput | null}
  */
 export function docForPull(pr, repo) {
-  if (!pr?.merged_at) return null
+  if (!pr?.merged_at || !trusted(pr)) return null
   // the file is the issue it closes, else the one it refers to ("Refs #28"), else the PR itself
   const linked = CLOSES.exec(pr.body ?? '') ?? REFS.exec(pr.body ?? '')
   return {
@@ -117,6 +138,7 @@ export function docForPull(pr, repo) {
     folder: linked ? Number(linked[1]) : pr.number,
     title: pr.title ?? '',
     body: pr.body ?? '',
+    author: author(pr),
     source: { kind: 'pr', url: pr.html_url },
     created_at: pr.created_at,
     updated_at: pr.merged_at,

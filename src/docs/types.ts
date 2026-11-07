@@ -18,6 +18,8 @@ export interface DocInput {
   folder: number
   title: string
   body: string
+  /** who wrote it on GitHub; only the owner's and collaborators' items are filed (#38) */
+  author: { login: string; association: string }
   source: { kind: SourceKind; url: string }
   created_at: string
   updated_at: string
