@@ -15,6 +15,8 @@
 
 ```text
 docs/plan.md              설계·단계·열린 질문
-docs/workflow.md          작업 방식 (이슈 → feature/fix 브랜치 → dev → 배포 때 main)
+docs/workflow.md          작업 방식 (이슈 → feature/fix 브랜치 → dev → 배포 때 main), 템플릿, 이미지 첨부
+.github/                  이슈 폼(기능·오류·3D 에셋), PR 템플릿
+scripts/gh-image.sh       이슈·PR용 이미지를 image-assets 프리릴리스에 올리고 마크다운 출력
 assets/blender/office.py  로우폴리 사무실 에셋 시험판 (Blender 스크립트)
 ```
