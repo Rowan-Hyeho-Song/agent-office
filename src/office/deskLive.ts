@@ -3,6 +3,7 @@
 
 import { CanvasTexture, MathUtils, MeshBasicMaterial, SRGBColorSpace, Vector3, type Color, type Mesh, type Object3D } from 'three'
 import type { DeskProps } from './props'
+import { TrayPile } from './tray'
 
 /** an emitter's own colors (a node may hold several meshes), so it can be dimmed and brought back */
 function emitter(node: Object3D | undefined) {
@@ -24,7 +25,7 @@ const HOURGLASS_EVERY = 6 // s: while the planner waits, it turns the hourglass 
 const BLINK_HZ = 2.2
 
 export class DeskLive {
-  private trays: { node: Object3D | undefined; rest: number }[]
+  private trays: (TrayPile | null)[]
   private hourglass: Object3D | undefined
   private turntable: Object3D | undefined
   private ring: (k: number) => void
@@ -38,7 +39,7 @@ export class DeskLive {
 
   constructor(nodes: Record<string, Object3D>) {
     const n = (name: string) => nodes[name]
-    this.trays = ['desk_0_in', 'desk_0_out'].map((k) => ({ node: n(k), rest: n(k)?.scale.y ?? 1 }))
+    this.trays = ['desk_0_in', 'desk_0_out'].map((k) => TrayPile.of(n(k)))
     this.hourglass = n('desk_0_hourglass')
     this.turntable = n('desk_1_turntable')
     this.ring = emitter(n('desk_1_ringlight'))
@@ -96,13 +97,9 @@ export class DeskLive {
   }
 
   update(p: DeskProps, t: number, dt: number, reduced: boolean) {
-    // 메모: the trays hold as many sheets as there is work (5 modeled, scale by n/5; none = hidden)
-    for (const [i, tray] of this.trays.entries()) {
-      if (!tray.node) continue
-      const n = i === 0 ? p.inbox : p.outbox
-      tray.node.visible = n > 0
-      tray.node.scale.y = tray.rest * Math.max(n, 0.001) / 5
-    }
+    // 메모: the trays hold as many sheets as there is work, 0.8 cm each; past five a '+' tab (#59, tray.ts)
+    this.trays[0]?.set(p.inbox, p.inboxMore)
+    this.trays[1]?.set(p.outbox, p.outboxMore)
     this.drawCalendar(p)
     // the hourglass turns over every few seconds while the planner waits for an approval, else stays upright
     if (this.hourglass) {

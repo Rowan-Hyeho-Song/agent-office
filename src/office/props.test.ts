@@ -20,6 +20,8 @@ describe('deskProps', () => {
     expect(deskProps(input())).toMatchObject({
       inbox: 0,
       outbox: 0,
+      inboxMore: false,
+      outboxMore: false,
       hourglass: false,
       stamp: false,
       turntable: false,
@@ -35,6 +37,13 @@ describe('deskProps', () => {
     for (const [n, want] of [[-3, 0], [0, 0], [2.7, 2], [5, 5], [9, 5], [NaN, 0]] as const) {
       expect(deskProps(input({ pending: n })).inbox).toBe(want)
       expect(deskProps(input({ handoffsToday: n })).outbox).toBe(want)
+    }
+  })
+
+  it('more than 5 sheets shows the + tab (#59)', () => {
+    for (const [n, want] of [[0, false], [5, false], [6, true], [40, true], [NaN, false]] as const) {
+      expect(deskProps(input({ pending: n })).inboxMore).toBe(want)
+      expect(deskProps(input({ handoffsToday: n })).outboxMore).toBe(want)
     }
   })
 
