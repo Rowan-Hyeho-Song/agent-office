@@ -7,3 +7,4 @@ dist/
 .DS_Store
 *.blend1
 assets/blender/out/
+__pycache__/
