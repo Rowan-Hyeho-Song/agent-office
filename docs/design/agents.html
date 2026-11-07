@@ -8,12 +8,12 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/galmuri.css" />
 <link rel="stylesheet" href="../../src/styles/tokens.css" />
 <style>
-/* 제안 색(결재 뒤 tokens.css의 --agent-0..3으로 옮긴다). 그 밖의 색·글꼴·간격은 tokens.css */
+/* 역할 색 = tokens.css의 --agent-0..3(자리 번호). 아래는 시안 안에서 읽기 쉽게 붙인 별칭 */
 :root {
-  --role-plan: #ffb347; --role-plan-ink: #ffb347;
-  --role-3d: #8f9bff; --role-3d-ink: #8f9bff;
-  --role-design: #ff3ea5; --role-design-ink: #ff6fbd;
-  --role-code: #4df3ff; --role-code-ink: #4df3ff;
+  --role-plan: var(--agent-0); --role-plan-ink: var(--agent-0-ink);
+  --role-3d: var(--agent-1); --role-3d-ink: var(--agent-1-ink);
+  --role-design: var(--agent-2); --role-design-ink: var(--agent-2-ink);
+  --role-code: var(--agent-3); --role-code-ink: var(--agent-3-ink);
   /* 스케치 재질: Blender office_bake.py의 로봇 재질 값 */
   --bot-shell: #f6f3ec; --bot-joint: #4a505c; --bot-bezel: #111216;
   --axis-x: var(--color-red); --axis-y: var(--color-green); --axis-z: #4d8bff;
@@ -92,14 +92,14 @@ code { font-family: var(--font-pixel); font-size: var(--font-size-1); }
 
 <header class="top">
   <div>
-    <div class="kicker">AGENT OFFICE · #26 · 결재 전 시안</div>
+    <div class="kicker">AGENT OFFICE · #26 · 확정 (2026-11-08 결재)</div>
     <h1>네 명의 에이전트</h1>
     <p class="lead">역할 = 자리 = 색 = 실루엣. 같은 로봇 몸(몸통·머리·양팔·호버 포드)에 <b>머리 위</b>와 <b>몸통</b>의 부품 두 개씩만 바꿔, 전경 거리(키 약 120px)와 일할 때 보이는 <b>뒷모습</b>에서 누가 누구인지 읽히게 했다. 손은 비워 둔다(타자·탁구채·컵을 들어야 하므로).</p>
   </div>
   <div>
     <div class="note" id="set-label">이름 안</div>
     <div class="seg" role="group" aria-labelledby="set-label">
-      <button type="button" data-set="A" aria-pressed="true">A 사물 (추천)</button>
+      <button type="button" data-set="A" aria-pressed="true">A 사물 (확정)</button>
       <button type="button" data-set="B">B 사람 이름</button>
       <button type="button" data-set="C">C 우리말</button>
     </div>
@@ -145,7 +145,7 @@ code { font-family: var(--font-pixel); font-size: var(--font-size-1); }
 
 <section>
   <h2>4. 색</h2>
-  <p class="lead">3D를 초록 → <b>노멀 맵 라벤더</b>로 바꾸자고 제안한다. 지금 4색은 제3색약(tritan)에서 초록과 청록이 거의 같아지고(ΔE00 5.3), 적·녹색약에서는 호박과 초록이 가깝다(11.2). 라벤더로 바꾸면 모든 경우에 가장 가까운 두 색의 차이가 17.6 이상이 된다.</p>
+  <p class="lead">3D를 초록 → <b>노멀 맵 라벤더</b>로 바꿨다(결재). 지금 4색은 제3색약(tritan)에서 초록과 청록이 거의 같아지고(ΔE00 5.3), 적·녹색약에서는 호박과 초록이 가깝다(11.2). 라벤더로 바꾸면 모든 경우에 가장 가까운 두 색의 차이가 17.6 이상이 된다.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>역할</th><th>색</th><th>보통</th><th>적색약</th><th>녹색약</th><th>청색약</th><th>판 위 글자 대비</th><th>뜻</th></tr></thead>
     <tbody id="colors"></tbody>
@@ -155,7 +155,7 @@ code { font-family: var(--font-pixel); font-size: var(--font-size-1); }
     <thead><tr><th>팔레트</th><th>보통</th><th>적색약</th><th>녹색약</th><th>청색약</th></tr></thead>
     <tbody>
       <tr><td>지금 (청록·분홍·호박·초록)</td><td>29.4</td><td>13.7 호박–초록</td><td>11.2 호박–초록</td><td><b>5.3 초록–청록</b></td></tr>
-      <tr><td>제안 (호박·라벤더·분홍·청록)</td><td>32.8</td><td>17.6 라벤더–분홍</td><td>17.9 라벤더–청록</td><td>20.5 호박–분홍</td></tr>
+      <tr><td>확정 (호박·라벤더·분홍·청록)</td><td>32.8</td><td>17.6 라벤더–분홍</td><td>17.9 라벤더–청록</td><td>20.5 호박–분홍</td></tr>
     </tbody>
   </table></div>
   <p class="note">색만으로 구별하지 않는다: 이름표·머리 실루엣·말풍선 탭의 이름이 늘 함께 간다.</p>
@@ -188,7 +188,7 @@ const ROLES = [
     persona: '돌려 보고 말한다. 짧고 건조, 가끔 농담.', line: '돌려 봤어요. 테스트 12개 통과, 하나는 제 탓.' },
 ]
 const NAME_SETS = {
-  A: { label: 'A 사물 (추천)', feel: '역할에서 바로 떠오르는 영단어 하나. 넷 다 짧고(1~2음절), 이름표에 그대로 쓰기 좋다. 휴(HUE)는 “휴식”과 겹치는 말장난',
+  A: { label: 'A 사물 (확정)', feel: '역할에서 바로 떠오르는 영단어 하나. 넷 다 짧고(1~2음절), 이름표에 그대로 쓰기 좋다. 휴(HUE)는 “휴식”과 겹치는 말장난',
     names: { plan: ['메모', 'MEMO'], '3d': ['메시', 'MESH'], design: ['휴', 'HUE'], code: ['루프', 'LOOP'] } },
   B: { label: 'B 사람 이름', feel: '역할 머리글자(Plan·Render·Design·Code)로 지은 사람 이름. 부르기 친근하지만 역할은 덜 보인다',
     names: { plan: ['피아', 'PIA'], '3d': ['레니', 'RENI'], design: ['디디', 'DIDI'], code: ['코디', 'CODY'] } },

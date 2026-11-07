@@ -241,7 +241,7 @@ body.embed[data-embed='mobile'] .stage { grid-template-columns: 1fr; }
     <div class="rule"><b>길이</b>한 줄 약 18자, 최대 3줄·36자. 넘으면 말줄임하고 원문은 화면 읽기 로그로. 머무는 시간 1.6초 + 글자당 0.07초(최대 6초).</div>
   </div>
 
-  <h3>대면 대화 · 에이전트 01 → 02</h3>
+  <h3>대면 대화 · 메모(기획) → 메시(3D)</h3>
   <div class="stage" data-stage="talk"></div>
 
   <div class="hide-embed">
@@ -249,7 +249,7 @@ body.embed[data-embed='mobile'] .stage { grid-template-columns: 1fr; }
     <div class="stage" data-stage="meeting"></div>
     <p class="note">한 에이전트에 말풍선은 하나: 같은 사람이 다시 말하면 자기 말풍선이 새 문장으로 바뀌고, 상대의 지난 말은 회색으로 남는다. 그래서 몇 번을 주고받아도 화면에는 둘까지만 뜬다. 탭 이름은 대화 종류(대화·회의·반응·비공개)를 보여 준다.</p>
 
-    <h3>방문자 반응 · 간식을 받은 에이전트 03 / 비공개</h3>
+    <h3>방문자 반응 · 간식을 받은 휴 / 비공개 대화 중인 루프</h3>
     <div class="stage" data-stage="react"></div>
 
     <h3>머리 위 상태 꼬리표 · 활동 네 가지</h3>
@@ -272,11 +272,11 @@ body.embed[data-embed='mobile'] .stage { grid-template-columns: 1fr; }
   <div class="bot" data-agent="1" data-face="left" style="--x:60%;--y:70%"></div>
   <div class="ob" data-agent="1" data-kind="talk" data-pref-side="right" data-order="1" data-pair data-dim style="--x:60%;--y:70%">
     <i class="ob-lead"></i><i class="ob-dot"></i>
-    <div class="ob-card"><div class="ob-tab">AGENT 02 · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text">네, 볼게요.</p></div></div></div>
+    <div class="ob-card"><div class="ob-tab">MESH · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text">네, 볼게요.</p></div></div></div>
   </div>
   <div class="ob" data-agent="0" data-kind="talk" data-pref-side="left" data-order="2" data-pair style="--x:48%;--y:70%">
     <i class="ob-lead"></i><i class="ob-dot"></i>
-    <div class="ob-card"><div class="ob-tab">AGENT 01 · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-type data-speaker="에이전트 01" data-to="에이전트 02">토큰 파일 올렸어요. 이름 같이 봐 줄래요?</p></div></div></div>
+    <div class="ob-card"><div class="ob-tab">MEMO · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-type data-speaker="메모(기획)" data-to="메시(3D)">에셋 이슈 올렸어요. 치수 같이 봐 줄래요?</p></div></div></div>
   </div>
 </template>
 
@@ -289,12 +289,12 @@ body.embed[data-embed='mobile'] .stage { grid-template-columns: 1fr; }
   <div class="bot" data-agent="2" style="--x:22%;--y:72%"></div>
   <div class="ob" data-agent="2" data-kind="react" data-pref-side="right" style="--x:22%;--y:72%">
     <i class="ob-lead"></i><i class="ob-dot"></i>
-    <div class="ob-card"><div class="ob-tab"><svg data-icon="heart"></svg>AGENT 03 · 반응</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-log data-speaker="에이전트 03">간식 고마워요! 힘이 나요</p></div></div></div>
+    <div class="ob-card"><div class="ob-tab"><svg data-icon="heart"></svg>HUE · 반응</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-log data-speaker="휴(디자인)">오, 간식이다! 고마워요</p></div></div></div>
   </div>
   <div class="bot" data-agent="3" style="--x:84%;--y:72%"></div>
   <div class="ob" data-agent="3" data-kind="private" data-pref-side="left" style="--x:84%;--y:72%">
     <i class="ob-lead"></i><i class="ob-dot"></i>
-    <div class="ob-card"><div class="ob-tab">AGENT 04 · 비공개</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-log data-speaker="에이전트 04"><svg data-icon="lock"></svg>비공개 대화</p></div></div></div>
+    <div class="ob-card"><div class="ob-tab">LOOP · 비공개</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-log data-speaker="루프(코더)"><svg data-icon="lock"></svg>비공개 대화</p></div></div></div>
   </div>
 </template>
 
@@ -313,17 +313,17 @@ body.embed[data-embed='mobile'] .stage { grid-template-columns: 1fr; }
   <div class="bot" data-agent="1" style="--x:10%;--y:12%"></div>
   <div class="ob" data-agent="1" data-kind="talk" data-pref-side="right" style="--x:10%;--y:12%">
     <i class="ob-lead"></i><i class="ob-dot"></i>
-    <div class="ob-card"><div class="ob-tab">AGENT 02 · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-type data-speaker="에이전트 02">화면 위쪽이라 아래로 펼쳐요.</p></div></div></div>
+    <div class="ob-card"><div class="ob-tab">MESH · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-type data-speaker="메시(3D)">화면 위쪽이라 아래로 펼쳐요.</p></div></div></div>
   </div>
   <div class="bot" data-agent="0" style="--x:74%;--y:84%"></div>
   <div class="bot" data-agent="2" style="--x:80%;--y:72%"></div>
   <div class="ob" data-agent="0" data-kind="talk" data-pref-side="right" data-order="1" style="--x:74%;--y:84%">
     <i class="ob-lead"></i><i class="ob-dot"></i>
-    <div class="ob-card"><div class="ob-tab">AGENT 01 · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text">앞뒤로 겹친 두 사람.</p></div></div></div>
+    <div class="ob-card"><div class="ob-tab">MEMO · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text">앞뒤로 겹친 두 사람.</p></div></div></div>
   </div>
   <div class="ob" data-agent="2" data-kind="talk" data-pref-side="right" data-order="2" style="--x:80%;--y:72%">
     <i class="ob-lead"></i><i class="ob-dot"></i>
-    <div class="ob-card"><div class="ob-tab">AGENT 03 · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-type data-speaker="에이전트 03">새 말풍선은 위로 쌓고, 오른쪽 끝에 닿으면 왼쪽으로 펼쳐요. 아주 긴 문장은 세 줄에서 자르고 원문은 화면 읽기 로그로 보냅니다.</p></div></div></div>
+    <div class="ob-card"><div class="ob-tab">HUE · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-type data-speaker="휴(디자인)">새 말풍선은 위로 쌓고, 오른쪽 끝에 닿으면 왼쪽으로 펼쳐요. 아주 긴 문장은 세 줄에서 자르고 원문은 화면 읽기 로그로 보냅니다.</p></div></div></div>
   </div>
 </template>
 
@@ -564,6 +564,9 @@ function typeAll() {
 /** 머무는 시간 = base + 글자 수 × per-char (최대 hold-max) */
 const holdMs = (text) => Math.min(N('--hold-max-ms'), N('--hold-base-ms') + [...text].length * N('--hold-per-char-ms'))
 
+/* 이름 = 자리 번호(#26 결재). 한글 이름, 이름표, 역할 */
+const NAMES = [['메모', 'MEMO', '기획'], ['메시', 'MESH', '3D'], ['휴', 'HUE', '디자인'], ['루프', 'LOOP', '코더']]
+
 /* ── 회의 재연: 회의록에서 자른 문장을 차례로 ── */
 const MEETING = [
   { a: 0, to: 2, side: 'left', text: '3번 안건이요. 말풍선 길이는 36자로 끊기로 했죠.' },
@@ -579,10 +582,10 @@ function makeBubble(pane, { a, to, side, text }, order, kind) {
   ob.setAttribute('style', bot.getAttribute('style'))
   const max = N('--bubble-max-chars')
   const shown = [...text].length > max ? [...text].slice(0, max - 1).join('') + '…' : text
-  ob.innerHTML = `<i class="ob-lead"></i><i class="ob-dot"></i><div class="ob-card"><div class="ob-tab">AGENT 0${a + 1} · ${kind}</div><div class="ob-box"><div class="ob-body"><p class="ob-text"></p></div></div></div>`
+  ob.innerHTML = `<i class="ob-lead"></i><i class="ob-dot"></i><div class="ob-card"><div class="ob-tab">${NAMES[a][1]} · ${kind}</div><div class="ob-box"><div class="ob-body"><p class="ob-text"></p></div></div></div>`
   const p = ob.querySelector('.ob-text')
   p.textContent = shown
-  Object.assign(p.dataset, { full: text, speaker: `에이전트 0${a + 1}`, to: `에이전트 0${to + 1}`, turn: order })
+  Object.assign(p.dataset, { full: text, speaker: `${NAMES[a][0]}(${NAMES[a][2]})`, to: `${NAMES[to][0]}(${NAMES[to][2]})`, turn: order })
   pane.append(ob)
   return p
 }
@@ -658,7 +661,7 @@ function drawMonitor(ctx, m, t, reduced) {
 
   // 윗줄: 이름 · 시각
   ctx.font = pixel(fsS); ctx.fillStyle = m.state === 'private' ? lock : ink
-  ctx.fillText(`AGENT 0${m.agent + 1}`, pad, pad)
+  ctx.fillText(`${NAMES[m.agent][1]} · RB-1${m.agent}`, pad, pad)
   ctx.textAlign = 'right'; ctx.fillStyle = muted; ctx.fillText(clock(), MW - pad, pad); ctx.textAlign = 'left'
   ctx.fillStyle = mix(m.state === 'private' ? lock : col, bg, 0.7); ctx.fillRect(pad, pad + fsS + 10, MW - 2 * pad, 2)
 
