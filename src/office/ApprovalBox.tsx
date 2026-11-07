@@ -68,7 +68,7 @@ function OwnerList({ session, onChange, onSignOut }: { session: Session; onChang
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const { data, error } = await supabase!.from('approvals').select('*').eq('status', 'pending').order('created_at')
+    const { data, error } = await supabase!.from('approvals').select('*').in('status', ['pending', 'deciding']).order('created_at')
     if (error) setError('결재함을 불러오지 못했어요')
     else setItems(data as StoredApproval[])
   }, [])

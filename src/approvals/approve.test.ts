@@ -31,14 +31,26 @@ const approval = (over: Partial<StoredApproval> = {}): StoredApproval => ({
 })
 
 function deps(over: Partial<ApproveDeps> = {}) {
+  // the row's lock, like the conditional update in api/approve.ts: only one caller gets it until unlocked
+  let held = false
   return {
     githubIdOf: vi.fn(async (t: string) => (t === 'owner-token' ? '12345' : t === 'other-token' ? '999' : null)),
     ownerGithubId: '12345',
     approval: vi.fn(async (id: number) => (id === 7 ? approval() : id === 8 ? approval({ status: 'decided', result_url: 'https://x/y' }) : null)),
+    lock: vi.fn(async () => (held ? false : (held = true))),
+    unlock: vi.fn(async () => {
+      held = false
+    }),
     comment: vi.fn(async (_repo: string, _folder: number, _body: string) => `https://github.com/${REPO}/issues/26#issuecomment-99`),
     decide: vi.fn(async () => {}),
     ...over,
-  } as ApproveDeps & { approval: ReturnType<typeof vi.fn>; comment: ReturnType<typeof vi.fn>; decide: ReturnType<typeof vi.fn> }
+  } as ApproveDeps & {
+    approval: ReturnType<typeof vi.fn>
+    lock: ReturnType<typeof vi.fn>
+    unlock: ReturnType<typeof vi.fn>
+    comment: ReturnType<typeof vi.fn>
+    decide: ReturnType<typeof vi.fn>
+  }
 }
 
 const post = (body: unknown, token: string | null = 'owner-token') =>
@@ -260,5 +272,47 @@ describe('injection through the opinion', () => {
     const body = resultComment('2026-11-08', '반려', opinion)
     expect(body.split('\n')).toHaveLength(3)
     expect(parseApprovalResult(body)).toMatchObject({ result: '반려', opinion })
+  })
+})
+
+describe('two quick clicks (#48)', () => {
+  it('posts one ✅ comment; the second click gets 409', async () => {
+    const d = deps()
+    // both read the row as pending before either locks it
+    const [a, b] = await Promise.all([handle(post({ id: 7, result: '선택지 2' }), d, NOW), handle(post({ id: 7, result: '선택지 1' }), d, NOW)])
+    expect([a.status, b.status].sort()).toEqual([200, 409])
+    expect(d.comment).toHaveBeenCalledTimes(1)
+    expect(d.decide).toHaveBeenCalledTimes(1)
+  })
+
+  it('when the comment fails, the lock is given back and the owner can decide again', async () => {
+    const d = deps()
+    d.comment.mockRejectedValueOnce(new Error('GitHub 502'))
+    await expect(handle(post({ id: 7, result: '선택지 2' }), d, NOW)).rejects.toThrow('GitHub 502')
+    expect(d.unlock).toHaveBeenCalledWith(7)
+    expect(d.decide).not.toHaveBeenCalled()
+    const again = await handle(post({ id: 7, result: '선택지 2' }), d, NOW)
+    expect(again.status).toBe(200)
+    expect(d.comment).toHaveBeenCalledTimes(2) // the failed try and the retry
+    expect(d.decide).toHaveBeenCalledTimes(1)
+  })
+
+  it('locks only after every check passed (a bad request never holds the row)', async () => {
+    for (const body of [{ id: 7, result: '승인' }, { id: 7, result: '반려' }, { id: 8, result: '선택지 1' }, { id: 404, result: '선택지 1' }]) {
+      const d = deps()
+      await handle(post(body), d, NOW)
+      expect(d.lock, JSON.stringify(body)).not.toHaveBeenCalled()
+    }
+    const stranger = deps()
+    await handle(post({ id: 7, result: '선택지 1' }, 'other-token'), stranger, NOW)
+    expect(stranger.lock).not.toHaveBeenCalled()
+  })
+
+  it("a row already in 'deciding' is left to the lock (a click in flight → 409, a crashed one can be retaken)", async () => {
+    const busy = deps({ approval: vi.fn(async () => approval({ status: 'deciding' })), lock: vi.fn(async () => false) })
+    expect((await handle(post({ id: 7, result: '선택지 1' }), busy, NOW)).status).toBe(409)
+    expect(busy.comment).not.toHaveBeenCalled()
+    const stale = deps({ approval: vi.fn(async () => approval({ status: 'deciding' })) })
+    expect((await handle(post({ id: 7, result: '선택지 1' }), stale, NOW)).status).toBe(200)
   })
 })
