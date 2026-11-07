@@ -20,7 +20,7 @@
 
 SQL Editor에서 **이 순서로** 한 번씩 실행합니다. 모두 다시 실행해도 안전합니다(`if not exists`, `on conflict`, `create or replace`). 방명록 테이블은 건드리지 않습니다.
 
-- [ ] `supabase/office.sql`: `agents`(이름·색 시드), `agent_status`, `agent_events`, Realtime (#1)
+- [ ] `supabase/office.sql`: `agents`(이름·색 시드), `agent_status`, `agent_events`(마지막 test·build 결과 칸 포함, #44), Realtime (#1)
 - [ ] `supabase/docs.sql`: `docs`, `projects`, `docs_cover` 뷰, Realtime (#24)
 - [ ] `supabase/approvals.sql`: `office_owner`, `is_owner()`, `approvals`, `approvals_pending` 뷰, 주인의 문서 읽기 정책, Realtime (#25)
 - [ ] 주인 등록(한 줄): `insert into public.office_owner (github_id) values ('<내 GitHub 숫자 ID>') on conflict do nothing;`
@@ -78,7 +78,7 @@ SQL Editor에서 **이 순서로** 한 번씩 실행합니다. 모두 다시 실
   ```json
   { "endpoint": "<사무실 주소>/api/events", "token": "<OFFICE_HOOK_TOKEN>", "log": true }
   ```
-- [ ] `~/.claude/settings.json`의 `hooks`에 등록(`hooks/README.md` 설치 2단계): 신호 훅 다섯 이벤트(`async`), 결재 훅 두 이벤트(`async` 아님, timeout 5). 경로는 agent-office를 받아 둔 위치
+- [ ] `~/.claude/settings.json`의 `hooks`에 등록(`hooks/README.md` 설치 2단계): 신호 훅 일곱 이벤트(`async`, PostToolUse·PostToolUseFailure는 `Bash|PowerShell`만, #44), 결재 훅 두 이벤트(`async` 아님, timeout 5). 경로는 agent-office를 받아 둔 위치
 - [ ] 네 세션의 이름에 역할 낱말이 있는지 확인: 기획 · Blender · 디자이너 · 코더
 
 확인:

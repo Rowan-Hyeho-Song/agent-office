@@ -39,6 +39,10 @@ export const BASH_RULES = [
     /^(npx\s+|pnpm\s+(exec|dlx)\s+)?(tsc|vite\s+build|eslint|biome)\b/,
     /^(go|cargo|dotnet)\s+build\b/,
     /^(make|cmake|gradle|gradlew|mvn|msbuild)\b/,
+    // the 3D agent's bakes: Blender in the background, or the build-*.sh scripts that run it (#44 turntable)
+    // (the path may hold spaces, quoted or not: "C:/Program Files/Blender/blender.exe" -b f.blend)
+    /^"?([^"]*[\\/])?blender(\.exe)?"?(\s|$)/i,
+    /^(bash\s+|sh\s+)?(\S*[\\/])?build-[\w-]+\.sh\b/,
   ]],
   ['install', [
     new RegExp(`^${PM}\\s+(install|i|ci|add|remove|rm|update|up|upgrade)\\b`),
@@ -156,6 +160,22 @@ export function seatFor(title, seats) {
 }
 
 /**
+ * Did a test / build pass (#44, the coder's signal light)? Claude Code calls PostToolUse when a shell command
+ * succeeded and PostToolUseFailure when it exited non-zero, so the event name alone is the answer: the hook
+ * never reads tool_response or error (the output). Only test / build commands report; everything else, and
+ * every other tool, says nothing.
+ * @param {{ hook_event_name?: string, tool_name?: string, tool_input?: unknown }} input
+ * @param {[Activity, RegExp[]][]} [rules]
+ * @returns {{ kind: 'result', activity: 'test' | 'build', ok: boolean } | null}
+ */
+export function resultFor(input, rules) {
+  if (input.tool_name !== 'Bash' && input.tool_name !== 'PowerShell') return null
+  const activity = classifyTool(input.tool_name, input.tool_input, rules)
+  if (activity !== 'test' && activity !== 'build') return null
+  return { kind: 'result', activity, ok: input.hook_event_name === 'PostToolUse' }
+}
+
+/**
  * Hook event → signal kind (null = nothing to send). Subagent tool calls arrive with the parent's session and
  * count as the parent's activity.
  * @param {{hook_event_name?: string, tool_name?: string, tool_input?: unknown}} input
@@ -170,6 +190,9 @@ export function signalFor(input, rules) {
       return { kind: 'activity', activity: 'think' }
     case 'PreToolUse':
       return { kind: 'activity', activity: classifyTool(input.tool_name ?? '', input.tool_input, rules) }
+    case 'PostToolUse':
+    case 'PostToolUseFailure':
+      return resultFor(input, rules)
     case 'Stop':
       return { kind: 'stop' }
     case 'SessionEnd':
