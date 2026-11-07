@@ -10,15 +10,19 @@ Same pipeline as the rowansong.dev desk (bakekit.py), so the two rooms read as o
 
 Node contract (the app reads glTF extras):
   room, work, wall_items, lounge   baked, one atlas each -> MeshBasicMaterial + atlas
-  agent_<i>[_head|_arm_l|_arm_r]   live "bot": real-time lit parts with pivots (they hover and glide)
-  agent_<i>_glow                   live: the hover pod light ring
-  agent_<i>_face, *_tip, neon_desk_<i>, lamp_shade   live emitters (glow, state)
+  agent_<i>                        live "bot" empty on the floor: the agent's frame (front = -z)
+  agent_<i>_head, _hand_l|r, _hand_l|r_index|fingers|thumb, agent_0_postit_<k>
+                                   live "bot": real-time lit parts with pivots (extras pivot_at); fingers bend on local x
+  agent_<i>_glow|_beam|_floor, _hand_l|r_cuff, _tip, agent_1_orbit, agent_3_ear_glow, neon_desk_<i>, lamp_shade
+                                   live "neon" emitters (hover light, wrist rings, state)
+  agent_<i>_face                   live "face": canvas slot like the screens (extras screen, aspect, w, h)
+  agent_<i>_hand_l|r_grip          empties, children of the palms: attach a held prop here (extras grip_of)
   screen_work_<i>, screen_door     live "screen" slots the app draws (extras screen, aspect, w, h, ppm); shipped off
   surface_whiteboard|bulletin      empties at the board faces where the app pins cards / notes (extras w, h, normal)
-  agent_<i>_hand_l|r               empties, children of the arms at the hand: attach a held prop here
-  prop_*                           live "prop": paddles, ball, cups, watering can, board pieces (extras prop, home, grip)
+  prop_*, agent_0_pen              live "prop": paddles, ball, cups, watering can, board pieces, paper plane, pen
+                                   (extras prop, home, grip; the pen's home is on its head: extras home_on)
   nav_<id>                         empties: where agents go and which way they face (navigation)
-Agents are placeholders until their roster is decided (#5): four seats, four colors.
+Seats 0..3 = MEMO amber, MESH lavender, HUE magenta, LOOP cyan (#26); their forms: docs/design/agents.md 2 (#28).
 """
 import os
 import random
@@ -36,10 +40,10 @@ WT = 0.14
 WORK_Z = 0.5  # where an agent hovers in front of its desk (from the desk center): hands reach the keyboard
 
 AGENTS = [  # desk frame (x, z, ry): the agent sits on local +z and faces local -z (the monitor / the wall)
-    {"color": "#4df3ff", "at": (-2.45, -2.36, 0.0)},
-    {"color": "#ff3ea5", "at": (-1.15, -2.36, 0.0)},
-    {"color": "#ffb347", "at": (-3.11, -1.15, math.pi / 2)},
-    {"color": "#7dff9b", "at": (-3.11, 0.15, math.pi / 2)},
+    {"color": "#ffb347", "at": (-2.45, -2.36, 0.0)},  # 0 MEMO amber
+    {"color": "#8f9bff", "at": (-1.15, -2.36, 0.0)},  # 1 MESH lavender
+    {"color": "#ff3ea5", "at": (-3.11, -1.15, math.pi / 2)},  # 2 HUE magenta
+    {"color": "#4df3ff", "at": (-3.11, 0.15, math.pi / 2)},  # 3 LOOP cyan
 ]
 DOOR_Z = 2.12
 PINGPONG = (1.75, 0.95)
@@ -362,6 +366,18 @@ def build_props():
     for end, (at, col) in zip("ab", zip(PIECE_HOME, ("#1b1d22", "#f4f4f0"))):
         out.append(prop(f"prop_piece_{end}", "piece", [cyl("piece", 0.019, 0.014, (0, 0, 0), plastic(col, 0.3, 0, 0, f"piece_{end}"), G, 18)],
                         (at[0], 0.763, at[2]), grip_pos=(0, -0.04, 0)))
+    # paper plane (#27, a short hand-off from MEMO): folded from a post-it, nose = local -z, resting on its keel
+    # on MEMO's desk (seat 0). Grip: pinched under the wings, nose along the fingers.
+    bm = bmesh.new()
+    N, L, R, T, K = [bm.verts.new(W(*p)) for p in ((0, 0, -0.085), (-0.06, 0.012, 0.075), (0.06, 0.012, 0.075),
+                                                    (0, 0.004, 0.075), (0, -0.022, 0.075))]
+    for f in ((N, T, L), (N, R, T), (N, K, T)):
+        bm.faces.new(f)
+    plane = mesh_obj("plane", bm, plastic(POSTIT[0], 0.85, 0, 0.2, "postit_0"), G)
+    home = frame(AGENTS[0]["at"]) @ Mx((-0.25, 0.74 + 0.022, 0.15))
+    t = home.to_translation()
+    out.append(prop("prop_plane", "plane", [plane], (t.x, t.z, -t.y), (0.0, 0.5, 0.0),
+                    grip_pos=(0, -0.06, 0), grip_rot=(-math.pi / 2, 0, 0)))
     return out
 
 
@@ -383,86 +399,279 @@ def build_door():
 
 
 # ================================================================ AGENTS (live, real-time lit)
-# Agents hover: a pod under the torso instead of legs, so they glide anywhere on the floor (around the
-# furniture, never through it: the app moves them along the nav graph). They glide, bob, lean into a turn,
-# type and turn to each other, so they are not baked (baked light would stay where they were modeled); the
-# bake hides them, no ghost shadows. Exported in a neutral pose as separate parts, each with its pivot:
-#   agent_<i>          torso + hover pod, pivot at the hip center (moving the agent = moving this frame)
-#   agent_<i>_head     pivot at the neck          agent_<i>_face / _tip   ride with the head (same pivot)
-#   agent_<i>_arm_l|r  pivot at the shoulder      agent_<i>_glow          the pod's light ring (same pivot as torso)
-# Parts are flat in the glb; the app reparents them under the torso (Object3D.attach keeps world poses).
-HIP_Y = 0.40
-NECK_Y = 0.80
-SHOULDER_Y = 0.74
-SPAWN = [  # where each agent hovers in the exported (idle) pose: ping-pong, coffee, whiteboard
+# Agents have no body (#28): a floating head and two floating hands, all held up by the same light — a thrust
+# ring under the head with a faint beam down to a glow disc on the floor, and a glowing cuff closing each wrist.
+# They glide, bob, type and hand things over, so they are not baked; the bake hides them (no ghost shadows).
+# Every part is a flat top-level node with its pivot (extras pivot_at, web coords) and the app parents them
+# (docs/design/agents.md 2.3):
+#   agent_<i>                 empty, the floor under the head; moving / turning the agent = this frame (front -z)
+#   agent_<i>_head            the whole body: head, ears, thrust housing, fixed role parts. Pivot = head center
+#   agent_<i>_face            canvas slot (screen=true, aspect, w, h) on the head front; _tip = state light
+#   agent_<i>_glow / _beam    thrust ring light / light beam (pivot at its top: the app stretches it in y)
+#   agent_<i>_floor           glow disc on the floor (UV 0..1 so the app can fade its edge)
+#   agent_<i>_hand_l|r        palm, rotated into the rest pose; children: _grip (empty, where a prop attaches)
+#   agent_<i>_hand_l|r_index|fingers|thumb   pivot at the root joint, bend = local x (+ = toward the palm)
+#   agent_<i>_hand_l|r_cuff   the glowing wrist ring
+# Role parts that move on their own: agent_0_pen (prop), agent_0_postit_0..4, agent_1_orbit, agent_3_ear_glow;
+# agent_3_tip is the spinning loop ring (spin = local y).
+HEAD_Y = 1.15  # head center: seated eye height, facing the monitor center
+HEAD = (0.42, 0.32, 0.34)
+GLOW_Y = 0.97  # thrust ring under the head
+HAND_REST = (0.30, 0.86, -0.04)  # (±x, y, z) palm center at rest, agent frame
+SPAWN = [  # where each agent hovers in the exported (idle) pose: ping-pong, coffee, whiteboard, desk side
     (0.42, 0.95, -math.pi / 2),
     (3.08, 0.95, math.pi / 2),
     (-2.6, 1.32, math.pi / 2),
     (0.35, -2.05, 0.0),
 ]
+POSTIT = ["#ffe27a", "#ffc46b", "#fff1b8"]
+# the #20 grip offsets were defined on the old hand empty: agent frame, arm hanging (-y = away from the
+# shoulder, x = the agent's right). The fingers now play that -y; at rest the grip frame = agent frame @ Rx(60°)
+GRIP_RX = math.radians(60)
+GRIP_Y = 0.015  # grip point: palm center, moved this far along the fingers (hand local +y)
+
+
+def basis(loc, x, y, z):
+    """frame from web axis vectors (orthonormal, right-handed) at a web point, as a Blender matrix"""
+    M = Matrix.Identity(4)
+    for c, v in enumerate((x, -Vector(z), y)):  # Blender local X, Y, Z = web x, -z, y
+        b = W(*v).normalized()
+        for r in range(3):
+            M[r][c] = b[r]
+    M.translation = W(*loc)
+    return M
+
+
+def hand_rest(side):
+    """the rest pose (agent frame): fingers (local +y) forward and 30° down, palm (local +z) facing the body's
+    center line, thumb (local x side) up. A relaxed hand just before a handshake."""
+    sx = -1 if side == "l" else 1
+    y = Vector((0, -math.sin(math.radians(30)), -math.cos(math.radians(30))))
+    z = Vector((-sx, 0, 0))
+    return basis((sx * HAND_REST[0], HAND_REST[1], HAND_REST[2]), y.cross(z), y, z)
+
+
+def capsule(name, r, length, material, group, square=False):
+    """finger along local +y from the root (y 0) to the tip; the root end sits inside the palm (no cap)"""
+    if square:  # keycap-like: a box with a small bevel (LOOP)
+        return [box(name, (2 * r, length, 2 * r), (0, length / 2, 0), material, group, bev=0.006, seg=1)]
+    return [cyl(name, r, length - r, (0, (length - r) / 2, 0), material, group, 8),
+            sphere(name, r, (0, length - r, 0), material, group, seg=8, rings=5)]
+
+
+def lowrail(name, pts, r, material, group):
+    """rail() with a lighter tube (the agents' triangle budget)"""
+    o = rail(name, pts, r, material, group)
+    o.data.resolution_u = 5
+    o.data.bevel_resolution = 1
+    return o
+
+
+def disc(name, r, material, group, seg=32):
+    """flat disc in the web x/z plane facing up, UV = planar 0..1 over its square"""
+    me = bpy.data.meshes.new(name)
+    vs = [(0, 0, 0)] + [(r * math.cos(2 * math.pi * k / seg), r * math.sin(2 * math.pi * k / seg), 0) for k in range(seg)]
+    me.from_pydata(vs, [], [(0, 1 + k, 1 + (k + 1) % seg) for k in range(seg)])
+    uv = me.uv_layers.new(name="UVMap")
+    for p in me.polygons:
+        for li, vi in zip(p.loop_indices, p.vertices):
+            uv.data[li].uv = (0.5 + vs[vi][0] / (2 * r), 0.5 + vs[vi][1] / (2 * r))
+    o = bpy.data.objects.new(name, me)
+    coll(group).objects.link(o)
+    me.materials.append(material)
+    return o
+
+
+def soft_glow(h, alpha, strength, name):
+    """emissive, mostly see-through (the beam and the floor disc); the app draws them additive"""
+    m = emitter(h, strength, name)
+    b = m.node_tree.nodes["Principled BSDF"]
+    b.inputs["Alpha"].default_value = alpha
+    try:
+        m.blend_method = "BLEND"
+    except Exception:
+        pass
+    return m
 
 
 def build_agent(i, agent):
     G = "bot"
-    # tuned for the app's real-time light (they read too dark at first): a brighter, smoother shell, lighter
-    # joints, and the color band glowing faintly so an agent still reads with the office lights off
+    col = agent["color"]
     shell = plastic("#f6f3ec", 0.32, 0, 0.08, "bot_shell")
     joint = plastic("#4a505c", 0.35, 0.35, 0.05, "bot_joint")
-    accent = plastic(agent["color"], 0.4, 0, 0.05, f"bot_accent_{i}")
+    accent = plastic(col, 0.4, 0, 0.05, f"bot_accent_{i}")
     ab = accent.node_tree.nodes["Principled BSDF"]
-    ab.inputs["Emission Color"].default_value = rgba(agent["color"])
+    ab.inputs["Emission Color"].default_value = rgba(col)
     ab.inputs["Emission Strength"].default_value = 0.35
+    glow_m = emitter(col, 6.0, f"glow_{i}")
     x, z, ry = SPAWN[i]
-    root = Mx((x, 0, z), ry=ry)  # floor under the hip, facing local -z
-    parts = []
+    root = Mx((x, 0, z), ry=ry)
+    Hd = root @ Mx((0, HEAD_Y, 0))
+    hw, hh, hd = HEAD
+    bot, neon, other = [], [], []  # live kinds
 
-    def part(name, objs, at):
-        M = root @ Mx(at)
-        parts.append(pivot(join(name, place(objs, M)), M))
+    # -- the agent frame: an empty on the floor
+    a = bpy.data.objects.new(f"agent_{i}", None)
+    coll("export").objects.link(a)
+    a.matrix_world = root
+    a["pivot_at"] = [round(x, 5), 0.0, round(z, 5)]
+    bot.append(a)
 
-    # torso on a hover pod: a rounded cone tapering to an emitter ring ~0.17 m above the floor
-    part(f"agent_{i}", [rounded_slab("torso", 0.34, 0.36, 0.26, 0.08, (0, 0.2, 0), shell, G, edge=0.02),
-                        box("stripe", (0.345, 0.04, 0.265), (0, 0.26, 0), accent, G),
-                        box("backplate", (0.14, 0.14, 0.01), (0, 0.2, 0.135), accent, G),
-                        cyl("waist", 0.12, 0.05, (0, -0.005, 0), joint, G, 24),
-                        cyl("pod", 0.15, 0.16, (0, -0.11, 0), shell, G, 32, r2=0.1, bev=0.01),
-                        cyl("pod_skirt", 0.105, 0.04, (0, -0.205, 0), joint, G, 32, r2=0.08)], (0, HIP_Y, 0))
-    # pod light: a ring round the skirt's lower edge (reads from the side and from above) and a disc under it
-    glow_m = emitter(agent["color"], 6.0, f"glow_{i}")
-    hip = root @ Mx((0, HIP_Y, 0))
-    glow = join(f"agent_{i}_glow", place([torus("pod_ring", 0.097, 0.017, (0, -0.212, 0), glow_m, "export", seg=40, rseg=8),
-                                          cyl("pod_disc", 0.082, 0.006, (0, -0.227, 0), glow_m, "export", 32)], hip))
-    parts_live = [pivot(glow, hip)]
-    part(f"agent_{i}_head", [rounded_slab("head", 0.32, 0.24, 0.26, 0.07, (0, 0.13, 0), shell, G, edge=0.02),
-                             cyl("neck", 0.04, 0.05, (0, 0.0, 0), joint, G, 12),
-                             panel("face_bezel", 0.26, 0.17, 0.01, 0.04, (0, 0.13, -0.132),
-                                   plastic("#111216", 0.3, 0.2, 0, "face_bezel"), G),
-                             cyl("ear", 0.035, 0.03, (-0.17, 0.13, 0), accent, G, 16, axis="x"),
-                             cyl("ear", 0.035, 0.03, (0.17, 0.13, 0), accent, G, 16, axis="x"),
-                             cyl("antenna", 0.008, 0.12, (0.06, 0.31, 0.04), joint, G, 8)], (0, NECK_Y, 0))
-    hands = []
-    for side, sx in (("l", -1), ("r", 1)):
-        part(f"agent_{i}_arm_{side}", [cyl("shoulder", 0.045, 0.06, (0, 0, 0), joint, G, 14, axis="x"),
-                                       cyl("arm", 0.035, 0.3, (0, -0.16, 0), joint, G, 12),
-                                       sphere("hand", 0.045, (0, -0.33, 0), shell, G, seg=12, rings=8)],
-             (sx * 0.2, SHOULDER_Y, 0))
-        # grab point: an empty parented to the arm at the hand ball's center, so a prop attached here follows it
-        arm = parts[-1]
-        h = bpy.data.objects.new(f"agent_{i}_hand_{side}", None)
-        coll("export").objects.link(h)
-        h.parent = arm
-        h.matrix_world = arm.matrix_world @ Mx((0, -0.33, 0))
-        h["hand"] = side
-        hands.append(h)
-    neck = root @ Mx((0, NECK_Y, 0))
-    face = quad(f"agent_{i}_face", 0.22, 0.13, screen_mat(f"face_glow_{i}", agent["color"], 0.8), "export")
+    # -- head: rounded box (MESH: chamfered, two chamfer faces glowing lavender), ears, vent, thrust housing
+    if i == 1:
+        head = box("head", HEAD, (0, 0, 0), shell, G, bev=0.06, seg=1)
+        head = apply_all(head)
+        head.data.materials.append(emitter(col, 0.5, "mesh_facet"))
+        for p in head.data.polygons:  # front-left and back-right vertical chamfers (diagonal pair)
+            n = p.normal
+            if (abs(n.x + 0.7071) < 0.05 and abs(n.y - 0.7071) < 0.05) or (abs(n.x - 0.7071) < 0.05 and abs(n.y + 0.7071) < 0.05):
+                p.material_index = 1
+    else:
+        head = box("head", HEAD, (0, 0, 0), shell, G, bev=0.08, seg=3)
+    hp = [head,
+          panel("face_bezel", 0.33, 0.21, 0.006, 0.03, (0, 0, -hd / 2 + 0.001), plastic("#111216", 0.3, 0.2, 0, "face_bezel"), G),
+          box("vent_plate", (0.24, 0.13, 0.006), (0, -0.01, hd / 2), joint, G)]
+    hp += [box("vent", (0.2, 0.012, 0.008), (0, -0.05 + k * 0.027, hd / 2 + 0.004), shell, G) for k in range(4)]
+    hp += [cyl("thrust", 0.105, 0.03, (0, -hh / 2 - 0.005, 0), joint, G, 16, r2=0.09)]
+    ears = {"l": True, "r": True}
+    if i == 0:  # MEMO: antenna (back), headset on the right ear (cup + boom + status mic)
+        ears["r"] = False
+        hp += [cyl("antenna", 0.01, 0.14, (0.08, hh / 2 + 0.07, 0.08), joint, G, 8),
+               box("headset", (0.064, 0.14, 0.06), (hw / 2 + 0.03, 0, 0), joint, G, bev=0.025, seg=2),
+               lowrail("boom", [(hw / 2 + 0.045, -0.05, -0.02), (hw / 2 + 0.01, -0.11, -0.15), (0.09, -0.13, -0.205)], 0.008, joint, G),
+               sphere("mic", 0.02, (0.09, -0.13, -0.205), accent, G, seg=10, rings=6)]
+    if i == 1:  # MESH: gizmo (stalk, three axis bars + ends; the center is the tip)
+        cz = hh / 2 + 0.13
+        hp += [cyl("gizmo_stalk", 0.01, 0.11, (0, hh / 2 + 0.055, 0), joint, G, 8)]
+        for v, c in (((1, 0, 0), "#ff4d5e"), ((0, 1, 0), "#5dde7a"), ((0, 0, 1), "#4d8bff")):
+            m = plastic(c, 0.4, 0, 0, f"gizmo_{c}")
+            end = (0.13 * v[0], cz + 0.13 * v[1], 0.13 * v[2])
+            hp += [segment("gizmo_bar", (0, cz, 0), end, 0.009, m, G, verts=8),
+                   sphere("gizmo_end", 0.026, end, m, G, seg=10, rings=6)]
+    if i == 2:  # HUE: a flat beret tilted -10° (band, dome, stalk)
+        fabric_m = plastic("#5a2147", 0.85, 0, 0.4, "beret")
+        beret = [cyl("beret_band", 0.215, 0.035, (0, 0, 0), fabric_m, G, 32),
+                 sphere("beret_dome", 0.26, (0, 0.01, 0), fabric_m, G, scale=(1, 0.09 / 0.26, 1), half=True, seg=32, rings=10),
+                 cyl("beret_stalk", 0.008, 0.03, (0, 0.11, 0), fabric_m, G, 8)]
+        hp += place(beret, Mx((0, hh / 2 + 0.005, 0), rz=math.radians(-10)))
+    if i == 3:  # LOOP: headphones (cups at the ears + band over the top)
+        ears = {"l": False, "r": False}
+        for sx in (-1, 1):
+            hp.append(box("cup", (0.09, 0.18, 0.09), (sx * (hw / 2 + 0.045), 0, 0), joint, G, bev=0.03, seg=2))
+        hp.append(lowrail("band", [(-(hw / 2 + 0.045), 0.09, 0), (-0.2, 0.22, 0), (0, hh / 2 + 0.1, 0), (0.2, 0.22, 0),
+                                (hw / 2 + 0.045, 0.09, 0)], 0.02, joint, G))
+    for s, sx in (("l", -1), ("r", 1)):
+        if ears[s]:
+            hp.append(cyl("ear", 0.04, 0.03, (sx * (hw / 2 + 0.012), 0, 0), accent, G, 16, axis="x"))
+    bot.append(pivot(join(f"agent_{i}_head", place(hp, Hd)), Hd))
+
+    # -- face slot (off screen material on export; the app draws the face)
+    face = quad(f"agent_{i}_face", 0.30, 0.18, screen_mat(f"face_glow_{i}", col, 0.8), "export")
     face.rotation_euler = (0, 0, math.pi)  # faces local -z (forward)
-    face = pivot(apply_all(place(face, neck @ Mx((0, 0.13, -0.138)))[0]), neck)
-    tip = sphere(f"agent_{i}_tip", 0.022, (0.06, 0.38, 0.04), emitter(agent["color"], 4.0, f"tip_{i}"), "export", seg=12, rings=8)
-    tip = pivot(apply_all(place(tip, neck)[0]), neck)
-    for h in hands:
-        NODES.append({"obj": h, "hand": h["hand"]})
-    return parts, [face, tip] + parts_live
+    face = pivot(apply_all(place(face, Hd @ Mx((0, 0, -0.172)))[0]), Hd)
+    slot(face, 0.30, 0.18)
+    other.append((face, "face"))
+
+    # -- state light (tip)
+    # pivot = the light's own center (MEMO antenna end, MESH gizmo center, HUE beret stalk), head's rotation
+    tip_m = emitter(col, 4.0, f"tip_{i}")
+    if i < 3:
+        r, T = ((0.026, Hd @ Mx((0.08, hh / 2 + 0.165, 0.08))),
+                (0.03, Hd @ Mx((0, hh / 2 + 0.13, 0))),
+                (0.022, Hd @ Mx((0, hh / 2 + 0.005, 0), rz=math.radians(-10)) @ Mx((0, 0.13, 0))))[i]
+        tip = sphere(f"agent_{i}_tip", r, (0, 0, 0), tip_m, "export", seg=10, rings=6)
+        neon.append(pivot(apply_all(place(tip, T)[0]), T))
+    else:  # LOOP: the ring itself, open by 40° with an arrowhead at one end; spins about local y
+        Rc = Hd @ Mx((0, hh / 2 + 0.2, 0))
+        ring = torus(f"agent_{i}_tip", 0.13, 0.011, (0, 0, 0), tip_m, "export", seg=28, rseg=5)
+        bm = bmesh.new()
+        bm.from_mesh(ring.data)
+        gap = math.radians(40)
+        bmesh.ops.delete(bm, geom=[v for v in bm.verts if math.atan2(v.co.y, v.co.x) % (2 * math.pi) > 2 * math.pi - gap + 1e-4], context="VERTS")
+        bm.to_mesh(ring.data)
+        bm.free()
+        # arrowhead at angle 0 (web +x), pointing along the ring into the gap (web +z there, i.e. clockwise from above)
+        head_a = cyl("arrow", 0.03, 0.05, (0.13, 0, 0.02), tip_m, "export", 12, axis="z", r2=0.0)
+        tip = join(f"agent_{i}_tip", place([ring, head_a], Rc))
+        neon.append(pivot(tip, Rc))
+
+    # -- hover light: thrust ring (glow), beam (pivot on top), floor disc
+    Gy = root @ Mx((0, GLOW_Y, 0))
+    glow = join(f"agent_{i}_glow", place([torus("ring", 0.085, 0.012, (0, -0.002, 0), glow_m, "export", seg=24, rseg=5),
+                                          place(disc("disc", 0.075, glow_m, "export", seg=16), Mx((0, -0.004, 0)))[0]], Gy))
+    neon.append(pivot(glow, Gy))
+    bm = bmesh.new()
+    bmesh.ops.create_cone(bm, cap_ends=False, segments=32, radius1=0.2, radius2=0.085, depth=GLOW_Y - 0.005)
+    beam = mesh_obj(f"agent_{i}_beam", bm, soft_glow(col, 0.12, 1.5, f"beam_{i}"), "export")
+    beam.location = W(0, -(GLOW_Y - 0.005) / 2, 0)
+    beam = pivot(apply_all(place(beam, Gy)[0]), Gy)
+    neon.append(beam)
+    F0 = root @ Mx((0, 0.005, 0))
+    floor = pivot(apply_all(place(disc(f"agent_{i}_floor", 0.26, soft_glow(col, 0.45, 1.2, f"floor_{i}"), "export"), F0)[0]), F0)
+    neon.append(floor)
+
+    # -- hands (glove A: palm + index + three-finger block + thumb), wrist cuff, grip empty
+    square = i == 3
+    for side, sx in (("l", -1), ("r", 1)):
+        Mh = root @ hand_rest(side)
+        n = f"agent_{i}_hand_{side}"
+        palm = box("palm", (0.086, 0.086, 0.045), (0, 0, 0), shell, G, bev=0.02, seg=3)
+        bot.append(pivot(join(n, place([palm], Mh)), Mh))
+        Mi = Mh @ Mx((sx * 0.027, 0.022, 0.0))
+        bot.append(pivot(join(f"{n}_index", place(capsule("index", 0.011, 0.07, shell, G, square), Mi)), Mi))
+        Mf = Mh @ Mx((-sx * 0.013, 0.02, 0.0))
+        blk = box("fingers", (0.046, 0.055, 0.04), (0, 0.0275, 0), shell, G, bev=0.006 if square else 0.015, seg=1 if square else 2)
+        bot.append(pivot(join(f"{n}_fingers", place([blk], Mf)), Mf))
+        Mt = Mh @ Mx((sx * 0.04, -0.018, 0.0)) @ Mx(rz=-sx * math.radians(35)) @ Mx(rx=math.radians(20))
+        bot.append(pivot(join(f"{n}_thumb", place(capsule("thumb", 0.012, 0.046, shell, G, square), Mt)), Mt))
+        cuff = [tube("cuff", 0.036, 0.023, (0, -0.05, 0), glow_m, "export", 16),
+                cyl("cuff_cap", 0.03, 0.006, (0, -0.06, 0), glow_m, "export", 12)]
+        neon.append(pivot(join(f"{n}_cuff", place(cuff, Mh)), Mh))
+        g = bpy.data.objects.new(f"{n}_grip", None)
+        coll("export").objects.link(g)
+        g.parent = bot[-4]  # the palm node
+        # 1.5 cm toward the fingers: at the palm center a held cup sank into the palm
+        g.matrix_world = Matrix.Translation((Mh @ Mx((0, GRIP_Y, 0))).to_translation()) @ root.to_3x3().to_4x4() @ Mx(rx=GRIP_RX)
+        g["grip_of"] = side
+        NODES.append({"obj": g, "grip_of": side})
+
+    # -- role parts that move on their own
+    if i == 0:  # MEMO: pen over the left ear (a prop with a head-relative home), post-it stack behind the head
+        pen_local = Mx((-(hw / 2 + 0.025), 0.07, 0.0), rx=math.radians(25))
+        P = Hd @ pen_local
+        pen_m = plastic("#2d3240", 0.4, 0.2, 0.05, "pen")
+        pen = pivot(join("agent_0_pen", place([cyl("pen", 0.009, 0.15, (0, 0, 0.01), pen_m, G, 12, axis="z"),
+                                                cyl("pen_cap", 0.0095, 0.02, (0, 0, -0.075), accent, G, 12, axis="z")], P)), P)
+        pen["prop"] = "pen"
+        pen["home_on"] = f"agent_{i}_head"
+        pen["home"] = {"pos": [round(-(hw / 2 + 0.025), 4), 0.07, 0.0], "rot": [round(math.radians(25), 4), 0.0, 0.0]}
+        pen["grip"] = {"pos": [0.0, -0.04, 0.0], "rot": [round(math.pi / 2, 4), 0.0, 0.0]}
+        other.append((pen, "prop"))
+        spots = [(-0.03, 0.04, 9), (0.04, 0.015, -6), (-0.01, -0.03, 4), (0.05, -0.05, -9), (-0.05, -0.005, 7)]
+        for k, (dx, dy, rz) in enumerate(spots):
+            Pk = Hd @ Mx((dx, dy, hd / 2 + 0.06 + 0.008 * k), rz=math.radians(rz))
+            note = box("postit", (0.09, 0.09, 0.003), (0, 0, 0), plastic(POSTIT[k % 3], 0.85, 0, 0.2, f"postit_{k % 3}"), G)
+            bot.append(pivot(join(f"agent_0_postit_{k}", place([note], Pk)), Pk))
+    if i == 1:  # MESH: wireframe cube orbiting the head (pivot = orbit center, spin = local y)
+        Oc = Hd @ Mx((0, 0.06, 0))
+        e, t = 0.1, 0.009
+        orbit_m = emitter(col, 2.0, "orbit")
+        bars = []
+        for ax in range(3):
+            for u in (-1, 1):
+                for v in (-1, 1):
+                    c = [0, 0, 0]
+                    c[(ax + 1) % 3], c[(ax + 2) % 3] = u * e / 2, v * e / 2
+                    s = [t, t, t]
+                    s[ax] = e + t
+                    bars.append(box("orbit_bar", tuple(s), tuple(c), orbit_m, "export"))
+        cube = place(bars, Mx((0.34, 0, 0), rx=0.6, ry=0.8))
+        neon.append(pivot(join("agent_1_orbit", place(cube, Oc)), Oc))
+    if i == 3:  # LOOP: ear-cup glow strips (lit while working)
+        strips = [box("cup_glow", (0.004, 0.11, 0.025), (sx * (hw / 2 + 0.091), 0, 0), emitter(col, 3.0, "ear_glow"), "export")
+                  for sx in (-1, 1)]
+        neon.append(pivot(join("agent_3_ear_glow", place(strips, Hd)), Hd))
+    return bot, neon, other
 
 
 # ================================================================ NAVIGATION SPOTS (empties)
@@ -581,15 +790,92 @@ live(shade, "neon")
 for o in build_props():
     live(o, "prop")
 for i, a in enumerate(AGENTS):
-    parts, lives = build_agent(i, a)
-    for o in parts:
+    bots, neons, others = build_agent(i, a)
+    for o in bots:
         live(o, "bot")
-    live(lives[0], "face")
-    live(lives[1], "neon")
-    live(lives[2], "neon")
+    for o in neons:
+        live(o, "neon")
+    for o, kind in others:
+        live(o, kind)
+    tris = sum(len(p.vertices) - 2 for o in bots + neons + [o for o, _ in others] if o.type == "MESH" for p in o.data.polygons)
+    print(f"agent_{i}: {tris} triangles")
+    if "--tris" in ARGS:
+        for o in bots + neons + [o for o, _ in others]:
+            if o.type == "MESH":
+                print("   ", o.name, sum(len(p.vertices) - 2 for p in o.data.polygons))
 build_nav()
 build_surfaces()
 build_lights(lamp_pos)
+
+
+def agent_objs(i):
+    """the agent's top-level parts (grip empties ride along as children)"""
+    return [o for o in bpy.data.objects if o.parent is None and (o.name == f"agent_{i}" or o.name.startswith(f"agent_{i}_"))]
+
+
+def move_agent(i, x, z, ry):
+    old = bpy.data.objects[f"agent_{i}"].matrix_world.copy()
+    D = Mx((x, 0, z), ry=ry) @ old.inverted()
+    for o in agent_objs(i):
+        o.matrix_world = D @ o.matrix_world
+    bpy.context.view_layer.update()
+
+
+def curl(i, side, index=0.0, fingers=0.0, thumb=0.0):
+    """bend fingers about their local x (+ = toward the palm), degrees"""
+    for part, deg in (("index", index), ("fingers", fingers), ("thumb", thumb)):
+        o = bpy.data.objects[f"agent_{i}_hand_{side}_{part}"]
+        o.matrix_world = o.matrix_world @ Mx(rx=math.radians(deg))
+    bpy.context.view_layer.update()
+
+
+def preview_glow_materials():
+    """Cycles stand-ins for what the app draws additive: the beam fades downward, the floor disc to its edge"""
+    for i in range(len(AGENTS)):
+        col = AGENTS[i]["color"]
+        for part, size in (("beam", GLOW_Y - 0.005), ("floor", 0.26)):
+            m = bpy.data.materials.new(f"preview_{part}_{i}")
+            m.use_nodes = True
+            nt = m.node_tree
+            nt.nodes.clear()
+            out = nt.nodes.new("ShaderNodeOutputMaterial")
+            mix = nt.nodes.new("ShaderNodeMixShader")
+            tr = nt.nodes.new("ShaderNodeBsdfTransparent")
+            em = nt.nodes.new("ShaderNodeEmission")
+            em.inputs["Color"].default_value = rgba(col)
+            em.inputs["Strength"].default_value = (1.5 if part == "beam" else 3.0) * EXPOSURE
+            tc = nt.nodes.new("ShaderNodeTexCoord")
+            sep = nt.nodes.new("ShaderNodeSeparateXYZ")
+            f = nt.nodes.new("ShaderNodeMath")
+            g = nt.nodes.new("ShaderNodeMath")
+            nt.links.new(tc.outputs["Object"], sep.inputs[0])
+            if part == "beam":  # object z: 0 at the top .. -size at the floor
+                f.operation = "MULTIPLY_ADD"
+                f.inputs[1].default_value = 1 / size
+                f.inputs[2].default_value = 1.0
+                nt.links.new(sep.outputs["Z"], f.inputs[0])
+                g.operation = "MULTIPLY"
+                g.inputs[1].default_value = 0.05
+            else:  # radial: 1 at the center .. 0 at the rim
+                vl = nt.nodes.new("ShaderNodeVectorMath")
+                vl.operation = "LENGTH"
+                nt.links.new(tc.outputs["Object"], vl.inputs[0])
+                f.operation = "MULTIPLY_ADD"
+                f.inputs[1].default_value = -1 / size
+                f.inputs[2].default_value = 1.0
+                nt.links.new(vl.outputs["Value"], f.inputs[0])
+                g.operation = "POWER"
+                g.inputs[1].default_value = 1.6
+            f.use_clamp = True
+            nt.links.new(f.outputs[0], g.inputs[0])
+            nt.links.new(g.outputs[0], mix.inputs["Fac"])
+            nt.links.new(tr.outputs[0], mix.inputs[1])
+            nt.links.new(em.outputs[0], mix.inputs[2])
+            nt.links.new(mix.outputs[0], out.inputs["Surface"])
+            o = bpy.data.objects[f"agent_{i}_{part}"]
+            o.data.materials.clear()
+            o.data.materials.append(m)
+
 
 if PREVIEW:
     setup_cycles(160)
@@ -600,47 +886,94 @@ if PREVIEW:
     scene.camera = cam
     cam.data.sensor_fit = "VERTICAL"
     cam.data.angle_y = math.radians(32)
-    shots = {"overview": ((6.6, 6.2, 7.4), (-0.25, 0.7, -0.2)),
-             "work": ((0.6, 2.3, 1.4), (-2.3, 0.8, -1.6)),
-             "lounge": ((-1.2, 2.2, 4.4), (1.2, 0.6, 1.0)),
-             "wall": ((1.4, 1.7, 1.2), (1.7, 1.35, -2.75)),
-             "door": ((0.4, 1.7, 2.6), (-3.4, 1.1, 1.7)),
-             "bots": ((1.2, 1.3, 2.9), (0.5, 0.55, 0.95)),
-             "props_table": ((1.0, 1.35, 2.3), (1.6, 0.76, 0.95)),
-             "props_can": ((2.2, 0.95, 3.4), (2.8, 0.2, 2.45)),
-             "props_board": ((-0.85, 1.25, 2.25), (-1.35, 0.76, 1.55)),
-             # preview-only poses (not exported): a hand holding a prop by its grip offset
-             "hold_paddle": ((1.25, 1.15, 1.75), (0.55, 0.8, 0.95)),
-             "hold_cup": ((1.35, 1.05, -1.25), (0.5, 0.85, -2.1))}
-
-    def hold(i, side, prop_name, raise_x, upright=False):
-        """raise an agent's arm forward and put a prop in that hand using the prop's grip extras. grip is defined
-        for the arm hanging at rest; upright=True turns the prop back by the arm's raise (a cup kept level)"""
-        arm = bpy.data.objects[f"agent_{i}_arm_{side}"]
-        arm.matrix_world = arm.matrix_world @ Mx(rx=raise_x)
-        bpy.context.view_layer.update()
-        hand = bpy.data.objects[f"agent_{i}_hand_{side}"]
-        p = bpy.data.objects[prop_name]
-        g = p["grip"]
-        level = Mx(rx=-raise_x) if upright else Mx()
-        p.matrix_world = hand.matrix_world @ level @ Mx(tuple(g["pos"]), *[float(v) for v in g["rot"]])
-        bpy.context.view_layer.update()
-
-    hold(0, "r", "prop_paddle_a", math.radians(100))
-    hold(3, "r", "prop_cup_1", math.radians(95), upright=True)
+    preview_glow_materials()
+    for k in (3, 4):  # the app shows one post-it per open issue; three until that data is wired
+        bpy.data.objects[f"agent_0_postit_{k}"].hide_render = True
     only = [a for a in ARGS if a.startswith("--shot=")]
-    if only:
-        want = only[0].split("=")[1].split(",")
-        shots = {k: v for k, v in shots.items() if k in want}
+    want = only[0].split("=")[1].split(",") if only else None
     scene.render.resolution_x, scene.render.resolution_y = 1440, 900
     scene.render.resolution_percentage = 60
     scene.render.image_settings.file_format = "PNG"
-    for name, (pos, target) in shots.items():
+
+    def shoot(name, pos, target):
+        if want and name not in want:
+            return
         cam.location = W(*pos)
         cam.rotation_euler = (W(*target) - cam.location).to_track_quat("-Z", "Y").to_euler()
         scene.render.filepath = os.path.join(OUT, f"preview_{name}.png")
         bpy.ops.render.render(write_still=True)
+
+    def hold(i, side, prop_name, upright=False):
+        """put a prop in a hand by its grip extras (preview only). upright: keep it level (a cup)"""
+        g = bpy.data.objects[f"agent_{i}_hand_{side}_grip"]
+        p = bpy.data.objects[prop_name]
+        gr = p["grip"]
+        level = Mx(rx=-GRIP_RX) if upright else Mx()
+        p.matrix_world = g.matrix_world @ level @ Mx(tuple(gr["pos"]), *[float(v) for v in gr["rot"]])
+        bpy.context.view_layer.update()
+
+    # 1) the room as exported (agents at their spawn spots)
+    for name, (pos, target) in {"overview": ((6.6, 6.2, 7.4), (-0.25, 0.7, -0.2)),
+                                "work": ((0.6, 2.3, 1.4), (-2.3, 0.8, -1.6)),
+                                "lounge": ((-1.2, 2.2, 4.4), (1.2, 0.6, 1.0)),
+                                "wall": ((1.4, 1.7, 1.2), (1.7, 1.35, -2.75)),
+                                "door": ((0.4, 1.7, 2.6), (-3.4, 1.1, 1.7)),
+                                "bots": ((1.4, 1.5, 3.1), (0.6, 0.75, 0.95)),
+                                "props_plane": ((-1.95, 1.2, -1.45), (-2.72, 0.76, -2.2)),
+                                "props_table": ((1.0, 1.35, 2.3), (1.6, 0.76, 0.95))}.items():
+        shoot(name, pos, target)
+    # 2) holding props by their #20 grip offsets on the new _grip empties (preview-only poses)
+    saved = {n: bpy.data.objects[n].matrix_world.copy() for n in ("prop_paddle_a", "prop_cup_1")}
+    hold(0, "r", "prop_paddle_a")
+    curl(0, "r", 70, 80, 40)
+    shoot("hold_paddle", (1.15, 1.15, 1.9), (0.45, 0.85, 1.2))
+    hold(3, "r", "prop_cup_1", upright=True)
+    curl(3, "r", 60, 70, 30)
+    shoot("hold_cup", (1.15, 1.05, -2.6), (0.6, 0.86, -2.1))
+    for n, M in saved.items():
+        bpy.data.objects[n].matrix_world = M
+    curl(0, "r", -70, -80, -40)
+    curl(3, "r", -60, -70, -30)
+    # 3) the four in a row: front, back, at work
+    XS = (-1.05, -0.35, 0.35, 1.05)
+    LZ = -0.9
+    for i, x in enumerate(XS):
+        move_agent(i, x, LZ, math.pi)
+    shoot("agents_front", (0, 1.45, 2.75), (0, 0.78, LZ))
+    shoot("hands_rest", (XS[1], 1.05, -0.05), (XS[1], 0.87, LZ))
+    curl(3, "r", 0, 100, 60)  # pointing
+    curl(3, "l", 100, 100, 50)  # fist
+    shoot("hands_pose", (XS[3], 1.05, -0.05), (XS[3], 0.87, LZ))
+    curl(3, "r", 0, -100, -60)
+    curl(3, "l", -100, -100, -50)
+    for i, x in enumerate(XS):
+        move_agent(i, x, LZ, 0.0)
+    shoot("agents_back", (0, 1.45, 2.75), (0, 0.78, LZ))
+    for i, a in enumerate(AGENTS):
+        seat = (frame(a["at"]) @ Mx((0, 0, WORK_Z))).to_translation()
+        move_agent(i, seat.x, -seat.y, a["at"][2])
+    shoot("agents_work", (0.3, 1.8, 0.7), (-2.3, 0.95, -1.7))
+    # 4) silhouettes: shapes only, black on white (lights, beams and the room hidden)
+    for i, x in enumerate(XS):
+        move_agent(i, x, LZ, math.pi)
+    lights_only = ("_glow", "_beam", "_floor", "_face")
+    for o in bpy.data.objects:
+        if o.type != "CAMERA" and (not o.name.startswith("agent_") or o.name.endswith(lights_only)):
+            o.hide_render = True
+    ink = bpy.data.materials.new("ink")
+    ink.use_nodes = True
+    ink.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0, 0, 0, 1)
+    ink.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 1.0
+    bpy.context.view_layer.material_override = ink
+    scene.world.node_tree.nodes["Background"].inputs["Color"].default_value = (1, 1, 1, 1)
+    scene.world.node_tree.nodes["Background"].inputs["Strength"].default_value = 1.0
+    scene.view_settings.view_transform = "Standard"
+    shoot("sil_front", (0, 1.45, 2.75), (0, 0.78, LZ))
+    for i, x in enumerate(XS):
+        move_agent(i, x, LZ, 0.0)
+    shoot("sil_back", (0, 1.45, 2.75), (0, 0.78, LZ))
     sys.exit(0)
+
 
 # --- bake
 setup_cycles(SAMPLES)
