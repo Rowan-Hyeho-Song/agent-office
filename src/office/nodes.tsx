@@ -30,7 +30,7 @@ export const ATLASES = ['room', 'work', 'wall_items', 'lounge'] as const
 const ATLAS_URLS = ATLASES.map((a) => `/models/${a}.webp`)
 
 /** runtime glow per live kind (the bake used its own strengths for the light the emitters cast) */
-const GLOW: Record<string, number> = { screen: 1.1, face: 1.4, neon: 2.6, door: 1.0 }
+export const GLOW: Record<string, number> = { screen: 1.1, face: 1.4, neon: 2.6, door: 1.0 }
 
 export type OfficeNodes = Record<string, Object3D>
 
