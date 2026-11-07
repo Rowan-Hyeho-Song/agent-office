@@ -1,0 +1,43 @@
+# Issues, minutes / decision comments and merged PRs → the office's documents (#24, docs/plan.md 6.2).
+# The original stays on GitHub; /api/docs keeps a filtered copy. Needs the repository secrets OFFICE_DOCS_URL and
+# OFFICE_DOCS_TOKEN (docs/deploy.md); without them the job does nothing and succeeds.
+name: office docs
+
+on:
+  issues:
+    types: [opened, edited, closed, reopened, labeled, unlabeled]
+  issue_comment:
+    types: [created, edited]
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: office-docs-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # comments on PRs and unmerged PRs are not documents; skip them before starting a runner
+    if: >-
+      (github.event_name == 'issues') ||
+      (github.event_name == 'issue_comment' && !github.event.issue.pull_request) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged)
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/docs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/docs/event.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OFFICE_DOCS_URL: ${{ secrets.OFFICE_DOCS_URL }}
+          OFFICE_DOCS_TOKEN: ${{ secrets.OFFICE_DOCS_TOKEN }}

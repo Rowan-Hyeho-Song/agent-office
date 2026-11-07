@@ -85,7 +85,7 @@ code { font-family: var(--font-pixel); font-size: var(--font-size-1); }
 
 <header class="top">
   <div>
-    <div class="kicker">AGENT OFFICE · #28 · 결재 전 시안</div>
+    <div class="kicker">AGENT OFFICE · #28 · 확정 (2026-11-08 결재: 손 모양 A, 형태·개성 승인)</div>
     <h1>떠 있는 머리 + 떠 있는 두 손</h1>
     <p class="lead">몸통·팔·포드를 없애고 머리 하나가 몸 전체가 된다. 머리 아래로 에이전트 색 호버 빛, 손목은 같은 색으로 빛나는 고리로 닫는다. <b>“떠 있는 것은 모두 같은 빛으로 뜬다”</b>는 규칙 하나로, 잘린 팔이 아니라 일부러 떼어 놓은 손으로 읽히게 했다. 이름·색·이름표·성격은 #26 결재 그대로.</p>
   </div>
@@ -107,13 +107,13 @@ code { font-family: var(--font-pixel); font-size: var(--font-size-1); }
 </section>
 
 <section>
-  <h2>2. 손 모양 · 결정 요청</h2>
+  <h2>2. 손 모양 · A 확정</h2>
   <p class="lead">네 명 모두 손 버릇에 <b>검지</b>를 따로 쓴다: 메모(머리 톡톡), 메시(사각 프레임·허공의 정점 집기), 휴(스포이트·색상환 그리기), 루프(상대 화면 가리키기·엄지 척). 손은 탁구채·컵·물뿌리개도 잡는다(#20). 세 안을 같은 동작으로 비교했다.</p>
   <div class="hands" id="hands"></div>
   <div class="table-wrap"><table>
     <thead><tr><th>안</th><th>부품 (Blender)</th><th>할 수 있는 것</th><th>판단</th></tr></thead>
     <tbody>
-      <tr><td class="pick">A 엄지·검지 장갑 (추천)</td><td>손바닥 + 엄지 + 검지 + 나머지 세 손가락 한 덩어리 = 4조각, 회전축 3</td><td>가리키기·톡톡·네모 틀·도장·엄지 척·쥐기</td><td>세 명의 손 버릇을 다 하면서 부품이 적다. 덩어리 손가락이 멀리서 장갑처럼 깔끔</td></tr>
+      <tr><td class="pick">A 엄지·검지 장갑 (확정)</td><td>손바닥 + 엄지 + 검지 + 나머지 세 손가락 한 덩어리 = 4조각, 회전축 3</td><td>가리키기·톡톡·네모 틀·도장·엄지 척·쥐기</td><td>세 명의 손 버릇을 다 하면서 부품이 적다. 덩어리 손가락이 멀리서 장갑처럼 깔끔</td></tr>
       <tr><td>B 벙어리장갑</td><td>손바닥 + 엄지 = 2조각, 회전축 1</td><td>쥐기·손 펴기·엄지 척</td><td>가장 단순하지만 가리키기·톡톡·네모 틀을 못 한다</td></tr>
       <tr><td>C 만화 네 손가락</td><td>손바닥 + 손가락 넷 = 5조각, 회전축 4</td><td>모두 + 손가락 세기</td><td>표정은 가장 많지만 멀리서 손 길이가 15px 남짓이라 A와 차이가 안 보이고 리깅만 는다</td></tr>
     </tbody>
@@ -423,7 +423,7 @@ function render() {
 
   const poses = [['rest', '쉼'], ['tap', '톡톡·타자'], ['frame', '네모 틀'], ['open', '도장 받기'], ['thumb', '엄지 척'], ['grip', '탁구채', 'paddle']]
   let h = '<div></div>' + poses.map((p, i) => `<div class="hd ${i > 2 ? 'opt' : ''}">${p[1]}</div>`).join('')
-  for (const [k, label, sub] of [['A', 'A 엄지·검지', '추천'], ['B', 'B 벙어리', ''], ['C', 'C 네 손가락', '']]) {
+  for (const [k, label, sub] of [['A', 'A 엄지·검지', '확정'], ['B', 'B 벙어리', ''], ['C', 'C 네 손가락', '']]) {
     h += `<div class="lab">${label}<small>${sub}</small></div>`
     poses.forEach(([pose, name, prop], i) => {
       const no = k === 'B' && (pose === 'tap' || pose === 'frame')
