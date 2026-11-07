@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { handle, nextStatus, parseSignal, sameToken, type Signal, type StatusRow, type Store } from './events'
+import { handle, nextStatus, parseSignal, sameToken, type Activity, type Signal, type StatusRow, type Store } from './events'
 
 describe('parseSignal', () => {
   it('accepts seats 0..3 for each kind', () => {
@@ -13,7 +13,7 @@ describe('parseSignal', () => {
 
   it('accepts every listed activity', () => {
     for (const a of ['edit', 'read', 'test', 'build', 'install', 'git', 'run', 'other', 'delegate', 'think']) {
-      expect(parseSignal({ seat: 0, kind: 'activity', activity: a })?.activity).toBe(a)
+      expect(parseSignal({ seat: 0, kind: 'activity', activity: a })).toEqual({ seat: 0, kind: 'activity', activity: a })
     }
   })
 
@@ -52,8 +52,29 @@ describe('parseSignal', () => {
     expect(parseSignal([{ seat: 0, kind: 'start' }])).toBeNull()
   })
 
-  it('drops extra fields from the result', () => {
-    expect(parseSignal({ seat: 1, kind: 'start', junk: 'x' })).toEqual({ seat: 1, kind: 'start' })
+  it('rejects extra fields (nothing may ride along)', () => {
+    expect(parseSignal({ seat: 1, kind: 'start', junk: 'x' })).toBeNull()
+    expect(parseSignal({ seat: 1, kind: 'result', activity: 'test', ok: true, output: 'x' })).toBeNull()
+  })
+
+  it('accepts a result for test and build', () => {
+    expect(parseSignal({ seat: 3, kind: 'result', activity: 'test', ok: true })).toEqual({ seat: 3, kind: 'result', activity: 'test', ok: true })
+    expect(parseSignal({ seat: 1, kind: 'result', activity: 'build', ok: false })).toEqual({ seat: 1, kind: 'result', activity: 'build', ok: false })
+  })
+
+  it('rejects a bad result', () => {
+    expect(parseSignal({ seat: 0, kind: 'result', activity: 'edit', ok: true })).toBeNull()
+    expect(parseSignal({ seat: 0, kind: 'result', activity: 'install', ok: true })).toBeNull()
+    expect(parseSignal({ seat: 0, kind: 'result', activity: 'test', ok: 'true' })).toBeNull()
+    expect(parseSignal({ seat: 0, kind: 'result', activity: 'test', ok: 1 })).toBeNull()
+    expect(parseSignal({ seat: 0, kind: 'result', activity: 'test' })).toBeNull()
+    expect(parseSignal({ seat: 0, kind: 'result', ok: true })).toBeNull()
+  })
+
+  it('rejects ok on a non-result kind', () => {
+    for (const kind of ['start', 'stop', 'end']) expect(parseSignal({ seat: 0, kind, ok: true })).toBeNull()
+    expect(parseSignal({ seat: 0, kind: 'activity', activity: 'test', ok: true })).toBeNull()
+    expect(parseSignal({ seat: 0, kind: 'start', ok: null })).toBeNull()
   })
 })
 
@@ -72,8 +93,11 @@ describe('sameToken', () => {
 describe('nextStatus', () => {
   const T0 = '2026-01-01T00:00:00.000Z'
   const T1 = '2026-01-01T00:01:00.000Z'
-  const row = (over: Partial<StatusRow> = {}): StatusRow => ({ seat: 1, state: 'idle', activity: null, since: T0, updated_at: T0, ...over })
-  const sig = (kind: Signal['kind'], activity?: Signal['activity']): Signal => ({ seat: 1, kind, ...(activity ? { activity } : {}) })
+  const NONE = { last_result_activity: null, last_result_ok: null, last_result_at: null }
+  const row = (over: Partial<StatusRow> = {}): StatusRow => ({ seat: 1, state: 'idle', activity: null, since: T0, updated_at: T0, ...NONE, ...over })
+  const sig = (kind: 'start' | 'stop' | 'end' | 'activity', activity?: Activity): Signal =>
+    kind === 'activity' ? { seat: 1, kind, activity: activity ?? 'think' } : { seat: 1, kind }
+  const res = (activity: 'test' | 'build', ok: boolean): Signal => ({ seat: 1, kind: 'result', activity, ok })
 
   it('maps kinds to states', () => {
     expect(nextStatus(null, sig('start'), T1).row).toMatchObject({ state: 'idle', activity: null })
@@ -84,7 +108,7 @@ describe('nextStatus', () => {
 
   it('first signal: since = now, changed', () => {
     const r = nextStatus(null, sig('start'), T1)
-    expect(r.row).toEqual({ seat: 1, state: 'idle', activity: null, since: T1, updated_at: T1 })
+    expect(r.row).toEqual({ seat: 1, state: 'idle', activity: null, since: T1, updated_at: T1, ...NONE })
     expect(r.changed).toBe(true)
   })
 
@@ -109,7 +133,33 @@ describe('nextStatus', () => {
     expect(nextStatus(row({ state: 'off' }), sig('end'), T1).changed).toBe(false)
     expect(nextStatus(row({ state: 'wrapping' }), sig('end'), T1).changed).toBe(true)
   })
+
+  it('a result keeps state/activity/since, sets last_result_*, changed', () => {
+    const w = row({ state: 'working', activity: 'build', since: T0 })
+    const r = nextStatus(w, res('build', false), T1)
+    expect(r.changed).toBe(true)
+    expect(r.row).toMatchObject({ state: 'working', activity: 'build', since: T0, updated_at: T1, last_result_activity: 'build', last_result_ok: false, last_result_at: T1 })
+    const i = nextStatus(row({ state: 'idle' }), res('test', true), T1)
+    expect(i.row).toMatchObject({ state: 'idle', activity: null, since: T0, last_result_ok: true })
+    expect(i.changed).toBe(true)
+  })
+
+  it('a later activity / stop / end keeps the last result', () => {
+    const withResult = nextStatus(row(), res('test', true), T1).row
+    const T2 = '2026-01-01T00:02:00.000Z'
+    for (const s of [sig('activity', 'edit'), sig('stop'), sig('end'), sig('start')]) {
+      expect(nextStatus(withResult, s, T2).row).toMatchObject({ last_result_activity: 'test', last_result_ok: true, last_result_at: T1 })
+    }
+  })
+
+  it('a result as the very first signal', () => {
+    const r = nextStatus(null, res('test', false), T1)
+    expect(r.changed).toBe(true)
+    expect(r.row).toMatchObject({ seat: 1, state: 'working', since: T1, updated_at: T1, last_result_activity: 'test', last_result_ok: false, last_result_at: T1 })
+  })
 })
+
+const NONE = { last_result_activity: null, last_result_ok: null, last_result_at: null }
 
 function memoryStore(initial: StatusRow[] = []) {
   const rows = new Map(initial.map((r) => [r.seat, r]))
@@ -196,19 +246,35 @@ describe('handle', () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true, state: 'working', changed: true })
     const at = NOW.toISOString()
-    expect(m.rows.get(2)).toEqual({ seat: 2, state: 'working', activity: 'edit', since: at, updated_at: at })
-    expect(m.calls.addEvent).toEqual([{ seat: 2, kind: 'activity', activity: 'edit', created_at: at }])
+    expect(m.rows.get(2)).toEqual({ seat: 2, state: 'working', activity: 'edit', since: at, updated_at: at, ...NONE })
+    expect(m.calls.addEvent).toEqual([{ seat: 2, kind: 'activity', activity: 'edit', ok: null, created_at: at }])
     expect(m.calls.prune).toEqual([])
   })
 
   it('writes status but no event when nothing changed', async () => {
     const earlier = '2026-03-15T11:59:00.000Z'
-    const m = memoryStore([{ seat: 2, state: 'working', activity: 'edit', since: earlier, updated_at: earlier }])
+    const m = memoryStore([{ seat: 2, state: 'working', activity: 'edit', since: earlier, updated_at: earlier, ...NONE }])
     const res = await handle(post({ seat: 2, kind: 'activity', activity: 'edit' }), m.store, TOKEN, NOW)
     expect(await res.json()).toEqual({ ok: true, state: 'working', changed: false })
     expect(m.calls.setStatus).toBe(1)
     expect(m.calls.addEvent).toEqual([])
     expect(m.rows.get(2)).toMatchObject({ since: earlier, updated_at: NOW.toISOString() })
+  })
+
+  it('a result stores an event with ok and sets the last result', async () => {
+    const m = memoryStore()
+    const res = await handle(post({ seat: 3, kind: 'result', activity: 'test', ok: false }), m.store, TOKEN, NOW)
+    expect(res.status).toBe(200)
+    const at = NOW.toISOString()
+    expect(m.calls.addEvent).toEqual([{ seat: 3, kind: 'result', activity: 'test', ok: false, created_at: at }])
+    expect(m.rows.get(3)).toMatchObject({ last_result_activity: 'test', last_result_ok: false, last_result_at: at })
+  })
+
+  it('400 on a result with extra fields', async () => {
+    const m = memoryStore()
+    const res = await handle(post({ seat: 3, kind: 'result', activity: 'test', ok: true, output: 'secret' }), m.store, TOKEN, NOW)
+    expect(res.status).toBe(400)
+    untouched(m)
   })
 
   it('event for a stop has a null activity', async () => {
@@ -229,7 +295,7 @@ describe('handle', () => {
 
   it('prunes on start even when nothing changed', async () => {
     const t = '2026-03-15T11:00:00.000Z'
-    const m = memoryStore([{ seat: 0, state: 'idle', activity: null, since: t, updated_at: t }])
+    const m = memoryStore([{ seat: 0, state: 'idle', activity: null, since: t, updated_at: t, ...NONE }])
     const res = await handle(post({ seat: 0, kind: 'start' }), m.store, TOKEN, NOW)
     expect(await res.json()).toMatchObject({ changed: false })
     expect(m.calls.addEvent).toEqual([])

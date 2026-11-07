@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-// Claude Code hook → agent office (#1). Register it for SessionStart, UserPromptSubmit, PreToolUse, Stop and
-// SessionEnd with "async": true (see hooks/README.md), so it never slows a tool call.
+// Claude Code hook → agent office (#1). Register it for SessionStart, UserPromptSubmit, PreToolUse, Stop,
+// SessionEnd, and (#44) PostToolUse / PostToolUseFailure on Bash|PowerShell, all with "async": true (see
+// hooks/README.md), so it never slows a tool call.
 //
-// Per event it sends at most { seat, kind, activity } to /api/events. The session's title picks the seat;
-// the tool and command are reduced to an activity kind here on the PC (classify.mjs). It never sends the
-// session id, paths, commands, prompts or tool input/output, and never fails the session: every error is
-// swallowed and the exit code is always 0.
+// Per event it sends at most { seat, kind, activity } to /api/events, plus ok (true / false) after a test or
+// build command (#44). The session's title picks the seat; the tool and command are reduced to an activity
+// kind here on the PC (classify.mjs). It never sends the session id, paths, commands, prompts or tool
+// input/output, and never fails the session: every error is swallowed and the exit code is always 0.
 //
 // Config: ~/.agent-office/hook.json (AGENT_OFFICE_HOME moves the whole folder, AGENT_OFFICE_CONFIG the file)
 //   { "endpoint": "https://<office>/api/events", "token": "<OFFICE_HOOK_TOKEN>",
@@ -51,6 +52,8 @@ async function main() {
   // only sessions working inside the office's own repositories report (#34); the cwd is not logged or sent
   if (!insideProjects(input.cwd, config.projects ?? DEFAULT_PROJECTS)) {
     if (config.outside !== 'private') return log('skip: outside projects')
+    // a private session says only that it works: no test / build outcomes
+    if (signal.kind === 'result') return log('skip: private result')
     if (signal.kind === 'activity') signal = { kind: 'activity', activity: 'private' }
   }
   if (seat === null) return log('skip: no seat') // a session that isn't one of the four agents: say nothing
@@ -67,7 +70,7 @@ async function main() {
     body: JSON.stringify({ seat, ...signal }),
     signal: AbortSignal.timeout(4000),
   })
-  log(`${signal.kind}${signal.activity ? `/${signal.activity}` : ''} → ${res.status}`)
+  log(`${signal.kind}${signal.activity ? `/${signal.activity}` : ''}${'ok' in signal ? (signal.ok ? ' pass' : ' fail') : ''} → ${res.status}`)
   if (res.ok) writeFileSync(file, JSON.stringify({ seat, kind: signal.kind, activity: signal.activity, sentAt: now }))
 }
 

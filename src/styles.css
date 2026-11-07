@@ -153,3 +153,8 @@ body,
 }
 .approval-actions { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
 .approval-actions a { margin-left: auto; color: #4df3ff; }
+.props-debug { margin-top: 10px; padding-top: 8px; border-top: 1px solid #2a3140; }
+.props-debug table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+.props-debug td { padding: 1px 4px; color: #c9d4e5; }
+.props-debug td:first-child { color: #9aa3b2; width: 3em; }
+.props-debug td:last-child { color: #f3ead8; }
