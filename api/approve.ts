@@ -38,10 +38,30 @@ export async function POST(request: Request) {
       githubIdOf: db.githubIdOf,
       ownerGithubId: owner,
       approval: async (id) => (await db.rest<StoredApproval[]>(`approvals?id=eq.${id}&select=*`))[0] ?? null,
+      // one conditional update: pending (or a deciding left behind by a crashed call over 2 minutes ago) → deciding;
+      // the row comes back only to the call that changed it
+      lock: async (id) => {
+        const stale = new Date(Date.now() - 2 * 60_000).toISOString()
+        const rows = await db.rest<unknown[]>(
+          `approvals?id=eq.${id}&or=(status.eq.pending,and(status.eq.deciding,updated_at.lt.${encodeURIComponent(stale)}))`,
+          {
+            method: 'PATCH',
+            headers: { prefer: 'return=representation' },
+            body: JSON.stringify({ status: 'deciding', updated_at: new Date().toISOString() }),
+          },
+        )
+        return Array.isArray(rows) && rows.length === 1
+      },
+      unlock: async (id) => {
+        await db.rest(`approvals?id=eq.${id}&status=eq.deciding`, {
+          method: 'PATCH',
+          headers: { prefer: 'return=minimal' },
+          body: JSON.stringify({ status: 'pending', updated_at: new Date().toISOString() }),
+        })
+      },
       comment,
-      // only a still-pending row changes: two clicks can't record two decisions
       decide: async (id, d) => {
-        await db.rest(`approvals?id=eq.${id}&status=eq.pending`, {
+        await db.rest(`approvals?id=eq.${id}&status=eq.deciding`, {
           method: 'PATCH',
           headers: { prefer: 'return=minimal' },
           body: JSON.stringify({ status: 'decided', ...d, updated_at: d.decided_at }),

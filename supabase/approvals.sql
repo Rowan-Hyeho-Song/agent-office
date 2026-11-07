@@ -41,7 +41,8 @@ create table if not exists public.approvals (
   options jsonb not null default '[]',
   recommended int,
   reason text,
-  status text not null default 'pending' check (status in ('pending', 'decided')),
+  -- deciding: the owner's decision is being posted as a ✅ comment (#48: only one click gets this far)
+  status text not null default 'pending' check (status in ('pending', 'deciding', 'decided')),
   -- the ✅ result: 승인 | 반려 | 선택지 N, the chosen option, the opinion, and the comment that recorded it
   result text,
   option int,
@@ -62,11 +63,11 @@ create policy "owner reads approvals" on public.approvals for select to authenti
 -- visitors see how many are waiting, and each waiting one only as a SECRET cover: what kind, which agent
 -- asked, when (no content, options, issue or title), like the documents' covers (docs_cover)
 create or replace view public.approvals_pending with (security_invoker = false) as
-  select count(*)::int as pending from public.approvals where status = 'pending';
+  select count(*)::int as pending from public.approvals where status in ('pending', 'deciding');
 grant select on public.approvals_pending to anon, authenticated;
 
 create or replace view public.approvals_cover with (security_invoker = false) as
-  select id, kind, requester_seat, created_at from public.approvals where status = 'pending';
+  select id, kind, requester_seat, created_at from public.approvals where status in ('pending', 'deciding');
 grant select on public.approvals_cover to anon, authenticated;
 
 -- the owner reads every document, SECRET (review) ones included (plan.md 6.6)

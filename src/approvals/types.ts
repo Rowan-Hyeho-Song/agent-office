@@ -47,7 +47,7 @@ export interface Decision {
 /** a stored approval as /api/approve and the owner's box read it */
 export interface StoredApproval extends ApprovalRow {
   id: number
-  status: 'pending' | 'decided'
+  status: 'pending' | 'deciding' | 'decided'
   result: string | null
   option: number | null
   opinion: string | null

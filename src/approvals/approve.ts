@@ -12,8 +12,16 @@ export interface ApproveDeps {
   githubIdOf(accessToken: string): Promise<string | null>
   ownerGithubId: string
   approval(id: number): Promise<StoredApproval | null>
+  /**
+   * Take the approval for this request: pending → deciding in one conditional update. true only for the one
+   * caller whose update changed the row (#48: two quick clicks must not post two ✅ comments).
+   */
+  lock(id: number): Promise<boolean>
+  /** give it back (deciding → pending) when the comment couldn't be posted, so it can be decided again */
+  unlock(id: number): Promise<void>
   /** post a comment on the issue, return its URL */
   comment(repo: string, folder: number, body: string): Promise<string>
+  /** deciding → decided, with the decision */
   decide(id: number, d: Decision): Promise<void>
 }
 
@@ -79,14 +87,24 @@ export async function handle(request: Request, deps: ApproveDeps, now = new Date
   if (typeof id !== 'number' || !Number.isInteger(id)) return Response.json({ error: 'bad id' }, { status: 400 })
   const approval = await deps.approval(id)
   if (!approval) return Response.json({ error: 'not found' }, { status: 404 })
-  if (approval.status !== 'pending') return Response.json({ error: 'already decided', result_url: approval.result_url }, { status: 409 })
+  // (a row in 'deciding' is someone else's click in flight, or a crashed one: lock() below decides which)
+  if (approval.status === 'decided') return Response.json({ error: 'already decided', result_url: approval.result_url }, { status: 409 })
   const choice = readChoice(approval, body.result)
   if (!choice) return Response.json({ error: 'bad result' }, { status: 400 })
 
   const opinion = cleanOpinion(body.opinion)
   if (needsOpinion(choice.result) && !opinion) return Response.json({ error: 'opinion required' }, { status: 400 })
+
+  // lock before posting: of two quick clicks only one gets past this line, so only one ✅ comment (#48)
+  if (!(await deps.lock(id))) return Response.json({ error: 'already decided' }, { status: 409 })
   const date = now.toISOString().slice(0, 10)
-  const url = await deps.comment(approval.repo, approval.folder, resultComment(date, choice.result, opinion))
+  let url: string
+  try {
+    url = await deps.comment(approval.repo, approval.folder, resultComment(date, choice.result, opinion))
+  } catch (e) {
+    await deps.unlock(id) // nothing was posted: let the owner try again
+    throw e
+  }
   await deps.decide(id, { ...choice, opinion: opinion || null, result_url: url, decided_at: now.toISOString() })
   return Response.json({ ok: true, result: choice.result, url })
 }
