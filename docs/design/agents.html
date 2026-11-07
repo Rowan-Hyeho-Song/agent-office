@@ -3,21 +3,17 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>사무실 에이전트 정체성</title>
+<title>사무실 에이전트 형태</title>
 <!-- 시안 열람용으로만 CDN에서 갈무리를 불러온다(앱은 자체 서빙, office-ui.md 7절). -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/galmuri.css" />
 <link rel="stylesheet" href="../../src/styles/tokens.css" />
 <style>
-/* 역할 색 = tokens.css의 --agent-0..3(자리 번호). 아래는 시안 안에서 읽기 쉽게 붙인 별칭 */
+/* 역할 색 = tokens.css의 --agent-0..3(자리 번호). 스케치 재질은 Blender office_bake.py의 로봇 재질 값 */
 :root {
-  --role-plan: var(--agent-0); --role-plan-ink: var(--agent-0-ink);
-  --role-3d: var(--agent-1); --role-3d-ink: var(--agent-1-ink);
-  --role-design: var(--agent-2); --role-design-ink: var(--agent-2-ink);
-  --role-code: var(--agent-3); --role-code-ink: var(--agent-3-ink);
-  /* 스케치 재질: Blender office_bake.py의 로봇 재질 값 */
   --bot-shell: #f6f3ec; --bot-joint: #4a505c; --bot-bezel: #111216;
   --axis-x: var(--color-red); --axis-y: var(--color-green); --axis-z: #4d8bff;
   --paper-1: #ffe27a; --paper-2: #ffc46b; --paper-3: #fff1b8;
+  --desk-top: #d9cdb4; --desk-leg: #2a2d34; --paddle: #e0483e; --wood: #c99a5b;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -30,61 +26,58 @@ h2 { font-size: var(--font-size-2); line-height: 36px; margin-top: 56px; }
 h3 { font-size: var(--font-size-1); line-height: var(--line-height-1); color: var(--color-text-muted); letter-spacing: var(--letter-spacing-label); margin: var(--space-6) 0 var(--space-2); }
 .kicker { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-amber); letter-spacing: var(--letter-spacing-label); }
 p.lead, .note { color: var(--color-text-muted); }
-p.lead { max-width: 72ch; margin: var(--space-2) 0 0; }
+p.lead { max-width: 74ch; margin: var(--space-2) 0 0; }
 .note { font-size: 13px; }
 header.top { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: end; justify-content: space-between; border-bottom: 1px solid var(--color-line); padding-bottom: var(--space-4); }
-.seg { display: inline-flex; border: 1px solid var(--color-line); }
-.seg button { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1); color: var(--color-text); background: var(--color-surface); border: 0; border-right: 1px solid var(--color-line); padding: var(--space-1) var(--space-3); cursor: pointer; }
-.seg button:last-child { border-right: 0; }
-.seg button[aria-pressed='true'] { background: var(--color-cyan); color: var(--color-ink); }
+.btn { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-line); padding: var(--space-1) var(--space-3); cursor: pointer; }
+.btn[aria-pressed='true'] { background: var(--color-cyan); color: var(--color-ink); border-color: var(--color-cyan); }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-3); margin-top: var(--space-4); }
+.rule { border: 1px solid var(--color-line); background: var(--color-surface); padding: var(--space-3) var(--space-4); font-size: 14px; color: var(--color-text-muted); }
+.rule b { display: block; font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); color: var(--color-text); margin-bottom: var(--space-1); }
 
-[data-role='plan'] { --agent: var(--role-plan); --agent-ink: var(--role-plan-ink); }
-[data-role='3d'] { --agent: var(--role-3d); --agent-ink: var(--role-3d-ink); }
-[data-role='design'] { --agent: var(--role-design); --agent-ink: var(--role-design-ink); }
-[data-role='code'] { --agent: var(--role-code); --agent-ink: var(--role-code-ink); }
+[data-seat='0'] { --agent: var(--agent-0); --agent-ink: var(--agent-0-ink); }
+[data-seat='1'] { --agent: var(--agent-1); --agent-ink: var(--agent-1-ink); }
+[data-seat='2'] { --agent: var(--agent-2); --agent-ink: var(--agent-2-ink); }
+[data-seat='3'] { --agent: var(--agent-3); --agent-ink: var(--agent-3-ink); }
 
-/* ── 네 명 카드 ── */
-.cast { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: var(--space-4); margin-top: var(--space-4); }
+.panel { border: 1px solid var(--color-line); background: color-mix(in srgb, var(--color-void) 70%, var(--color-surface)); }
+.panel svg { display: block; width: 100%; height: auto; }
+.grid4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: var(--space-3); margin-top: var(--space-2); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: var(--space-4); margin-top: var(--space-2); }
+figure { margin: 0; }
+figcaption { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); padding: var(--space-1) var(--space-2); }
 .card { border: 1px solid var(--color-line); border-top: 3px solid var(--agent); background: var(--color-surface); padding: var(--space-4); min-width: 0; }
-.nametag { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1); display: inline-flex; gap: var(--space-1); align-items: center; padding: 0 var(--space-2); background: var(--agent); color: var(--color-ink); clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%); }
+.card.pending { border-style: dashed; border-top-style: solid; }
+.nametag { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1); display: inline-flex; padding: 0 var(--space-2); background: var(--agent); color: var(--color-ink); clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%); }
 .who { display: flex; align-items: baseline; gap: var(--space-2); margin: var(--space-2) 0 0; }
 .who b { font-family: var(--font-pixel); font-weight: 700; font-size: var(--font-size-2); line-height: 30px; color: var(--agent-ink); }
 .who span { color: var(--color-text-muted); font-size: 14px; }
-.views { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-1); margin: var(--space-3) 0; background: color-mix(in srgb, var(--color-void) 70%, var(--color-surface)); border: 1px solid var(--color-line); }
-.views figure { margin: 0; text-align: center; }
+.views { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-1); margin: var(--space-3) 0; background: color-mix(in srgb, var(--color-void) 70%, var(--color-surface)); border: 1px solid var(--color-line); }
+.views figure { text-align: center; }
 .views svg { width: 100%; height: auto; display: block; }
-.views figcaption { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); padding-bottom: var(--space-1); }
 .points { margin: 0; padding-left: 1.2em; font-size: 14px; }
 .points li { margin-bottom: var(--space-1); }
 .points li::marker { color: var(--agent); }
-.persona { margin: var(--space-3) 0 0; font-size: 14px; color: var(--color-text-muted); }
-.persona b { color: var(--color-text); font-weight: 600; }
-.chip { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); margin-top: var(--space-2); }
-.chip i { width: 14px; height: 14px; background: var(--agent); display: inline-block; }
-
-/* 말풍선 견본 (#18 규칙의 축약) */
-.bub { margin-top: var(--space-3); width: max-content; max-width: 100%; filter: drop-shadow(0 0 1px var(--color-halo)); }
-.bub-tab { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--bubble-tab-h); height: var(--bubble-tab-h); padding: 0 var(--space-2) 0 var(--space-1); background: var(--agent); color: var(--color-ink); width: max-content; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%); }
-.bub-box { padding: 1px; background: color-mix(in srgb, var(--agent) 55%, transparent); clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--bubble-cut)), calc(100% - var(--bubble-cut)) 100%, 0 100%); max-width: var(--bubble-max-w); }
-.bub-body { padding: var(--bubble-pad-y) var(--bubble-pad-x); background: var(--color-surface-alpha); border-left: var(--bubble-stripe) solid var(--agent); clip-path: inherit; font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1); word-break: keep-all; }
-
-/* ── 실제 크기 무대 ── */
-.stage { position: relative; display: flex; justify-content: center; align-items: flex-end; gap: var(--space-8); padding: var(--space-6) var(--space-4) var(--space-4); border: 1px solid var(--color-line); overflow: hidden;
+.src { font-size: 12px; color: var(--color-text-muted); }
+.stage { display: flex; justify-content: center; align-items: flex-end; gap: var(--space-6); padding: var(--space-4); border: 1px solid var(--color-line); overflow: hidden;
   background: radial-gradient(ellipse 80% 50% at 50% 100%, color-mix(in srgb, var(--color-amber) 12%, transparent), transparent 70%), var(--color-void); }
 .stage.light { background: linear-gradient(180deg, var(--color-text), color-mix(in srgb, var(--color-amber) 30%, var(--color-text))); }
-.stage figure { margin: 0; text-align: center; }
-.stage figcaption { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); margin-top: var(--space-1); }
+.stage figure { text-align: center; }
 .stage.light figcaption { color: var(--color-ink); }
-.row { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-4); }
-
-/* ── 표 ── */
 .table-wrap { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 14px; margin-top: var(--space-2); }
-th, td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-line); vertical-align: middle; }
+th, td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-line); vertical-align: top; }
 th { font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); color: var(--color-text-muted); }
 td.pick { color: var(--color-amber); font-family: var(--font-pixel); font-size: var(--font-size-1); }
-.sw { display: inline-block; width: 44px; height: 24px; vertical-align: middle; border: 1px solid var(--color-line); }
 code { font-family: var(--font-pixel); font-size: var(--font-size-1); }
+.hands { display: grid; grid-template-columns: 120px repeat(6, 1fr); gap: var(--space-1); align-items: center; margin-top: var(--space-2); }
+.hands .lab { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text); }
+.hands .lab small { display: block; color: var(--color-text-muted); font-family: var(--font-text); font-size: 12px; }
+.hands .hd { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); text-align: center; }
+.hands .cell { background: color-mix(in srgb, var(--color-void) 70%, var(--color-surface)); border: 1px solid var(--color-line); }
+.hands .cell svg { display: block; width: 100%; height: auto; }
+.hands .cell.no { opacity: 0.3; }
+@media (max-width: 760px) { .hands { grid-template-columns: 80px repeat(3, 1fr); } .hands .opt { display: none; } .views { grid-template-columns: repeat(2, 1fr); } .stage { gap: var(--space-2); } }
 </style>
 </head>
 <body>
@@ -92,273 +85,477 @@ code { font-family: var(--font-pixel); font-size: var(--font-size-1); }
 
 <header class="top">
   <div>
-    <div class="kicker">AGENT OFFICE · #26 · 확정 (2026-11-08 결재)</div>
-    <h1>네 명의 에이전트</h1>
-    <p class="lead">역할 = 자리 = 색 = 실루엣. 같은 로봇 몸(몸통·머리·양팔·호버 포드)에 <b>머리 위</b>와 <b>몸통</b>의 부품 두 개씩만 바꿔, 전경 거리(키 약 120px)와 일할 때 보이는 <b>뒷모습</b>에서 누가 누구인지 읽히게 했다. 손은 비워 둔다(타자·탁구채·컵을 들어야 하므로).</p>
+    <div class="kicker">AGENT OFFICE · #28 · 확정 (2026-11-08 결재: 손 모양 A, 형태·개성 승인)</div>
+    <h1>떠 있는 머리 + 떠 있는 두 손</h1>
+    <p class="lead">몸통·팔·포드를 없애고 머리 하나가 몸 전체가 된다. 머리 아래로 에이전트 색 호버 빛, 손목은 같은 색으로 빛나는 고리로 닫는다. <b>“떠 있는 것은 모두 같은 빛으로 뜬다”</b>는 규칙 하나로, 잘린 팔이 아니라 일부러 떼어 놓은 손으로 읽히게 했다. 이름·색·이름표·성격은 #26 결재 그대로.</p>
   </div>
-  <div>
-    <div class="note" id="set-label">이름 안</div>
-    <div class="seg" role="group" aria-labelledby="set-label">
-      <button type="button" data-set="A" aria-pressed="true">A 사물 (확정)</button>
-      <button type="button" data-set="B">B 사람 이름</button>
-      <button type="button" data-set="C">C 우리말</button>
-    </div>
-  </div>
+  <button class="btn" id="motion" type="button" aria-pressed="false">움직임 줄이기</button>
 </header>
 
 <section>
-  <h2>1. 네 명</h2>
-  <p class="note"><b>#28에서 바뀜</b>: 외형(몸통·팔·포드)은 “머리만 떠 있고 손이 따로 떠다니는” 형태로 다시 설계한다. 아래 스케치는 #26 결재 당시 기록이다. 이름·색·이름표·성격은 그대로.</p>
-  <div class="cast" id="cast"></div>
-  <p class="note">스케치는 Blender 로봇의 실제 치수(m)를 그대로 썼다. 몸통 0.34 × 0.36, 머리 0.32 × 0.24, 호버 포드 r 0.15→0.10, 바닥에서 안테나 끝까지 1.18. 회색 점선 = 바뀌는 부품. 측면은 왼쪽이 앞(-z).</p>
-</section>
-
-<section>
-  <h2>2. 실제 크기에서 읽히나</h2>
-  <h3>기본 카메라 · 키 약 120px · 정면</h3>
-  <div class="stage" id="stage-front"></div>
-  <h3>일할 때 보이는 뒷모습 · 책상에서 벽을 보고 앉음</h3>
-  <div class="stage" id="stage-back"></div>
-  <div class="row">
-    <div><h3>실루엣만 · 정면</h3><div class="stage light" id="stage-sil"></div></div>
-    <div><h3>더 멀리 · 키 60px</h3><div class="stage" id="stage-far"></div></div>
+  <h2>1. 기본 형태</h2>
+  <div class="grid2">
+    <figure class="panel" id="base-front"></figure>
+    <figure class="panel" id="base-side"></figure>
   </div>
-  <p class="note">실루엣 시험: 색을 다 빼도 머리 위 모양(안테나+마이크 붐 / 축 기즈모 / 베레모 / 헤드폰 띠)이 넷 다 다르다. 기획의 헤드셋에 머리띠를 뺀 이유: 띠가 있으면 코더의 헤드폰과 윤곽이 비슷해졌다. 60px에서는 색과 머리 윤곽만 남는다. 그래서 색이 서로 구분되는 게 중요하다(4절).</p>
+  <div class="rules">
+    <div class="rule"><b>머리 = 몸 전체 (×1.3)</b>몸통이 사라진 만큼 머리를 키웠다: 0.42 × 0.32 × 0.34 m(이전 0.32 × 0.24 × 0.26). 기본 카메라에서 머리 폭 약 47px. 바닥 빛부터 머리 꼭대기까지 약 1.3 m로 이전 로봇(1.18 m)과 비슷한 무게.</div>
+    <div class="rule"><b>머리 높이 1.15 m</b>앉은 사람 눈높이. 모니터 화면 가운데(약 1.1 m)를 마주 보고, 손이 책상(0.75 m)에 닿을 때 머리-손 거리가 0.35 m로 자연스럽다. 평소 ±2 cm 둥실.</div>
+    <div class="rule"><b>손 0.15 m, 머리에서 0.42 m</b>쉬는 자리는 머리 옆 아래(±0.30, 0.86, 앞으로 0.04). 손 길이는 머리 폭의 1/3: 멀리서 점이 아니라 “손”으로 읽히는 크기. 손은 머리에서 0.6 m 넘게 떨어지지 않는다.</div>
+    <div class="rule"><b>호버 빛 = 고리 + 빛기둥 + 바닥 원</b>머리 밑 추진 고리(r 0.085)에서 바닥까지 옅은 빛기둥, 바닥에 원(r 0.26). 손목 고리도 같은 빛. 머리가 높이 뜨면 바닥 원이 옅고 커진다(그림자 대신 높이 단서).</div>
+  </div>
 </section>
 
 <section>
-  <h2>3. 이름 안</h2>
+  <h2>2. 손 모양 · A 확정</h2>
+  <p class="lead">네 명 모두 손 버릇에 <b>검지</b>를 따로 쓴다: 메모(머리 톡톡), 메시(사각 프레임·허공의 정점 집기), 휴(스포이트·색상환 그리기), 루프(상대 화면 가리키기·엄지 척). 손은 탁구채·컵·물뿌리개도 잡는다(#20). 세 안을 같은 동작으로 비교했다.</p>
+  <div class="hands" id="hands"></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>안</th><th>기획</th><th>3D</th><th>디자인</th><th>코더</th><th>느낌</th></tr></thead>
-    <tbody id="names"></tbody>
-  </table></div>
-  <p class="note">이름표 표기는 책상 방 로봇 <code>RB-01 · THINKING</code>과 같은 계열이다. 오피스 넷은 10번대 형제 <code>RB-10..13</code>(자리 번호 0..3과 끝자리가 같음).</p>
-  <div class="table-wrap"><table>
-    <thead><tr><th>어디</th><th>표기</th><th>예 (A안 기획)</th></tr></thead>
+    <thead><tr><th>안</th><th>부품 (Blender)</th><th>할 수 있는 것</th><th>판단</th></tr></thead>
     <tbody>
-      <tr><td>말풍선 탭</td><td><code>이름 · 종류</code></td><td><code>MEMO · 대화</code></td></tr>
-      <tr><td>모니터 윗줄</td><td><code>이름 · 코드</code></td><td><code>MEMO · RB-10</code></td></tr>
-      <tr><td>에이전트를 눌렀을 때 카드</td><td>한글 이름 크게 + <code>이름 · 코드 · 역할</code></td><td><b>메모</b> <code>MEMO · RB-10 · 기획</code></td></tr>
-      <tr><td>화면 읽기</td><td>한글 이름 + 역할</td><td>“메모(기획) → 루프(코더): …”</td></tr>
+      <tr><td class="pick">A 엄지·검지 장갑 (확정)</td><td>손바닥 + 엄지 + 검지 + 나머지 세 손가락 한 덩어리 = 4조각, 회전축 3</td><td>가리키기·톡톡·네모 틀·도장·엄지 척·쥐기</td><td>세 명의 손 버릇을 다 하면서 부품이 적다. 덩어리 손가락이 멀리서 장갑처럼 깔끔</td></tr>
+      <tr><td>B 벙어리장갑</td><td>손바닥 + 엄지 = 2조각, 회전축 1</td><td>쥐기·손 펴기·엄지 척</td><td>가장 단순하지만 가리키기·톡톡·네모 틀을 못 한다</td></tr>
+      <tr><td>C 만화 네 손가락</td><td>손바닥 + 손가락 넷 = 5조각, 회전축 4</td><td>모두 + 손가락 세기</td><td>표정은 가장 많지만 멀리서 손 길이가 15px 남짓이라 A와 차이가 안 보이고 리깅만 는다</td></tr>
     </tbody>
   </table></div>
 </section>
 
 <section>
-  <h2>4. 색</h2>
-  <p class="lead">3D를 초록 → <b>노멀 맵 라벤더</b>로 바꿨다(결재). 지금 4색은 제3색약(tritan)에서 초록과 청록이 거의 같아지고(ΔE00 5.3), 적·녹색약에서는 호박과 초록이 가깝다(11.2). 라벤더로 바꾸면 모든 경우에 가장 가까운 두 색의 차이가 17.6 이상이 된다.</p>
+  <h2>3. 움직임</h2>
+  <div class="rules">
+    <div class="rule"><b>손은 머리를 0.12초 늦게</b>손 목표 = 머리 기준 자리. 손은 그 목표를 임계 감쇠 스프링(ω ≈ 12)으로 따라간다. 빨리 움직이면 손이 살짝 뒤처졌다 따라붙어 “떠 있음”이 느껴진다(루프 요청 0.1~0.2초 안).</div>
+    <div class="rule"><b>둥실은 머리와 손이 엇박</b>머리 0.45 Hz ±2 cm, 손은 같은 박자를 0.15초 늦게 + 손마다 작은 흔들림. 셋이 같이 오르내리면 한 덩어리 장난감처럼 보인다.</div>
+    <div class="rule"><b>일할 때 머리는 조용히</b>타자: 손이 번갈아 1.2 cm씩 초당 4번, 머리는 1.5°만 끄덕. 말할 때: 말하는 쪽 손 하나가 올라와 손짓, 머리는 ±3° 기울임.</div>
+  </div>
+  <div class="grid4" id="anims"></div>
+  <p class="note">움직임 줄이기: 둥실·흔들림을 끄고 목표 자세로 바로 간다(시안은 정지 자세). 앱은 <code>html[data-motion]</code> → <code>prefers-reduced-motion</code> 순서로 본다(#18 규칙).</p>
+</section>
+
+<section>
+  <h2>4. 네 명</h2>
+  <p class="lead">각 에이전트가 #28에 남긴 <b>🙋 개성 제안</b>을 반영했다. 네 명 모두 제안이 들어왔다(메모·휴·루프·메시 순).</p>
+  <div class="grid2" id="cast"></div>
+</section>
+
+<section>
+  <h2>5. 실제 크기 · 뒷모습 · 실루엣</h2>
+  <h3>기본 카메라 · 112 px/m · 정면</h3>
+  <div class="stage" id="stage-front"></div>
+  <h3>일할 때 뒷모습 · 책상에서 모니터를 보고 타자</h3>
+  <div class="stage" id="stage-work"></div>
+  <div class="grid2">
+    <div><h3>실루엣만 · 정면</h3><div class="stage light" id="stage-sil"></div></div>
+    <div><h3>실루엣만 · 일할 때 뒷모습</h3><div class="stage light" id="stage-sil-back"></div></div>
+  </div>
+</section>
+
+<section>
+  <h2>6. 요청 반영표</h2>
+  <p class="lead">각자 원한 것과, 부딪힐 때 어떻게 조정했는지.</p>
   <div class="table-wrap"><table>
-    <thead><tr><th>역할</th><th>색</th><th>보통</th><th>적색약</th><th>녹색약</th><th>청색약</th><th>판 위 글자 대비</th><th>뜻</th></tr></thead>
-    <tbody id="colors"></tbody>
+    <thead><tr><th>누구</th><th>요청</th><th>반영</th></tr></thead>
+    <tbody id="asks"></tbody>
   </table></div>
-  <h3>가장 가까운 두 색의 차이 (CIEDE2000, Machado 2009 시뮬레이션)</h3>
-  <div class="table-wrap"><table>
-    <thead><tr><th>팔레트</th><th>보통</th><th>적색약</th><th>녹색약</th><th>청색약</th></tr></thead>
-    <tbody>
-      <tr><td>지금 (청록·분홍·호박·초록)</td><td>29.4</td><td>13.7 호박–초록</td><td>11.2 호박–초록</td><td><b>5.3 초록–청록</b></td></tr>
-      <tr><td>확정 (호박·라벤더·분홍·청록)</td><td>32.8</td><td>17.6 라벤더–분홍</td><td>17.9 라벤더–청록</td><td>20.5 호박–분홍</td></tr>
-    </tbody>
-  </table></div>
-  <p class="note">색만으로 구별하지 않는다: 이름표·머리 실루엣·말풍선 탭의 이름이 늘 함께 간다.</p>
 </section>
 
 </div>
 
 <script>
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim()
+
 /* ═════════ 데이터 ═════════ */
 const ROLES = [
-  { key: 'plan', seat: 0, role: '기획', code: 'RB-10',
-    color: '#ffb347', sim: ['#ceb739', '#dfc94a', '#ffa09d'], contrast: '10.9 : 1',
-    meaning: '서류철·결재 도장의 호박색. 책상 방(주인)과 이어지는 색 — 주인과 가장 많이 말하는 역할',
-    points: ['오른쪽 귀에 거는 헤드셋 + 입 앞으로 휜 마이크 붐(머리띠 없음): 늘 누군가와 이야기하는 사람', '등에 붙은 포스트잇 세 장: 책상에서 등을 보이고 일할 때 “할 일이 붙어 있는” 뒷모습'],
-    persona: '결론부터 말하고, 할 일은 번호를 붙인다.', line: '정리하면 두 가지예요. 1) 토큰 확정 2) 결재.' },
-  { key: '3d', seat: 1, role: '3D', code: 'RB-11',
-    color: '#8f9bff', sim: ['#76a7ff', '#6e9ffd', '#69afc1'], contrast: '7.6 : 1',
-    meaning: '노멀 맵의 라벤더(#8080ff 계열). 3D 작업자라면 바로 아는 색',
-    points: ['안테나 대신 XYZ 축 기즈모(빨·초·파 막대, 가운데 구 = 상태등)', '머리 옆을 천천히 도는 와이어프레임 큐브 위성(10 cm)'],
-    persona: '말보다 손이 먼저, 숫자로 말한다.', line: '포드를 2 cm 올렸어요. 그림자 다시 구울게요.' },
-  { key: 'design', seat: 2, role: '디자인', code: 'RB-12',
-    color: '#ff3ea5', sim: ['#6379a8', '#9a9ca1', '#ff296d'], contrast: '6.0 : 1 (글자는 #ff6fbd 7.6 : 1)',
-    meaning: '인쇄의 마젠타(CMYK의 M). 책상 방 네온과 같은 값',
-    points: ['안테나 대신 비스듬히 쓴 베레모(꼭지 = 상태등)', '가슴 띠가 팀 4색 색견본 칩'],
-    persona: '예쁜 것보다 읽히는 것. 감탄사가 잦다.', line: '오, 이 색 좋다! 대비만 조금 올려요.' },
-  { key: 'code', seat: 3, role: '코더', code: 'RB-13',
-    color: '#4df3ff', sim: ['#e1e9ff', '#c7d6ff', '#00fcf6'], contrast: '14.3 : 1',
-    meaning: '터미널 커서의 청록. 사무실에서 “누르면 반응하는” 네온과 같은 색',
-    points: ['귀 대신 오버이어 헤드폰(머리 위 띠, 상태등은 오른쪽 컵)', '등판이 스티커 붙은 노트북 뚜껑: 일할 때 뒤에서 보임'],
-    persona: '돌려 보고 말한다. 짧고 건조, 가끔 농담.', line: '돌려 봤어요. 테스트 12개 통과, 하나는 제 탓.' },
+  { key: 'plan', seat: 0, ko: '메모', en: 'MEMO', role: '기획', code: 'RB-10', status: 'got',
+    head: '안테나 + 오른쪽 귀 헤드셋·마이크 붐', back: '머리 뒤에 떠서 따라오는 포스트잇 더미(장 수 = 열린 이슈 수, 최대 5)', extra: '왼쪽 귀 위에 꽂힌 펜(결정 카드를 붙일 때만 뽑아 듦)',
+    habits: '생각할 때 검지로 머리 옆 톡톡 · 결재 나면 손바닥 펴서 도장 받기 · 일 맡길 때 포스트잇을 접어 종이비행기로 날림(기획 결정, 3절 장면)',
+    face: '평소 체크리스트 줄 · 결재 받으면 도장 · 기다릴 땐 모래시계', play: '보드게임을 오래 생각함. 탁구는 공을 자주 놓침', src: 'https://github.com/Rowan-Hyeho-Song/agent-office/issues/28#issuecomment-6709931520' },
+  { key: '3d', seat: 1, ko: '메시', en: 'MESH', role: '3D', code: 'RB-11', status: 'got',
+    head: 'XYZ 축 기즈모(가운데 = 상태등) · 머리 윤곽이 모서리를 깎은 베벨 큐브(깎인 면 몇 개가 라벤더로 은은히 빛남)', back: '머리 옆을 도는 와이어프레임 큐브 위성(굽는 중엔 빨리 돎)', extra: '',
+    habits: '생각할 때 두 손으로 사각 프레임을 만들어 구도를 봄 · 일할 때 손끝으로 허공의 정점을 집어 옮김 · 대화할 때 손바닥 위에 작은 미리보기 큐브를 띄움(쥐는 소품 아님)',
+    face: '평소 와이어프레임 눈 · 기쁘면 매끈한 셰이딩 눈 · 막히면 깨진 노멀처럼 체크무늬', play: '보드게임 좋아함(칸과 좌표). 탁구는 궤적 계산하다 늦음', src: 'https://github.com/Rowan-Hyeho-Song/agent-office/issues/28#issuecomment-6710277217' },
+  { key: 'design', seat: 2, ko: '휴', en: 'HUE', role: '디자인', code: 'RB-12', status: 'got',
+    head: '비스듬한 베레모(꼭지 = 상태등)', back: '뒤에서도 베레모 · 손목 고리가 디자인 일을 할 때만 팀 4색으로 천천히 돎', extra: '펜은 메모에게 양보',
+    habits: '고민할 때 검지로 허공에 색상환을 그림 · 검지로 허공 톡(스포이트, 손목 고리가 그 색으로) · 엄지 척',
+    face: '둥근 눈 · 좋으면 ✦✦ · 대비 모자라면 실눈', play: '화분 물 주기. 보드게임은 말 색 고르다 늦음', src: 'https://github.com/Rowan-Hyeho-Song/agent-office/issues/28#issuecomment-6709955692' },
+  { key: 'code', seat: 3, ko: '루프', en: 'LOOP', role: '코더', code: 'RB-13', status: 'got',
+    head: '헤드폰(일할 때 이어컵에 청록 빛) + 머리 위를 도는 고리 ↻(평소 천천히, 테스트·빌드 중 빠르게, 실패 시 멈추고 빨강)', back: '뒤에서는 헤드폰 띠와 고리, 일할 때 켜지는 이어컵 빛', extra: '손끝이 키캡처럼 살짝 각짐',
+    habits: '생각할 때 두 손 사이에서 작은 고리를 굴림 · 타자 중 가끔 한 손이 마우스로 · 상대 화면 가리키기 · 종이비행기는 한 손으로 받음 · 엄지 척',
+    face: '평소 커서 _ · 통과하면 ✓와 숫자 · 실패하면 ✗와 ? ? · 빌드 중 점 스피너', play: '탁구 좋아함(랠리 = 루프). 소파 낮잠 못 함. 보드게임 규칙은 다 외우는데 자주 짐', src: 'https://github.com/Rowan-Hyeho-Song/agent-office/issues/28#issuecomment-6709991867' },
 ]
-const NAME_SETS = {
-  A: { label: 'A 사물 (확정)', feel: '역할에서 바로 떠오르는 영단어 하나. 넷 다 짧고(1~2음절), 이름표에 그대로 쓰기 좋다. 휴(HUE)는 “휴식”과 겹치는 말장난',
-    names: { plan: ['메모', 'MEMO'], '3d': ['메시', 'MESH'], design: ['휴', 'HUE'], code: ['루프', 'LOOP'] } },
-  B: { label: 'B 사람 이름', feel: '역할 머리글자(Plan·Render·Design·Code)로 지은 사람 이름. 부르기 친근하지만 역할은 덜 보인다',
-    names: { plan: ['피아', 'PIA'], '3d': ['레니', 'RENI'], design: ['디디', 'DIDI'], code: ['코디', 'CODY'] } },
-  C: { label: 'C 우리말', feel: '하는 일을 동사에서 지은 우리말(짜다·빚다·그리다·엮다). 뜻이 예쁘지만 영문 이름표가 길어 한글로만 표기',
-    names: { plan: ['짜임', '짜임'], '3d': ['빚음', '빚음'], design: ['그림', '그림'], code: ['엮음', '엮음'] } },
-}
-let currentSet = 'A'
+const ASKS = [
+  ['메모', '머리 뒤에 떠 있는 포스트잇 더미, 장 수 = 열린 이슈 수(최대 5)', '반영. 뒤통수 0.06 m 뒤에 0~5장이 살짝 기울어 떠서 따라옴(머리 회전축의 자식). 장 수 데이터는 앱 몫 → 코더 확인'],
+  ['메모', '한쪽 귀 헤드셋 유지', '반영(새 머리 크기로 ×1.3)'],
+  ['메모', '귀 옆에 꽂힌 펜, 평소엔 손을 비움', '반영. 왼쪽 귀 위에 비스듬히(오른쪽 귀는 헤드셋)'],
+  ['메모', '검지로 머리 톡톡, 손바닥 도장', '손 모양 A안이면 가능(2절)'],
+  ['메모', '포스트잇 종이비행기', '기획 결정으로 넣음(짧은 일 넘기기 = 종이비행기). 루프의 “한 손으로 받기”와 짝을 맞춰 3절에 장면을 그림'],
+  ['메모', '장식이 많아 윤곽이 지저분한 것은 싫음', '머리 위는 안테나 하나. 포스트잇은 뒤쪽이라 정면 윤곽에서 귀퉁이만 보임'],
+  ['휴', '베레모 유지', '반영'],
+  ['휴', '손목 고리에 팀 4색(일할 때만)', '반영. 모양이 아니라 빛이라 실루엣 영향 없음. 앱이 고리 색만 바꿈'],
+  ['휴', '펜은 메모에게 양보', '휴 → 메모: 같은 소품이 둘이면 멀리서 헷갈림'],
+  ['휴', '검지 스포이트·네모 틀', '스포이트는 A안이면 가능. 네모 틀은 메시에게 양보하고 “허공에 색상환 그리기”로 바꿈(아래 메시 줄)'],
+  ['루프', '머리 위를 도는 고리 ↻(속도·색으로 상태)', '반영. 헤드폰 띠 위 0.08 m에 r 0.13 고리, 화살촉 하나. 회전·색은 앱. 실패 빨강은 #18 토큰 --color-red'],
+  ['루프', '헤드폰 유지, 일할 때 이어컵 빛', '반영. 이어컵 바깥 고리가 상태에 따라 켜짐'],
+  ['루프', '깔끔한 로봇 손, 손끝만 키캡처럼 각짐', '반영(손끝 모서리만 각지게). 손 모양 안은 공통 A'],
+  ['루프', '해커 클리셰는 싫음', '#26의 뒤통수 노트북 뚜껑·스티커 판을 뺐다. 뒤에서는 헤드폰 띠 + 고리로 충분히 갈림'],
+  ['메시', '모서리를 깎은 베벨 큐브 머리, 깎인 면 몇 개가 라벤더로 빛남', '반영. 메시만 머리 모서리를 둥글리지 않고 깎음(0.06), 깎인 면 넷 중 둘이 은은히 발광. “너무 둥근 얼굴은 싫음”과도 맞음. 기본 크기는 같아 손·높이 규칙은 그대로'],
+  ['메시', '축 기즈모·큐브 위성 유지(굽는 중엔 빨리 돎)', '반영. 위성 회전 속도는 앱이 상태로 정함'],
+  ['메시', '두 손 사각 프레임으로 구도 보기', '반영. 휴의 “네모 틀”과 같은 동작이라 휴가 양보: 구도는 렌더 작업에 더 맞음. 휴 → 메시'],
+  ['메시', '손바닥 위에 미리보기 큐브를 띄움(쥐는 소품 아님)', '반영. 큐브 위성을 손바닥 위로 불러오는 연출로 처리하면 새 부품이 필요 없음(앱)'],
+  ['메시', '늘 무언가를 들고 있는 손, 복잡한 머리 위는 싫음', '머리 위는 기즈모 하나. 손은 공통 A안, 늘 쥐는 소품 없음'],
+  ['메시 ↔ 메모', '둘 다 보드게임을 좋아하고 탁구를 못함', '디자인 충돌 아님. 놀이 시뮬레이션(#17)에서 둘이 보드게임 짝이 되면 자연스러움(코더 참고)'],
+  ['루프 ↔ 메시', '머리 위 고리 vs 축 기즈모', '둘 다 머리 위라 실루엣 확인: 고리는 납작한 타원, 기즈모는 세 갈래 막대라 갈림(5절)'],
+]
 
-/* ═════════ 로봇 스케치 (단위 m, y 위로) ═════════ */
-const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim()
-function robot(roleKey, view, { scale = 300, silhouette = false, ghost = true } = {}) {
-  const W = 0.8, H = 1.42, ox = W / 2
-  const X = (x) => (ox + x) * scale, Y = (y) => (H - y) * scale, S = (v) => v * scale
-  const C = (name) => (silhouette ? css('--color-ink') : css(name))
-  const agent = silhouette ? css('--color-ink') : ROLES.find((r) => r.key === roleKey).color
+/* ═════════ 그리기 (단위 m, y 위로. side = 왼쪽이 앞 -z, back = 좌우 반전) ═════════ */
+const HEAD = { w: 0.42, h: 0.32, d: 0.34, y: 1.15 }
+const REST = { x: 0.30, y: 0.86, z: -0.04 }
+let uid = 0
+function pen(s, ox, gy, sil) {
+  const X = (x) => ox + x * s, Y = (y) => gy - y * s, S = (v) => v * s
+  const C = (name) => (sil ? css('--color-ink') : css(name))
   const out = []
-  const rect = (x0, y0, x1, y1, fill, r = 0, extra = '') => out.push(`<rect x="${X(Math.min(x0, x1))}" y="${Y(Math.max(y0, y1))}" width="${S(Math.abs(x1 - x0))}" height="${S(Math.abs(y1 - y0))}" rx="${S(r)}" fill="${fill}" ${extra}/>`)
-  const circ = (x, y, r, fill, extra = '') => out.push(`<circle cx="${X(x)}" cy="${Y(y)}" r="${S(r)}" fill="${fill}" ${extra}/>`)
-  const poly = (pts, fill, extra = '') => out.push(`<polygon points="${pts.map(([x, y]) => `${X(x)},${Y(y)}`).join(' ')}" fill="${fill}" ${extra}/>`)
-  const line = (pts, stroke, w, extra = '') => out.push(`<polyline points="${pts.map(([x, y]) => `${X(x)},${Y(y)}`).join(' ')}" fill="none" stroke="${stroke}" stroke-width="${S(w)}" stroke-linecap="round" stroke-linejoin="round" ${extra}/>`)
-  const shell = C('--bot-shell'), joint = C('--bot-joint'), bezel = C('--bot-bezel')
-  const side = view === 'side', back = view === 'back'
-  const ghostAttr = ghost && !silhouette ? `stroke="${css('--color-text-muted')}" stroke-width="1" stroke-dasharray="3 2"` : ''
+  const P = {
+    out, X, Y, S, C, sil,
+    rect(x0, y0, x1, y1, fill, r = 0, extra = '') { out.push(`<rect x="${X(Math.min(x0, x1))}" y="${Y(Math.max(y0, y1))}" width="${S(Math.abs(x1 - x0))}" height="${S(Math.abs(y1 - y0))}" rx="${S(r)}" fill="${fill}" ${extra}/>`) },
+    circ(x, y, r, fill, extra = '') { out.push(`<circle cx="${X(x)}" cy="${Y(y)}" r="${S(r)}" fill="${fill}" ${extra}/>`) },
+    ell(x, y, rx, ry, fill, extra = '') { out.push(`<ellipse cx="${X(x)}" cy="${Y(y)}" rx="${S(rx)}" ry="${S(ry)}" fill="${fill}" ${extra}/>`) },
+    poly(pts, fill, extra = '') { out.push(`<polygon points="${pts.map(([x, y]) => `${X(x)},${Y(y)}`).join(' ')}" fill="${fill}" ${extra}/>`) },
+    line(pts, stroke, w, extra = '', cap = 'round') { out.push(`<polyline points="${pts.map(([x, y]) => `${X(x)},${Y(y)}`).join(' ')}" fill="none" stroke="${stroke}" stroke-width="${S(w)}" stroke-linecap="${cap}" stroke-linejoin="round" ${extra}/>`) },
+    raw(str) { out.push(str) },
+    g(transform, fn) { out.push(`<g transform="${transform}">`); fn(); out.push('</g>') },
+  }
+  return P
+}
 
-  // 바닥 빛
-  if (!silhouette) out.push(`<ellipse cx="${X(0)}" cy="${Y(0.01)}" rx="${S(0.22)}" ry="${S(0.03)}" fill="${agent}" opacity="0.35" filter="url(#blur)"/>`)
-  // 호버 포드
-  poly([[-0.15, 0.37], [0.15, 0.37], [0.1, 0.21], [-0.1, 0.21]], shell)
-  poly([[-0.105, 0.215], [0.105, 0.215], [0.08, 0.175], [-0.08, 0.175]], joint)
-  rect(-0.097, 0.18, 0.097, 0.196, silhouette ? agent : agent, 0.008)
-  rect(-0.12, 0.37, 0.12, 0.42, joint)
-  // 몸통 (측면은 깊이 0.26)
-  const tw = side ? 0.13 : 0.17
-  rect(-tw, 0.42, tw, 0.78, shell, 0.08)
-  // 가슴 띠
-  if (roleKey === 'design' && !silhouette) {
-    const sw = [css('--role-plan'), css('--role-3d'), css('--role-design'), css('--role-code')]
-    const n = side ? 2 : 4, w = (tw * 2 + 0.005) / n
-    for (let i = 0; i < n; i++) rect(-tw - 0.0025 + i * w + 0.004, 0.64, -tw - 0.0025 + (i + 1) * w - 0.004, 0.68, side ? sw[i + 2] : sw[i], 0, ghostAttr)
-  } else rect(-tw - 0.0025, 0.64, tw + 0.0025, 0.68, silhouette ? agent : agent)
-  // 등 쪽: 뒷면에서 보이는 것 / 측면에서 튀어나온 것
-  if (back) {
-    if (roleKey === 'plan') {
-      const papers = ['--paper-1', '--paper-2', '--paper-3']
-      ;[[-0.075, 0.6, -8], [0.03, 0.63, 6], [-0.02, 0.5, -3]].forEach(([x, y, rot], i) =>
-        out.push(`<rect x="${X(x - 0.04)}" y="${Y(y + 0.04)}" width="${S(0.08)}" height="${S(0.08)}" fill="${C(papers[i])}" transform="rotate(${rot} ${X(x)} ${Y(y)})" ${ghostAttr}/>`))
-    } else if (roleKey === 'code') {
-      rect(-0.1, 0.5, 0.1, 0.645, C('--bot-joint'), 0.012, ghostAttr)
-      if (!silhouette) {
-        circ(-0.05, 0.6, 0.022, css('--role-plan')); rect(0.01, 0.54, 0.07, 0.575, css('--role-design'), 0.006)
-        circ(0.05, 0.615, 0.016, css('--role-3d'))
-        out.push(`<text x="${X(-0.075)}" y="${Y(0.52)}" font-family="Galmuri11" font-size="${S(0.04)}" fill="${css('--role-code')}">&gt;_</text>`)
-      }
-    } else rect(-0.07, 0.53, 0.07, 0.67, agent)
+/* ── 손: 원점 = 손바닥 가운데, 손가락이 +y. kind A/B/C, 자세 ── */
+const POSES = {
+  rest: { idx: [4, 0.05], fused: 0.048, th: [30, 0.036] },
+  tap: { idx: [-4, 0.07], fused: 0.022, th: [12, 0.03] },
+  frame: { idx: [0, 0.07], fused: 0.022, th: [90, 0.046] },
+  open: { idx: [-10, 0.068], fused: 0.064, th: [60, 0.046] },
+  grip: { idx: [0, 0.026], fused: 0.026, th: [75, 0.036] },
+  thumb: { idx: [0, 0.026], fused: 0.026, th: [-8, 0.078] },
+}
+function hand(P, kind, poseName, agent, { mirror = false, prop = null, square = false } = {}) {
+  const shell = P.C('--bot-shell'), joint = P.C('--bot-joint')
+  const pose = POSES[poseName], m = mirror ? -1 : 1
+  const cap = (bx, by, ang, len, w) => {
+    const a = (ang * Math.PI) / 180 * m
+    P.line([[bx, by], [bx - Math.sin(a) * len, by + Math.cos(a) * len]], shell, w, '', square ? 'square' : 'round')
   }
-  if (side) {
-    if (roleKey === 'plan') rect(0.13, 0.48, 0.14, 0.7, C('--paper-2'), 0, ghostAttr)
-    else if (roleKey === 'code') rect(0.13, 0.5, 0.145, 0.645, joint, 0, ghostAttr)
-    else rect(0.13, 0.53, 0.14, 0.67, agent)
+  P.rect(-0.03, -0.088, 0.03, -0.074, joint, 0.008) // 손목 마감
+  P.rect(-0.036, -0.075, 0.036, -0.052, agent, 0.01, P.sil ? '' : 'filter="url(#glow)"') // 손목 고리(호버 빛)
+  if (kind === 'B') {
+    const L = poseName === 'grip' || poseName === 'thumb' ? 0.03 : poseName === 'open' ? 0.075 : 0.065
+    P.rect(-0.043, -0.054, 0.043, 0.03 + L, shell, 0.03)
+  } else P.rect(-0.043, -0.054, 0.043, 0.032, shell, 0.022)
+  if (kind === 'A') {
+    cap(0.013 * m, 0.02, 0, pose.fused, 0.046)
+    cap(-0.027 * m, 0.022, pose.idx[0], pose.idx[1], 0.022)
+  } else if (kind === 'C') {
+    const bent = ['grip', 'tap', 'frame', 'thumb'].includes(poseName) ? 0.024 : pose.fused
+    cap(0.03 * m, 0.022, -6, bent * 0.85, 0.02); cap(0.004 * m, 0.024, 0, bent, 0.02); cap(-0.026 * m, 0.024, pose.idx[0], pose.idx[1], 0.02)
   }
-  // 팔
-  const arm = (x) => { rect(x - 0.035, 0.43, x + 0.035, 0.73, joint); circ(x, 0.41, 0.045, shell); side ? circ(x, 0.74, 0.045, joint) : rect(x - 0.03, 0.695, x + 0.03, 0.785, joint, 0.02) }
-  if (side) arm(0); else { arm(-0.2); arm(0.2) }
-  // 목·머리
-  rect(-0.04, 0.775, 0.04, 0.825, joint)
-  rect(side ? -0.13 : -0.16, 0.81, side ? 0.13 : 0.16, 1.05, shell, 0.07)
-  // 얼굴
+  cap(-0.04 * m, -0.018, pose.th[0], pose.th[1], 0.024) // 엄지
+  if (prop === 'paddle') { P.rect(-0.012, -0.02, 0.012, 0.09, P.C('--wood'), 0.006); P.circ(0, 0.16, 0.075, P.C('--paddle')) }
+  if (prop === 'cup') { P.rect(-0.07 * m, -0.03, 0.02 * m, 0.07, shell, 0.012, `stroke="${joint}" stroke-width="1"`); P.rect(-0.07 * m, 0.05, 0.02 * m, 0.07, P.C('--wood'), 0.004) }
+}
+
+/* ── 에이전트 한 명. state: { hy, tilt, L, R } (손: x 또는 z, y, pose, rot, prop) ── */
+function agentSVG(roleKey, view, s, opts = {}) {
+  const { sil = false, W = 1.0, H = 1.62, state = {}, handKind = 'A', desk = false, dims = false } = opts
+  const role = ROLES.find((r) => r.key === roleKey)
+  const P = pen(s, (W / 2) * s, (H - 0.02) * s, sil)
+  const agent = sil ? css('--color-ink') : css(`--agent-${role.seat}`)
+  const shell = P.C('--bot-shell'), joint = P.C('--bot-joint'), bezel = P.C('--bot-bezel')
+  const side = view === 'side', back = view === 'back', mx = back ? -1 : 1
+  const hy = state.hy ?? HEAD.y, tilt = state.tilt ?? 0, hw = side ? HEAD.d / 2 : HEAD.w / 2
+  const L = state.L ?? { x: -REST.x, y: REST.y, z: REST.z, pose: 'rest', rot: 12 }
+  const R = state.R ?? { x: REST.x, y: REST.y, z: REST.z, pose: 'rest', rot: -12 }
+  const id = ++uid
+  P.raw(`<defs><filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${P.S(0.006)}" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter><filter id="soft${id}"><feGaussianBlur stdDeviation="${P.S(0.02)}"/></filter><linearGradient id="beam${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${agent}" stop-opacity="${sil ? 0 : 0.2}"/><stop offset="1" stop-color="${agent}" stop-opacity="0"/></linearGradient></defs>`)
+
+  if (desk) {
+    const dk = sil ? css('--color-text-faint') : css('--desk-top'), lg = sil ? css('--color-text-faint') : css('--desk-leg')
+    if (side) {
+      P.rect(-0.62, 0.72, -0.02, 0.75, dk); P.rect(-0.6, 0, -0.57, 0.72, lg); P.rect(-0.07, 0, -0.04, 0.72, lg)
+      P.rect(-0.38, 0.75, -0.2, 0.77, lg, 0.005)
+      P.rect(-0.6, 0.75, -0.57, 0.95, lg); P.rect(-0.62, 0.95, -0.56, 1.28, sil ? lg : bezel, 0.01)
+    } else {
+      P.rect(-0.3, 0.98, 0.3, 1.32, sil ? css('--color-text-faint') : css('--desk-leg'), 0.015)
+      P.rect(-0.03, 0.75, 0.03, 0.98, lg)
+      P.rect(-0.6, 0.72, 0.6, 0.75, dk); P.rect(-0.58, 0, -0.54, 0.72, lg); P.rect(0.54, 0, 0.58, 0.72, lg)
+    }
+  }
+  // 호버 빛
+  const lift = Math.max(0, hy - HEAD.y)
+  if (!sil) P.ell(0, 0.012, 0.26 + lift, 0.035, agent, `opacity="${Math.max(0.1, 0.4 - lift * 2)}" filter="url(#soft${id})"`)
+  P.poly([[-0.085, hy - HEAD.h / 2 - 0.02], [0.085, hy - HEAD.h / 2 - 0.02], [0.2, 0.01], [-0.2, 0.01]], `url(#beam${id})`)
+
+  const drawHand = (h) => {
+    if (side) {
+      P.g(`translate(${P.X(h.z ?? REST.z)} ${P.Y(h.y)}) rotate(${h.srot ?? -18})`, () => {
+        const Q = pen(s, 0, 0, sil)
+        Q.rect(-0.024, -0.088, 0.024, -0.074, joint, 0.008)
+        Q.rect(-0.028, -0.075, 0.028, -0.052, agent, 0.01)
+        Q.rect(-0.026, -0.054, 0.026, 0.07, shell, role.key === 'code' ? 0.01 : 0.024)
+        if (h.prop === 'paddle') { Q.rect(-0.012, -0.02, 0.012, 0.09, Q.C('--wood'), 0.006); Q.ell(0, 0.16, 0.02, 0.075, Q.C('--paddle')) }
+        P.raw(Q.out.join(''))
+      })
+      return
+    }
+    const mirror = (h.x < 0) !== back // 엄지가 머리 쪽
+    P.g(`translate(${P.X(h.x * mx)} ${P.Y(h.y)}) rotate(${(h.rot ?? 0) * mx})`, () => {
+      const Q = pen(s, 0, 0, sil)
+      hand(Q, handKind, h.pose ?? 'rest', agent, { mirror, prop: h.prop, square: role.key === 'code' })
+      P.raw(Q.out.join(''))
+    })
+  }
+  if (side) drawHand(L)
+  if (back) { drawHand(L); drawHand(R) } // 뒷면: 손이 머리 너머에 있어 먼저
+
+  P.g(`rotate(${tilt * mx} ${P.X(0)} ${P.Y(hy)})`, () => {
+    if (role.key === '3d' && !sil) P.ell(0, hy + 0.06, 0.34, 0.07, 'none', `stroke="${agent}" stroke-width="1" stroke-dasharray="2 4" opacity="0.7"`)
+    if (role.key === 'plan' && !back) postits(P, view, hy, 'behind')
+    P.rect(-0.1, hy - HEAD.h / 2 - 0.02, 0.1, hy - HEAD.h / 2 + 0.002, joint, 0.012) // 추진 고리
+    P.ell(0, hy - HEAD.h / 2 - 0.022, 0.085, 0.012, agent, sil ? '' : 'filter="url(#glow)"')
+    if (role.key === '3d') { // 메시: 모서리를 깎은 베벨 큐브, 깎인 면 둘이 라벤더로 빛남
+      const c = 0.06, x0 = -hw, x1 = hw, y0 = hy - HEAD.h / 2, y1 = hy + HEAD.h / 2
+      P.poly([[x0 + c, y0], [x1 - c, y0], [x1, y0 + c], [x1, y1 - c], [x1 - c, y1], [x0 + c, y1], [x0, y1 - c], [x0, y0 + c]], shell)
+      if (!sil) { P.poly([[x1 - c, y1], [x1, y1 - c], [x1 - 0.012, y1 - c], [x1 - c, y1 - 0.012]], agent, 'opacity="0.85"'); P.poly([[x0, y0 + c], [x0 + c, y0], [x0 + c, y0 + 0.012], [x0 + 0.012, y0 + c]], agent, 'opacity="0.85"') }
+    } else P.rect(-hw, hy - HEAD.h / 2, hw, hy + HEAD.h / 2, shell, 0.08) // 머리
+    if (view === 'front') {
+      P.rect(-0.17, hy - 0.11, 0.17, hy + 0.11, bezel, 0.03)
+      if (!sil) { P.rect(-0.15, hy - 0.09, 0.15, hy + 0.09, agent, 0.015, 'opacity="0.18"'); face(P, role, hy, agent) }
+    }
+    if (side) P.rect(-hw - 0.006, hy - 0.11, -hw + 0.004, hy + 0.11, bezel)
+    if (back && role.key !== 'plan') { // 뒤통수 통풍구
+      P.rect(-0.1, hy - 0.06, 0.1, hy + 0.06, joint, 0.015)
+      if (!sil) for (const dy of [-0.03, 0, 0.03]) P.rect(-0.07, hy + dy - 0.006, 0.07, hy + dy + 0.006, bezel, 0.006)
+    }
+    if (role.key !== 'code') { // 귀(코더는 헤드폰)
+      if (side) P.circ(0, hy, 0.045, agent)
+      else { P.rect(-hw - 0.026, hy - 0.045, -hw + 0.004, hy + 0.045, agent, 0.012); P.rect(hw - 0.004, hy - 0.045, hw + 0.026, hy + 0.045, agent, 0.012) }
+    }
+    roleParts(P, role, view, hy, agent)
+  })
+  if (view === 'front') { drawHand(L); drawHand(R) }
+  if (side) drawHand(R)
+  if (dims && !sil) dimensions(P, view)
+  return `<svg viewBox="0 0 ${W * s} ${H * s}" role="img" aria-label="${role.ko} ${view === 'front' ? '정면' : view === 'side' ? '측면' : '뒷면'}">${P.out.join('')}</svg>`
+}
+
+function face(P, role, hy, agent) {
+  if (role.key === 'plan') { [0.16, 0.12, 0.14].forEach((w, i) => { const y = hy + 0.05 - i * 0.045; P.rect(-0.1, y - 0.01, -0.08, y + 0.01, agent, 0.003); P.rect(-0.06, y - 0.005, -0.06 + w, y + 0.005, agent, 0.003) }); return }
+  if (role.key === 'design') { P.circ(-0.06, hy + 0.005, 0.028, agent); P.circ(0.06, hy + 0.005, 0.028, agent); return }
+  if (role.key === 'code') { P.rect(-0.05, hy - 0.04, 0.03, hy - 0.022, agent); return }
+  if (role.key === '3d') { for (const ex of [-0.0625, 0.0625]) P.rect(ex - 0.0225, hy - 0.015, ex + 0.0225, hy + 0.035, 'none', 0, `stroke="${agent}" stroke-width="${P.S(0.008)}"`); return } // 와이어프레임 눈
+  P.rect(-0.08, hy - 0.01, -0.045, hy + 0.035, agent, 0.005); P.rect(0.045, hy - 0.01, 0.08, hy + 0.035, agent, 0.005)
+}
+function postits(P, view, hy, layer) {
+  const papers = ['--paper-1', '--paper-2', '--paper-3', '--paper-1', '--paper-2']
+  const top = hy + HEAD.h / 2, n = 4
+  if (view === 'back') for (let i = 0; i < n; i++) { const x = -0.09 + (i % 3) * 0.085, y = hy - 0.04 + Math.floor(i / 3) * 0.1 + (i % 2) * 0.02; P.g(`rotate(${[-8, 6, -3, 9][i]} ${P.X(x)} ${P.Y(y)})`, () => P.rect(x - 0.045, y - 0.045, x + 0.045, y + 0.045, P.C(papers[i]))) }
+  else if (view === 'side') for (let i = 0; i < n; i++) P.g(`rotate(${[-6, 4, -2, 7][i]} ${P.X(0.24)} ${P.Y(hy)})`, () => P.rect(0.23 + i * 0.012, hy - 0.08 + i * 0.03, 0.238 + i * 0.012, hy + 0.01 + i * 0.03, P.C(papers[i])))
+  else [[-0.15, -8], [0.12, 10]].forEach(([x, r], i) => P.g(`rotate(${r} ${P.X(x)} ${P.Y(top)})`, () => P.rect(x - 0.035, top - 0.04, x + 0.035, top + 0.025, P.C(papers[i]))))
+}
+function roleParts(P, role, view, hy, agent) {
+  const side = view === 'side', back = view === 'back', mx = back ? -1 : 1
+  const joint = P.C('--bot-joint'), top = hy + HEAD.h / 2, sil = P.sil
+  if (role.key === 'plan') {
+    const ax = side ? 0.05 : 0.08 * mx
+    P.rect(ax - 0.01, top, ax + 0.01, top + 0.14, joint); P.circ(ax, top + 0.16, 0.026, agent) // 안테나
+    if (side) { P.circ(0, hy, 0.06, joint); P.line([[-0.03, hy - 0.04], [-0.14, hy - 0.08], [-0.2, hy - 0.08]], joint, 0.016); P.circ(-0.205, hy - 0.08, 0.02, agent) }
+    else {
+      const ex = 0.235 * mx
+      P.rect(ex - 0.032, hy - 0.07, ex + 0.032, hy + 0.07, joint, 0.025) // 헤드셋 컵
+      if (!back) { P.line([[0.235, hy - 0.05], [0.2, hy - 0.11], [0.09, hy - 0.13]], joint, 0.016); P.circ(0.08, hy - 0.13, 0.02, agent) }
+    }
+    const px = side ? 0.0 : -0.235 * mx // 펜: 왼쪽 귀 위
+    P.g(`rotate(${side ? -70 : -25 * mx} ${P.X(px)} ${P.Y(hy + 0.07)})`, () => { P.rect(px - 0.009, hy, px + 0.009, hy + 0.17, P.C('--bot-bezel'), 0.006); P.rect(px - 0.009, hy + 0.15, px + 0.009, hy + 0.17, agent, 0.004) })
+    if (back) postits(P, view, hy)
+  } else if (role.key === '3d') {
+    const cy = top + 0.13
+    P.rect(-0.01, top, 0.01, cy - 0.02, joint)
+    const ax3 = (dx, dy, col) => { P.line([[0, cy], [dx, cy + dy]], P.C(col), 0.018); P.circ(dx, cy + dy, 0.026, P.C(col)) }
+    if (side) { ax3(0, 0.13, '--axis-y'); ax3(-0.13, 0, '--axis-z') } else { ax3(0.13 * mx, 0, '--axis-x'); ax3(0, 0.13, '--axis-y'); ax3(-0.07 * mx, -0.06, '--axis-z') }
+    P.circ(0, cy, 0.03, agent)
+    const qx = side ? -0.3 : 0.34 * mx, qy = hy + 0.1, h = 0.05, o = 0.025 // 큐브 위성
+    P.line([[qx - h, qy - h], [qx + h, qy - h], [qx + h, qy + h], [qx - h, qy + h], [qx - h, qy - h]], agent, 0.009)
+    P.line([[qx - h + o, qy - h + o], [qx + h + o, qy - h + o], [qx + h + o, qy + h + o], [qx - h + o, qy + h + o], [qx - h + o, qy - h + o]], agent, 0.009)
+    ;[[-h, -h], [h, -h], [h, h], [-h, h]].forEach(([a, b]) => P.line([[qx + a, qy + b], [qx + a + o, qy + b + o]], agent, 0.009))
+  } else if (role.key === 'design') {
+    const tilt = side ? 6 : -10 * mx
+    const beret = sil ? css('--color-ink') : `color-mix(in srgb, ${agent} 70%, ${css('--color-void')})`
+    P.raw(`<g transform="rotate(${tilt} ${P.X(0)} ${P.Y(top)})"><ellipse cx="${P.X(0.03 * mx)}" cy="${P.Y(top + 0.03)}" rx="${P.S(0.26)}" ry="${P.S(0.06)}" fill="${beret}"/><ellipse cx="${P.X(0.02 * mx)}" cy="${P.Y(top - 0.002)}" rx="${P.S(0.215)}" ry="${P.S(0.022)}" fill="${sil ? beret : css('--bot-joint')}"/><rect x="${P.X(0.02 * mx) - P.S(0.01)}" y="${P.Y(top + 0.13)}" width="${P.S(0.02)}" height="${P.S(0.05)}" fill="${beret}"/></g>`)
+    P.circ(side ? 0.03 : 0.04 * mx, top + 0.135, 0.026, agent)
+  } else if (role.key === 'code') {
+    // 헤드폰
+    if (side) { P.line([[0, hy + 0.07], [0, top + 0.08]], joint, 0.04); P.circ(0, hy, 0.09, joint); P.circ(0, hy, 0.058, agent); P.circ(0, hy, 0.025, sil ? agent : css('--color-text')) }
+    else {
+      P.line([[-0.25, hy + 0.04], [-0.24, top + 0.06], [-0.12, top + 0.1], [0.12, top + 0.1], [0.24, top + 0.06], [0.25, hy + 0.04]], joint, 0.04)
+      P.rect(-0.29, hy - 0.09, -0.2, hy + 0.09, joint, 0.03); P.rect(0.2, hy - 0.09, 0.29, hy + 0.09, joint, 0.03)
+      P.rect(-0.29, hy - 0.05, -0.276, hy + 0.05, agent); P.rect(0.276, hy - 0.05, 0.29, hy + 0.05, agent)
+    }
+    // 머리 위를 도는 고리 ↻ (화살촉 하나, 이음매 하나)
+    const ry = side ? 0.014 : 0.045, cy = top + 0.2
+    P.raw(`<path d="M ${P.X(0.13)} ${P.Y(cy)} A ${P.S(0.13)} ${P.S(ry)} 0 1 1 ${P.X(0.1)} ${P.Y(cy - ry * 0.65)}" fill="none" stroke="${agent}" stroke-width="${P.S(0.022)}" stroke-linecap="round" ${sil ? '' : 'filter="url(#glow)"'}/>`)
+    P.poly([[0.13 - 0.035, cy + 0.008], [0.13 + 0.035, cy + 0.008], [0.13, cy - 0.04]], agent)
+  }
+}
+function dimensions(P, view) {
+  const c = css('--color-text-muted'), f = `font-family="Galmuri11" font-size="12" fill="${c}"`
+  const tick = (x0, y0, x1, y1) => P.line([[x0, y0], [x1, y1]], c, 0.003, 'stroke-dasharray="3 3"')
+  const text = (x, y, t) => P.raw(`<text x="${P.X(x)}" y="${P.Y(y)}" ${f}>${t}</text>`)
   if (view === 'front') {
-    rect(-0.13, 0.845, 0.13, 1.015, bezel, 0.02)
-    if (!silhouette) { rect(-0.11, 0.865, 0.11, 0.995, agent, 0.01, 'opacity="0.22"'); rect(-0.065, 0.915, -0.035, 0.955, agent, 0.004); rect(0.035, 0.915, 0.065, 0.955, agent, 0.004) }
-  }
-  if (side) rect(-0.142, 0.845, -0.13, 1.015, bezel)
-  // 귀 (코더는 헤드폰 컵으로 바뀜)
-  if (roleKey !== 'code') {
-    if (side) circ(0, 0.93, 0.035, agent); else { rect(-0.185, 0.895, -0.155, 0.965, agent, 0.01); rect(0.155, 0.895, 0.185, 0.965, agent, 0.01) }
-  }
-
-  /* ── 역할 부품 ── */
-  const ax = back ? -0.06 : 0.06 // 안테나는 머리 오른쪽 뒤(뒷면에선 왼쪽에 보임)
-  if (roleKey === 'plan') {
-    rect(ax - 0.008, 1.05, ax + 0.008, 1.17, joint); circ(ax, 1.18, 0.022, agent)
-    // 헤드셋: 머리띠 없이 귀에 거는 한쪽 컵 + 마이크 붐(코더의 헤드폰 띠와 실루엣이 겹치지 않게)
-    if (side) {
-      circ(0, 0.93, 0.05, joint, ghostAttr)
-      line([[-0.02, 0.9], [-0.1, 0.87], [-0.17, 0.87]], joint, 0.014, ghostAttr); circ(-0.175, 0.87, 0.017, agent)
-    } else {
-      const ex = back ? -0.19 : 0.19
-      rect(ex - 0.025, 0.88, ex + 0.025, 0.98, joint, 0.02, ghostAttr)
-      if (!back) { line([[0.19, 0.9], [0.17, 0.85], [0.07, 0.83]], joint, 0.014, ghostAttr); circ(0.06, 0.83, 0.017, agent) }
-    }
-  } else if (roleKey === '3d') {
-    // 축 기즈모: 받침대 + X(빨) Y(초) Z(파) + 가운데 상태등
-    const cx = 0, cy = 1.15
-    rect(-0.008, 1.05, 0.008, 1.13, joint, 0, ghostAttr)
-    const ax3 = (dx, dy, col) => { line([[cx, cy], [cx + dx, cy + dy]], C(col), 0.014, ghostAttr); circ(cx + dx, cy + dy, 0.02, C(col)) }
-    if (side) { ax3(0, 0.1, '--axis-y'); ax3(-0.1, 0, '--axis-z') } else if (back) { ax3(-0.1, 0, '--axis-x'); ax3(0, 0.1, '--axis-y'); ax3(-0.05, -0.045, '--axis-z') } else { ax3(0.1, 0, '--axis-x'); ax3(0, 0.1, '--axis-y'); ax3(-0.055, -0.05, '--axis-z') }
-    circ(cx, cy, 0.024, agent)
-    // 와이어프레임 큐브 위성 + 궤도
-    const qx = side ? -0.22 : back ? -0.27 : 0.27, qy = 1.02, h = 0.05
-    if (!silhouette) out.push(`<ellipse cx="${X(0)}" cy="${Y(1.0)}" rx="${S(0.28)}" ry="${S(0.06)}" fill="none" stroke="${agent}" stroke-width="1" stroke-dasharray="2 4" opacity="0.7"/>`)
-    const o = 0.025
-    line([[qx - h, qy - h], [qx + h, qy - h], [qx + h, qy + h], [qx - h, qy + h], [qx - h, qy - h]], agent, 0.008, ghostAttr)
-    line([[qx - h + o, qy - h + o], [qx + h + o, qy - h + o], [qx + h + o, qy + h + o], [qx - h + o, qy + h + o], [qx - h + o, qy - h + o]], agent, 0.008)
-    ;[[-h, -h], [h, -h], [h, h], [-h, h]].forEach(([a, b]) => line([[qx + a, qy + b], [qx + a + o, qy + b + o]], agent, 0.008))
-  } else if (roleKey === 'design') {
-    // 베레모: 비스듬한 납작한 돔 + 꼭지(상태등)
-    const tilt = side ? 6 : back ? 10 : -10
-    const beret = silhouette ? css('--color-ink') : `color-mix(in srgb, ${agent} 70%, ${css('--color-void')})`
-    out.push(`<g transform="rotate(${tilt} ${X(0)} ${Y(1.06)})" ${ghostAttr}>
-      <ellipse cx="${X(0.025)}" cy="${Y(1.075)}" rx="${S(0.2)}" ry="${S(0.045)}" fill="${beret}"/>
-      <ellipse cx="${X(0.015)}" cy="${Y(1.05)}" rx="${S(0.165)}" ry="${S(0.018)}" fill="${silhouette ? beret : css('--bot-joint')}"/>
-      <rect x="${X(0.015) - S(0.008)}" y="${Y(1.15)}" width="${S(0.016)}" height="${S(0.04)}" fill="${beret}"/>
-    </g>`)
-    const tx = side ? 0.025 : back ? -0.01 : 0.04
-    circ(tx, 1.155, 0.022, agent)
-  } else if (roleKey === 'code') {
-    // 헤드폰: 머리띠 + 큰 컵, 상태등은 오른쪽 컵
-    if (side) {
-      line([[0, 1.0], [0, 1.11]], joint, 0.03, ghostAttr)
-      circ(0, 0.93, 0.07, joint, ghostAttr); circ(0, 0.93, 0.045, agent)
-      circ(0.0, 0.93, 0.02, silhouette ? agent : css('--color-text'))
-    } else {
-      line([[-0.2, 0.97], [-0.19, 1.08], [-0.1, 1.12], [0.1, 1.12], [0.19, 1.08], [0.2, 0.97]], joint, 0.03, ghostAttr)
-      rect(-0.235, 0.86, -0.165, 1.0, joint, 0.025, ghostAttr); rect(0.165, 0.86, 0.235, 1.0, joint, 0.025, ghostAttr)
-      rect(-0.235, 0.9, -0.225, 0.96, agent); rect(0.225, 0.9, 0.235, 0.96, agent)
-      circ(back ? -0.243 : 0.243, 0.93, 0.018, agent)
-    }
-  }
-  return `<svg viewBox="0 0 ${S(W)} ${S(H)}" width="${S(W)}" height="${S(H)}" role="img" aria-label="${ROLES.find((r) => r.key === roleKey).role} 로봇 ${view === 'front' ? '정면' : view === 'side' ? '측면' : '뒷면'}"><defs><filter id="blur"><feGaussianBlur stdDeviation="${S(0.015)}"/></filter></defs>${out.join('')}</svg>`
+    tick(-0.21, 1.53, 0.21, 1.53); text(-0.05, 1.545, '0.42')
+    tick(-0.5, 0, -0.5, 1.15); text(-0.62, 1.17, '1.15 m')
+    text(0.18, 0.7, '손 ±0.30 · 0.86'); text(-0.62, 0.02, '바닥 빛 r 0.26')
+  } else { tick(-0.17, 1.53, 0.17, 1.53); text(-0.04, 1.545, '0.34'); text(-0.6, 0.66, '책상 0.75 · 손 0.80') }
 }
 
-/* ═════════ 그리기 ═════════ */
-const nameOf = (key) => NAME_SETS[currentSet].names[key]
+/* ═════════ 화면 ═════════ */
+const isReduced = () => document.documentElement.dataset.motion === 'reduce' || (document.documentElement.dataset.motion !== 'full' && matchMedia('(prefers-reduced-motion: reduce)').matches)
+const WORK = { hy: 1.12, L: { x: -0.13, y: 0.8, z: -0.32, pose: 'tap', rot: 8 }, R: { x: 0.13, y: 0.8, z: -0.27, pose: 'tap', rot: -8 } }
 function render() {
-  document.getElementById('cast').innerHTML = ROLES.map((r) => {
-    const [ko, en] = nameOf(r.key)
-    const tag = currentSet === 'C' ? `${ko} · ${r.code}` : `${en} · ${r.code}`
-    return `<article class="card" data-role="${r.key}">
-      <span class="nametag">${tag} · ${r.role}</span>
-      <div class="who"><b>${ko}</b><span>${r.role} · 자리 ${r.seat}</span></div>
-      <div class="chip"><i></i>${r.color} · --agent-${r.seat}</div>
-      <div class="views">
-        <figure>${robot(r.key, 'front', { scale: 150 })}<figcaption>정면</figcaption></figure>
-        <figure>${robot(r.key, 'side', { scale: 150 })}<figcaption>측면</figcaption></figure>
-        <figure>${robot(r.key, 'back', { scale: 150 })}<figcaption>뒷면</figcaption></figure>
-      </div>
-      <ol class="points">${r.points.map((p) => `<li>${p}</li>`).join('')}</ol>
-      <p class="persona"><b>성격</b> ${r.persona}<br><b>색</b> ${r.meaning}</p>
-      <div class="bub"><div class="bub-tab">${currentSet === 'C' ? ko : en} · 대화</div><div class="bub-box"><div class="bub-body">${r.line}</div></div></div>
-    </article>`
-  }).join('')
-  const stage = (id, view, scale, opts = {}) => {
-    document.getElementById(id).innerHTML = ROLES.map((r) => `<figure>${robot(r.key, view, { scale, ghost: false, ...opts })}<figcaption>${nameOf(r.key)[0]}</figcaption></figure>`).join('')
+  document.getElementById('base-front').innerHTML = agentSVG('design', 'front', 240, { W: 1.4, H: 1.62, dims: true }) + '<figcaption>정면 · 휴로 그린 기본 형태(치수 m)</figcaption>'
+  document.getElementById('base-side').innerHTML = agentSVG('design', 'side', 240, { W: 1.4, H: 1.62, dims: true, desk: true, state: WORK }) + '<figcaption>측면 · 책상 앞에서 타자(손 0.80 m, 키보드 위)</figcaption>'
+
+  const poses = [['rest', '쉼'], ['tap', '톡톡·타자'], ['frame', '네모 틀'], ['open', '도장 받기'], ['thumb', '엄지 척'], ['grip', '탁구채', 'paddle']]
+  let h = '<div></div>' + poses.map((p, i) => `<div class="hd ${i > 2 ? 'opt' : ''}">${p[1]}</div>`).join('')
+  for (const [k, label, sub] of [['A', 'A 엄지·검지', '확정'], ['B', 'B 벙어리', ''], ['C', 'C 네 손가락', '']]) {
+    h += `<div class="lab">${label}<small>${sub}</small></div>`
+    poses.forEach(([pose, name, prop], i) => {
+      const no = k === 'B' && (pose === 'tap' || pose === 'frame')
+      const P = prop ? pen(240, 60, 128, false) : pen(330, 60, 112, false)
+      hand(P, k, pose, css('--agent-2'), { prop })
+      h += `<div class="cell ${no ? 'no' : ''} ${i > 2 ? 'opt' : ''}"><svg viewBox="0 0 120 150" role="img" aria-label="${label} ${name}${no ? ' (불가)' : ''}"><defs><filter id="glow"><feGaussianBlur stdDeviation="1.5"/></filter></defs>${P.out.join('')}</svg></div>`
+    })
   }
-  stage('stage-front', 'front', 100)
-  stage('stage-back', 'back', 100)
-  stage('stage-sil', 'front', 100, { silhouette: true })
-  stage('stage-far', 'front', 50)
-  document.getElementById('names').innerHTML = Object.entries(NAME_SETS).map(([k, s]) =>
-    `<tr><td class="${k === 'A' ? 'pick' : ''}">${s.label}</td>${ROLES.map((r) => `<td>${s.names[r.key][0]}${s.names[r.key][1] !== s.names[r.key][0] ? ` <code>${s.names[r.key][1]}</code>` : ''}</td>`).join('')}<td class="note">${s.feel}</td></tr>`).join('')
-  document.getElementById('colors').innerHTML = ROLES.map((r) =>
-    `<tr data-role="${r.key}"><td>${r.role}</td><td><code>${r.color}</code></td><td><span class="sw" style="background:${r.color}"></span></td>${r.sim.map((h) => `<td><span class="sw" style="background:${h}"></span></td>`).join('')}<td>${r.contrast}</td><td class="note">${r.meaning}</td></tr>`).join('')
+  document.getElementById('hands').innerHTML = h
+
+  document.getElementById('cast').innerHTML = ROLES.map((r) => `<article class="card ${r.status === 'wait' ? 'pending' : ''}" data-seat="${r.seat}">
+      <span class="nametag">${r.en} · ${r.code} · ${r.role}</span>
+      <div class="who"><b>${r.ko}</b><span>${r.role} · 자리 ${r.seat}${r.status === 'wait' ? ' · 개성 제안 기다리는 중' : ''}</span></div>
+      <div class="views">
+        <figure>${agentSVG(r.key, 'front', 120)}<figcaption>정면</figcaption></figure>
+        <figure>${agentSVG(r.key, 'side', 120)}<figcaption>측면</figcaption></figure>
+        <figure>${agentSVG(r.key, 'back', 120)}<figcaption>뒷면</figcaption></figure>
+        <figure>${agentSVG(r.key, 'back', 120, { W: 1.3, desk: true, state: WORK })}<figcaption>일할 때</figcaption></figure>
+      </div>
+      <ol class="points"><li>머리 위: ${r.head}</li><li>뒤·주변: ${r.back}</li>${r.extra ? `<li>${r.extra}</li>` : ''}</ol>
+      <p class="note"><b>손 버릇</b> ${r.habits}${r.face ? `<br><b>얼굴</b> ${r.face}` : ''}${r.play ? `<br><b>놀 때</b> ${r.play}` : ''}</p>
+      ${r.src ? `<a class="src" href="${r.src}">🙋 개성 제안 원문</a>` : ''}
+    </article>`).join('')
+
+  const stage = (id, view, scale, opts = {}) => {
+    const el = document.getElementById(id)
+    el.innerHTML = ROLES.map((r) => `<figure>${agentSVG(r.key, view, scale, { W: opts.desk ? 1.3 : 1.0, ...opts, state: opts.desk ? WORK : undefined })}<figcaption>${r.ko}</figcaption></figure>`).join('')
+    el.querySelectorAll('svg').forEach((svg) => { const vb = svg.viewBox.baseVal; svg.setAttribute('width', vb.width); svg.setAttribute('height', vb.height) })
+  }
+  stage('stage-front', 'front', 112)
+  stage('stage-work', 'back', 112, { desk: true })
+  stage('stage-sil', 'front', 90, { sil: true })
+  stage('stage-sil-back', 'back', 75, { sil: true, desk: true })
+  document.getElementById('asks').innerHTML = ASKS.map((a) => `<tr><td>${a[0]}</td><td>${a[1]}</td><td>${a[2]}</td></tr>`).join('')
 }
-document.querySelectorAll('[data-set]').forEach((b) => b.addEventListener('click', () => {
-  currentSet = b.dataset.set
-  document.querySelectorAll('[data-set]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))
-  render()
-}))
-document.fonts.load('12px Galmuri11').finally(render)
+
+/* ── 움직임 데모: 손은 머리를 늦게 따라감(임계 감쇠 스프링 ω=12) ── */
+const DEMOS = [
+  { id: 'idle', title: '쉼 · 둥실(머리와 손이 엇박)', role: 'design', view: 'front' },
+  { id: 'type', title: '일함 · 타자(측면)', role: 'code', view: 'side', desk: true },
+  { id: 'talk', title: '대화 · 말하는 손짓', role: 'plan', view: 'front' },
+  { id: 'pong', title: '놀이 · 탁구', role: 'code', view: 'front' },
+]
+const springs = {}
+function spring(key, target, dt) {
+  const s = (springs[key] ??= { x: target.x, y: target.y, vx: 0, vy: 0 }), w = 12
+  for (const a of ['x', 'y']) { const v = 'v' + a; s[v] += (w * w * (target[a] - s[a]) - 2 * w * s[v]) * dt; s[a] += s[v] * dt }
+  return s
+}
+function demoState(id, t, dt) {
+  const red = isReduced(), T = red ? 0.6 : t
+  const bob = (ph = 0) => (red ? 0 : Math.sin((T - ph) * Math.PI * 2 * 0.45) * 0.02)
+  const follow = (key, tg) => (red ? tg : spring(key, tg, dt))
+  if (id === 'idle') {
+    const sway = red ? 0 : Math.sin(T * 1.7) * 0.01
+    const L = follow('iL', { x: -REST.x + sway, y: REST.y + bob(0.15) + (red ? 0 : Math.sin(T * 2.1) * 0.008) })
+    const R = follow('iR', { x: REST.x + sway, y: REST.y + bob(0.15) + (red ? 0 : Math.sin(T * 2.4 + 1) * 0.008) })
+    return { hy: HEAD.y + bob(), tilt: red ? 0 : Math.sin(T * 0.9) * 2, L: { x: L.x, y: L.y, pose: 'rest', rot: 12 }, R: { x: R.x, y: R.y, pose: 'rest', rot: -12 } }
+  }
+  if (id === 'type') {
+    const tap = (ph) => (red ? 0 : Math.max(0, Math.sin(T * Math.PI * 8 + ph)) * 0.012)
+    const mouse = red ? 0 : Math.max(0, Math.sin(T * 0.7) - 0.85) * 1.2 // 가끔 한 손이 마우스로
+    return { hy: 1.12, tilt: red ? 0 : Math.sin(T * 2) * 1.5, L: { z: -0.32, y: 0.8 - tap(0), pose: 'tap' }, R: { z: -0.27 + mouse, y: 0.8 - tap(Math.PI) + mouse * 0.1, pose: 'tap' } }
+  }
+  if (id === 'talk') {
+    const beat = red ? 0.5 : (Math.sin(T * Math.PI * 1.6) + 1) / 2
+    const R = follow('tR', { x: 0.3 + beat * 0.03, y: 0.98 + beat * 0.07 })
+    const L = follow('tL', { x: -REST.x, y: REST.y + bob(0.15) })
+    return { hy: HEAD.y + bob(), tilt: red ? 3 : Math.sin(T * 1.2) * 3, L: { x: L.x, y: L.y, pose: 'rest', rot: 12 }, R: { x: R.x, y: R.y, pose: 'open', rot: -25 - beat * 15 } }
+  }
+  const ph = red ? 0.3 : (Math.sin(T * Math.PI * 1.4) + 1) / 2
+  const R = follow('pR', { x: 0.2 + ph * 0.3, y: 0.95 + ph * 0.06 })
+  const L = follow('pL', { x: -0.32 + ph * 0.06, y: 0.9 })
+  return { hy: HEAD.y + bob() * 0.5, tilt: (ph - 0.5) * 6, L: { x: L.x, y: L.y, pose: 'rest', rot: 20 }, R: { x: R.x, y: R.y, pose: 'grip', rot: -40 + ph * 50, prop: 'paddle' } }
+}
+function buildDemos() {
+  document.getElementById('anims').innerHTML = DEMOS.map((d) => `<figure class="panel"><div id="demo-${d.id}"></div><figcaption>${d.title}</figcaption></figure>`).join('')
+}
+
+/* ── 종이비행기: 짧은 일 넘기기(메시지·이슈 배정). 메모가 포스트잇을 접어 던지고 루프가 한 손으로 받음 ──
+   한 바퀴 3.2초: 0~0.25 접어 들고 뒤로 / 0.25~0.7 날아감(포물선) / 0.55~ 받는 손 올라옴 / 0.7~ 받아 쥠 */
+const PLANE = { W: 2.8, H: 1.62, s: 200, from: 0.7, to: 2.1 }
+function planeFrame(t) {
+  const red = isReduced()
+  const p = red ? 0.5 : (t % 3.2) / 3.2
+  const ease = (x) => x * x * (3 - 2 * x)
+  const clamp = (x) => Math.max(0, Math.min(1, x))
+  // 메모 오른손: 들어 올렸다가 앞으로 튕김
+  const wind = clamp(p / 0.25), flick = clamp((p - 0.25) / 0.1)
+  const mR = { x: REST.x + 0.02 * wind + 0.12 * flick, y: REST.y + 0.2 * ease(wind) - 0.06 * flick, pose: p < 0.25 ? 'grip' : 'open', rot: -20 - 40 * wind + 60 * flick }
+  // 루프 왼손: 받으려고 듦
+  const lift = ease(clamp((p - 0.5) / 0.2))
+  const lL = { x: -REST.x + 0.04 * lift, y: REST.y + 0.28 * lift, pose: p > 0.7 ? 'grip' : lift > 0.1 ? 'open' : 'rest', rot: 12 - 20 * lift }
+  const memo = agentSVG('plan', 'front', PLANE.s, { W: 1.4, H: PLANE.H, state: { hy: HEAD.y, tilt: -3 * wind, R: mR } })
+  const loop = agentSVG('code', 'front', PLANE.s, { W: 1.4, H: PLANE.H, state: { hy: HEAD.y, tilt: 4 * lift, L: lL } })
+  // 비행 경로(미터, 바닥 원점): 메모 손 → 루프 손
+  const a = { x: PLANE.from + mR.x, y: REST.y + 0.2 }, b = { x: PLANE.to + lL.x, y: REST.y + 0.3 }, c = { x: (a.x + b.x) / 2, y: 1.55 }
+  const X = (x) => x * PLANE.s, Y = (y) => (PLANE.H - 0.02 - y) * PLANE.s
+  const f = red ? 0.55 : clamp((p - 0.25) / 0.45)
+  const q = (u) => ({ x: (1 - u) ** 2 * a.x + 2 * (1 - u) * u * c.x + u * u * b.x, y: (1 - u) ** 2 * a.y + 2 * (1 - u) * u * c.y + u * u * b.y })
+  const pos = p > 0.7 && !red ? { x: PLANE.to + lL.x, y: REST.y + 0.28 * lift + 0.08 } : q(f), nxt = q(Math.min(1, f + 0.02))
+  const ang = (Math.atan2(-(nxt.y - pos.y), nxt.x - pos.x) * 180) / Math.PI
+  const showPlane = red || p > 0.25
+  const paper = css('--paper-1'), edge = css('--paper-2')
+  const overlay = `<svg viewBox="0 0 ${PLANE.W * PLANE.s} ${PLANE.H * PLANE.s}" style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true">
+    <path d="M ${X(a.x)} ${Y(a.y)} Q ${X(c.x)} ${Y(c.y)} ${X(b.x)} ${Y(b.y)}" fill="none" stroke="${css('--agent-0')}" stroke-width="1.5" stroke-dasharray="3 6" opacity="0.6"/>
+    ${showPlane ? `<g transform="translate(${X(pos.x)} ${Y(pos.y)}) rotate(${ang})"><polygon points="16,0 -12,-9 -6,0 -12,9" fill="${paper}"/><polygon points="16,0 -6,0 -12,9" fill="${edge}"/></g>` : ''}
+  </svg>`
+  return `<div style="position:relative;display:flex">${memo}${loop}${overlay}</div>`
+}
+function buildPlane() {
+  const fig = document.createElement('figure')
+  fig.className = 'panel'
+  fig.innerHTML = '<div id="demo-plane"></div><figcaption>일 넘기기 · 종이비행기: 메모가 포스트잇을 접어 던지고, 루프가 한 손을 들어 받는다 (회의록은 대면 회의 재연)</figcaption>'
+  fig.style.marginTop = 'var(--space-4)'
+  document.getElementById('anims').after(fig)
+}
+let last = performance.now()
+function loop(now) {
+  requestAnimationFrame(loop)
+  const dt = (now - last) / 1000
+  if (dt < 1 / 30) return
+  last = now
+  for (const d of DEMOS) document.getElementById('demo-' + d.id).innerHTML = agentSVG(d.role, d.view, 230, { W: 1.4, H: 1.62, state: demoState(d.id, now / 1000, Math.min(dt, 0.05)), desk: d.desk })
+  document.getElementById('demo-plane').innerHTML = planeFrame(now / 1000)
+}
+
+const motionBtn = document.getElementById('motion')
+const sync = () => motionBtn.setAttribute('aria-pressed', String(isReduced()))
+motionBtn.addEventListener('click', () => { document.documentElement.dataset.motion = isReduced() ? 'full' : 'reduce'; sync(); render() })
+const q = new URLSearchParams(location.search).get('motion'); if (q) document.documentElement.dataset.motion = q
+document.fonts.load("12px Galmuri11").finally(() => { sync(); render(); buildDemos(); buildPlane(); requestAnimationFrame(loop) })
 </script>
 </body>
 </html>
