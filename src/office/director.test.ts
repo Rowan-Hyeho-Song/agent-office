@@ -33,7 +33,7 @@ describe('Director.goals by state', () => {
   it('working agents go to work_<i> and type; the rest play without them', () => {
     const d = new Director(AGENTS)
     const st = allIdle()
-    st.agent_1 = { state: 'working', since: 0, activity: '파일 편집 중' }
+    st.agent_1 = { state: 'working', since: 0, activity: 'edit' }
     st.agent_3 = { state: 'working', since: 0 }
     const g = d.goals(0, MINUTE, st, makeArrived().fn)
     expect(g.agent_1).toMatchObject({ spot: 'work_1', pose: 'type', label: '파일 편집 중' })

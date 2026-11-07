@@ -80,3 +80,20 @@ body,
 .debug-panel footer { margin-top: 8px; color: #9aa3b2; }
 .debug-panel .ok { color: #7dff9b; }
 .debug-panel .bad { color: #ff6b6b; }
+
+/* who is doing what (#1); styled properly with the design tokens later (#18) */
+.agent-list {
+  position: fixed;
+  left: 16px;
+  top: 14px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #c9c3b6;
+  pointer-events: none;
+}
+.agent-list ul { list-style: none; margin: 0; padding: 0; }
+.agent-list i { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 2px; }
+.agent-list b { font-weight: 600; color: #f3ead8; }
+.agent-list .state-off { opacity: 0.55; }
+.agent-list-error { margin: 4px 0 0; color: #a39d90; }

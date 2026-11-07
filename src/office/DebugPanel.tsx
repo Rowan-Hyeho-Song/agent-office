@@ -4,7 +4,7 @@ import type { AgentState } from './status'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
 
 const STATES: { state: AgentState; label: string; activity?: string }[] = [
-  { state: 'working', label: '작업 중', activity: '파일 편집 중' },
+  { state: 'working', label: '작업 중', activity: 'edit' },
   { state: 'wrapping', label: '정리 중' },
   { state: 'idle', label: '쉬게' },
   { state: 'off', label: '퇴근' },

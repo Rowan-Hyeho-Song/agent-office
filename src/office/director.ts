@@ -2,7 +2,7 @@
 // the messages in flight. Pure: no three.js; the rigs report arrivals back through `arrivedAt`.
 
 import { playAt, type PlayKind } from './play'
-import type { OfficeMessage, StatusMap } from './status'
+import { activityLabel, type OfficeMessage, type StatusMap } from './status'
 
 export type Pose = 'idle' | 'type' | 'post' | 'talk' | 'listen' | 'leave' | PlayKind
 
@@ -128,7 +128,7 @@ export class Director {
         continue
       }
       if (s.state === 'working') {
-        out[a] = { spot: `work_${desk}`, pose: 'type', label: s.activity ?? '작업 중' }
+        out[a] = { spot: `work_${desk}`, pose: 'type', label: activityLabel(s.activity) }
         continue
       }
       if (s.state === 'wrapping' && this.wrapDone[a] !== s.since && !whiteboardTaken) {

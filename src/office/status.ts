@@ -61,3 +61,22 @@ export class FakeStatusSource implements StatusSource {
     for (const l of this.messageListeners) l(m)
   }
 }
+
+/**
+ * Activity kinds the hook sends (hooks/classify.mjs) and their words on screen. Same keys and labels as the
+ * design's ACTIVITIES table (docs/design/office-ui.html).
+ */
+export const ACTIVITY_LABELS: Record<string, string> = {
+  edit: '파일 편집 중',
+  read: '코드 읽는 중',
+  test: '테스트 실행 중',
+  build: '빌드 중',
+  install: '설치 중',
+  git: '버전 기록 중',
+  run: '앱 실행 중',
+  other: '명령 실행 중',
+  delegate: '일 나누는 중',
+  think: '생각하는 중',
+}
+
+export const activityLabel = (activity?: string) => (activity && ACTIVITY_LABELS[activity]) || '작업 중'
