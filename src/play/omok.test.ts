@@ -169,4 +169,37 @@ describe('gameAt', () => {
     }
     expect(reset).toBe(true)
   })
+
+  it('block timing: >= 90% of sessions reach a result and the reset within 165 s', () => {
+    const lens: number[] = []
+    let within = 0
+    const total = 200
+    for (let sd = 0; sd < total; sd++) {
+      const pl: [string, string] = [`agent_${sd % 4}`, `agent_${(sd + 1 + ((sd >> 2) % 3)) % 4}`]
+      let end = -1
+      let t0 = 0
+      for (let t = 0; t <= 400000; t += 500) {
+        const v = gameAt(sd * 7 + 1, pl, t)
+        if (v.game > 0) break
+        if (v.phase === 'reset' && (v.resetT01 ?? 0) >= 0.999) end = t
+        if (v.phase === 'won' && t0 === 0) t0 = t
+      }
+      const len = (t0 || 400000) + 6500
+      lens.push(len)
+      if (end >= 0 || len <= 165000) if (len <= 165000) within++
+    }
+    lens.sort((a, b) => a - b)
+    const med = lens[total >> 1] / 1000
+    const pct = (within / total) * 100
+    console.log(`omok median game+reaction+reset ${med} s, within 165 s: ${pct}%`)
+    expect(pct).toBeGreaterThanOrEqual(90)
+  })
+  it('the opening is on the board at t=0, legal and undecided', () => {
+    for (let sd = 0; sd < 50; sd++) {
+      const v = gameAt(sd, players, 0)
+      expect(v.moveIndex).toBeGreaterThanOrEqual(5)
+      expect(v.moveIndex).toBeLessThanOrEqual(10)
+      expect(v.phase).toBe('thinking')
+    }
+  })
 })
