@@ -1,35 +1,39 @@
-import { useThree, useFrame } from '@react-three/fiber'
+import { useFrame } from '@react-three/fiber'
 import { useEffect, useRef, useState } from 'react'
-import { Raycaster, Vector2 } from 'three'
-import { meshesOf, type OfficeNodes } from '../office/nodes'
-import { DESK_URL, ROOM_MODE, isLocked, leaveOffice, listenToDesk, postToParent } from './link'
+import { DESK_URL, ROOM_MODE, isLocked, leaveOffice, listenToDesk, onEntered, onLeaveStart, postToParent } from './link'
+import { closeApprovalBox, isApprovalBoxOpen } from '../office/approval/panel'
 import { anyPanelOpen, closeAllPanels, closeTopPanel } from './panels'
 
 /** DOM side: desk messages, Esc, and the way out (a link standalone; a focusable door button in a room) */
 export function RoomUi() {
   const [locked, setLocked] = useState(false)
 
+  useEffect(() => listenToDesk(), [])
+  // the exit has started (from inside or from the desk): close the panels, swallow input
   useEffect(
     () =>
-      listenToDesk((t) => {
-        if (t === 'leaving') {
-          closeAllPanels()
-          setLocked(true)
-        } else window.focus() // entered: the office may take the keyboard
+      onLeaveStart(() => {
+        closeAllPanels()
+        closeApprovalBox()
+        setLocked(true)
       }),
     [],
   )
+  // the desk said : the office may take the keyboard
+  useEffect(() => onEntered(() => window.focus()), [])
 
   useEffect(() => {
     if (!ROOM_MODE) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || isLocked()) return
-      // a panel first, then the desk
+      // A panel first, then the desk. Capture phase: we look before the panels' own Esc handlers run, so one press
+      // is one step (the approval box steps back or closes by itself; a closing panel must not also exit).
+      if (isApprovalBoxOpen()) return
       if (anyPanelOpen()) closeTopPanel()
       else leaveOffice('esc')
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [])
 
   return (
@@ -46,45 +50,6 @@ export function RoomUi() {
       {locked && <div className="room-lock" aria-hidden />}
     </>
   )
-}
-
-/** inside the Canvas: a click on the door screen leaves; hover shows a pointer */
-export function DoorPick({ nodes }: { nodes: OfficeNodes }) {
-  const { gl, camera } = useThree()
-  const door = nodes.screen_door
-  useEffect(() => {
-    if (!door) return
-    const el = gl.domElement
-    const ray = new Raycaster()
-    const ndc = new Vector2()
-    const hit = (e: PointerEvent) => {
-      const r = el.getBoundingClientRect()
-      ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1)
-      ray.setFromCamera(ndc, camera)
-      return ray.intersectObjects(meshesOf(door), false).length > 0
-    }
-    let down: [number, number] | null = null
-    const onDown = (e: PointerEvent) => (down = [e.clientX, e.clientY])
-    const onUp = (e: PointerEvent) => {
-      // a drag is the orbit, not a click
-      const moved = down ? Math.hypot(e.clientX - down[0], e.clientY - down[1]) : 99
-      down = null
-      if (moved < 6 && !isLocked() && hit(e)) leaveOffice('door')
-    }
-    const onMove = (e: PointerEvent) => {
-      el.style.cursor = !isLocked() && hit(e) ? 'pointer' : ''
-    }
-    el.addEventListener('pointerdown', onDown)
-    el.addEventListener('pointerup', onUp)
-    el.addEventListener('pointermove', onMove)
-    return () => {
-      el.removeEventListener('pointerdown', onDown)
-      el.removeEventListener('pointerup', onUp)
-      el.removeEventListener('pointermove', onMove)
-      el.style.cursor = ''
-    }
-  }, [gl, camera, door])
-  return null
 }
 
 let sent = false

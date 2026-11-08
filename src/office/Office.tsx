@@ -3,7 +3,8 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import { Box3, BoxGeometry, Mesh, MeshBasicMaterial, Raycaster, Vector2, Vector3, type Object3D } from 'three'
 import { openApprovalBox } from './approval/panel'
-import { DoorPick, ReadyPing } from '../room/RoomUi'
+import { Door } from '../room/Door'
+import { ReadyPing } from '../room/RoomUi'
 import { Agents } from './Agents'
 import { useRole } from './ApprovalBox'
 import { Icon } from './ApprovalIcons'
@@ -26,7 +27,7 @@ export function Office({ world }: { world: OfficeWorld }) {
       <Agents world={world} />
       <TrayClick scene={scene} nodes={nodes} />
       {world.approvals && <DoorKey world={world} nodes={nodes} />}
-      <DoorPick nodes={nodes} />
+      <Door nodes={nodes} />
       <ReadyPing />
     </>
   )

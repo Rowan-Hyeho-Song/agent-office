@@ -6,6 +6,7 @@ import { AgentList } from './office/AgentList'
 import { ApprovalBox } from './office/ApprovalBox'
 import { DebugPanel } from './office/DebugPanel'
 import { Office } from './office/Office'
+import { useCameraBusy } from './room/Door'
 import { RoomUi } from './room/RoomUi'
 import { createWorld } from './office/world'
 
@@ -28,6 +29,7 @@ export function App() {
     // debug only: lets screenshot scripts read the nav check and drive the fake source
     if (world.debug) (window as unknown as { __office: typeof world }).__office = world
   }, [world])
+  const busy = useCameraBusy()
   return (
     <>
       <Canvas
@@ -48,6 +50,7 @@ export function App() {
           </EffectComposer>
         </Suspense>
         <OrbitControls
+          enabled={!busy}
           target={close ? (close.slice(3) as [number, number, number]) : top ? [0, 0, 0] : TARGET}
           enablePan={false}
           enableDamping

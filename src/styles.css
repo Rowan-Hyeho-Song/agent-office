@@ -243,31 +243,49 @@ fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap
 /* full screen on phones: an opaque board, nothing of the HUD behind shows through */
 @media (max-width: 640px) { .approval-box { top: 0; right: 0; bottom: 0; width: 100%; background: var(--color-void); } .approval-box .approval-body { background: var(--color-surface); } }
 
-/* the way out: a link standalone; in a room the desk draws its own, so only a focusable door button is left */
+/* the way out: standalone only, same look as the desk's "← 책상으로" button (.btn). In a room the desk draws its own
+   in the top-left 200 x 72 px, which stays clear (the status list moves down); only a focusable door button is left */
 .desk-link {
   position: fixed;
   left: 16px;
-  top: 14px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: rgba(10, 13, 19, 0.85);
-  color: #e8e6e1;
+  top: 16px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 0.55em 0.9em;
+  border: 1px solid #24303a;
+  border-radius: 6px;
+  background: rgba(10, 13, 18, 0.7);
+  color: #d7e3ea;
+  font-family: Galmuri11, ui-monospace, monospace;
   font-size: 13px;
   text-decoration: none;
 }
-.desk-link:hover,
-.desk-link:focus-visible {
-  color: #ffb347;
+.desk-link:hover {
+  border-color: var(--door-hover, #4df3ff);
+  color: var(--door-hover, #4df3ff);
+}
+.desk-link:focus-visible,
+.door-btn:focus-visible {
+  outline: 2px solid var(--door-hover, #4df3ff);
+  outline-offset: 2px;
+}
+:root:not([data-room]) .agent-list {
+  top: 70px; /* below the standalone back link */
+}
+:root[data-room] .agent-list {
+  top: 86px; /* 14px + the 72px the desk's back button keeps clear */
 }
 .door-btn {
   position: fixed;
   left: 16px;
-  top: 14px;
+  bottom: 40px;
   padding: 6px 10px;
-  border: 0;
-  border-radius: 8px;
-  background: rgba(10, 13, 19, 0.85);
-  color: #e8e6e1;
+  border: 1px solid #24303a;
+  border-radius: 6px;
+  background: rgba(10, 13, 18, 0.85);
+  color: #d7e3ea;
   font: inherit;
   font-size: 13px;
   opacity: 0;
@@ -275,9 +293,8 @@ fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap
 }
 .door-btn:focus-visible {
   opacity: 1;
-  outline: 2px solid #ffb347;
 }
-/* the desk started leaving: swallow input until the frame is removed */
+/* the desk started leaving: swallow input until the frame is gone */
 .room-lock {
   position: fixed;
   inset: 0;
