@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>로봇 손 2차 시안</title>
+<!-- 시안 열람용으로만 CDN에서 갈무리를 불러온다(앱은 자체 서빙, office-ui.md 7절). -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/galmuri.css" />
+<link rel="stylesheet" href="../../src/styles/tokens.css" />
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--color-void); color: var(--color-text); font-family: var(--font-text); font-size: 15px; line-height: 1.6; color-scheme: dark; }
+.page { max-width: 1240px; margin: 0 auto; padding: var(--space-8) var(--space-4) 96px; }
+h1, h2 { font-family: var(--font-pixel); font-weight: 400; margin: 0; }
+h1 { font-size: var(--font-size-2); line-height: 36px; }
+h2 { font-size: var(--font-size-2); line-height: 36px; margin-top: 48px; }
+.kicker { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-amber); letter-spacing: var(--letter-spacing-label); }
+p.lead { color: var(--color-text-muted); max-width: 78ch; margin: var(--space-2) 0 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: var(--space-4); margin-top: var(--space-3); }
+.card { border: 1px solid var(--color-line); background: var(--color-surface); }
+.card .art { background: radial-gradient(ellipse 80% 70% at 50% 60%, #2a2f3b, #12161d 80%); aspect-ratio: 1; }
+.card .art svg { width: 100%; height: 100%; display: block; }
+.card .txt { padding: var(--space-3) var(--space-4); font-size: 14px; color: var(--color-text-muted); }
+.card .txt b { display: block; font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); color: var(--color-text); margin-bottom: 4px; }
+.wide .art { aspect-ratio: 16 / 9; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="kicker">AGENT OFFICE · #134 · 결재 전 시안</div>
+  <h1>로봇 손 2차: 다섯 손가락 · 마디 · 관절</h1>
+  <p class="lead">손 A(엄지 · 검지 · 세 손가락 덩어리)에서 <b>엄지 + 네 손가락</b>으로 나눕니다. 손가락마다 마디 셋(엄지는 둘), 마디 사이에 짙은 관절 핀, 손끝 아래 무광 패드, 손등 패널과 에이전트 색 띠. 치수 단위는 mm, 근거와 노드 표는 <code>agents.md</code> 2.7절.</p>
+
+  <h2>1. 모양</h2>
+  <div class="grid">
+    <div class="card wide" style="grid-column: span 2"><div class="art" id="front"></div><div class="txt"><b>손등 쪽에서 · 오른손 · 실제 크기의 4배</b>손바닥 86 × 86 × 45(지금과 같음). 손가락 길이 검지 58 · 중지 62 · 약지 55 · 새끼 46, 폭 17 · 17 · 16 · 14, 두께 16. 마디 비 0.45 : 0.30 : 0.25, 마디 사이 2 mm 틈에 관절 핀.</div></div>
+    <div class="card"><div class="art" id="side"></div><div class="txt"><b>옆에서 · 손끝 패드와 관절 핀</b>패드는 끝마디 손바닥 쪽 2/3, 짙은 무광. 관절 핀은 지름 9 mm 짙은 그라파이트 원통으로 마디 사이 틈을 채움. 핀이 보여야 "로봇 손가락"으로 읽힘.</div></div>
+  </div>
+
+  <h2>2. 자세</h2>
+  <p class="lead">손가락 하나는 <b>굽힘 값 c(0–1) 하나</b>로 움직입니다. 마디 셋이 함께 굽습니다: 뿌리 75°·c, 가운데 90°·c, 끝 60°·c(실제 손가락처럼 끝마디가 가운데를 따라감). 엄지는 뿌리 굽힘 + 맞섬(손바닥 쪽으로 돌기)입니다.</p>
+  <div class="grid" id="poses"></div>
+</div>
+<script>
+const C = { shell: '#f6f3ec', shellD: '#d9d4c8', pin: '#3a3f48', pad: '#2c3138', panel: '#e8e3d8', seam: '#b9b2a4' }
+const AG = ['#ffb347', '#8f9bff', '#ff3ea5', '#4df3ff']
+const FING = [ // name, x of root on palm (mm, + = toward thumb side for right hand seen from back), length, width
+  ['index', 30, 58, 17], ['middle', 10, 62, 17], ['ring', -10, 55, 16], ['pinky', -29, 46, 14]]
+const SEG = [0.45, 0.30, 0.25]
+const svg = (inner, vb) => `<svg viewBox="${vb}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${inner}</svg>`
+const rr = (x, y, w, h, r, fill, extra = '') => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="${fill}" ${extra}/>`
+
+// ── 손등 쪽 정면(손가락 = 위). 단위 mm, 원점 = 손바닥 가운데 ──
+function front(agent = 1, square = false) {
+  let s = ''
+  // 손목 고리
+  s += rr(-36, 50, 72, 23, 6, AG[agent], 'opacity=".9"') + rr(-30, 70, 60, 6, 3, '#1c2026')
+  // 손바닥 + 손등 패널(살짝 솟은 판) + 패널선 둘 + 에이전트 색 띠
+  s += rr(-43, -43, 86, 86, 20, C.shell) + rr(-34, -30, 68, 58, 10, C.panel, `stroke="${C.seam}" stroke-width="1"`)
+  s += `<path d="M-34 -6 H34 M-34 10 H34" stroke="${C.seam}" stroke-width="1"/>` + rr(-20, 16, 40, 5, 2.5, AG[agent])
+  // 손가락: 마디 셋 + 관절 핀
+  for (const [, x, L, w] of FING) {
+    let y = -43 - 3
+    s += `<circle cx="${x}" cy="${y + 2}" r="5.5" fill="${C.pin}"/>`
+    SEG.forEach((k, j) => {
+      const h = L * k - 2
+      const top = y - h
+      const last = j === 2
+      s += rr(x - w / 2 + j * 0.6, top, w - j * 1.2, h, last ? (square ? 1.5 : (w - j * 1.2) / 2) : 3, C.shell, `stroke="${C.shellD}" stroke-width=".8"`)
+      if (!last) s += rr(x - 4.5, top - 3, 9, 4, 2, C.pin)
+      y = top - 2
+    })
+  }
+  // 엄지: 바깥으로 35° 벌림, 마디 둘
+  s += `<g transform="translate(43 18) rotate(35)"><circle cx="0" cy="0" r="6" fill="${C.pin}"/>`
+  s += rr(-9.5, -27, 19, 25, 4, C.shell, `stroke="${C.shellD}" stroke-width=".8"`) + rr(-4.5, -31, 9, 4, 2, C.pin)
+  s += rr(-9, -52, 18, 20, square ? 1.5 : 9, C.shell, `stroke="${C.shellD}" stroke-width=".8"`) + '</g>'
+  return s
+}
+
+// ── 옆에서 본 손가락 하나(굽힘 c) ──
+function fingerSide(x0, y0, L, c, padOn = true, thick = 16) {
+  const ang = [75, 90, 60].map((a) => a * c)
+  let s = '', x = x0, y = y0, a = -90 // 위를 봄
+  SEG.forEach((k, j) => {
+    a += ang[j]
+    const h = L * k - 2, rad = (a * Math.PI) / 180
+    s += `<circle cx="${x}" cy="${y}" r="4.5" fill="${C.pin}"/>`
+    s += `<g transform="translate(${x} ${y}) rotate(${a + 90})"><rect x="${-thick / 2}" y="${-h - 1}" width="${thick}" height="${h}" rx="${j === 2 ? thick / 2 : 3}" fill="${C.shell}" stroke="${C.shellD}" stroke-width=".8"/>`
+    if (j === 2 && padOn) s += `<rect x="${thick / 2 - 6}" y="${-h * 0.75}" width="6" height="${h * 0.62}" rx="3" fill="${C.pad}"/>`
+    s += '</g>'
+    x += Math.cos(rad) * (h + 2); y += Math.sin(rad) * (h + 2)
+  })
+  return s
+}
+function side() {
+  let s = rr(-23, -43, 45, 86, 18, C.shell) + rr(18, -30, 6, 58, 3, C.panel, `stroke="${C.seam}" stroke-width="1"`)
+  s += rr(-18, 50, 36, 23, 6, AG[1], 'opacity=".9"')
+  s += fingerSide(0, -46, 62, 0.25)
+  s += `<circle cx="-70" cy="-120" r="4.5" fill="${C.pin}"/><text x="-62" y="-117" fill="#a39d90" font-size="9" font-family="Galmuri11">관절 핀</text>`
+  s += `<rect x="-74" y="-108" width="8" height="6" rx="3" fill="${C.pad}"/><text x="-62" y="-102" fill="#a39d90" font-size="9" font-family="Galmuri11">손끝 패드(손바닥 쪽)</text>`
+  s += `<text x="27" y="0" fill="#a39d90" font-size="9" font-family="Galmuri11">← 손등 패널</text>`
+  return svg(s, '-90 -140 180 220')
+}
+
+// ── 자세: 손등 정면에서 손가락 길이를 굽힘만큼 줄여(앞으로 굽음) 보여 주는 간단 투영 ──
+function pose(curls, thumb, agent, opts = {}) {
+  let s = rr(-36, 50, 72, 23, 6, AG[agent], 'opacity=".9"') + rr(-43, -43, 86, 86, 20, C.shell) + rr(-34, -30, 68, 58, 10, C.panel, `stroke="${C.seam}" stroke-width="1"`) + rr(-20, 16, 40, 5, 2.5, AG[agent])
+  FING.forEach(([, x, L, w], i) => {
+    const c = curls[i], spread = (opts.spread || 4) * (1.5 - i)
+    const vis = L * Math.max(0.12, Math.cos((c * 75 * Math.PI) / 180) * 0.55 + (1 - c) * 0.45)
+    s += `<g transform="translate(${x} -45) rotate(${-spread})"><circle cx="0" cy="0" r="5.5" fill="${C.pin}"/>`
+    s += rr(-w / 2, -vis, w, vis, c > 0.6 ? 5 : w / 2, C.shell, `stroke="${C.shellD}" stroke-width=".8"`)
+    if (c > 0.55) s += rr(-w / 2 + 2, -vis, w - 4, 6, 3, C.pin) // 굽혀서 보이는 관절 핀 줄
+    s += '</g>'
+  })
+  const [tc, topp] = thumb
+  const tl = 46 * (1 - tc * 0.5)
+  s += `<g transform="translate(43 18) rotate(${35 - topp * 65})"><circle cx="0" cy="0" r="6" fill="${C.pin}"/>` + rr(-9.5, -tl, 19, tl, 9, C.shell, `stroke="${C.shellD}" stroke-width=".8"`) + '</g>'
+  if (opts.prop) s += opts.prop
+  return svg(s, '-80 -125 160 205')
+}
+document.getElementById('front').innerHTML = svg(front(1) + `<g transform="translate(200 0)">${front(3, true)}</g>` + `<text x="-30" y="100" fill="#a39d90" font-size="10" font-family="Galmuri11">메시(둥근 끝)</text><text x="165" y="100" fill="#a39d90" font-size="10" font-family="Galmuri11">루프(키캡처럼 각진 끝)</text>`, '-90 -130 380 245')
+document.getElementById('side').innerHTML = side()
+const POSES = [
+  ['쉼', [0.25, 0.25, 0.3, 0.35], [0.2, 0], 0, '힘 뺀 손. 새끼 쪽으로 갈수록 조금 더 굽음(0.25 → 0.35). 덩어리가 아니라 부채처럼 펼쳐짐(손가락 사이 4°)'],
+  ['타자', [0.35, 0.35, 0.35, 0.4], [0.3, 0.2], 1, '손가락마다 따로 0.35 ↔ 0.5를 번갈아 두드림(초당 4번). 지금 손 전체가 오르내리던 것을 손가락으로 나눔'],
+  ['쥐기', [0.85, 0.88, 0.9, 0.92], [0.7, 1], 3, '탁구채·컵. 엄지 맞섬 1 + 굽힘 0.7. 소품은 _grip에 그대로'],
+  ['집기(pinch)', [0.55, 0.8, 0.85, 0.9], [0.6, 0.9], 0, '종이비행기 꼬리(#62). 검지 끝 패드와 엄지 끝이 만남, 나머지는 접어 넣음'],
+  ['가리키기', [0, 0.9, 0.92, 0.95], [0.6, 0.6], 3, '루프가 상대 화면을 가리킴, 메모의 머리 톡톡(검지만 0 ↔ 0.2)'],
+  ['손 흔들기', [0, 0, 0.02, 0.05], [0.1, 0], 2, '다섯을 다 펴고 사이 10°. 손목이 ±20° 좌우로 흔듦', { spread: 10 }],
+  ['ㄱ자 틀(메시)', [0, 0.92, 0.94, 0.96], [0, -0.85], 1, '메시의 사각 프레임: 검지 0 + 엄지를 90° 바깥으로. 두 손으로 네모'],
+]
+document.getElementById('poses').innerHTML = POSES.map(([t, c, th, a, d, o]) => `<div class="card"><div class="art">${pose(c, th, a, o || {})}</div><div class="txt"><b>${t} · 검지 ${c[0]} · 중지 ${c[1]} · 약지 ${c[2]} · 새끼 ${c[3]}</b>${d}</div></div>`).join('')
+document.body.dataset.ready = '1'
+</script>
+</body>
+</html>
