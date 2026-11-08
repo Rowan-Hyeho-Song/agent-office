@@ -22,9 +22,10 @@ Node contract (the app reads glTF extras):
                                    hour), "backdrop", "city_lights" (the app sets day / night strength), at 40 / 25 /
                                    12 / 6 m; "portal" = the window opening, the stencil the cards are masked to.
                                    All extras wall = n
-  slot_<name>                      empties: each object's footprint (#109, extras slot, size, wall); the app ignores them
+  slot_<name>                      empties: each object's footprint (#109, extras slot, size, wall|against; core =
+                                   the body alone when the slot also holds its use room, #147: the walk grid)
   agent_<i>                        live "bot" empty on the floor: the agent's frame (front = -z)
-  agent_<i>_head, _hand_l|r, _hand_l|r_index|fingers|thumb, agent_0_postit_<k>
+  agent_<i>_head, _hand_l|r, _hand_l|r_f{1..4}_{1,2,3}, _hand_l|r_t_{1,2}, agent_0_postit_<k>
                                    live "bot": real-time lit parts with pivots (extras pivot_at); fingers bend on local x
   agent_<i>_glow|_beam|_floor, _hand_l|r_cuff, _tip, agent_1_orbit, agent_3_ear_glow, neon_desk_<i>, lamp_shade
                                    live "neon" emitters (hover light, wrist rings, state)
@@ -35,7 +36,7 @@ Node contract (the app reads glTF extras):
   prop_*, agent_0_pen              live "prop": paddles, cups, watering can, omok stones in hand (prop_piece_a black,
                                    _b white), book (its spine), paper plane, pen
                                    (extras prop, home, grip; the pen's home is on its head: extras home_on)
-  prop_book_l|r                    live "bot" (#135): the book's halves, pivot on the spine axis (local z); the app
+  prop_book_l|r                   live "bot" (#135): the book's halves, pivot on the spine axis (local z); the app
                                    attaches them to prop_book; _l opens by +180° about local z (lies flat at -x)
   prop_watering_can_spout          empty, child of the can: the spout's end, local +z = the water's way out
   omok_board                       the 15 x 15 board (lounge atlas, 3x texels: the lines are baked)
@@ -46,7 +47,8 @@ Node contract (the app reads glTF extras):
   omok_bowl_b|w                    empties: the grab point in each stone bowl (extras bowl); black by nav_game_a
   pp_ball                          live "bot" (#135): the ball, the app moves it (not a prop); pivot = its center
   pp_table                         empty at the table top center, +x = the long side (extras size [l, w], net_h)
-  nav_<id>                         empties: where agents go and which way they face (navigation)
+  nav_<id>                         empties: where agents go and which way they face (navigation); nav_meet_center_*
+                                   (#147): meeting ring centers, extras r = floor kept free around it
   shelf_r<r>_b<k>, _band, _label, _secret
                                    live "bot": the library binders (#67): cover, spine band, spine label (one cell of
                                    the shared "spines" canvas: extras canvas, grid, px, cell), SECRET stamp (own pivot)
@@ -87,6 +89,10 @@ AGENTS = [  # desk frame (x, z, ry): the agent sits on local +z and faces local 
 ]
 WINDOW_X = -1.9  # the window over desks 0-1 (2.6 m wide)
 WHITEBOARD_X, BULLETIN_X = 1.1, 2.55
+# meeting centers (#147): 1.3 m in front of the whiteboard's face, and the open floor between the work corner and the
+# lounge (the old meet_a/b middle). MEET_R = 0.75 m ring + 0.25 m body
+MEET_CENTERS = (("meet_center_board", WHITEBOARD_X, -HZ + 0.02 + 1.3), ("meet_center_floor", -1.0, -0.6))
+MEET_R = 1.0
 DOOR_Z = 2.6
 PINGPONG = (2.2, 0.0)
 SOFA = (2.2, 2.6)
@@ -122,8 +128,8 @@ def counter_frame():
 FOOTPRINTS = []
 
 
-def fp(name, objs, kind, wall=None, grow=(0.0, 0.0)):
-    """record the world bounding box of objs as a slot; grow = (x, z) margins added on both sides"""
+def bounds(objs):
+    """world bounding box (web coords) of objs: (lo, hi)"""
     bpy.context.view_layer.update()
     lo, hi = [1e9] * 3, [-1e9] * 3
     for o in objs:
@@ -131,8 +137,17 @@ def fp(name, objs, kind, wall=None, grow=(0.0, 0.0)):
             v = o.matrix_world @ Vector(c)
             for k, x in enumerate((v.x, v.z, -v.y)):
                 lo[k], hi[k] = min(lo[k], x), max(hi[k], x)
+    return lo, hi
+
+
+def fp(name, objs, kind, wall=None, grow=(0.0, 0.0), core=None):
+    """record the world bounding box of objs as a slot; grow = (x, z) margins added on both sides.
+    When the slot also holds the room to use the thing (an agent at a desk: core = the desk's objects; players at the
+    table ends: grow), the body alone goes out as extras core, so the app's walk grid (#138) blocks only the body"""
+    lo, hi = bounds(objs)
+    body = bounds(core) if core else (list(lo), list(hi)) if grow != (0.0, 0.0) else None
     lo[0], hi[0], lo[2], hi[2] = lo[0] - grow[0], hi[0] + grow[0], lo[2] - grow[1], hi[2] + grow[1]
-    FOOTPRINTS.append({"name": name, "kind": kind, "wall": wall, "lo": lo, "hi": hi})
+    FOOTPRINTS.append({"name": name, "kind": kind, "wall": wall, "lo": lo, "hi": hi, "core": body})
 
 
 def fp_box(name, kind, lo, hi, wall=None):
@@ -149,6 +164,10 @@ def build_slots():
         o.matrix_world = Mx(((lo[0] + hi[0]) / 2, lo[1], (lo[2] + hi[2]) / 2))  # the footprint's center, at its base
         o["slot"] = f["kind"]
         o["size"] = [round(b - a, 3) for a, b in zip(lo, hi)]
+        if f.get("core"):  # the body alone (no use room): its base center and size, world web coords
+            clo, chi = f["core"]
+            o["core"] = {"at": [round((clo[0] + chi[0]) / 2, 3), round(clo[1], 3), round((clo[2] + chi[2]) / 2, 3)],
+                         "size": [round(b - a, 3) for a, b in zip(clo, chi)]}
         if f["wall"]:
             # a wall item belongs to its wall (it is lowered with it); a floor thing only stands against one (#115:
             # furniture that touches the floor stays when the wall is lowered), so it gets "against", not "wall"
@@ -471,7 +490,7 @@ def build_desk(i, agent):
     # no chair: agents hover at their desk. A floor pad in the agent's color marks the spot instead.
     pad = rounded_slab("pad", 0.62, 0.006, 0.5, 0.12, (0, 0.003, 0), plastic(agent["color"], 0.9, 0, 0.6, f"pad_{i}"), G)
     pad = place([pad], F @ Mx((0, 0, WORK_Z)))
-    fp(f"desk_{i}", placed + pad, "floor")  # the desk and the agent's spot in front of it
+    fp(f"desk_{i}", placed + pad, "floor", core=placed)  # the desk and the agent's spot in front of it
     desk = join(f"desk_{i}", placed)
     pad = join(f"pad_{i}", pad)
     # live parts: the screen slot and a neon strip under the desk's front edge
@@ -1809,7 +1828,8 @@ def build_door():
 #   agent_<i>_glow / _beam    thrust ring light / light beam (pivot at its top: the app stretches it in y)
 #   agent_<i>_floor           glow disc on the floor (UV 0..1 so the app can fade its edge)
 #   agent_<i>_hand_l|r        palm, rotated into the rest pose; children: _grip (empty, where a prop attaches)
-#   agent_<i>_hand_l|r_index|fingers|thumb   pivot at the root joint, bend = local x (+ = toward the palm)
+#   agent_<i>_hand_l|r_f{1..4}_{1,2,3}, _t_{1,2}   finger segments (#134), pivot at each root joint, bend = local x
+#                             (+ = toward the palm); _t_1 also opposes about local z
 #   agent_<i>_hand_l|r_cuff   the glowing wrist ring
 # Role parts that move on their own: agent_0_pen (prop), agent_0_postit_0..4, agent_1_orbit, agent_3_ear_glow;
 # agent_3_tip is the spinning loop ring (spin = local y).
@@ -1856,6 +1876,98 @@ def capsule(name, r, length, material, group, square=False):
         return [box(name, (2 * r, length, 2 * r), (0, length / 2, 0), material, group, bev=0.006, seg=1)]
     return [cyl(name, r, length - r, (0, (length - r) / 2, 0), material, group, 8),
             sphere(name, r, (0, length - r, 0), material, group, seg=8, rings=5)]
+
+
+# ---------------------------------------------------------------- hands (#134, docs/design/agents.md 2.7)
+# Hand frame: fingers = local +y, palm face = local +z (toward the body's centre line), back = -z. Right hand: index
+# on +x (the thumb's side); the left hand mirrors x (sx = -1).
+HAND_T = 0.045  # palm thickness
+FINGERS = [  # x at the palm's top edge (right hand), length, width, rest fan (deg, toward the thumb side +)
+    (0.030, 0.058, 0.017, 6.0),  # f1 index
+    (0.010, 0.062, 0.017, 2.0),  # f2 middle
+    (-0.010, 0.055, 0.016, -2.0),  # f3 ring
+    (-0.029, 0.046, 0.014, -6.0),  # f4 little: 4° between neighbours
+]
+SEG_RATIO = (0.45, 0.30, 0.25)
+FINGER_D = 0.016  # finger thickness
+GAP = 0.002  # between segments: the joint pin fills it
+
+
+def hand_palm(shell):
+    """palm 0.086 x 0.086 x 0.045 with rounded corners (r 0.022 seen from the back) and a soft edge, so its back is
+    flat for the panel: a 0.068 x 0.058 plate 1 mm proud with two horizontal panel lines (the band is the cuff's)"""
+    panel = plastic("#e8e3d8", 0.45, 0, 0.05, "hand_panel")
+    line = plastic("#8f8a80", 0.6, 0, 0.1, "hand_panel_line")
+    palm = rounded_slab("palm", 0.086, HAND_T, 0.086, 0.022, (0, 0, 0), shell, "export", seg=4, edge=0.004)
+    palm.rotation_euler = (math.pi / 2, 0, 0)  # the slab's thickness (web y) becomes the hand's z
+    back = -HAND_T / 2
+    parts = [palm, box("back_panel", (0.068, 0.058, 0.002), (0, 0.004, back - 0.001 + 0.0005), panel, "export", bev=0.0008, seg=1)]
+    for y in (0.016, -0.004):
+        parts.append(box("panel_line", (0.06, 0.002, 0.0006), (0, y, back - 0.0016), line, "export"))
+    return parts
+
+
+def round_tip(name, w, y0, y1, depth, material, z=0.0, arc=6):
+    """a fingertip outline (hand-local web coords, the finger along +y): straight sides from y0, a half circle of
+    radius w/2 ending at y1. depth > 0: a solid of that thickness centred on z; depth 0: one flat face at z facing
+    +z (the palm side), for the pad"""
+    r = w / 2
+    yc = y1 - r
+    pts = [(-r, y0), (r, y0)] + [(r * math.cos(math.pi * k / arc), yc + r * math.sin(math.pi * k / arc)) for k in range(arc + 1)]
+    bm = bmesh.new()
+    zs = (z,) if depth == 0 else (z - depth / 2, z + depth / 2)
+    rings = [[bm.verts.new(W(x, y, zz)) for x, y in pts] for zz in zs]
+    if depth == 0:
+        bm.faces.new(rings[0])
+    else:
+        lo, hi = rings
+        bm.faces.new(list(reversed(lo)))
+        bm.faces.new(hi)
+        for a in range(len(pts)):
+            b = (a + 1) % len(pts)
+            bm.faces.new((lo[a], lo[b], hi[b], hi[a]))
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    return mesh_obj(name, bm, material, "export")
+
+
+def hand_fingers(n, Mh, sx, shell, square=False):
+    """four fingers of three segments + a thumb of two, each segment its own node with pivot_at = its root joint
+    (bend = local x, + = toward the palm; the thumb's first segment also opposes about local z). The joint pin sits
+    at the root of each segment and turns with it; the tip segment carries a dark matte pad on its palm side.
+    LOOP (square): keycap-like tip segments (corner 0.006)."""
+    pin_m = plastic("#3a3f48", 0.45, 0.3, 0.05, "joint_pin")
+    pad_m = plastic("#2c3138", 0.9, 0, 0.2, "finger_pad")
+    out = []
+
+    def finger(name, F, lengths, width, depth):
+        joint = 0.0
+        for k, ln in enumerate(lengths):
+            w = width - 0.0006 * k
+            Mk = F @ Mx((0, joint, 0))
+            tip = k == len(lengths) - 1
+            seg_len = ln - GAP if not tip else ln - GAP / 2
+            y0 = GAP / 2
+            parts = [cyl("pin", 0.0045, w + 0.001, (0, 0, 0), pin_m, "export", 6, axis="x")]
+            if tip and not square:  # a rounded fingertip: half-width radius, a half circle seen from the back (designer)
+                parts.append(round_tip("seg", w, y0, y0 + seg_len, depth, shell))
+                # the pad: the same outline 0.86x over the tip's last 2/3, on the palm side
+                parts.append(round_tip("pad", w * 0.86, y0 + seg_len * 0.33, y0 + seg_len - 0.0007, 0.0, pad_m, z=depth / 2 + 0.0004))
+            else:  # LOOP's keycap tip (corner 0.006), and the middle segments (1.5 mm)
+                bev = 0.006 if (tip and square) else 0.0015
+                parts.append(box("seg", (w, seg_len, depth), (0, y0 + seg_len / 2, 0), shell, "export", bev=bev, seg=1))
+                if tip:  # the pad: 2/3 of the tip segment on the palm side, 1.5 mm
+                    pl = seg_len * 0.67
+                    parts.append(box("pad", (w * 0.86, pl, 0.0015), (0, y0 + seg_len - pl / 2 - 0.0015, depth / 2 + 0.00075), pad_m, "export"))
+            out.append(pivot(join(f"{name}_{k + 1}", place(parts, Mk)), Mk))
+            joint += ln
+
+    for f, (x, length, width, fan) in enumerate(FINGERS, start=1):
+        F = Mh @ Mx((sx * x, 0.043, 0.0)) @ Mx(rz=-sx * math.radians(fan))
+        finger(f"{n}_f{f}", F, [length * r for r in SEG_RATIO], width, FINGER_D)
+    # thumb: root beside the palm's lower corner, 35° out from the finger direction and 20° toward the palm
+    T = Mh @ Mx((sx * 0.04, -0.018, 0.0)) @ Mx(rz=-sx * math.radians(35)) @ Mx(rx=math.radians(20))
+    finger(f"{n}_t", T, [0.026, 0.020], 0.019, 0.017)
+    return out
 
 
 def lowrail(name, pts, r, material, group):
@@ -2009,26 +2121,22 @@ def build_agent(i, agent):
     floor = pivot(apply_all(place(disc(f"agent_{i}_floor", 0.26, soft_glow(col, 0.45, 1.2, f"floor_{i}"), "export"), F0)[0]), F0)
     neon.append(floor)
 
-    # -- hands (glove A: palm + index + three-finger block + thumb), wrist cuff, grip empty
-    square = i == 3
+    # -- hands (#134, agents.md 2.7): palm with a back panel, four fingers of three segments and a two-segment thumb,
+    #    graphite joint pins, dark fingertip pads; wrist cuff + back band (neon), grip empty
     for side, sx in (("l", -1), ("r", 1)):
         Mh = root @ hand_rest(side)
         n = f"agent_{i}_hand_{side}"
-        palm = box("palm", (0.086, 0.086, 0.045), (0, 0, 0), shell, G, bev=0.02, seg=3)
-        bot.append(pivot(join(n, place([palm], Mh)), Mh))
-        Mi = Mh @ Mx((sx * 0.027, 0.022, 0.0))
-        bot.append(pivot(join(f"{n}_index", place(capsule("index", 0.011, 0.07, shell, G, square), Mi)), Mi))
-        Mf = Mh @ Mx((-sx * 0.013, 0.02, 0.0))
-        blk = box("fingers", (0.046, 0.055, 0.04), (0, 0.0275, 0), shell, G, bev=0.006 if square else 0.015, seg=1 if square else 2)
-        bot.append(pivot(join(f"{n}_fingers", place([blk], Mf)), Mf))
-        Mt = Mh @ Mx((sx * 0.04, -0.018, 0.0)) @ Mx(rz=-sx * math.radians(35)) @ Mx(rx=math.radians(20))
-        bot.append(pivot(join(f"{n}_thumb", place(capsule("thumb", 0.012, 0.046, shell, G, square), Mt)), Mt))
+        palm_node = pivot(join(n, place(hand_palm(shell), Mh)), Mh)
+        bot.append(palm_node)
+        bot += hand_fingers(n, Mh, sx, shell, square=i == 3)
         cuff = [tube("cuff", 0.036, 0.023, (0, -0.05, 0), glow_m, "export", 16),
-                cyl("cuff_cap", 0.03, 0.006, (0, -0.06, 0), glow_m, "export", 12)]
+                cyl("cuff_cap", 0.03, 0.006, (0, -0.06, 0), glow_m, "export", 12),
+                # the back band: agent colour like the cuff (HUE's turns with it), on the back panel's lower edge
+                box("back_band", (0.04, 0.005, 0.0012), (0, -0.022, -HAND_T / 2 - 0.0023), glow_m, "export")]
         neon.append(pivot(join(f"{n}_cuff", place(cuff, Mh)), Mh))
         g = bpy.data.objects.new(f"{n}_grip", None)
         coll("export").objects.link(g)
-        g.parent = bot[-4]  # the palm node
+        g.parent = palm_node
         # 1.5 cm toward the fingers: at the palm center a held cup sank into the palm
         g.matrix_world = Matrix.Translation((Mh @ Mx((0, GRIP_Y, 0))).to_translation()) @ root.to_3x3().to_4x4() @ Mx(rx=GRIP_RX)
         g["grip_of"] = side
@@ -2075,8 +2183,8 @@ def build_agent(i, agent):
 
 # ================================================================ NAVIGATION SPOTS (empties)
 # Where agents go and which way they face there. The app links them through the hall nodes into a graph and
-# glides agents along it (no teleporting, never through furniture), and sends two agents to a "meet" pair to
-# talk face to face. Each empty: name nav_<id>, extras nav=<kind> (work, stand, sofa, stool, play, meet, door,
+# glides agents along it (no teleporting, never through furniture), and gathers a meeting on a ring around a
+# meet_center. Each empty: name nav_<id>, extras nav=<kind> (work, stand, sofa, stool, play, meet_center, door,
 # hall), ry=<facing>.
 def nav(name, x, z, ry, kind):
     o = bpy.data.objects.new(f"nav_{name}", None)
@@ -2137,11 +2245,11 @@ def build_nav():
     nav("game_a", GAME_TABLE[0] - 0.6, GAME_TABLE[1], -math.pi / 2, "stool")
     nav("game_b", GAME_TABLE[0] + 0.6, GAME_TABLE[1], math.pi / 2, "stool")
     nav("door", -HX + 0.55, DOOR_Z, math.pi / 2, "door")
-    # face-to-face talk spots (0.8 / 0.62 m apart): in the open floor, and by the whiteboard
-    nav("meet_a", -1.4, -0.6, -math.pi / 2, "meet")
-    nav("meet_b", -0.6, -0.6, math.pi / 2, "meet")
-    nav("meet_c", WHITEBOARD_X - 0.31, -1.9, -math.pi / 4, "meet")
-    nav("meet_d", WHITEBOARD_X + 0.31, -1.9, math.pi / 4, "meet")
+    # meeting centers (#147, agents.md "대형"): the app stands the people on a 0.75 m ring around one and turns them
+    # to its center. ry = the 0° direction (toward the board); r = the floor kept free of furniture around it
+    # (ring + a body), checked by check-glb --overlap
+    for name, x, z in MEET_CENTERS:
+        nav(name, x, z, 0.0, "meet_center")["r"] = MEET_R
     # hall nodes: the aisles between the zones (#109 layout; the app's nav check #17 links and tests them)
     for name, x, z in (("door", -3.3, DOOR_Z), ("west", -3.0, 1.4), ("work", -2.2, -1.5), ("mid", -1.0, -0.6),
                        ("back", 2.0, -1.7), ("east", 3.1, -1.3), ("front", 0.2, 1.3), ("lounge", 3.95, 1.6),
@@ -2261,12 +2369,37 @@ def move_agent(i, x, z, ry):
     bpy.context.view_layer.update()
 
 
-def curl(i, side, index=0.0, fingers=0.0, thumb=0.0):
-    """bend fingers about their local x (+ = toward the palm), degrees"""
-    for part, deg in (("index", index), ("fingers", fingers), ("thumb", thumb)):
-        o = bpy.data.objects[f"agent_{i}_hand_{side}_{part}"]
-        o.matrix_world = o.matrix_world @ Mx(rx=math.radians(deg))
+HAND_REST_M = {}  # node name -> its exported (straight) world matrix, for the preview poses
+
+
+def pose(i, side, c=(0.0, 0.0, 0.0, 0.0), thumb=(0.0, 0.0)):
+    """the designer's hand poses (agents.md 2.7, preview only): one bend value c per finger; segment angles are
+    root 75°·c, middle 90°·c, tip 60°·c about local x. thumb = (bend, opposition): first segment 55°·bend about x
+    and 60°·opposition about z (toward the palm), second 70°·bend. c = 0 is the exported straight hand."""
+    sx = -1 if side == "l" else 1
+    n = f"agent_{i}_hand_{side}"
+
+    palm = bpy.data.objects[n].matrix_world.copy()
+
+    def chain(prefix, angles):
+        names = [f"{prefix}_{k + 1}" for k in range(len(angles))]
+        for nm in names:  # rest = the straight segment relative to its palm (agents move between shots)
+            HAND_REST_M.setdefault(nm, palm.inverted() @ bpy.data.objects[nm].matrix_world)
+        M = None
+        for k, (nm, R) in enumerate(zip(names, angles)):
+            rest = palm @ HAND_REST_M[nm]
+            M = rest @ R if k == 0 else M @ (HAND_REST_M[names[k - 1]].inverted() @ HAND_REST_M[nm]) @ R
+            bpy.data.objects[nm].matrix_world = M
+
+    for f, cf in enumerate(c, start=1):
+        chain(f"{n}_f{f}", [Mx(rx=math.radians(a * cf)) for a in (75, 90, 60)])
+    b, o = thumb
+    chain(f"{n}_t", [Mx(rz=sx * math.radians(60 * o)) @ Mx(rx=math.radians(55 * b)), Mx(rx=math.radians(70 * b))])
     bpy.context.view_layer.update()
+
+
+GRIP_POSE = ((0.85, 0.88, 0.90, 0.92), (0.7, 1.0))
+REST_POSE = ((0.25, 0.25, 0.30, 0.35), (0.2, 0.0))
 
 
 def preview_glow_materials():
@@ -2470,27 +2603,46 @@ if PREVIEW:
     # 2) holding props by their #20 grip offsets on the new _grip empties (preview-only poses)
     saved = {n: bpy.data.objects[n].matrix_world.copy() for n in ("prop_paddle_a", "prop_cup_1")}
     hold(0, "r", "prop_paddle_a")
-    curl(0, "r", 70, 80, 40)
+    pose(0, "r", *GRIP_POSE)
     shoot("hold_paddle", (1.15, 1.15, 1.9), (0.45, 0.85, 1.2))
     hold(3, "r", "prop_cup_1", upright=True)
-    curl(3, "r", 60, 70, 30)
+    pose(3, "r", *GRIP_POSE)
     shoot("hold_cup", (1.15, 1.05, -2.6), (0.6, 0.86, -2.1))
     for n, M in saved.items():
         bpy.data.objects[n].matrix_world = M
-    curl(0, "r", -70, -80, -40)
-    curl(3, "r", -60, -70, -30)
-    # 3) the four in a row: front, back, at work
+    # 3) the four in a row: front, back, at work — hands in the designer's rest pose (#134)
+    for i in range(len(AGENTS)):
+        for s in "lr":
+            pose(i, s, *REST_POSE)
     XS = (-1.05, -0.35, 0.35, 1.05)
     LZ = -0.9
     for i, x in enumerate(XS):
         move_agent(i, x, LZ, math.pi)
     shoot("agents_front", (0, 1.45, 2.75), (0, 0.78, LZ))
     shoot("hands_rest", (XS[1], 1.05, -0.05), (XS[1], 0.87, LZ))
-    curl(3, "r", 0, 100, 60)  # pointing
-    curl(3, "l", 100, 100, 50)  # fist
+
+    def hand_close(name, i, side, back=True):
+        """close-up of one hand along its palm normal (back = from the back panel's side)"""
+        M = bpy.data.objects[f"agent_{i}_hand_{side}"].matrix_world
+        c = M.to_translation()
+        nz = (M.to_3x3() @ Vector((0, -1, 0))).normalized()  # the palm normal: hand web +z = Blender local -Y (basis())
+        cam_b = c + nz * (-0.3 if back else 0.2) + Vector((0, 0, 0.05))
+        shoot(name, (cam_b.x, cam_b.z, -cam_b.y), (c.x, c.z, -c.y))
+
+    # the outer hands of the lineup (MEMO right, LOOP left): an inner hand has the neighbour's hand in front of it
+    hand_close("hand_back_rest", 0, "r")
+    hand_close("hand_palm_rest", 0, "r", back=False)
+    pose(0, "r", *GRIP_POSE)
+    hand_close("hand_grip", 0, "r", back=False)
+    pose(0, "r", (0.0, 0.9, 0.92, 0.95), (0.6, 0.6))
+    hand_close("hand_point", 0, "r")
+    pose(0, "r", *REST_POSE)
+    hand_close("hand_loop_back", 3, "l")
+    pose(3, "r", (0.0, 0.9, 0.92, 0.95), (0.6, 0.6))  # pointing
+    pose(3, "l", *GRIP_POSE)  # grip / fist
     shoot("hands_pose", (XS[3], 1.05, -0.05), (XS[3], 0.87, LZ))
-    curl(3, "r", 0, -100, -60)
-    curl(3, "l", -100, -100, -50)
+    pose(3, "r", *REST_POSE)
+    pose(3, "l", *REST_POSE)
     for i, x in enumerate(XS):
         move_agent(i, x, LZ, 0.0)
     shoot("agents_back", (0, 1.45, 2.75), (0, 0.78, LZ))
