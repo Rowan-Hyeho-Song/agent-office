@@ -7,6 +7,7 @@ export const DOOR_FX = {
   // extras (not in the spec's block)
   x1Ms: 700, // X1: dive into the door screen, power3.in
   x1Dist: 0.35, // m from the screen where the dive ends
+  introDelayMs: 300, // O waits this long after `entered`, so the amber door still fills the view while C1-C2 sweep over it
   introRiseShare: 0.4, // the path has risen most of its height by this share of the time
   introRise: 0.9, // ...this much of it
   enteredTimeoutMs: 5000, // no `entered` from the desk: pull back on our own

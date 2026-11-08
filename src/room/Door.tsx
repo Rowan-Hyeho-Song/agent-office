@@ -160,7 +160,7 @@ export function Door({ nodes }: { nodes: OfficeNodes }) {
         setBusy(false)
         return
       }
-      anim.current = { from: at, to: HOME_POS, fromT: frame.center.clone(), toT: HOME_TARGET, t0: performance.now(), ms: DOOR_FX.officeIntroMs, kind: 'intro' }
+      anim.current = { from: at, to: HOME_POS, fromT: frame.center.clone(), toT: HOME_TARGET, t0: performance.now() + DOOR_FX.introDelayMs, ms: DOOR_FX.officeIntroMs, kind: 'intro' }
     }
     const offEntered = onEntered(toHome)
     const timer = window.setTimeout(toHome, DOOR_FX.enteredTimeoutMs)
@@ -192,7 +192,7 @@ export function Door({ nodes }: { nodes: OfficeNodes }) {
     const a = anim.current
     if (!a) return
     const cam = camera as PerspectiveCamera
-    const k = Math.min(1, (performance.now() - a.t0) / a.ms)
+    const k = Math.max(0, Math.min(1, (performance.now() - a.t0) / a.ms))
     if (a.kind === 'intro') {
       const e = easeOut2(k)
       cam.position.lerpVectors(a.from, a.to, e)

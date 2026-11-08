@@ -49,8 +49,10 @@ export function App() {
             <Vignette offset={0.3} darkness={0.6} />
           </EffectComposer>
         </Suspense>
+        {/* not mounted while the door animation owns the camera: nothing can clamp the door pose, and the controls
+            start from the finished home pose */}
+        {!busy && (
         <OrbitControls
-          enabled={!busy}
           target={close ? (close.slice(3) as [number, number, number]) : top ? [0, 0, 0] : TARGET}
           enablePan={false}
           enableDamping
@@ -61,6 +63,7 @@ export function App() {
           minAzimuthAngle={top || close ? -Infinity : -0.15}
           maxAzimuthAngle={top || close ? Infinity : 1.45}
         />
+        )}
       </Canvas>
       <p className="hud">
         <b>AGENT OFFICE</b> · 드래그해서 돌려 보기
