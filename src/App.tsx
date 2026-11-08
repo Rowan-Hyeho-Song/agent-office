@@ -12,6 +12,8 @@ import { Office } from './office/Office'
 import { useCameraBusy } from './room/Door'
 import { RoomUi } from './room/RoomUi'
 import { createWorld } from './office/world'
+import { ReplayDriver } from './replay/ReplayDriver'
+import { ReplayHud } from './replay/ReplayHud'
 
 /** the diorama's center and the default isometric-ish view from the front right */
 const TARGET: [number, number, number] = [-0.25, 0.7, -0.2]
@@ -79,6 +81,8 @@ export function App() {
       <ApprovalBox world={world} />
       <DocsViewer world={world} />
       <RoomUi />
+      <ReplayDriver world={world} />
+      <ReplayHud world={world} />
       {world.debug && <DebugPanel world={world} />}
     </>
   )

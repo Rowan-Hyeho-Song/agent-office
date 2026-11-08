@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { useReplay } from '../replay/store'
 import { activityLabel } from './status'
 import { AGENT_INFO, type OfficeWorld } from './world'
 
@@ -9,7 +10,10 @@ const STATE_LABELS = { working: '', wrapping: '카드 정리 중', idle: '휴식
  * screen readers. Its look comes later from the design (#18).
  */
 export function AgentList({ world }: { world: OfficeWorld }) {
+  const replaying = useReplay().mode === 'office'
   const status = useSyncExternalStore(world.source.subscribe, world.source.getSnapshot)
+  // the replay is on: the live list would mix with the record (timelapse.md 1)
+  if (replaying) return null
   return (
     <section className="agent-list" aria-label="에이전트 상태">
       <ul>

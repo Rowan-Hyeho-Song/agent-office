@@ -15,6 +15,10 @@ import { PaperPlanes } from './plane'
 import { ScreenLive } from './screenLive'
 import { deskProps } from './props'
 import { AgentRig, PropBank, buildRig } from './rig'
+import { replay } from '../replay/store'
+import { atMs } from '../replay/engine'
+import { replayDoorLine, replayGoals } from '../replay/scene'
+import { STAMP_MS } from './props'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
 import type { RootState } from '@react-three/fiber'
 
@@ -102,14 +106,26 @@ export function Agents({ world }: { world: OfficeWorld }) {
   useFrame((state, dt) => {
     const now = officeNow(world)
     const t = state.clock.elapsedTime
-    const status = world.source.getSnapshot()
-    const goals = world.director.goals(now, Math.floor(now / 60000), status, (a) => rigs[a].arrived)
+    // the timelapse (#82): the record's statuses and desk goals stand in for the live ones (and the director's play)
+    const scene = replay.getSnapshot().mode === 'office' ? replay.scene() : null
+    const status = scene ? scene.status : world.source.getSnapshot()
+    const goals = scene ? replayGoals(status) : world.director.goals(now, Math.floor(now / 60000), status, (a) => rigs[a].arrived)
     // a replayed meeting calls its agents in (plan 6.4); the director's goals are the fallback for everyone else
     world.replay?.tick()
     const door = graph.spots.door
     world.meeting.apply(now, (a) => rigs[a].arrived, goals, door ? { x: door.x, z: door.z } : undefined)
     world.goals = goals
-    const desk = deskProps({ ...world.props.getSnapshot(), status, now })
+    const desk = scene
+      ? deskProps({
+          ...world.props.getSnapshot(),
+          pending: scene.pending,
+          waitingSeats: scene.waitingSeats,
+          decidedAt: scene.stamped && performance.now() - replay.landedAt < STAMP_MS ? atMs(scene.point) : null,
+          handoffsToday: 0,
+          status,
+          now: atMs(scene.point),
+        })
+      : deskProps({ ...world.props.getSnapshot(), status, now })
     // the coder looks at its rubber duck when a test fails (set before the rigs move)
     if (rigs.agent_3) rigs.agent_3.watch = desk.duckLook && rigs.agent_3.arrived === `work_3` ? desks.duckPoint() : null
     for (const id in rigs) rigs[id].setGoal(goals[id], graph)
@@ -129,8 +145,11 @@ export function Agents({ world }: { world: OfficeWorld }) {
     if (!l) return
     // a meeting's bubbles win over a staged talk's; one per agent
     const byId = new Map<string, BubbleItem>()
-    for (const id in rigs) world.bubbles.goal(id, world.goals[id]?.bubble, now, world.goals[id]?.lookAt)
-    for (const b of world.bubbles.items(now, reduced)) byId.set(b.id, b)
+    const replaying = replay.getSnapshot().mode === 'office'
+    if (!replaying) {
+      for (const id in rigs) world.bubbles.goal(id, world.goals[id]?.bubble, now, world.goals[id]?.lookAt)
+      for (const b of world.bubbles.items(now, reduced)) byId.set(b.id, b)
+    }
     const meet = world.meeting.view(now)
     if (meet) {
       for (const b of meet.frame.bubbles) {
@@ -154,17 +173,18 @@ export function Agents({ world }: { world: OfficeWorld }) {
     }
     const d = meet?.frame.door
     const chars = d ? [...d.text] : []
-    setDoorMessage(d ? { text: chars.slice(0, d.typed).join(''), masked: d.masked } : null)
+    setDoorMessage(d ? { text: chars.slice(0, d.typed).join(''), masked: d.masked } : replaying ? replayDoorLine(performance.now()) : null)
     if (d && d.typed >= chars.length) l.note(d.key, d.log)
     const rect = state.gl.domElement.getBoundingClientRect()
     const anchors: Record<string, Anchor> = {}
     const tags: TagItem[] = []
-    const status = world.source.getSnapshot()
+    // the replay shows the past: no live night / duty state (sleepers' z, status tags) reaches the bubble layer
+    const status = replaying ? {} : world.source.getSnapshot()
     for (const id in rigs) {
       const rig = rigs[id]
       head.set(rig.group.position.x, rig.parts.head.position.y + 0.3, rig.group.position.z).project(state.camera)
       anchors[id] = { x: rect.left + ((head.x + 1) / 2) * rect.width, y: rect.top + ((1 - head.y) / 2) * rect.height, visible: head.z < 1 && !rig.hidden }
-      const tag = statusTag(status[id])
+      const tag = replaying ? null : statusTag(status[id])
       if (tag) tags.push({ id, seat: Number(id.split('_')[1]), ...tag })
     }
     l.update([...byId.values()], tags, anchors, { w: window.innerWidth, h: window.innerHeight, narrow: narrow.matches })

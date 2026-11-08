@@ -102,6 +102,7 @@ export function finalize(p, cfg = {}) {
     files: count(p.files),
     issue: secret ? null : num(p.issue),
     pr: secret ? null : num(p.pr),
+    ...(p.kind === 'approval' && p.result === true ? { result: true } : {}),
     tier: secret ? 'review' : 'public',
   }
 }
@@ -245,6 +246,7 @@ export function collect(data) {
           kind: 'approval',
           agent: who ? seatIn(who[1].split('(')[0]) : null,
           title: `${kind === 'request' ? '결재 요청' : '결재'}: ${issue.title}`,
+          ...(kind === 'result' ? { result: true } : {}),
           issue: issue.number,
           author: own(c),
         }),

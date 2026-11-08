@@ -1,3 +1,4 @@
+import { IssueReplayButton } from '../replay/IssueReplayButton'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
 import { fmtDay as fmtShortDay } from '../approvals/view'
 import {
@@ -277,6 +278,7 @@ function FileHead({ file, folder }: { file: DocFile; folder: DocFolder }) {
           ))}
         </div>
       )}
+      {!priv && file.repo && file.n !== null && <IssueReplayButton repo={file.repo} n={file.n} />}
     </div>
   )
 }
