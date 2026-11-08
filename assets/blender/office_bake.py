@@ -1274,6 +1274,29 @@ def hand_palm(shell):
     return parts
 
 
+def round_tip(name, w, y0, y1, depth, material, z=0.0, arc=6):
+    """a fingertip outline (hand-local web coords, the finger along +y): straight sides from y0, a half circle of
+    radius w/2 ending at y1. depth > 0: a solid of that thickness centred on z; depth 0: one flat face at z facing
+    +z (the palm side), for the pad"""
+    r = w / 2
+    yc = y1 - r
+    pts = [(-r, y0), (r, y0)] + [(r * math.cos(math.pi * k / arc), yc + r * math.sin(math.pi * k / arc)) for k in range(arc + 1)]
+    bm = bmesh.new()
+    zs = (z,) if depth == 0 else (z - depth / 2, z + depth / 2)
+    rings = [[bm.verts.new(W(x, y, zz)) for x, y in pts] for zz in zs]
+    if depth == 0:
+        bm.faces.new(rings[0])
+    else:
+        lo, hi = rings
+        bm.faces.new(list(reversed(lo)))
+        bm.faces.new(hi)
+        for a in range(len(pts)):
+            b = (a + 1) % len(pts)
+            bm.faces.new((lo[a], lo[b], hi[b], hi[a]))
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    return mesh_obj(name, bm, material, "export")
+
+
 def hand_fingers(n, Mh, sx, shell, square=False):
     """four fingers of three segments + a thumb of two, each segment its own node with pivot_at = its root joint
     (bend = local x, + = toward the palm; the thumb's first segment also opposes about local z). The joint pin sits
@@ -1289,13 +1312,19 @@ def hand_fingers(n, Mh, sx, shell, square=False):
             w = width - 0.0006 * k
             Mk = F @ Mx((0, joint, 0))
             tip = k == len(lengths) - 1
-            bev = 0.006 if (tip and square) else 0.0015
             seg_len = ln - GAP if not tip else ln - GAP / 2
-            parts = [box("seg", (w, seg_len, depth), (0, GAP / 2 + seg_len / 2, 0), shell, "export", bev=bev, seg=1),
-                     cyl("pin", 0.0045, w + 0.001, (0, 0, 0), pin_m, "export", 6, axis="x")]
-            if tip:  # the pad: 2/3 of the tip segment on the palm side, 1.5 mm
-                pl = seg_len * 0.67
-                parts.append(box("pad", (w * 0.86, pl, 0.0015), (0, GAP / 2 + seg_len - pl / 2 - 0.0015, depth / 2 + 0.00075), pad_m, "export"))
+            y0 = GAP / 2
+            parts = [cyl("pin", 0.0045, w + 0.001, (0, 0, 0), pin_m, "export", 6, axis="x")]
+            if tip and not square:  # a rounded fingertip: half-width radius, a half circle seen from the back (designer)
+                parts.append(round_tip("seg", w, y0, y0 + seg_len, depth, shell))
+                # the pad: the same outline 0.86x over the tip's last 2/3, on the palm side
+                parts.append(round_tip("pad", w * 0.86, y0 + seg_len * 0.33, y0 + seg_len - 0.0007, 0.0, pad_m, z=depth / 2 + 0.0004))
+            else:  # LOOP's keycap tip (corner 0.006), and the middle segments (1.5 mm)
+                bev = 0.006 if (tip and square) else 0.0015
+                parts.append(box("seg", (w, seg_len, depth), (0, y0 + seg_len / 2, 0), shell, "export", bev=bev, seg=1))
+                if tip:  # the pad: 2/3 of the tip segment on the palm side, 1.5 mm
+                    pl = seg_len * 0.67
+                    parts.append(box("pad", (w * 0.86, pl, 0.0015), (0, y0 + seg_len - pl / 2 - 0.0015, depth / 2 + 0.00075), pad_m, "export"))
             out.append(pivot(join(f"{name}_{k + 1}", place(parts, Mk)), Mk))
             joint += ln
 
