@@ -1,17 +1,37 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
-import { BoxGeometry, Mesh, MeshBasicMaterial, type Object3D } from 'three'
+import { Box3, BoxGeometry, Mesh, MeshBasicMaterial, Vector3, type Object3D } from 'three'
+import { wallRect } from './room'
 import { NONE_HIDDEN, VIEW, WALLS, cutAt, nextHidden, wallTop, type Hidden, type Wall } from './view'
-import { WALL_CUT, WALL_PLANES, WALL_RECT, setWallCut, wallOf } from './walls'
+import { WALL_CUT, WALL_HIDDEN, WALL_PLANES, setWallCut, wallOf } from './walls'
 
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+
+/** the window's view cards are not clipped with the wall: only the portal is, and it takes the stencil (OutsideView.tsx) with it */
+const OUTSIDE = new Set(['sky', 'backdrop', 'city_lights'])
+const liveOf = (o: Object3D | null): string => {
+  for (; o; o = o.parent) if (o.userData.live) return o.userData.live as string
+  return ''
+}
+
+/** the cap strip of a wall: the wall node's own box (its real rect), else the room's */
+function capRect(scene: Object3D, w: Wall) {
+  const node = scene.getObjectByName(`wall_${w}`)
+  if (node) {
+    const b = new Box3().setFromObject(node)
+    const c = b.getCenter(new Vector3())
+    const s = b.getSize(new Vector3())
+    if (s.x > 0 && s.z > 0) return { cx: c.x, cz: c.z, sx: s.x, sz: s.z }
+  }
+  return wallRect(w)
+}
 
 /** point every wall mesh's material at its wall's shared clipping plane (new meshes and swapped materials included) */
 function bindClips(scene: Object3D) {
   scene.traverse((o) => {
     if (!(o instanceof Mesh) || Array.isArray(o.material)) return
     const w = wallOf(o)
-    if (w && o.material.clippingPlanes !== WALL_PLANES[w]) o.material.clippingPlanes = WALL_PLANES[w]
+    if (w && !OUTSIDE.has(liveOf(o)) && o.material.clippingPlanes !== WALL_PLANES[w]) o.material.clippingPlanes = WALL_PLANES[w]
   })
 }
 
@@ -23,12 +43,13 @@ function bindClips(scene: Object3D) {
 export function Cutaway({ scene }: { scene: Object3D }) {
   const gl = useThree((s) => s.gl)
   const caps = useMemo(() => {
+    scene.updateMatrixWorld(true)
+    scene.updateMatrixWorld(true)
     const geo = new BoxGeometry(1, 1, 1)
     const mat = new MeshBasicMaterial({ color: VIEW.capColor, toneMapped: false })
     const out: Partial<Record<Wall, Mesh>> = {}
     for (const w of WALLS) {
-      const r = WALL_RECT[w]
-      if (!r) continue
+      const r = capRect(scene, w)
       const m = new Mesh(geo, mat)
       m.scale.set(r.sx, 0.012, r.sz)
       m.position.set(r.cx, VIEW.wallH, r.cz)
@@ -36,7 +57,7 @@ export function Cutaway({ scene }: { scene: Object3D }) {
       out[w] = m
     }
     return out
-  }, [])
+  }, [scene])
   useEffect(() => {
     gl.localClippingEnabled = true
     if (import.meta.env.DEV) Object.assign(window, { __cut: WALL_CUT }) // screenshot scripts read the wall heights
@@ -77,6 +98,7 @@ export function Cutaway({ scene }: { scene: Object3D }) {
       }
     }
     s.hidden = nh
+    Object.assign(WALL_HIDDEN, nh)
     s.first = false
   })
   return null

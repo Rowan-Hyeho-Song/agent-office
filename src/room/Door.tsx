@@ -2,6 +2,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { Box3, CanvasTexture, MeshBasicMaterial, Raycaster, SRGBColorSpace, Vector2, Vector3, type PerspectiveCamera } from 'three'
 import { meshesOf, type OfficeNodes } from '../office/nodes'
+import { DEFAULT_CAMERA, DEFAULT_TARGET } from '../office/room'
 import { hitAllowed } from '../office/walls'
 import { DOOR_FX } from './doorFx'
 import { DOOR_H, DOOR_W, drawDoor, hoverTick } from './doorScreen'
@@ -12,8 +13,8 @@ import { ROOM_MODE, isLocked, leaveOffice, onEntered, onLeaveStart } from './lin
 // dives into it (X1). The desk's CRT is what the visitor sees around these (rowansong.dev #6 spec).
 
 /** default view (App.tsx): the intro ends here */
-export const HOME_POS = new Vector3(6.6, 6.2, 7.4)
-export const HOME_TARGET = new Vector3(-0.25, 0.7, -0.2)
+export const HOME_POS = new Vector3(...DEFAULT_CAMERA)
+export const HOME_TARGET = new Vector3(...DEFAULT_TARGET)
 
 const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
 

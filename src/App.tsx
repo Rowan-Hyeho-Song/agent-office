@@ -7,6 +7,7 @@ import { ApprovalBox } from './office/ApprovalBox'
 import { DebugPanel } from './office/DebugPanel'
 import { DocsViewer } from './office/DocsViewer'
 import { CameraHint, CameraRig } from './office/cameraRig'
+import { CAMERA_FAR, DEFAULT_CAMERA, DEFAULT_TARGET, LAMP_POS } from './office/room'
 import { VIEW } from './office/view'
 import { Office } from './office/Office'
 import { useCameraBusy } from './room/Door'
@@ -15,9 +16,9 @@ import { createWorld } from './office/world'
 import { ReplayDriver } from './replay/ReplayDriver'
 import { ReplayHud } from './replay/ReplayHud'
 
-/** the diorama's center and the default isometric-ish view from the front right */
-const TARGET: [number, number, number] = [-0.25, 0.7, -0.2]
-const CAMERA: [number, number, number] = [6.6, 6.2, 7.4]
+/** the default isometric-ish view from the front right (room.ts) */
+const TARGET = [...DEFAULT_TARGET] as [number, number, number]
+const CAMERA = [...DEFAULT_CAMERA] as [number, number, number]
 /** ?debug=1&view=top: straight down over the floor plan, to check routes against the furniture */
 const TOP: [number, number, number] = [0, 13, 0.01]
 
@@ -41,17 +42,17 @@ export function App() {
     <>
       <Canvas
         dpr={[1, 1.5]}
-        camera={{ fov: 32, near: 0.1, far: 60, position: close ? (close.slice(0, 3) as [number, number, number]) : top ? TOP : CAMERA }}
-        gl={{ antialias: true }}
+        camera={{ fov: 32, near: 0.1, far: CAMERA_FAR, position: close ? (close.slice(0, 3) as [number, number, number]) : top ? TOP : CAMERA }}
+        gl={{ antialias: true, stencil: true }}
       >
         <Suspense fallback={null}>
           {/* real-time light for the agents only (everything else is baked): cool fill from the window side,
               a warm key from the lounge lamp, and the work-corner panel overhead */}
           <hemisphereLight args={['#9fb4ff', '#2a1e1a', 0.9]} />
           <directionalLight position={[-2, 4.5, 2]} intensity={1.6} color="#e8ecff" />
-          <pointLight position={[1.6, 1.55, 2.25]} intensity={3} distance={5} decay={1.6} color="#ffcf8a" />
+          <pointLight position={[...LAMP_POS]} intensity={3} distance={5} decay={1.6} color="#ffcf8a" />
           <Office world={world} />
-          <EffectComposer multisampling={0}>
+          <EffectComposer multisampling={0} stencilBuffer>
             <Bloom mipmapBlur intensity={0.9} luminanceThreshold={1} luminanceSmoothing={0.3} />
             <Vignette offset={0.3} darkness={0.6} />
           </EffectComposer>

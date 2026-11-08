@@ -15,6 +15,7 @@ import { Shelf } from './Shelf'
 import { Whiteboard } from './Whiteboard'
 import { Cutaway } from './cutaway'
 import { Occluders } from './occluders'
+import { Outside } from './OutsideView'
 import { WALL_CUT, wallOf } from './walls'
 import type { OfficeWorld } from './world'
 
@@ -26,6 +27,7 @@ export function Office({ world }: { world: OfficeWorld }) {
       <primitive object={scene} />
       <Cutaway scene={scene} />
       <Occluders groups={fades} />
+      <Outside nodes={nodes} world={world} />
       <Agents world={world} />
       <TrayClick scene={scene} nodes={nodes} />
       <ClockRig scene={scene} nodes={nodes} />
