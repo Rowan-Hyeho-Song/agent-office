@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>놀이 참여 시안</title>
+<!-- 시안 열람용으로만 CDN에서 갈무리를 불러온다(앱은 자체 서빙, office-ui.md 7절). -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/galmuri.css" />
+<link rel="stylesheet" href="../../src/styles/tokens.css" />
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--color-void); color: var(--color-text); font-family: var(--font-text); font-size: 15px; line-height: 1.6; color-scheme: dark; }
+.page { max-width: 1240px; margin: 0 auto; padding: var(--space-8) var(--space-4) 96px; }
+h1, h2 { font-family: var(--font-pixel); font-weight: 400; margin: 0; }
+h1 { font-size: var(--font-size-2); line-height: 36px; }
+h2 { font-size: var(--font-size-2); line-height: 36px; margin-top: 48px; }
+.kicker { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-amber); letter-spacing: var(--letter-spacing-label); }
+p.lead { color: var(--color-text-muted); max-width: 78ch; margin: var(--space-2) 0 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: var(--space-4); margin-top: var(--space-3); }
+.card { border: 1px solid var(--color-line); background: var(--color-surface); }
+.stage { position: relative; aspect-ratio: 16 / 10; overflow: hidden; background: radial-gradient(ellipse 70% 60% at 50% 45%, #2e2a26, #12161d 80%); }
+.stage svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.card .txt { padding: var(--space-3) var(--space-4); font-size: 14px; color: var(--color-text-muted); }
+.card .txt b { display: block; font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); color: var(--color-text); margin-bottom: 4px; }
+/* 참여 중 HUD */
+.hud { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 8px 0 14px; background: var(--color-surface-alpha); border: 1px solid var(--color-line); clip-path: polygon(0 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%); white-space: nowrap; font-size: 14px; }
+.hud .k { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.hud .dot { width: 10px; height: 10px; border-radius: 50%; background: #1d1f24; border: 1px solid #6f6a60; }
+.hud button { font-family: var(--font-pixel); font-size: var(--font-size-1); height: 32px; padding: 0 10px; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-line); }
+.hud button.on { border-color: var(--color-cyan); color: var(--color-cyan); }
+.hud kbd { font-family: inherit; font-size: 11px; color: var(--color-text-muted); border: 1px solid var(--color-line); padding: 0 4px; margin-left: 4px; }
+.score { position: absolute; top: 14px; left: 14px; font-family: var(--font-pixel); font-size: var(--font-size-2); background: var(--color-surface-alpha); border: 1px solid var(--color-line); padding: 4px 14px; }
+.score .me { color: var(--color-text); } .score .ag { color: var(--agent-3); }
+.tag { position: absolute; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; font-family: var(--font-pixel); font-size: var(--font-size-1); background: var(--color-surface-alpha); border: 1px solid var(--color-text); }
+.tag.hover { border-color: var(--color-cyan); color: var(--color-cyan); box-shadow: 0 0 10px rgb(77 243 255 / .35); }
+.bubble { position: absolute; max-width: 220px; font-size: 13px; }
+.bubble .tab { display: inline-block; height: 18px; line-height: 18px; padding: 0 6px; font-family: var(--font-pixel); font-size: 12px; background: var(--agent); color: var(--color-ink); }
+.bubble .b { background: var(--color-surface); border: 1px solid var(--color-line); border-left: 3px solid var(--agent); padding: 6px 10px; clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%); }
+.hint { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); font-size: 13px; background: var(--color-surface-alpha); border: 1px solid var(--color-line); padding: 4px 12px; color: var(--color-text-muted); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="kicker">AGENT OFFICE · #135 · #137 · 결재 전 시안</div>
+  <h1>놀이 참여: 오목 · 탁구</h1>
+  <p class="lead">혼자 기보를 놓는 에이전트와 오목을 두고, 탁구는 한쪽 라켓을 직접 잡습니다. 대국과 경기는 그 방문자의 화면에서만 진행됩니다. 근거와 수치는 <code>play.md</code>.</p>
+
+  <h2>1. 오목</h2>
+  <div class="grid">
+    <div class="card"><div class="stage" id="g-join"></div><div class="txt"><b>같이 두기 표시 (호버)</b>빈 의자 위 꼬리표. 평소 아이보리, 호버 · 초점이면 청록. 꼬리표 · 빈 의자 · 판 어디를 눌러도 들어갑니다.</div></div>
+    <div class="card"><div class="stage" id="g-play"></div><div class="txt"><b>대국 중 · 당신 차례</b>판 시점(55° 내려다봄). 마우스가 가리키는 교차점에 반투명 흑돌, 마지막 수에 빨간 점, 아래 HUD에 차례 · 수 · 커서 좌표.</div></div>
+    <div class="card"><div class="stage" id="g-touch"></div><div class="txt"><b>터치 · 키보드</b>터치는 첫 탭에 확대 원과 미리보기, 같은 자리 다시 탭(또는 [여기에 두기])으로 둡니다. 키보드는 청록 고리 커서를 화살표로 옮기고 Enter.</div></div>
+    <div class="card"><div class="stage" id="g-win"></div><div class="txt"><b>방문자 승</b>이어진 다섯에 아이보리 고리와 선. 에이전트가 손뼉 + "졌어요! 한 판 더?", HUD가 결과 줄로.</div></div>
+  </div>
+
+  <h2>2. 탁구</h2>
+  <div class="grid">
+    <div class="card"><div class="stage" id="p-play"></div><div class="txt"><b>라켓 잡은 시점</b>방문자 끝선 뒤 2.2 m · 높이 1.6 m. 공 그림자를 짙게, 떨어질 자리에 청록 고리(0.4초 전). 점수는 위 가운데, 처음 한 번 안내.</div></div>
+    <div class="card"><div class="stage" id="p-easy"></div><div class="txt"><b>쉬운 모드(키보드 · 움직임 줄이기)</b>[자동 따라가기]를 켜면 라켓이 공을 따라가고 Space로 받아칩니다. 경기가 끝나면 말풍선과 결과.</div></div>
+  </div>
+</div>
+<script>
+const AG = { 0: '#ffb347', 1: '#8f9bff', 2: '#ff3ea5', 3: '#4df3ff' }
+const N = 15
+// 판을 55° 내려다본 투영: 판 좌표(0..14) → 화면
+function proj(i, j, W = 800, H = 500) {
+  const cx = W / 2, top = 118, bot = 420, nearW = 520, farW = 360
+  const t = j / (N - 1) // 0 = 먼 쪽(에이전트), 1 = 가까운 쪽(방문자)
+  const y = top + (bot - top) * (t * 0.92 + 0.04)
+  const w = farW + (nearW - farW) * t
+  return [cx - w / 2 + (w * (i / (N - 1))), y, 0.85 + 0.3 * t]
+}
+function board(stones = [], opts = {}) {
+  const [x0, y0] = proj(-0.6, -0.6), [x1] = proj(N - 0.4, -0.6), [x2, y2] = proj(-0.6, N - 0.4), [x3] = proj(N - 0.4, N - 0.4)
+  let s = `<polygon points="${x0},${y0} ${x1},${y0} ${x3},${y2 + 16} ${x2},${y2 + 16}" fill="#9c7448"/>`
+  s += `<polygon points="${x0},${y0} ${x1},${y0} ${x3},${y2} ${x2},${y2}" fill="#e2b97a"/>`
+  for (let k = 0; k < N; k++) {
+    const [a, b] = proj(0, k), [c] = proj(N - 1, k); s += `<line x1="${a}" y1="${b}" x2="${c}" y2="${b}" stroke="#3a2a1a" stroke-width="${k % 14 ? 1 : 2}"/>`
+    const [d, e] = proj(k, 0), [f, g] = proj(k, N - 1); s += `<line x1="${d}" y1="${e}" x2="${f}" y2="${g}" stroke="#3a2a1a" stroke-width="${k % 14 ? 1 : 2}"/>`
+  }
+  for (const [i, j] of [[3, 3], [11, 3], [7, 7], [3, 11], [11, 11]]) { const [x, y, k] = proj(i, j); s += `<circle cx="${x}" cy="${y}" r="${2.6 * k}" fill="#3a2a1a"/>` }
+  stones.forEach(([i, j, c], n) => {
+    const [x, y, k] = proj(i, j), r = 13 * k
+    s += `<ellipse cx="${x + 1.5}" cy="${y + 3}" rx="${r}" ry="${r * 0.62}" fill="#000" opacity=".25"/>`
+    s += `<ellipse cx="${x}" cy="${y}" rx="${r}" ry="${r * 0.62}" fill="${c === 'b' ? '#1d1f24' : '#f2efe8'}" opacity="${c === 'g' ? 0.5 : 1}"/>`
+    if (c !== 'g') s += `<ellipse cx="${x - r * 0.3}" cy="${y - r * 0.22}" rx="${r * 0.35}" ry="${r * 0.18}" fill="#fff" opacity="${c === 'b' ? 0.18 : 0.5}"/>`
+    if (c === 'g') s += `<ellipse cx="${x}" cy="${y}" rx="${r}" ry="${r * 0.62}" fill="#1d1f24" opacity=".5"/>`
+  })
+  if (opts.last) { const [x, y, k] = proj(...opts.last); s += `<circle cx="${x}" cy="${y - 1}" r="${3.2 * k}" fill="#ff5a5f"/>` }
+  if (opts.cursor) { const [x, y, k] = proj(...opts.cursor); s += `<ellipse cx="${x}" cy="${y}" rx="${16 * k}" ry="${10 * k}" fill="none" stroke="#4df3ff" stroke-width="2.5"/>` }
+  if (opts.win) {
+    const pts = opts.win.map(([i, j]) => proj(i, j))
+    pts.forEach(([x, y, k]) => { s += `<ellipse cx="${x}" cy="${y}" rx="${16 * k}" ry="${10 * k}" fill="none" stroke="#f3ead8" stroke-width="2.5"/>` })
+    s += `<line x1="${pts[0][0]}" y1="${pts[0][1]}" x2="${pts.at(-1)[0]}" y2="${pts.at(-1)[1]}" stroke="#f3ead8" stroke-width="2"/>`
+  }
+  if (opts.zoom) { const [x, y] = proj(...opts.zoom); s += `<circle cx="${x}" cy="${y}" r="58" fill="none" stroke="#f3ead8" stroke-width="1.5" stroke-dasharray="4 3"/>` }
+  return s
+}
+// 건너편 에이전트(머리 + 두 손), 판 위쪽
+function agentHead(a, x = 400, y = 62, hand = 'rest') {
+  const c = AG[a]
+  let s = `<rect x="${x - 70}" y="${y - 50}" width="140" height="80" rx="16" fill="#f6f3ec"/><rect x="${x - 50}" y="${y - 34}" width="100" height="46" rx="8" fill="#0b0e13"/><rect x="${x - 34}" y="${y - 16}" width="18" height="6" rx="3" fill="${c}"/><rect x="${x + 16}" y="${y - 16}" width="18" height="6" rx="3" fill="${c}"/>`
+  const hy = y + 50
+  if (hand === 'clap') s += `<rect x="${x - 26}" y="${hy - 6}" width="24" height="30" rx="8" fill="#f6f3ec"/><rect x="${x + 2}" y="${hy - 6}" width="24" height="30" rx="8" fill="#f6f3ec"/><rect x="${x - 26}" y="${hy + 24}" width="52" height="6" rx="3" fill="${c}"/>`
+  else s += `<rect x="${x - 150}" y="${hy}" width="26" height="30" rx="8" fill="#f6f3ec"/><rect x="${x + 124}" y="${hy}" width="26" height="30" rx="8" fill="#f6f3ec"/><rect x="${x - 150}" y="${hy + 30}" width="26" height="5" rx="2" fill="${c}"/><rect x="${x + 124}" y="${hy + 30}" width="26" height="5" rx="2" fill="${c}"/>`
+  return s
+}
+const svg = (inner) => `<svg viewBox="0 0 800 500" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${inner}</svg>`
+const STONES = [[7, 7, 'b'], [8, 6, 'w'], [8, 7, 'b'], [6, 7, 'w'], [9, 8, 'b'], [7, 6, 'w'], [9, 7, 'b'], [10, 7, 'w'], [8, 8, 'b'], [7, 9, 'w']]
+const hud = (txt, extra = '') => `<div class="hud"><span class="dot"></span><span>${txt}</span>${extra}<button>다시 두기</button><button>그만두기<kbd>Esc</kbd></button></div>`
+
+// 같이 두기 표시: 테이블 옆모습
+document.getElementById('g-join').innerHTML = svg(`
+  <ellipse cx="400" cy="420" rx="230" ry="40" fill="#000" opacity=".3"/>
+  <rect x="392" y="300" width="16" height="120" fill="#1a1d22"/><ellipse cx="400" cy="420" rx="70" ry="12" fill="#1a1d22"/>
+  <ellipse cx="400" cy="300" rx="190" ry="44" fill="#d9d4cb"/><ellipse cx="400" cy="292" rx="190" ry="44" fill="#ece6da"/>
+  <polygon points="320,270 480,270 500,300 300,300" fill="#e2b97a"/><polygon points="300,300 500,300 500,308 300,308" fill="#9c7448"/>
+  ${[[350, 288, '#1d1f24'], [380, 280, '#f2efe8'], [420, 286, '#1d1f24'], [440, 278, '#f2efe8'], [400, 292, '#1d1f24']].map(([x, y, c]) => `<ellipse cx="${x}" cy="${y}" rx="7" ry="3.5" fill="${c}"/>`).join('')}
+  <ellipse cx="160" cy="330" rx="46" ry="12" fill="#e06a5e"/><rect x="155" y="330" width="10" height="90" fill="#1a1d22"/>
+  <ellipse cx="640" cy="330" rx="46" ry="12" fill="#e06a5e"/><rect x="635" y="330" width="10" height="90" fill="#1a1d22"/>
+  <rect x="80" y="130" width="160" height="96" rx="18" fill="#f6f3ec"/><rect x="104" y="150" width="112" height="54" rx="9" fill="#0b0e13"/><rect x="122" y="170" width="20" height="7" rx="3" fill="${AG[0]}"/><rect x="178" y="170" width="20" height="7" rx="3" fill="${AG[0]}"/>
+  <rect x="236" y="236" width="28" height="32" rx="9" fill="#f6f3ec"/>`) + `<span class="tag hover" style="left:560px; top:150px; transform: translateX(-50%) scale(1.15)">● 같이 두기</span>`
+// 대국 중
+document.getElementById('g-play').innerHTML = svg(board([...STONES, [9, 6, 'g']], { last: [7, 9] }) + agentHead(0)) + hud('오목 · 메모와 대국 · <b>당신(흑) 차례</b> · 10수', '<span class="k">J7</span>') + `<div class="bubble" style="--agent:${AG[0]}; right:20px; top:20px"><span class="tab">MEMO · 반응</span><div class="b">오, 좋은 수네요</div></div>`
+// 터치 · 키보드
+document.getElementById('g-touch').innerHTML = svg(board([...STONES, [10, 6, 'g']], { last: [7, 9], cursor: [10, 6], zoom: [10, 6] }) + agentHead(0)) + hud('메모와 대국 · 당신 차례', '<button class="on">여기에 두기</button><span class="k">K7</span>')
+// 승리
+const WIN = [[5, 9], [6, 8], [7, 7], [8, 6], [9, 5]]
+document.getElementById('g-win').innerHTML = svg(board([...STONES.filter(([i, j]) => !WIN.some(([a, b]) => a === i && b === j)), ...WIN.map(([i, j]) => [i, j, 'b']), [6, 9, 'w'], [10, 4, 'w']], { win: WIN }) + agentHead(0, 400, 62, 'clap')) + `<div class="hud"><span class="dot"></span><span><b>흑 승</b> · 23수</span><button>다시 두기</button><button>그만두기<kbd>Esc</kbd></button></div>` + `<div class="bubble" style="--agent:${AG[0]}; right:20px; top:20px"><span class="tab">MEMO · 반응</span><div class="b">졌어요! 한 판 더?</div></div>`
+
+// 탁구: 방문자 시점
+function table(extra = '') {
+  return `<polygon points="250,150 550,150 760,470 40,470" fill="#1f5a46"/><polygon points="250,150 550,150 760,470 40,470" fill="none" stroke="#f2f2f2" stroke-width="5"/>
+  <line x1="400" y1="150" x2="400" y2="470" stroke="#f2f2f2" stroke-width="2"/><polygon points="40,470 760,470 760,486 40,486" fill="#163f32"/>
+  <rect x="220" y="200" width="360" height="26" fill="#111318" opacity=".85"/><rect x="220" y="198" width="360" height="4" fill="#f2f2f2"/>
+  ${agentHead(3, 400, 70)}${extra}`
+}
+document.getElementById('p-play').innerHTML = svg(table(`
+  <ellipse cx="470" cy="380" rx="44" ry="14" fill="none" stroke="#4df3ff" stroke-width="3"/>
+  <ellipse cx="452" cy="300" rx="10" ry="4" fill="#000" opacity=".55"/>
+  <circle cx="440" cy="250" r="9" fill="#ffffff"/>
+  <g transform="translate(520 400) rotate(-14)"><ellipse cx="0" cy="0" rx="46" ry="52" fill="#d43a33"/><rect x="-7" y="44" width="14" height="46" rx="4" fill="#c9a47a"/></g>`)) + `<div class="score"><span class="me">당신 1</span> : <span class="ag">2 루프</span></div>` + `<div class="hint" style="top:auto; bottom:74px">마우스로 라켓을 움직여 받아치세요 · 공 그림자와 고리를 보세요</div>` + `<div class="hud"><span>🏓 탁구 · 루프와 3점 승부</span><button>자동 따라가기</button><button>그만두기<kbd>Esc</kbd></button></div>`
+document.getElementById('p-easy').innerHTML = svg(table(`
+  <ellipse cx="300" cy="360" rx="44" ry="14" fill="none" stroke="#4df3ff" stroke-width="3"/>
+  <ellipse cx="318" cy="290" rx="10" ry="4" fill="#000" opacity=".55"/><circle cx="330" cy="236" r="9" fill="#fff"/>
+  <g transform="translate(300 400) rotate(6)"><ellipse cx="0" cy="0" rx="46" ry="52" fill="#d43a33"/><rect x="-7" y="44" width="14" height="46" rx="4" fill="#c9a47a"/></g>`)) + `<div class="score"><span class="me">당신 2</span> : <span class="ag">2 루프</span></div>` + `<div class="hud"><span>🏓 루프와 3점 승부 · <b>Space</b>로 받아치기</span><button class="on">자동 따라가기 켬</button><button>그만두기<kbd>Esc</kbd></button></div>` + `<div class="bubble" style="--agent:${AG[3]}; right:20px; top:20px"><span class="tab">LOOP · 반응</span><div class="b">마지막 점이에요!</div></div>`
+document.body.dataset.ready = '1'
+</script>
+</body>
+</html>
