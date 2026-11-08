@@ -2053,15 +2053,15 @@ def build_hands():
     grip_at(o, L, (0.04, -0.205, 0), (1, 0, 0), (0, 1, 0))
     contact(o, "palm", (0, 0.007, 0), (0, 1, 0))
     contact(o, "palm", (0.04, -0.2, 0), (0, -1, 0), L)
-    # omok: the hand dips into a bowl (3 cm below the mouth's centre); the stone in hand, go style: index on top,
-    # middle under it (the app sticks it to the fingers, agents.md 2.10)
+    # omok: the hand dips into a bowl (3 cm below the mouth's centre); the stone in hand, go style: middle on top,
+    # index under it (the app sticks it to the fingers, agents.md 2.10, #192)
     for side in "bw":
         x, y, z = OMOK_BOWLS[side]
         contact(f"omok_bowl_{side}", "index", (0, 0, 0), (0, 1, 0), M=Mx((x, y - 0.002 - 0.03, z)))
     for e in "ab":
         o = O[f"prop_piece_{e}"]
-        contact(o, "index", (0, OMOK["stone_h"] / 2, 0), (0, 1, 0))
-        contact(o, "middle", (0, -OMOK["stone_h"] / 2, 0), (0, -1, 0))
+        contact(o, "middle", (0, OMOK["stone_h"] / 2, 0), (0, 1, 0))  # go style (Nihon Ki-in): the middle finger on top
+        contact(o, "index", (0, -OMOK["stone_h"] / 2, 0), (0, -1, 0))  # the index nail under the stone (designer, #192)
     # paper plane (OK pinch): index and thumb 2 cm from the tail (+z), on the top and bottom faces
     o = O["prop_plane"]
     lo, hi = [min(v.co[k] for v in o.data.vertices) for k in range(3)], [max(v.co[k] for v in o.data.vertices) for k in range(3)]
