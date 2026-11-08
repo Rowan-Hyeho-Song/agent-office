@@ -4,6 +4,8 @@ Run:  blender --background --factory-startup --python office_bake.py -- <out_dir
   (default)        bake the atlases, write office.glb + <atlas>.webp (+ office.blend)
   --preview        no bake: Cycles renders of the camera shots (preview_<shot>.png), to check modeling
   --shot=a,b       only these preview shots
+  --no-bake        unwrap and export office.glb without baking (fast layout checks; no atlases written)
+  --stats          print triangles, surface area and texel density per atlas
   --samples N      bake samples (default 1024)   --size N  atlas size (default 2048)   --no-denoise
 
 Same pipeline as the rowansong.dev desk (bakekit.py), so the two rooms read as one world.
@@ -71,6 +73,46 @@ def frame(at):
     return Mx((x, 0, z), ry=ry)
 
 
+# ---------------------------------------------------------------- layout slots (#109)
+# Every object's footprint: the world bounding box (web coords) of its parts, measured before they are joined into an
+# atlas mesh, and exported as slot_<name> empties. check-glb --overlap reads them; new models (#108) must fit inside.
+# kind: floor (furniture, with the room it needs in use: an agent at a desk, players at the ping-pong ends),
+#       decor (plants, lamps), wall (hangs on a wall; extras wall n|e|s|w), clear (floor kept free: in front of the door)
+FOOTPRINTS = []
+
+
+def fp(name, objs, kind, wall=None, grow=(0.0, 0.0)):
+    """record the world bounding box of objs as a slot; grow = (x, z) margins added on both sides"""
+    bpy.context.view_layer.update()
+    lo, hi = [1e9] * 3, [-1e9] * 3
+    for o in objs:
+        for c in o.bound_box:
+            v = o.matrix_world @ Vector(c)
+            for k, x in enumerate((v.x, v.z, -v.y)):
+                lo[k], hi[k] = min(lo[k], x), max(hi[k], x)
+    lo[0], hi[0], lo[2], hi[2] = lo[0] - grow[0], hi[0] + grow[0], lo[2] - grow[1], hi[2] + grow[1]
+    FOOTPRINTS.append({"name": name, "kind": kind, "wall": wall, "lo": lo, "hi": hi})
+
+
+def fp_box(name, kind, lo, hi, wall=None):
+    """a slot given directly (web coords): space kept free, not an object"""
+    FOOTPRINTS.append({"name": name, "kind": kind, "wall": wall, "lo": list(lo), "hi": list(hi)})
+
+
+def build_slots():
+    fp_box("room", "room", (-HX, 0.0, -HZ), (HX, WALL_H, HZ))  # the inside of the walls
+    for f in FOOTPRINTS:
+        o = bpy.data.objects.new(f"slot_{f['name']}", None)
+        coll("export").objects.link(o)
+        lo, hi = f["lo"], f["hi"]
+        o.matrix_world = Mx(((lo[0] + hi[0]) / 2, lo[1], (lo[2] + hi[2]) / 2))  # the footprint's center, at its base
+        o["slot"] = f["kind"]
+        o["size"] = [round(b - a, 3) for a, b in zip(lo, hi)]
+        if f["wall"]:
+            o["wall"] = f["wall"]
+        NODES.append({"obj": o, "slot": f["kind"]})
+
+
 PPM = 1024  # suggested canvas resolution for screen slots, pixels per meter (monitor ≈ 584 × 338)
 
 
@@ -127,6 +169,7 @@ def build_room():
         box("win_l", (0.05, wh, 0.1), (wx - ww / 2, wy, -HZ), frame_m, G),
         box("win_r", (0.05, wh, 0.1), (wx + ww / 2, wy, -HZ), frame_m, G),
     ]
+    fp("window", parts[-4:], "wall", "n")
     for k in (1, 2, 3):
         parts.append(box("mullion", (0.03, wh, 0.05), (wx - ww / 2 + k * ww / 4, wy, -HZ), frame_m, G))
     parts.append(box("transom", (ww, 0.03, 0.05), (wx, wy + 0.18, -HZ), frame_m, G))
@@ -187,10 +230,13 @@ def build_desk(i, agent):
                 o.evaluated_get(dg).to_mesh_clear()
         print(f"desk_{i} props: {n} triangles")
     p += statics
-    desk = join(f"desk_{i}", place(p, F))
+    placed = place(p, F)
     # no chair: agents hover at their desk. A floor pad in the agent's color marks the spot instead.
     pad = rounded_slab("pad", 0.62, 0.006, 0.5, 0.12, (0, 0.003, 0), plastic(agent["color"], 0.9, 0, 0.6, f"pad_{i}"), G)
-    pad = join(f"pad_{i}", place([pad], F @ Mx((0, 0, WORK_Z))))
+    pad = place([pad], F @ Mx((0, 0, WORK_Z)))
+    fp(f"desk_{i}", placed + pad, "floor")  # the desk and the agent's spot in front of it
+    desk = join(f"desk_{i}", placed)
+    pad = join(f"pad_{i}", pad)
     # live parts: the screen slot and a neon strip under the desk's front edge
     scr = quad(f"screen_work_{i}", 0.57, 0.33, screen_mat(f"screen_glow_{i}", agent["color"], 0.45), "export")
     screen = slot(apply_all(place(scr, F @ Mx((0, h + 0.36, -0.178)))[0]), 0.57, 0.33)
@@ -624,9 +670,12 @@ def build_wall_items():
     # the cards and the visitor notes are the app's (surface_whiteboard / surface_bulletin): the boards stay empty
     for k, col in enumerate(("#1f6feb", "#d64545", "#111111")):
         p.append(cyl("marker", 0.008, 0.12, (0.0 + k * 0.05, 1.0, z + 0.04), plastic(col, 0.4, 0, 0, f"marker_{k}"), G, 10, axis="x"))
+    fp("whiteboard", p, "wall", "n")
     # bulletin board for visitor notes
     p += [box("cork_frame", (0.86, 0.96, 0.03), (1.75, 1.45, z), plastic("#5a3d26", 0.6, 0, 0.3, "cork_frame"), G, bev=0.006),
           box("cork", (0.8, 0.9, 0.02), (1.75, 1.45, z + 0.01), cork, G)]
+    fp("bulletin", p[-2:], "wall", "n")
+    mark = len(p)
     # bookshelf (the library): 5 shelves; 0 and 4 keep the decorative books, 1..3 hold the live binders (#67, LIBRARY)
     sw, sh, sd = SHELF_W, 2.1, SHELF_D
     shelf_m = plastic("#6b4a30", 0.6, 0, 0.4, "shelf_wood")
@@ -653,9 +702,11 @@ def build_wall_items():
                 p.append(box("book", (bw, bh, bd), (x + bw / 2, y0 + 0.0125 + bh / 2, sz + 0.02), plastic(col, 0.7, 0, 0.2, "book"), G))
             x += bw + 0.003
     p += library_statics(shelf_m)
+    fp("shelf", p[mark:], "floor", "n")  # stands on the floor against the back wall
     # the wall clock on the left wall above the coffee counter (#91: the timelapse entrance): face + 12 ticks baked,
     # hands and hub live (build_clock)
     p.append(box("clock", (0.02, CLOCK_S, CLOCK_S), CLOCK_AT, plastic("#f4f4f0", 0.4, 0, 0, "clock_face"), G))
+    fp("clock", p[-1:], "wall", "w")
     tick = plastic("#1f2a44", 0.6, 0, 0, "clock_tick")
     for k in range(12):
         w, ln = (0.008, 0.030) if k % 3 == 0 else (0.004, 0.020)
@@ -701,8 +752,11 @@ def build_lounge():
     for sx in (-tw / 2 + 0.15, tw / 2 - 0.15):
         for sz in (-td / 2 + 0.12, td / 2 - 0.12):
             p.append(box("pp_leg", (0.05, th - 0.04, 0.05), (tx + sx, (th - 0.04) / 2, tz + sz), metal, G))
+    # with the players: nav_pingpong_a|b hover 1.33 m from the center, 0.22 m body -> 0.55 m past each end
+    fp("pingpong", p, "floor", grow=(0.55, 0.0))
     # the paddles and the ball are props now (build_props): agents pick them up
     # sofa facing the back wall
+    mark = len(p)
     sx, sz = SOFA
     teal = plastic("#2f6f73", 0.95, 0, 0.8, "sofa")
     p += [rounded_slab("sofa_base", 1.9, 0.22, 0.85, 0.05, (sx, 0.19, sz), teal, G, edge=0.02),
@@ -715,7 +769,9 @@ def build_lounge():
     for dx in (-0.85, 0.85):
         for dz in (-0.35, 0.35):
             p.append(cyl("sofa_foot", 0.025, 0.08, (sx + dx, 0.04, sz + dz), metal, G, 10))
+    fp("sofa", p[mark:], "floor")
     # board game table with two stools and a board
+    mark = len(p)
     gx, gz = GAME_TABLE
     p += [cyl("gt_top", 0.42, 0.04, (gx, 0.72, gz), plastic("#c9b89a", 0.55, 0, 0.35, "desk_top"), G, 40, bev=0.006),
           cyl("gt_col", 0.04, 0.68, (gx, 0.36, gz), metal, G, 14),
@@ -738,7 +794,9 @@ def build_lounge():
         p += [cyl("stool", 0.18, 0.05, (gx + dx, 0.5, gz), plastic("#d64545", 0.6, 0, 0.3, "stool"), G, 24, bev=0.01),
               cyl("stool_col", 0.025, 0.48, (gx + dx, 0.24, gz), metal, G, 10),
               cyl("stool_foot", 0.15, 0.02, (gx + dx, 0.01, gz), metal, G, 24)]
+    fp("game", p[mark:], "floor")  # the table with its two stools
     # coffee counter against the left wall, between the desks and the door
+    mark = len(p)
     cx, cz = -HX + 0.3, 1.32
     p += [box("counter", (0.6, 0.9, 0.7), (cx, 0.45, cz), plastic("#2b2f3a", 0.6, 0, 0.2, "counter"), G, bev=0.01),
           box("counter_top", (0.64, 0.04, 0.74), (cx, 0.92, cz), plastic("#e8e4dc", 0.3, 0, 0.3, "counter_top"), G, bev=0.006),
@@ -747,20 +805,25 @@ def build_lounge():
     # the cup under the spout and one beside it are props (build_props); the stack stays baked
     for k in range(3):
         p.append(cyl("cup", 0.035, 0.08, (cx + 0.05 - k * 0.0, 0.98 + k * 0.08, cz + 0.2), plastic("#f4f4f0", 0.4, 0, 0, "cup"), G, 16, r2=0.03))
+    fp("counter", p[mark:], "floor", "w")  # stands against the left wall
     # plants
-    for (px, pz, s) in ((-0.35, -2.45, 1.0), (3.15, 2.35, 1.2), (-0.55, 2.45, 0.85), (2.25, -2.4, 0.7)):
+    for name, (px, pz, s) in zip(("plant_desk", "plant_corner", "plant_sofa", "plant_shelf"),
+                                 ((-0.35, -2.45, 1.0), (3.15, 2.35, 1.2), (-0.55, 2.45, 0.85), (2.25, -2.4, 0.7))):
+        mark = len(p)
         p.append(cyl("planter", 0.18 * s, 0.4 * s, (px, 0.2 * s, pz), plastic("#e8e4dc", 0.6, 0, 0.2, "planter"), G, 24, r2=0.15 * s))
         for k in range(9):
             leaf = sphere("leaf", 0.2 * s, (px + RNG.uniform(-0.08, 0.08) * s, (0.55 + RNG.uniform(0, 0.5)) * s, pz + RNG.uniform(-0.08, 0.08) * s),
                           plastic(RNG.choice(("#3f7d4a", "#2f6b3f", "#5a9a5a")), 0.6, 0, 0.3, "leaf"), G, scale=(0.35, 1.0, 0.18), seg=10, rings=6)
             leaf.rotation_euler = (RNG.uniform(-0.6, 0.6), RNG.uniform(-0.6, 0.6), k * 0.7)
             p.append(leaf)
+        fp(name, p[mark:], "decor")
     # floor lamp by the sofa (its shade glows live)
     lx, lz = SOFA[0] + 1.25, SOFA[1] + 0.1
     p += [cyl("lamp_base", 0.14, 0.03, (lx, 0.015, lz), metal, G, 24),
           cyl("lamp_pole", 0.015, 1.5, (lx, 0.78, lz), metal, G, 10)]
-    lounge = join("lounge", p)
     shade = cyl("lamp_shade", 0.2, 0.26, (lx, 1.62, lz), emitter("#ffcf8a", 2.0, "lamp_shade"), "export", 32, r2=0.13)
+    fp("floor_lamp", p[-2:] + [shade], "decor")
+    lounge = join("lounge", p)
     return lounge, apply_all(shade), (lx, 1.55, lz)
 
 
@@ -857,7 +920,10 @@ def build_door():
     for k, dx in enumerate((-0.18, 0.18)):
         p.append(cyl("knob", 0.03, 0.03, (dx, -0.98, 0.07), plastic("#2a2c31", 0.4, 0.6, 0, "knob"), G, 16, axis="z"))
     M = Mx((x + 0.06, 1.12, DOOR_Z), ry=math.pi / 2)
-    door = join("door", place(p, M))
+    placed = place(p, M)
+    fp("door", placed, "wall", "w")
+    fp_box("door_clear", "clear", (x + 0.13, 0.0, DOOR_Z - 0.5), (x + 0.13 + 0.8, 0.0, DOOR_Z + 0.5))  # 0.8 m kept free in front
+    door = join("door", placed)
     scr = quad("screen_door", 0.8, 1.78, screen_mat("door_glow", "#ffb347", 0.45), "export")
     screen = slot(apply_all(place(scr, M @ Mx((0, 0.02, 0.072)))[0]), 0.8, 1.78)
     return door, screen
@@ -1279,7 +1345,24 @@ for i, a in enumerate(AGENTS):
 build_nav()
 build_surfaces()
 build_hits()
+build_slots()
 build_lights(lamp_pos)
+
+if "--stats" in ARGS:  # #108/#109: triangles, surface area and the texel density each atlas can give
+    groups = {}
+    for n in NODES:
+        o = n["obj"]
+        if o.type != "MESH":
+            continue
+        key = f"atlas:{n['atlas']}" if "atlas" in n else f"live:{n.get('live')}"
+        g = groups.setdefault(key, [0, 0.0, 1.0])
+        g[0] += sum(len(p.vertices) - 2 for p in o.data.polygons)
+        g[1] += sum(p.area for p in o.data.polygons) * (o.matrix_world.to_scale().x ** 2)
+        g[2] = n.get("density", 1.0)
+    for key, (tris, area, _) in sorted(groups.items()):
+        # packed islands fill about 65% of the square; density = pixels per meter at the average scale
+        ppm = f", ~{SIZE * math.sqrt(0.65 / area):.0f} px/m at {SIZE}" if key.startswith("atlas") and area else ""
+        print(f"stats {key}: {tris} triangles, {area:.1f} m2{ppm}")
 
 
 def agent_objs(i):
@@ -1400,6 +1483,34 @@ if PREVIEW:
         F = frame(a["at"])
         c, t = (F @ Mx((0, 1.85, 1.15))).to_translation(), (F @ Mx((0, 0.8, -0.08))).to_translation()
         shoot(f"desk_{i}", (c.x, c.z, -c.y), (t.x, t.z, -t.y))
+    # 1a) one 3/4 close-up per object, agents hidden, 800 x 600 (#108: "now" column of the quality table)
+    QUALITY = {
+        "q_plant_corner": ((1.5, 1.5, 0.9), (3.15, 0.85, 2.35)),
+        "q_plant_shelf": ((1.45, 1.0, -1.5), (2.25, 0.45, -2.4)),
+        "q_plant_sofa": ((-1.6, 1.3, 1.6), (-0.55, 0.6, 2.45)),
+        "q_plant_desk": ((0.9, 1.4, -0.9), (-0.35, 0.7, -2.45)),
+        "q_sofa": ((-0.75, 1.35, 0.85), (0.35, 0.4, 2.15)),
+        "q_lamp": ((2.6, 1.45, 1.15), (1.6, 1.0, 2.25)),
+        "q_pingpong": ((3.45, 1.9, -0.65), (1.75, 0.65, 0.95)),
+        "q_game": ((-0.25, 1.5, 0.55), (-1.35, 0.6, 1.55)),
+        "q_counter": ((-1.9, 1.55, 0.55), (-3.2, 0.95, 1.32)),
+        "q_shelf": ((2.0, 1.3, -0.35), (2.85, 1.0, -2.57)),
+        "q_boards": ((1.55, 1.5, 0.3), (1.05, 1.45, -2.73)),
+        "q_door": ((-1.35, 1.45, 1.15), (-3.4, 1.1, 2.12)),
+        "q_window": ((-1.2, 1.5, -0.55), (-1.8, 1.7, -2.75)),
+        "q_rug": ((0.55, 2.7, -0.45), (0.55, 0.0, 1.5)),
+    }
+    if not want or any(n in want for n in QUALITY):
+        was = {o.name: o.hide_render for o in bpy.data.objects if o.name.startswith("agent_")}
+        for n in was:
+            bpy.data.objects[n].hide_render = True
+        res = (scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage)
+        scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage = 800, 600, 100
+        for name, (pos, target) in QUALITY.items():
+            shoot(name, pos, target)
+        scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage = res
+        for n, h in was.items():
+            bpy.data.objects[n].hide_render = h
     # 1b) the library as the app will show it (#67): rows of 7 / 10 / 4 files, a short row's last binder leaning 8° into
     #     the gap, four SECRET (manila cover + stamp); the others without the stamp. And the IN tray = approval box.
     manila = plastic(MANILA, 0.6, 0, 0.15, "binder_manila")
@@ -1514,7 +1625,8 @@ for name, entries in atlases.items():
 
 import time  # noqa: E402
 
-for name, entries in atlases.items():
+NO_BAKE = "--no-bake" in ARGS  # #109: export the glb only (layout and slot checks), no atlases
+for name, entries in ({} if NO_BAKE else atlases).items():
     bpy.ops.object.select_all(action="DESELECT")
     for e in entries:
         e["obj"].select_set(True)
