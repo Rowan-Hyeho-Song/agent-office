@@ -1,3 +1,4 @@
+import { DockSlot } from './CornerDock'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from 'react'
 import { renderMarkdown } from './approval/markdown'
 import { closeApprovalBox, openApprovalBox, toggleApprovalBox, useApprovalBoxOpen } from './approval/panel'
@@ -90,10 +91,19 @@ function Box({ src }: { src: ApprovalSource }) {
         {live}
       </div>
       {!open && (
-        <button type="button" className="approval-tab approval-launcher" aria-expanded={false} aria-controls="approval-box" onClick={toggleApprovalBox}>
-          <Icon name="inbox" />
-          결재함{count !== null && ` · 대기 ${count}`}
-        </button>
+        <DockSlot slot="approval">
+          <button
+            type="button"
+            className="dock-btn approval-launcher"
+            aria-label={`결재함${count !== null ? ` · 대기 ${count}` : ''}`}
+            aria-expanded={false}
+            aria-controls="approval-box"
+            onClick={toggleApprovalBox}
+          >
+            <Icon name="inbox" />
+            <span className="dock-label">결재함{count !== null && ` · 대기 ${count}`}</span>
+          </button>
+        </DockSlot>
       )}
       {open && (
         <section id="approval-box" ref={panel} tabIndex={-1} className="approval-box" aria-label="결재함">

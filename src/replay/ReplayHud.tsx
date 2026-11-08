@@ -1,3 +1,4 @@
+import { DockSlot } from '../office/CornerDock'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type PointerEvent as RPointerEvent } from 'react'
 import { isApprovalBoxOpen } from '../office/approval/panel'
 import { isDocsOpen } from '../office/docs/panel'
@@ -43,9 +44,12 @@ export function ReplayHud({ world }: { world: OfficeWorld }) {
   return (
     <>
       {s.mode === 'off' && (
-        <button type="button" className="replay-entry" onClick={() => void replay.open({ project: ALL })}>
-          <span aria-hidden="true">◀◀</span> 타임랩스
-        </button>
+        <DockSlot slot="replay">
+          <button type="button" className="dock-btn replay-entry" aria-label="타임랩스" onClick={() => void replay.open({ project: ALL })}>
+            <span aria-hidden="true">◀◀</span>
+            <span className="dock-label">타임랩스</span>
+          </button>
+        </DockSlot>
       )}
       {s.mode === 'office' && <OfficeBars world={world} />}
       {s.mode === 'list' && <ReplayList />}

@@ -232,7 +232,6 @@ fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap
 .props-debug td:last-child { color: #f3ead8; }
 
 /* approval box (#64): launcher, owner tag, door key dot, decided cards, narrow screens */
-.approval-launcher { position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 20; border: 0; cursor: pointer; }
 .owner-tag { position: fixed; left: 16px; bottom: 44px; z-index: 20; }
 .approval-item.static { cursor: default; }
 .approval-item.static:hover { border-color: var(--color-line); }
@@ -302,7 +301,43 @@ fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap
 }
 /* ═════════ 서재 문서 뷰어 (#65, docs/design/docs-ui.md 2절) ═════════ */
 .docs-box :focus-visible, .docs-launcher:focus-visible, .doc-band :focus-visible, .doc-paper a:focus-visible, .talk .line:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
-.docs-launcher { position: fixed; right: var(--space-4); bottom: calc(var(--space-4) + 30px); z-index: 20; border: 0; cursor: pointer; background: var(--manila); }
+/* the bottom-right dock (#167, designer): one column bottom up (결재함 · 서재 · 타임랩스), 8px apart, every button as wide
+   as the widest; a row on phones, icons only under 360px; hidden while a panel or the replay covers the right side */
+.corner-dock {
+  position: fixed; z-index: 20;
+  right: calc(var(--space-4) + env(safe-area-inset-right, 0px)); bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column-reverse; align-items: stretch; gap: 8px; width: max-content;
+  /* visible at once when it comes back (so focus can return to a launcher), hidden only after the fade */
+  transition: opacity 160ms ease, visibility 0s;
+}
+.dock-slot:empty { display: none; }
+.dock-slot { display: flex; }
+.dock-btn {
+  flex: 1; display: flex; align-items: center; gap: var(--space-2); height: 32px; padding: 0 var(--space-3) 0 var(--space-2);
+  font-family: var(--font-pixel); font-size: var(--font-size-1); white-space: nowrap; border: 0; cursor: pointer;
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
+}
+.dock-btn svg { width: 12px; height: 12px; }
+.dock-btn.approval-launcher { background: var(--approval-accent); color: var(--color-ink); }
+.dock-btn.docs-launcher { background: var(--manila); color: var(--color-ink); }
+.dock-btn.replay-entry { background: var(--color-surface-alpha); color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-line); }
+.dock-btn:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+@media (pointer: coarse) { .dock-btn { height: 44px; } }
+/* phones: the dock is a row along the bottom edge, so the bottom-left caption moves up above it */
+@media (max-width: 640px) {
+  .corner-dock { flex-direction: row-reverse; align-items: center; }
+  .hud { bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px) + 44px + 8px); }
+  /* then the owner tag above the caption, and the one-time WASD hint above both */
+  .owner-tag { bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px) + 44px + 8px + 26px); }
+  p.cam-hint { bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px) + 44px + 8px + 26px + 30px); }
+}
+@media (max-width: 359px) {
+  .dock-btn { width: 44px; height: 44px; padding: 0; justify-content: center; }
+  .dock-label { display: none; }
+}
+body:has(#approval-box) .corner-dock, body:has(#docs-box) .corner-dock, body:has(.replay) .corner-dock { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 160ms ease, visibility 0s 160ms; }
+@media (prefers-reduced-motion: reduce) { .corner-dock { transition: none; } }
+html[data-motion='reduce'] .corner-dock { transition: none; }
 .docs-box {
   color-scheme: dark; scrollbar-color: var(--bubble-dim-line) transparent; scrollbar-width: thin;
   position: fixed; z-index: 30; top: var(--space-4); bottom: var(--space-4); left: 50%; translate: -50% 0;
@@ -429,3 +464,4 @@ fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap
   white-space: nowrap;
   pointer-events: none;
 }
+.dock-btn.replay-entry:hover { box-shadow: inset 0 0 0 1px var(--color-cyan); color: var(--color-cyan); }
