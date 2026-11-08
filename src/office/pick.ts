@@ -3,6 +3,7 @@
 
 import { useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
+import { hitAllowed } from './walls'
 import { BoxGeometry, Mesh, MeshBasicMaterial, Raycaster, Vector2, Vector3, type Intersection, type Object3D } from 'three'
 
 /**
@@ -17,6 +18,9 @@ export function hitBox(scene: Object3D, kind: string): Mesh | null {
   hit.updateWorldMatrix(true, false)
   hit.matrixWorld.decompose(box.position, box.quaternion, new Vector3())
   box.updateMatrixWorld(true)
+  // follows its wall / desk: gone with it (walls.ts hitAllowed)
+  box.userData.wall = hit.userData.wall
+  box.userData.fadeGroup = hit.userData.fadeGroup
   return box
 }
 
@@ -36,7 +40,7 @@ export function useCanvasPick(targets: () => Object3D[], onPick: (hits: Intersec
       const r = el.getBoundingClientRect()
       ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1)
       ray.setFromCamera(ndc, camera)
-      return ray.intersectObjects(latest.current.targets(), false)
+      return ray.intersectObjects(latest.current.targets(), false).filter(hitAllowed)
     }
     let down: [number, number] | null = null
     // the cursor is written only when this picker's own state changes, so two pickers don't undo each other
