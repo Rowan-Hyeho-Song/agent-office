@@ -574,6 +574,21 @@ export class AgentRig {
     this.plan(g)
   }
 
+  /** snap onto the goal's spot at once (replay seeks and fast speeds: no walking) */
+  placeAt(goal: Goal, g: NavGraph) {
+    this.goal = goal
+    if (this.placed && this.path.length === 0 && this.at === goal.spot) return
+    this.placed = true
+    const p = this.point(g, goal.spot)
+    this.at = goal.spot
+    this.from = null
+    this.path = []
+    this.speed = 0
+    this.x = p.x
+    this.z = p.z
+    this.heading = this.restHeading(g)
+  }
+
   private restHeading(g: NavGraph, others?: Record<string, AgentRig>) {
     const goal = this.goal!
     if (goal.face) return Math.atan2(-(goal.face.x - this.x), -(goal.face.z - this.z))

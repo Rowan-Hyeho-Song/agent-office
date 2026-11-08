@@ -9,11 +9,15 @@ import { replay } from './store'
 export const DEPLOY_MARK_MS = 2000
 export const TYPE_MS = 40
 
-/** every agent at their own desk: the one working types, the others sit (no play while replaying) */
-export function replayGoals(status: StatusMap): Record<string, Goal> {
+/** every agent at their own desk: the one working types, the others sit (no play while replaying); `spots` puts one on the whiteboard to post a card */
+export function replayGoals(status: StatusMap, spots: Record<string, string> = {}): Record<string, Goal> {
   const out: Record<string, Goal> = {}
   for (const [id, s] of Object.entries(status)) {
     const seat = Number(id.split('_')[1])
+    if (spots[id] === 'whiteboard') {
+      out[id] = { spot: 'whiteboard', pose: 'post', label: '작업 카드 붙이는 중' }
+      continue
+    }
     out[id] = s.state === 'working' ? { spot: `work_${seat}`, pose: 'type', label: activityLabel(s.activity) } : { spot: `work_${seat}`, pose: 'idle', label: '자리에서 기록을 보는 중' }
   }
   return out

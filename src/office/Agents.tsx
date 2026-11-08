@@ -7,7 +7,7 @@ import { seatName } from './meeting'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BufferGeometry, Color, Vector3, Float32BufferAttribute, Line, LineBasicMaterial, LineSegments, type Mesh } from 'three'
-import { buildGraph, patchSpots, type NavGraph } from './nav'
+import { buildGraph, dist, pathLength, patchSpots, shortestPath, type NavGraph } from './nav'
 import { checkNav, edgeKey } from './navcheck'
 import { meshesOf, useOffice } from './nodes'
 import { DeskLive } from './deskLive'
@@ -16,7 +16,8 @@ import { ScreenLive } from './screenLive'
 import { deskProps } from './props'
 import { AgentRig, PropBank, buildRig } from './rig'
 import { replay } from '../replay/store'
-import { atMs } from '../replay/engine'
+import { atMs, stepMs } from '../replay/engine'
+import { shouldWalk, stageSpot, walkHold, WALK_HOLD_MS } from '../replay/walk'
 import { replayDoorLine, replayGoals } from '../replay/scene'
 import { STAMP_MS } from './props'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
@@ -79,6 +80,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
   world.planes = planes
   const reduced = useReducedMotion()
   const layer = useRef<BubbleLayer | null>(null)
+  const walkPlan = useRef<{ key: string; spots: Record<string, string>; walk: Record<string, boolean> }>({ key: '', spots: {}, walk: {} })
   const narrow = useMemo(() => matchMedia('(max-width: 640px)'), [])
   const head = useMemo(() => new Vector3(), [])
   useEffect(() => {
@@ -109,7 +111,30 @@ export function Agents({ world }: { world: OfficeWorld }) {
     // the timelapse (#82): the record's statuses and desk goals stand in for the live ones (and the director's play)
     const scene = replay.getSnapshot().mode === 'office' ? replay.scene() : null
     const status = scene ? scene.status : world.source.getSnapshot()
-    const goals = scene ? replayGoals(status) : world.director.goals(now, Math.floor(now / 60000), status, (a) => rigs[a].arrived)
+    let stage: Record<string, string> = {}
+    if (scene) {
+      // walking is presentation only (#117): decided once per landing / speed, never part of the scene
+      const rs = replay.getSnapshot()
+      const key = `${scene.index}:${replay.landedAt}:${rs.speed}:${reduced}`
+      if (walkPlan.current.key !== key) {
+        const spots: Record<string, string> = {}
+        const walk: Record<string, boolean> = {}
+        for (const id in rigs) {
+          const seat = Number(id.split('_')[1])
+          const want = stageSpot(scene.point, seat)
+          const rig = rigs[id]
+          const from = rig.arrived
+          const to = graph.spots[want]
+          const path = from && to ? shortestPath(graph, from, want) : null
+          const distanceM = from === want ? 0 : from ? (path ? pathLength(graph, path) : Infinity) : to ? dist(rig, to) : Infinity
+          walk[id] = shouldWalk({ speed: rs.speed, via: replay.landedVia, reduced, distanceM, budgetMs: stepMs(scene.point, rs.speed) + WALK_HOLD_MS })
+          spots[id] = walk[id] ? want : `work_${seat}`
+        }
+        walkPlan.current = { key, spots, walk }
+      }
+      stage = walkPlan.current.spots
+    }
+    const goals = scene ? replayGoals(status, stage) : world.director.goals(now, Math.floor(now / 60000), status, (a) => rigs[a].arrived)
     // a replayed meeting calls its agents in (plan 6.4); the director's goals are the fallback for everyone else
     world.replay?.tick()
     const door = graph.spots.door
@@ -129,6 +154,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
     // the coder looks at its rubber duck when a test fails (set before the rigs move)
     if (rigs.agent_3) rigs.agent_3.watch = desk.duckLook && rigs.agent_3.arrived === `work_3` ? desks.duckPoint() : null
     for (const id in rigs) rigs[id].setGoal(goals[id], graph)
+    walkHold.busy = !!scene && Object.keys(rigs).some((id) => walkPlan.current.walk[id] && rigs[id].arrived !== goals[id].spot)
     for (const id in rigs) rigs[id].update(dt, t, graph, rigs, reduced, status[id])
     // the planner picks up its stamp the moment the owner decides something
     if (desk.stamp && rigs.agent_0?.visible) rigs.agent_0.want = { kind: 'stamp', side: 'r' }
