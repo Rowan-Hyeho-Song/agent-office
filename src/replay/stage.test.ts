@@ -7,7 +7,7 @@ import { TRAFFIC, TrafficPlanner } from '../office/traffic'
 import type { Point } from '../timeline/types'
 import agentOffice from '../timeline/fixtures/agent-office.json'
 import { atMs, type Speed } from './engine'
-import { Stage, startMinutes } from './stage'
+import { DrawnTrack, lineMode, SCREEN_MPS, Stage, startMinutes } from './stage'
 import { ReplayStore } from './store'
 import { REPLAY_PACE } from './walk'
 
@@ -41,6 +41,10 @@ async function run(speed: Speed, checkpoints: number[], fps = 60) {
   let excess = -Infinity
   let frames = 0
   let prev = IDS.map((id) => stage.sample(id))
+  const drawn = new DrawnTrack()
+  let prevDrawn = IDS.map((id, k) => drawn.follow(id, prev[k].x, prev[k].z, dt / 1000)).map((p) => ({ ...p }))
+  let drawnRate = 0
+  let lag = 0
   let meetings = 0
   let walked = 0
   for (const until of checkpoints) {
@@ -58,6 +62,13 @@ async function run(speed: Speed, checkpoints: number[], fps = 60) {
           if (c.moving) walked++
         })
       }
+      // the drawn bodies follow the plan positions at the screen speed cap, per frame of real time
+      const dr = IDS.map((id, k) => ({ ...drawn.follow(id, cur[k].x, cur[k].z, dt / 1000) }))
+      dr.forEach((p, k) => {
+        drawnRate = Math.max(drawnRate, Math.hypot(p.x - prevDrawn[k].x, p.z - prevDrawn[k].z) / (dt / 1000))
+        lag = Math.max(lag, Math.hypot(p.x - cur[k].x, p.z - cur[k].z))
+      })
+      prevDrawn = dr
       prev = cur
       if (meeting.phase === 'lines') meetings++
       if (frames > 2_000_000) throw new Error('replay does not advance')
@@ -72,7 +83,7 @@ async function run(speed: Speed, checkpoints: number[], fps = 60) {
       }),
     }
   }
-  return { snaps, maxStep, maxRate, excess, frames, meetings, walked, store }
+  return { snaps, maxStep, maxRate, excess, drawnRate, lag, frames, meetings, walked, store }
 }
 
 const CHECK = [5000, 12_000, 20_000, 31_000, 45_000, 70_000, 100_000]
@@ -95,6 +106,10 @@ describe('the replay stage', () => {
         expect(y.agents[k].pose).toBe(p.pose)
       })
     }
+    // the drawn position never moves faster than the screen cap, and follows (no teleport to catch up)
+    expect(a.drawnRate).toBeLessThanOrEqual(SCREEN_MPS + 1e-9)
+    expect(b.drawnRate).toBeLessThanOrEqual(SCREEN_MPS + 1e-9)
+    console.log(`drawn: x1 max ${a.drawnRate.toFixed(2)} m/s, lag ${a.lag.toFixed(2)} m; x16 max ${b.drawnRate.toFixed(2)} m/s, lag ${b.lag.toFixed(2)} m`)
     // both speeds walked and held the meeting
     expect(a.walked).toBeGreaterThan(0)
     expect(b.walked).toBeGreaterThan(0)
@@ -124,5 +139,14 @@ describe('the replay stage', () => {
     expect(b.map((c) => Math.round(c))).toEqual(a.map((c) => Math.round(c)))
     // every landing is on a step boundary: 3 s a point (4.5 s a minutes point), whatever the speed
     expect(a.every((c, k) => k === 0 || [3000, 4500].includes(Math.round(c - a[k - 1])))).toBe(true)
+  })
+})
+
+describe('how a meeting line shows by speed', () => {
+  it('x1 bubbles, x4 full bubbles unless shorter than 0.6 s real, x16 the subtitle', () => {
+    expect(lineMode(1, 100)).toBe('bubble')
+    expect(lineMode(4, 2400)).toBe('full')
+    expect(lineMode(4, 2399)).toBe('subtitle')
+    expect(lineMode(16, 60_000)).toBe('subtitle')
   })
 })

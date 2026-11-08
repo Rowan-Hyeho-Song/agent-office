@@ -24,7 +24,8 @@ import { replay } from '../replay/store'
 import { atMs } from '../replay/engine'
 import { boardDistance, REPLAY_PACE } from '../replay/walk'
 import { replayDoorLine } from '../replay/scene'
-import { Stage } from '../replay/stage'
+import { DrawnTrack, lineMode, Stage } from '../replay/stage'
+import { setLineSub, type LineSub } from '../replay/lineSub'
 import { STAMP_MS } from './props'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
 import type { RootState } from '@react-three/fiber'
@@ -102,6 +103,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
   const stage = useRef<Stage | null>(null)
   const replayNow = useRef<number | null>(null)
   const rigTau = useRef(0)
+  const drawn = useMemo(() => new DrawnTrack(), [])
+  const drawnSeen = useRef(0)
   const reducedRef = useRef(reduced)
   reducedRef.current = reduced
   const narrow = useMemo(() => matchMedia('(max-width: 640px)'), [])
@@ -151,6 +154,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
       st.begin(from)
       stage.current = st
       rigTau.current = st.now
+      drawn.reset()
+      drawnSeen.current = replay.landings
     } else if (!wantReplay && stage.current) {
       // back to live: everyone stands where the replay left them and walks to their live goal from there
       stage.current.dispose()
@@ -223,9 +228,22 @@ export function Agents({ world }: { world: OfficeWorld }) {
     // the coder looks at its rubber duck when a test fails (set before the rigs move)
     if (rigs.agent_3) rigs.agent_3.watch = desk.duckLook && rigs.agent_3.arrived === `work_3` ? desks.duckPoint() : null
     if (st) {
+      // a seek is a jump: the drawn bodies snap with it
+      if (drawnSeen.current !== replay.landings) {
+        drawnSeen.current = replay.landings
+        if (replay.landedVia === 'seek') drawn.reset()
+      }
+      const speed = replay.getSnapshot().speed
+      const tauTotal = steps.reduce((a, s) => a + s.dt, 0)
+      const realDt = Math.min(dt, 0.1)
       for (const step of steps)
         for (const id in rigs) {
           const r = rigs[id]
+          r.gestureMin = speed > 1 ? 0.15 * speed : 0
+          r.ambient = speed >= 16 ? 0 : 1
+          const tk = step.tracks[id]
+          // the screen speed cap: the body is drawn following its plan position at no more than SCREEN_MPS of real time
+          r.drawAt = tk ? drawn.follow(id, tk.x, tk.z, replay.getSnapshot().playing && tauTotal > 0 ? (realDt * step.dt) / tauTotal : realDt) : null
           r.pace = REPLAY_PACE
           r.traffic = step.goals[id].pose !== 'leave'
           r.setGoal(step.goals[id], graph)
@@ -235,6 +253,9 @@ export function Agents({ world }: { world: OfficeWorld }) {
     } else {
       for (const id in rigs) {
         rigs[id].pace = 1
+        rigs[id].gestureMin = 0
+        rigs[id].ambient = 1
+        rigs[id].drawAt = null
         rigs[id].traffic = goals[id].pose !== 'leave'
         if (rigs[id].traffic) {
           const g = goals[id]
@@ -273,7 +294,21 @@ export function Agents({ world }: { world: OfficeWorld }) {
       for (const b of world.bubbles.items(now, reduced)) byId.set(b.id, b)
     }
     const meet = world.meeting.view(replayNow.current ?? now)
-    if (meet) {
+    // the timelapse (timelapse.md): at x4 a line is in full at once, and a line that would not stay 0.6 s real, or any line
+    // at x16, is the subtitle instead of a bubble
+    let mode: 'bubble' | 'full' | 'subtitle' = 'bubble'
+    let sub: LineSub | null = null
+    if (replaying && meet) {
+      const k = meet.frame.index
+      const lines = meet.script.lines
+      const line = lines[k]
+      if (line) {
+        mode = lineMode(replay.getSnapshot().speed, (lines[k + 1]?.startMs ?? meet.script.linesMs) - line.startMs)
+        if (mode === 'subtitle' && typeof line.from === 'number') sub = { seat: line.from, who: seatName(line.from), text: line.private ? '(비공개)' : line.text }
+      }
+    }
+    setLineSub(sub)
+    if (meet && mode !== 'subtitle') {
       for (const b of meet.frame.bubbles) {
         const id = `agent_${b.seat}`
         byId.set(id, {
@@ -283,7 +318,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
           kind: b.kind,
           label: b.kind === 'private' ? '비공개' : '회의',
           text: b.text,
-          typed: b.typed,
+          typed: mode === 'full' ? [...b.text].length : b.typed,
           log: b.log,
           dim: b.dim,
           down: !!meet.script.decision,

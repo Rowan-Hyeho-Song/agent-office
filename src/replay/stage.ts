@@ -151,6 +151,47 @@ export class Stage {
   }
 }
 
+/** the fastest a body moves on screen in the timelapse, m/s of real time (timelapse.md, x16 rules) */
+export const SCREEN_MPS = 6
+
+/**
+ * The drawn position follows the replay-clock position (the truth) at no more than SCREEN_MPS of real time: when it
+ * lags it heads straight for where the truth is now, so nobody teleports. `reset` (a seek, a new stage) snaps.
+ */
+export class DrawnTrack {
+  private at = new Map<string, { x: number; z: number }>()
+  reset() {
+    this.at.clear()
+  }
+  follow(id: string, x: number, z: number, realDtS: number): { x: number; z: number } {
+    const q = this.at.get(id)
+    if (!q) {
+      const p = { x, z }
+      this.at.set(id, p)
+      return p
+    }
+    const dx = x - q.x
+    const dz = z - q.z
+    const d = Math.hypot(dx, dz)
+    const max = SCREEN_MPS * Math.max(0, realDtS)
+    if (d <= max) {
+      q.x = x
+      q.z = z
+    } else {
+      q.x += (dx / d) * max
+      q.z += (dz / d) * max
+    }
+    return q
+  }
+}
+
+/** how a meeting line shows at this speed: a speech bubble (typed), a bubble that is there in full at once, or the subtitle line */
+export function lineMode(speed: number, lineMs: number): 'bubble' | 'full' | 'subtitle' {
+  if (speed <= 1) return 'bubble'
+  if (speed >= 16) return 'subtitle'
+  return lineMs / speed >= 600 ? 'full' : 'subtitle'
+}
+
 /** a minutes point plays its brief meeting from the clock it landed on (a late body load does not move its start) */
 export function startMinutes(meeting: MeetingRunner, p: Point, meta: DocMeta | undefined, convs: Parameters<typeof scriptFor>[2], at: number, status: StatusMap): boolean {
   return meeting.start(scriptFor(p, meta, convs, false), at, status, {})

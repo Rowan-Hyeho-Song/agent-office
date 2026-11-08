@@ -7,6 +7,7 @@ import { drawBar, nearest, type BarLayout } from './barDraw'
 import { boardDistance, pointWaitMs } from './walk'
 import { ALL, LANES, LANE_NAME, SECRET_NOTE, SPEEDS, atMs, describe, dayLabel, laneOf, remainingMs, shortName, stepMs, valueText, whenText, kst, type Lane } from './engine'
 import { replay, useReplay } from './store'
+import { useLineSub } from './lineSub'
 import { ReplayList } from './ReplayList'
 import './replay.css'
 
@@ -63,6 +64,7 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
     m.addEventListener('change', on)
     return () => m.removeEventListener('change', on)
   }, [])
+  const line = useLineSub()
   const [hover, setHover] = useState(-1)
   const [copied, setCopied] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
@@ -242,11 +244,18 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
           </button>
         </div>
       )}
-      <div className={`replay-subtitle${hp ? ' tipping' : ''}`} data-seat={String(lane)} aria-hidden="true">
-        <span className="who">{d.head}</span>
-        {p.secret ? <><span className="replay-redact" /><span className="replay-secret-chip">SECRET · 결재 전</span></> : d.title}
-        {d.size && <span className="meta">{d.size}</span>}
-      </div>
+      {line && !hp ? (
+        <div className="replay-subtitle" data-seat={String(line.seat)} data-line="" aria-hidden="true">
+          <span className="who">{line.who}</span>
+          {line.text}
+        </div>
+      ) : (
+        <div className={`replay-subtitle${hp ? ' tipping' : ''}`} data-seat={String(lane)} aria-hidden="true">
+          <span className="who">{d.head}</span>
+          {p.secret ? <><span className="replay-redact" /><span className="replay-secret-chip">SECRET · 결재 전</span></> : d.title}
+          {d.size && <span className="meta">{d.size}</span>}
+        </div>
+      )}
       <div className="replay-bottom">
         <div className="replay-controls">
           <button type="button" className="ib" aria-label="이전 점" onClick={() => replay.step(-1)}>⏮</button>
