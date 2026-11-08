@@ -49,6 +49,8 @@ Node contract (the app reads glTF extras):
   pp_table                         empty at the table top center, +x = the long side (extras size [l, w], net_h)
   nav_<id>                         empties: where agents go and which way they face (navigation); nav_meet_center_*
                                    (#147): meeting ring centers, extras r = floor kept free around it
+  soil_<plant>                     empties (#184): the soil top's centre of each world-built pot (plant_corner|desk|sofa,
+                                   vine), extras soil_of, r = the soil disc's radius: where watering lands
   shelf_r<r>_b<k>, _band, _label, _secret
                                    live "bot": the library binders (#67): cover, spine band, spine label (one cell of
                                    the shared "spines" canvas: extras canvas, grid, px, cell), SECRET stamp (own pivot)
@@ -1198,7 +1200,7 @@ def flip(o):
     return o
 
 
-def pot3(name, x, z, y0, r_top, r_bot, h, body, group, saucer=False, pebbles=4, seg=24, foot=None, chips=0):
+def pot3(name, x, z, y0, r_top, r_bot, h, body, group, saucer=False, pebbles=4, seg=24, foot=None, chips=0, soil_node=True):
     """a pot in three parts: tapered body, a 1 cm rim (a wall above the soil, inside and out, capped by a rolled
     lip), soil 1.5 cm under the rim with pebbles and bark chips; optional saucer. foot = the material of an
     unglazed foot band (the glaze stops above it: a gloss difference that reads up close, #126). Returns
@@ -1219,6 +1221,13 @@ def pot3(name, x, z, y0, r_top, r_bot, h, body, group, saucer=False, pebbles=4, 
          flip(tube(f"{name}_collar_in", r_top - 0.006, 0.015, (x, soil_y + 0.0075, z), body, group, seg)),
          torus(f"{name}_rim", r_top - 0.003, 0.0055, (x, y0 + h, z), body, group, seg=seg, rseg=4),
          cyl(f"{name}_soil", r_top - 0.006, 0.004, (x, soil_y + 0.001, z), soil, group, seg)]
+    # #184: where watering lands (world-built pots only: soil_node): an empty at the soil's centre, extras r = its radius
+    if soil_node:
+        e = bpy.data.objects.new(f"soil_{name}", None)
+        coll("export").objects.link(e)
+        e.matrix_world = Mx((x, soil_y + 0.003, z))
+        e["soil_of"], e["r"] = name, round(r_top - 0.006, 4)
+        NODES.append({"obj": e, "soil": name})
     if foot:
         o.append(add_bevel(cyl(f"{name}_foot", r_bot, fy - y0, (x, (y0 + fy) / 2, z), foot, group, seg, r2=radius(fy) - 0.001), 0.002, seg=bseg))
     for k in range(pebbles):
@@ -1333,7 +1342,7 @@ def echeveria(name, x, y, z, group):
     """HUE's desk: echeveria rosette in three tiers (8 + 6 + 4 fleshy leaves, 12 triangles a side) curling up, the
     centre lighter; small terracotta pot with pebbles"""
     PRNG.seed(f"126:{name}")  # each plant its own stream: changing one leaves the others as they are
-    pot, sy = pot3(name, x, z, y, 0.04, 0.032, 0.05, plastic("#b5654a", 0.85, 0, 0.3, "terracotta"), group, pebbles=2, seg=10,
+    pot, sy = pot3(name, x, z, y, 0.04, 0.032, 0.05, plastic("#b5654a", 0.85, 0, 0.3, "terracotta"), group, pebbles=2, seg=10, soil_node=False,
                    foot=plastic("#96523d", 0.9, 0, 0.3, "terracotta_dark"))
     fol = Foliage(f"{name}_leaves")
     for tier, (n, length, elev, r0) in enumerate(((8, 0.044, 0.25, 0.007), (6, 0.034, 0.7, 0.004), (4, 0.022, 1.15, 0.0015))):
