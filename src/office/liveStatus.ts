@@ -58,6 +58,22 @@ export function toStatusMap(rows: StatusRow[], agents: string[], now: number): S
 
 const sameMap = (a: StatusMap, b: StatusMap) => JSON.stringify(a) === JSON.stringify(b)
 
+const shared = new WeakMap<SupabaseClient, LiveStatusSource>()
+
+/**
+ * The one source of a client. The page builds its world twice in development (React StrictMode runs the
+ * useState initializer twice), and a second source would add listeners to the realtime channel the first one
+ * already subscribed (client.channel() hands back the same topic), which throws.
+ */
+export function liveStatusFor(client: SupabaseClient, agents: string[]): LiveStatusSource {
+  let s = shared.get(client)
+  if (!s) {
+    s = new LiveStatusSource(client, agents)
+    shared.set(client, s)
+  }
+  return s
+}
+
 export class LiveStatusSource implements StatusSource {
   private rows = new Map<number, StatusRow>()
   private snapshot: StatusMap

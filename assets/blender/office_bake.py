@@ -83,11 +83,10 @@ SIDE_TABLE = (0.3, 2.6)  # a small round table in the open front middle (designe
 COUNTER = (HX - 0.32, -2.0, math.pi)  # against the right wall, its front (local +x) facing the room
 SHELF_X = 3.75
 SHELF_W, SHELF_D = 1.1, 0.34  # the bookshelf against the back wall: width, depth
-PLANTS = [  # name, x, z, scale
-    ("plant_desk", 0.0, -3.22, 1.0),  # between MESH's desk and the whiteboard
-    ("plant_corner", 4.15, 3.12, 1.2),
-    ("plant_sofa", 0.92, 2.75, 0.85),
-    ("plant_boards", 2.0, -3.25, 0.7),  # under the gap between the whiteboard and the bulletin board
+PLANTS = [  # name, species, x, z (#126: one species each, office-quality.md 3; plant_boards left out, designer)
+    ("plant_desk", "sansevieria", 0.0, -3.2),  # between MESH's desk and the whiteboard: tall and narrow
+    ("plant_corner", "fiddle_fig", 4.22, 3.18),  # its canopy (0.6 m) clears the floor lamp by 0.1 m
+    ("plant_sofa", "monstera", 0.925, 2.75),  # between the side table and the sofa: 0.44 m wide, leaves face the camera
 ]
 CLOCK_AT, CLOCK_S = (-HX + 0.02, 1.85, 1.6), 0.40  # wall clock face center (left wall, next to the door), size
 CLOCK_M = Mx((CLOCK_AT[0] + 0.01, CLOCK_AT[1], CLOCK_AT[2]), ry=math.pi / 2)  # the face front: local +z = web +x
@@ -628,16 +627,8 @@ def desk_props_hue(G):
             box("area", (t, 0.001, ad), (-aw / 2, 0, 0), mag, "export"), box("area", (t, 0.001, ad), (aw / 2, 0, 0), mag, "export")]
     Ta = Mx((bx - 0.01, h + 0.0125, bz))
     L.append(LIVE("desk_2_tablet", "neon", place(area, Ta), Ta))
-    # 3 small succulent
-    px, pz = 0.24, -0.18
-    s += [cyl("pot", 0.035, 0.05, (px, h + 0.025, pz), plastic("#b5654a", 0.8, 0, 0.3, "terracotta"), G, 16, r2=0.029),
-          cyl("soil", 0.031, 0.004, (px, h + 0.047, pz), plastic("#3b2a20", 0.9, 0, 0.3, "soil"), G, 16)]
-    for k in range(3):
-        a = 2 * math.pi * k / 3 + 0.4
-        leaf = sphere("leaf", 0.022, (px + 0.012 * math.cos(a), h + 0.066, pz + 0.012 * math.sin(a)),
-                      plastic("#3f7d4a", 0.6, 0, 0.3, "leaf"), G, scale=(0.55, 1.25, 0.45), seg=10, rings=6)
-        leaf.rotation_euler = (math.cos(a) * 0.35, -math.sin(a) * 0.35, a)
-        s.append(leaf)
+    # 3 small succulent: an echeveria rosette (#126)
+    s += plant_tris("succulent", echeveria("succulent", 0.24, h, -0.18, G))
     # 4 bent desk lamp: base far back-left, two arm segments, shade over the swatch fan; live = the bulb
     base, elbow, head = (-0.52, h + 0.012, -0.26), (-0.53, h + 0.33, -0.24), (-0.40, h + 0.27, -0.13)
     joint = plastic("#3a3f48", 0.4, 0.5, 0.05, "lamp")
@@ -936,6 +927,8 @@ def build_wall_items():
                 p.append(box("book", (bw, bh, bd), (x + bw / 2, y0 + 0.0125 + bh / 2, sz + 0.02), plastic(col, 0.7, 0, 0.2, "book"), G))
             x += bw + 0.003
     p += library_statics(shelf_m)
+    # #126: a pothos on top, over the right half (the decorative top row), hanging at most 0.35 m
+    p += plant_tris("vine", pothos("vine", sx + 0.25, sh + 0.015, sz - 0.04, sz + sd / 2, G))
     fp("shelf", p[mark:], "floor", "n")  # stands on the floor against the back wall
     mark2 = len(p)
     # the wall clock on the left wall next to the door (#91: the timelapse entrance): face + 12 ticks baked,
@@ -974,6 +967,424 @@ def build_clock():
     for o in out:
         o["wall"] = "w"
     return out
+
+
+# ================================================================ PLANTS (#126, docs/design/office-quality.md 2.6–2.7, 3)
+# One species per plant so each reads by its silhouette from the default camera: fiddle-leaf fig (violin leaves),
+# sansevieria (swords), monstera (split hearts), echeveria (rosette), pothos (hanging vine). Mesh leaves: a blade
+# folded along its midrib, 8–12 triangles a side (sansevieria and monstera more: stripes / real slits, see the
+# document), two-sided (a flipped skin with its own UV: atlas meshes are drawn front side only). The three leaf
+# greens only. Pots in three parts: tapered body, a 1 cm rim, soil 1.5 cm under it with pebbles; saucer or legs.
+# Everything from code, no outside assets. Own random stream (the room's RNG stream ends before the plants).
+GREENS = ("#2f6b3a", "#4f8f4a", "#8cbf6a")
+PRNG = random.Random(126)
+UP = Vector((0.0, 1.0, 0.0))
+
+
+class Foliage:
+    """the leaves of one plant in one mesh: a material per face, each surface doubled by a flipped back skin"""
+
+    def __init__(self, name, colors=GREENS, under=(1, 2, 2)):
+        self.name = name
+        self.bm = bmesh.new()
+        self.mats = [plastic(c, 0.85, 0, 0.1, f"leaf_{c[1:]}") for c in colors]  # matte: a glossy leaf hung upright
+        # under the wall light went pale mint (grazing sheen)
+        self.under = under  # the underside one green lighter, as real leaves are (two-tone up close)
+
+    def mat(self, m):
+        if m not in self.mats:
+            self.mats.append(m)
+        return self.mats.index(m)
+
+    def green(self):
+        return PRNG.choices((0, 1, 2), weights=(3, 4, 2))[0]
+
+    def surface(self, pts, faces, mis, up):
+        """pts: web Vectors; faces: index tuples, counter-clockwise seen from the front (up side)"""
+        front = [self.bm.verts.new(W(*p)) for p in pts]
+        back = [self.bm.verts.new(W(*(p - up * 0.0008))) for p in pts]
+        for f, mi in zip(faces, mis):
+            self.bm.faces.new([front[i] for i in f]).material_index = mi
+            self.bm.faces.new([back[i] for i in reversed(f)]).material_index = self.under[mi] if mi < len(self.under) else mi
+
+    def obj(self, group):
+        me = bpy.data.meshes.new(self.name)
+        self.bm.to_mesh(me)
+        self.bm.free()
+        for m in self.mats:
+            me.materials.append(m)
+        o = bpy.data.objects.new(self.name, me)
+        coll(group).objects.link(o)
+        return o
+
+
+def ribbed(fol, base, d, side, length, profile, fold=0.3, droop=0.0, mi=0, rib=0.07):
+    """a leaf with a visible midrib (#126: a detail that reads up close): like blade() with 2 inner stations, but the
+    midrib is a narrow strip (rib x half width each side) one green lighter. 12 triangles a side."""
+    d = d.normalized()
+    ts = [0.0] + [t for t, _ in profile] + [1.0]
+    ws = [0.0] + [w for _, w in profile] + [0.0]
+    p, prev, centers = base.copy(), 0.0, []
+    for t in ts:
+        dirn = (d - UP * droop * t).normalized()
+        p = p + dirn * (t - prev) * length
+        prev = t
+        centers.append((p.copy(), dirn))
+    pts = [centers[0][0]]
+    for i in range(1, len(ts) - 1):
+        c, dirn = centers[i]
+        s = (side - dirn * side.dot(dirn)).normalized()
+        up = s.cross(dirn)
+        w = ws[i] * length
+        r = max(0.0015, w * rib)
+        pts += [c - s * w + up * w * fold, c - s * r, c + s * r, c + s * w + up * w * fold]
+    pts.append(centers[-1][0])
+    n, tip = len(ts) - 2, len(pts) - 1
+    rm = min(mi + 1, 2)  # the midrib: one green lighter
+
+    def L(i):
+        return 1 + 4 * i
+
+    faces = [(0, L(0) + 3, L(0) + 2), (0, L(0) + 2, L(0) + 1), (0, L(0) + 1, L(0))]
+    mis = [mi, rm, mi]
+    for i in range(n - 1):
+        a, b = L(i), L(i + 1)
+        faces += [(a + 2, a + 3, b + 3, b + 2), (a + 1, a + 2, b + 2, b + 1), (a, a + 1, b + 1, b)]
+        mis += [mi, rm, mi]
+    a = L(n - 1)
+    faces += [(a + 2, a + 3, tip), (a + 1, a + 2, tip), (a, a + 1, tip)]
+    mis += [mi, rm, mi]
+    fol.surface(pts, faces, mis, side.cross(d).normalized())
+
+
+def petiole(name, a, b, material, group, r=0.003):
+    """the short stalk from a stem to a leaf's base, so no leaf floats (#126)"""
+    return segment(name, tuple(a), tuple(b), r, material, group, verts=4, r2=r * 0.8)
+
+
+def blade(fol, base, d, side, length, profile, fold=0.3, droop=0.0, mi=0):
+    """a leaf from base along d (web; side = across it). profile: [(t, half width / length)] at the inner stations;
+    base and tip are points. fold lifts the edges above the midrib (x half width), droop bends it toward the floor
+    along its length (negative: curls up). 4 triangles per station a side: 2 stations = 8, 3 = 12."""
+    d = d.normalized()
+    ts = [0.0] + [t for t, _ in profile] + [1.0]
+    ws = [0.0] + [w for _, w in profile] + [0.0]
+    p, prev, centers = base.copy(), 0.0, []
+    for t in ts:
+        dirn = (d - UP * droop * t).normalized()
+        p = p + dirn * (t - prev) * length
+        prev = t
+        centers.append((p.copy(), dirn))
+    pts = [centers[0][0]]
+    for i in range(1, len(ts) - 1):
+        c, dirn = centers[i]
+        s = (side - dirn * side.dot(dirn)).normalized()
+        up = s.cross(dirn)
+        w = ws[i] * length
+        pts += [c - s * w + up * w * fold, c, c + s * w + up * w * fold]
+    pts.append(centers[-1][0])
+    n, tip = len(ts) - 2, len(pts) - 1
+
+    def L(i):
+        return 1 + 3 * i
+
+    faces = [(0, L(0) + 2, L(0) + 1), (0, L(0) + 1, L(0))]
+    for i in range(n - 1):
+        faces += [(L(i) + 1, L(i) + 2, L(i + 1) + 2, L(i + 1) + 1), (L(i), L(i) + 1, L(i + 1) + 1, L(i + 1))]
+    faces += [(L(n - 1) + 1, L(n - 1) + 2, tip), (L(n - 1), L(n - 1) + 1, tip)]
+    fol.surface(pts, faces, [mi] * len(faces), side.cross(d).normalized())
+
+
+def split_heart(fol, attach, d, side, size, mi, lobes=4, cup=0.12, slit=0.09):
+    """monstera leaf: a heart along its midrib, base lobes rounding back past the petiole, cut from the edge toward
+    the midrib by slits (real holes) that stop 40% of the way in. attach = the base notch, where the petiole
+    joins; d = toward the tip. lobes per half (the tip lobe uncut): 4 -> 28 triangles a side."""
+    d = d.normalized()
+    s = (side - d * side.dot(d)).normalized()
+    up = s.cross(d)
+    n = lobes
+    pts, faces = [], []
+
+    def station(t, sgn):
+        m = attach + d * (t * size)
+        w = size * 0.52 * math.sin(math.pi * min(1.0, 0.12 + 0.88 * t)) ** 0.75
+        e = m + s * (sgn * w) - d * (size * 0.22 * (1 - t) ** 3) + up * (cup * size * (1 - t * 0.5))
+        return m, m.lerp(e, 0.4), e
+
+    for sgn in (1, -1):
+        base = len(pts)
+        for k in range(n + 1):
+            pts += list(station(k / n, sgn))
+        for k in range(n):
+            M0, I0, E0 = base + 3 * k, base + 3 * k + 1, base + 3 * k + 2
+            M1, I1, E1 = M0 + 3, I0 + 3, E0 + 3
+            if k == n - 1:  # the tip lobe: one piece out to the edge
+                f = (M0, E0, E1, M1)
+                faces.append(f if sgn > 0 else tuple(reversed(f)))
+                continue
+            inner = (M0, I0, I1, M1)
+            faces.append(inner if sgn > 0 else tuple(reversed(inner)))
+            # the outer piece is narrowed at its ends where a slit runs in (not at the base: the heart lobe is whole)
+            g0 = slit if k else 0.0
+            j = len(pts)
+            pts += [pts[I0].lerp(pts[I1], g0), pts[E0].lerp(pts[E1], g0), pts[I1].lerp(pts[I0], slit), pts[E1].lerp(pts[E0], slit)]
+            outer = (j, j + 1, j + 3, j + 2)
+            faces.append(outer if sgn > 0 else tuple(reversed(outer)))
+    fol.surface(pts, faces, [mi] * len(faces), up)
+
+
+def sword(fol, base, d, side, length, width, edge_mi, band_mis, rows=4, twist=0.0):
+    """sansevieria leaf: upright and flat, a yellow edge strip each side, darker / lighter cross bands; full width
+    at the base, pointed tip. (rows - 1) x 8 + 4 triangles a side (28 for 4 rows)."""
+    d = d.normalized()
+    pts, faces, mis = [], [], []
+    for i in range(rows):
+        t = i / rows
+        c = base + d * t * length
+        w = width * (1.0 - 0.55 * t * t)
+        a = twist * t
+        s0 = (side - d * side.dot(d)).normalized()
+        s = s0 * math.cos(a) + d.cross(s0) * math.sin(a)
+        up = s.cross(d)
+        pts += [c - s * w, c - s * w * 0.78, c + up * w * 0.12, c + s * w * 0.78, c + s * w]
+    pts.append(base + d * length)
+    tip = len(pts) - 1
+    for i in range(rows - 1):
+        for j in range(4):
+            faces.append((5 * i + j, 5 * i + j + 1, 5 * (i + 1) + j + 1, 5 * (i + 1) + j))
+            mis.append(edge_mi if j in (0, 3) else band_mis[i % 2])
+    for j in range(4):
+        faces.append((5 * (rows - 1) + j, 5 * (rows - 1) + j + 1, tip))
+        mis.append(edge_mi if j in (0, 3) else band_mis[(rows - 1) % 2])
+    fol.surface(pts, faces, mis, side.normalized().cross(d))
+
+
+def flip(o):
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
+    bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
+    bm.to_mesh(o.data)
+    bm.free()
+    return o
+
+
+def pot3(name, x, z, y0, r_top, r_bot, h, body, group, saucer=False, pebbles=4, seg=24, foot=None, chips=0):
+    """a pot in three parts: tapered body, a 1 cm rim (a wall above the soil, inside and out, capped by a rolled
+    lip), soil 1.5 cm under the rim with pebbles and bark chips; optional saucer. foot = the material of an
+    unglazed foot band (the glaze stops above it: a gloss difference that reads up close, #126). Returns
+    (objects, soil height)."""
+    soil_y = y0 + h - 0.015
+    soil = plastic("#3b2a20", 0.95, 0, 0.4, "soil")
+    stone = (plastic("#9a958c", 0.8, 0, 0.3, "pebble"), plastic("#c9c3b8", 0.8, 0, 0.3, "pebble_light"))
+    bark = (plastic("#6b4a32", 0.9, 0, 0.5, "bark_chip"), plastic("#8a6242", 0.9, 0, 0.5, "bark_chip_light"))
+
+    def radius(y):
+        return r_bot + (r_top - r_bot) * (y - y0) / h
+
+    small = r_top < 0.1  # office-quality.md 2.2: small props 1–2 bevel segments
+    bseg = 1 if small else 2
+    fy = y0 + (min(0.03, h * 0.14) if foot else 0.0)  # top of the unglazed foot band
+    o = [add_bevel(cyl(f"{name}_body", radius(fy), soil_y - fy, (x, (fy + soil_y) / 2, z), body, group, seg, r2=radius(soil_y)), 0.002, seg=bseg),
+         tube(f"{name}_collar", r_top, 0.015, (x, soil_y + 0.0075, z), body, group, seg),
+         flip(tube(f"{name}_collar_in", r_top - 0.006, 0.015, (x, soil_y + 0.0075, z), body, group, seg)),
+         torus(f"{name}_rim", r_top - 0.003, 0.0055, (x, y0 + h, z), body, group, seg=seg, rseg=4),
+         cyl(f"{name}_soil", r_top - 0.006, 0.004, (x, soil_y + 0.001, z), soil, group, seg)]
+    if foot:
+        o.append(add_bevel(cyl(f"{name}_foot", r_bot, fy - y0, (x, (y0 + fy) / 2, z), foot, group, seg, r2=radius(fy) - 0.001), 0.002, seg=bseg))
+    for k in range(pebbles):
+        a, r = PRNG.uniform(0, 2 * math.pi), PRNG.uniform(0.2, 0.75) * (r_top - 0.02)
+        o.append(sphere(f"{name}_pebble", PRNG.uniform(0.006, 0.011), (x + r * math.cos(a), soil_y + 0.005, z + r * math.sin(a)),
+                        stone[k % 2], group, scale=(1.0, 0.6, 0.85), seg=6, rings=4))
+    for k in range(chips):  # bark chips: flat, at odd angles on the soil
+        a, r = PRNG.uniform(0, 2 * math.pi), PRNG.uniform(0.15, 0.8) * (r_top - 0.025)
+        s = PRNG.uniform(0.7, 1.2)
+        o.append(box(f"{name}_chip", (0.022 * s, 0.004, 0.012 * s), (x + r * math.cos(a), soil_y + 0.004, z + r * math.sin(a)),
+                     bark[k % 2], group, rot_y=PRNG.uniform(0, math.pi)))
+    if saucer:
+        o.append(add_bevel(cyl(f"{name}_saucer", r_bot + 0.035, 0.02, (x, y0 - 0.01, z), foot or body, group, seg, r2=r_bot + 0.045), 0.002, seg=2))
+    return o, soil_y
+
+
+def camera_side(x, z):
+    """the horizontal 'right' seen from the default camera at (x, z): leaves built across it face the camera"""
+    c = Vector((8.5 - x, 0.0, 9.5 - z)).normalized()
+    return UP.cross(c).normalized(), c
+
+
+def fiddle_fig(name, x, z, group):
+    """corner: fiddle-leaf fig 1.5 m; glazed charcoal pot (38 cm) with an unglazed foot band on a saucer, pebbles and
+    bark chips; trunk + two branches; 44 violin leaves 20–30 cm with a pale midrib, each on its own short petiole,
+    pointing into the room more than at the corner walls (#126, upper end of office-quality.md 3)"""
+    PRNG.seed(f"126:{name}")  # each plant its own stream: changing one leaves the others as they are
+    pot, sy = pot3(name, x, z, 0.02, 0.19, 0.15, 0.36, plastic("#33363d", 0.25, 0, 0.05, "pot_charcoal_glaze"), group,
+                   saucer=True, pebbles=5, chips=8, foot=plastic("#8e8478", 0.9, 0, 0.3, "pot_bisque_dark"))
+    bark = plastic("#5a4632", 0.85, 0, 0.5, "bark")
+    trunk = [Vector((x, sy, z)), Vector((x - 0.02, 0.75, z - 0.01)), Vector((x - 0.05, 1.15, z - 0.03)), Vector((x - 0.04, 1.45, z - 0.05))]
+    br1 = [trunk[1] + Vector((0, 0.08, 0)), Vector((x - 0.14, 1.02, z - 0.06)), Vector((x - 0.21, 1.22, z - 0.1))]
+    br2 = [trunk[2], Vector((x + 0.02, 1.25, z - 0.14)), Vector((x + 0.01, 1.4, z - 0.2))]
+    stems = [lowrail(f"{name}_trunk", [tuple(p) for p in trunk], 0.018, bark, group),
+             lowrail(f"{name}_branch", [tuple(p) for p in br1], 0.011, bark, group),
+             lowrail(f"{name}_branch", [tuple(p) for p in br2], 0.011, bark, group)]
+    stalk = plastic(GREENS[1], 0.7, 0, 0.2, "fig_petiole")
+    fol = Foliage(f"{name}_leaves")
+    room = Vector((-0.55, 0.0, -1.0)).normalized()  # from the corner toward the room, a little away from the floor lamp (−x)
+    for path, count in ((trunk[1:], 20), (br1[1:], 12), (br2[1:], 12)):
+        for k in range(count):
+            u = 0.15 + 0.85 * (k + PRNG.uniform(0.2, 0.8)) / count  # the upper part of each stem: bare low down
+            seg = min(int(u * (len(path) - 1)), len(path) - 2)
+            f = u * (len(path) - 1) - seg
+            at = path[seg].lerp(path[seg + 1], f)
+            yaw = PRNG.uniform(-1.6, 1.6)  # around the room direction: few leaves point into the corner
+            out = Vector((room.x * math.cos(yaw) - room.z * math.sin(yaw), 0.0, room.x * math.sin(yaw) + room.z * math.cos(yaw)))
+            elev = PRNG.uniform(0.45, 1.05)  # held up and out, as the fig does
+            d = (out * math.cos(elev) + UP * math.sin(elev)).normalized()
+            side = UP.cross(out).normalized()
+            roll = PRNG.uniform(-1.0, 1.0)  # turned about the midrib so the leaves face every way, not all flat
+            side = side * math.cos(roll) + d.cross(side) * math.sin(roll)
+            base = at + (out * 0.75 + UP * 0.65).normalized() * 0.035  # a 3.5 cm petiole from the stem
+            stems.append(petiole(f"{name}_petiole", at, base, stalk, group))
+            ribbed(fol, base, d, side, PRNG.uniform(0.21, 0.29), [(0.33, 0.28), (0.72, 0.34)],
+                   fold=0.15, droop=PRNG.uniform(0.1, 0.3), mi=fol.green())
+    return pot + stems + [fol.obj(group)]
+
+
+def sansevieria(name, x, z, group):
+    """by MESH's desk: sansevieria laurentii, 12 upright swords 0.45–0.78 m with yellow edges and cross bands, in a
+    glazed cream pot (unglazed foot band, pebbles and bark chips) on a three-legged wooden stand with a ring — tall
+    and narrow for its 0.4 m gap"""
+    PRNG.seed(f"126:{name}")  # each plant its own stream: changing one leaves the others as they are
+    stand_h = 0.28
+    pot, sy = pot3(name, x, z, stand_h, 0.12, 0.1, 0.22, plastic("#e8e1cf", 0.22, 0, 0.05, "pot_cream_glaze"), group,
+                   pebbles=4, chips=4, foot=plastic("#cbbfa8", 0.9, 0, 0.3, "pot_bisque"))
+    wood_m = plastic("#a07850", 0.6, 0, 0.4, "stand_wood")
+    legs = []
+    for k in range(3):
+        a = 2 * math.pi * k / 3 + 0.5
+        top = (x + 0.085 * math.cos(a), stand_h + 0.02, z + 0.085 * math.sin(a))
+        foot = (x + 0.16 * math.cos(a), 0.0, z + 0.16 * math.sin(a))
+        legs.append(add_bevel(segment(f"{name}_leg", top, foot, 0.012, wood_m, group, verts=8, r2=0.008), 0.0015, seg=1))
+    legs.append(tube(f"{name}_ring", 0.095, 0.03, (x, stand_h + 0.005, z), wood_m, group, 16))
+    fol = Foliage(f"{name}_leaves", colors=(GREENS[0], GREENS[1], "#d4c056"), under=(0, 1, 2))
+    for k in range(12):
+        a = 2 * math.pi * k / 12 + PRNG.uniform(-0.2, 0.2)
+        r = PRNG.uniform(0.01, 0.065)
+        base = Vector((x + r * math.cos(a), sy, z + r * math.sin(a)))
+        lean = PRNG.uniform(0.04, 0.2)
+        out = Vector((math.cos(a), 0.0, math.sin(a)))
+        d = (UP + out * lean).normalized()
+        side = UP.cross(out).normalized()
+        sword(fol, base, d, side, PRNG.uniform(0.45, 0.78), PRNG.uniform(0.028, 0.04), 2, (0, 1), rows=4, twist=PRNG.uniform(-0.5, 0.5))
+    return pot + legs + [fol.obj(group)]
+
+
+def monstera(name, x, z, group):
+    """by the sofa: a young monstera 0.9 m in terracotta (a darker water-stained foot band, pebbles, bark chips) on a
+    saucer; 7 split-heart leaves on long petioles, each petiole running from the soil into its leaf's base notch,
+    all facing the default camera, spread along z (the gap is narrow in x); undersides one green lighter"""
+    PRNG.seed(f"126:{name}")  # each plant its own stream: changing one leaves the others as they are
+    pot, sy = pot3(name, x, z, 0.02, 0.14, 0.11, 0.26, plastic("#b5654a", 0.85, 0, 0.3, "terracotta"), group, saucer=True,
+                   pebbles=4, chips=6, foot=plastic("#96523d", 0.9, 0, 0.3, "terracotta_dark"))
+    stem_m = plastic(GREENS[1], 0.7, 0, 0.2, "petiole")
+    side, cam = camera_side(x, z)
+    fol = Foliage(f"{name}_leaves")
+    stems = []
+    for k, (dz, h, tilt) in enumerate(((-0.22, 0.62, 0.35), (-0.08, 0.84, 0.15), (0.06, 0.7, 0.25), (0.2, 0.88, 0.1),
+                                       (0.3, 0.55, 0.45), (-0.3, 0.5, 0.5), (0.12, 0.98, 0.05))):
+        attach = Vector((x + PRNG.uniform(-0.04, 0.04), h, z + dz))
+        mid = Vector((x, sy + (h - sy) * 0.55, z + dz * 0.4))
+        stems.append(lowrail(f"{name}_petiole", [(x + PRNG.uniform(-0.02, 0.02), sy, z + PRNG.uniform(-0.02, 0.02)), tuple(mid), tuple(attach)],
+                             0.006, stem_m, group))
+        d = (UP * math.cos(tilt) + cam * math.sin(tilt) * 0.6 + Vector((0, 0, dz)) * 0.8).normalized()  # up, a bit out
+        split_heart(fol, attach, d, side, PRNG.uniform(0.24, 0.3), fol.green())
+    return pot + stems + [fol.obj(group)]
+
+
+def echeveria(name, x, y, z, group):
+    """HUE's desk: echeveria rosette in three tiers (8 + 6 + 4 fleshy leaves, 12 triangles a side) curling up, the
+    centre lighter; small terracotta pot with pebbles"""
+    PRNG.seed(f"126:{name}")  # each plant its own stream: changing one leaves the others as they are
+    pot, sy = pot3(name, x, z, y, 0.04, 0.032, 0.05, plastic("#b5654a", 0.85, 0, 0.3, "terracotta"), group, pebbles=2, seg=10,
+                   foot=plastic("#96523d", 0.9, 0, 0.3, "terracotta_dark"))
+    fol = Foliage(f"{name}_leaves")
+    for tier, (n, length, elev, r0) in enumerate(((8, 0.044, 0.25, 0.007), (6, 0.034, 0.7, 0.004), (4, 0.022, 1.15, 0.0015))):
+        for k in range(n):
+            a = 2 * math.pi * (k + 0.5 * tier) / n
+            out = Vector((math.cos(a), 0.0, math.sin(a)))
+            base = Vector((x, sy + 0.004 + 0.006 * tier, z)) + out * r0
+            d = (out * math.cos(elev) + UP * math.sin(elev)).normalized()
+            blade(fol, base, d, UP.cross(out), length, [(0.25, 0.25), (0.55, 0.31), (0.82, 0.22)], fold=0.45, droop=-0.6,
+                  mi=(PRNG.choice((1, 2)), 2, 2)[tier])
+    return pot + [fol.obj(group)]
+
+
+HEART = [(0.22, 0.42), (0.6, 0.32)]  # pothos leaf: round low down, a pointed tip; with the midrib 12 triangles a side
+
+
+def pothos(name, x, y, z, front_z, group):
+    """top of the bookshelf: pothos in a glazed cream pot (unglazed foot band, pebbles, a few bark chips). Three
+    strands of different length (0.18 / 0.26 / 0.35 m, never more: the binders' top row ends at ~1.65 m) arch out
+    over the shelf's front lip and then fall; heart leaves with a pale midrib, each on a short petiole off the
+    strand, at uneven spacing, darker and mid greens with a light one at the tips; three leaves lie over the pot
+    rim so the vine visibly starts in the pot (designer, #126)"""
+    PRNG.seed(f"126:{name}")  # each plant its own stream: changing one leaves the others as they are
+    r_top = 0.07
+    pot, sy = pot3(name, x, z, y, r_top, 0.055, 0.1, plastic("#e8e1cf", 0.22, 0, 0.05, "pot_cream_glaze"), group, pebbles=2,
+                   chips=3, seg=12, foot=plastic("#cbbfa8", 0.9, 0, 0.3, "pot_bisque"))
+    stem_m = plastic(GREENS[0], 0.7, 0, 0.2, "vine")
+    fol = Foliage(f"{name}_leaves", under=(0, 1, 2))  # hanging leaves show their backs: no lighter underside here
+    stems = []
+    for k, (dx, drop) in enumerate(((-0.13, 0.26), (0.03, 0.35), (0.16, 0.18))):
+        pts = [Vector((x + dx * 0.25, sy + 0.006, z + 0.02)),
+               Vector((x + dx * 0.45, y + 0.028, front_z - 0.05)),
+               Vector((x + dx * 0.7, y + 0.02, front_z + 0.015)),  # over the lip
+               Vector((x + dx * 0.88, y - 0.035, front_z + 0.06)),  # arching out
+               Vector((x + dx, y - drop * 0.55, front_z + 0.07)),
+               Vector((x + dx * 1.04, y - drop, front_z + 0.045))]  # and falling back a little
+        strand = lowrail(f"{name}_strand", [tuple(p) for p in pts], 0.003, stem_m, group)
+        strand.data.resolution_u = 3  # a 3 mm stem: a few segments and a 4-sided section are enough
+        strand.data.bevel_resolution = 0
+        stems.append(strand)
+        n = 7
+        for j in range(n):  # alternate sides, uneven spacing
+            u = min(0.98, 0.16 + 0.82 * (j + PRNG.uniform(0.15, 0.85)) / n)
+            seg = min(int(u * 5), 4)
+            at = pts[seg].lerp(pts[seg + 1], u * 5 - seg)
+            sgn = 1.0 if (j + k) % 2 else -1.0
+            d = Vector((sgn * 0.75, -0.25, 0.55 + PRNG.uniform(-0.15, 0.15))).normalized()
+            mi = 2 if j == n - 1 else PRNG.choice((0, 0, 0, 1))  # under the wall light the shelf top reads bright: dark first
+            base = at + (d + Vector((0, 0.3, 0))).normalized() * 0.014  # a 1.4 cm petiole off the strand
+            stems.append(petiole(f"{name}_petiole", at, base, stem_m, group, r=0.0018))
+            ribbed(fol, base, d, UP.cross(d).normalized(), PRNG.uniform(0.058, 0.078), HEART, fold=0.2, droop=0.45, mi=mi)
+    for a in (-1.2, -0.2, 0.9):  # leaves lying over the pot rim (toward the room), and two standing in the pot
+        out = Vector((math.sin(a), 0.0, math.cos(a)))
+        rim = Vector((x, sy + 0.017, z)) + out * (r_top - 0.008)
+        ribbed(fol, rim, (out - UP * 0.45).normalized(), UP.cross(out), PRNG.uniform(0.062, 0.072), HEART, fold=0.2, droop=0.3,
+               mi=PRNG.choice((0, 1)))
+    for a in (0.6, 3.4):
+        out = Vector((math.cos(a), 0.0, math.sin(a)))
+        ribbed(fol, Vector((x, sy + 0.005, z)) + out * 0.015, (out + UP * 0.9).normalized(), UP.cross(out), 0.072, HEART,
+               fold=0.2, droop=0.6, mi=1)
+    return pot + stems + [fol.obj(group)]
+
+
+def plant_tris(name, objs):
+    """--tris: a plant's triangles with curves evaluated (office-quality.md 3 budgets)"""
+    if "--tris" in ARGS:
+        dg = bpy.context.evaluated_depsgraph_get()
+        n = 0
+        for o in objs:
+            me = o.evaluated_get(dg).to_mesh()
+            k = sum(len(p.vertices) - 2 for p in me.polygons)
+            n += k
+            if "--tris-parts" in ARGS:
+                print(f"    {o.name}: {k}")
+            o.evaluated_get(dg).to_mesh_clear()
+        print(f"plant {name}: {n} triangles")
+    return objs
+
+
+PLANT_BUILDERS = {"fiddle_fig": fiddle_fig, "sansevieria": sansevieria, "monstera": monstera}
+PLANT_NODES = []  # (node, name): each floor plant is its own baked node in the lounge atlas, leaves at half density
 
 
 # ================================================================ LOUNGE (atlas: lounge)
@@ -1051,16 +1462,11 @@ def build_lounge():
     c = place(c, counter_frame())
     fp("counter", c, "floor", "e")  # stands against the right wall
     p += c
-    # plants
-    for name, px, pz, s in PLANTS:
-        mark = len(p)
-        p.append(cyl("planter", 0.18 * s, 0.4 * s, (px, 0.2 * s, pz), plastic("#e8e4dc", 0.6, 0, 0.2, "planter"), G, 24, r2=0.15 * s))
-        for k in range(9):
-            leaf = sphere("leaf", 0.2 * s, (px + RNG.uniform(-0.08, 0.08) * s, (0.55 + RNG.uniform(0, 0.5)) * s, pz + RNG.uniform(-0.08, 0.08) * s),
-                          plastic(RNG.choice(("#3f7d4a", "#2f6b3f", "#5a9a5a")), 0.6, 0, 0.3, "leaf"), G, scale=(0.35, 1.0, 0.18), seg=10, rings=6)
-            leaf.rotation_euler = (RNG.uniform(-0.6, 0.6), RNG.uniform(-0.6, 0.6), k * 0.7)
-            p.append(leaf)
-        fp(name, p[mark:], "decor")
+    # floor plants (#126): one species each, each its own node (PLANT_NODES) so its leaves can bake at half density
+    for name, species, px, pz in PLANTS:
+        objs = plant_tris(name, PLANT_BUILDERS[species](name, px, pz, G))
+        fp(name, objs, "decor")
+        PLANT_NODES.append(join(name, objs))
     # floor lamp by the sofa (its shade glows live)
     lx, lz = SOFA[0] + 1.3, SOFA[1] + 0.25
     p += [cyl("lamp_base", 0.14, 0.03, (lx, 0.015, lz), metal, G, 24),
@@ -1588,6 +1994,8 @@ for o, kind in lib:
 print(f"library: {sum(len(p.vertices) - 2 for o, _ in lib for p in o.data.polygons)} triangles, {len(lib)} nodes")
 lounge, shade, lamp_pos = build_lounge()
 baked(lounge, "lounge")
+for o in PLANT_NODES:  # #126: leaves are near flat colour; half the texel density saves the atlas (office-quality.md 4)
+    baked(o, "lounge", density=0.5)
 live(shade, "neon")
 for o in build_props():
     live(o, "prop")
@@ -1765,10 +2173,13 @@ if PREVIEW:
         shoot(f"desk_{i}", (c.x, c.z, -c.y), (t.x, t.z, -t.y))
     # 1a) one 3/4 close-up per object, agents hidden, 800 x 600 (#108: "now" column of the quality table)
     QUALITY = {
-        "q_plant_corner": ((1.5, 1.5, 0.9), (3.15, 0.85, 2.35)),
-        "q_plant_shelf": ((1.45, 1.0, -1.5), (2.25, 0.45, -2.4)),
-        "q_plant_sofa": ((-1.6, 1.3, 1.6), (-0.55, 0.6, 2.45)),
-        "q_plant_desk": ((0.9, 1.4, -0.9), (-0.35, 0.7, -2.45)),
+        # #126: the plants where #109 put them
+        # (seen along the default camera, as the visitor does: the monstera faces it)
+        "q_plant_corner": ((2.7, 1.6, 1.9), (4.22, 0.95, 3.18)),
+        "q_plant_desk": ((0.95, 1.35, -1.85), (0.0, 0.75, -3.2)),
+        "q_plant_sofa": ((2.05, 1.35, 3.74), (0.925, 0.6, 2.75)),
+        "q_vine": ((3.25, 2.25, -1.95), (4.0, 1.95, -3.2)),
+        "q_succulent": ((-3.55, 1.15, -0.9), (-4.32, 0.8, -1.36)),
         "q_sofa": ((-0.75, 1.35, 0.85), (0.35, 0.4, 2.15)),
         "q_lamp": ((2.6, 1.45, 1.15), (1.6, 1.0, 2.25)),
         "q_pingpong": ((3.45, 1.9, -0.65), (1.75, 0.65, 0.95)),

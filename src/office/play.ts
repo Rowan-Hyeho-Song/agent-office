@@ -49,7 +49,7 @@ export interface PlayAssignment {
 }
 
 /** small fast PRNG (mulberry32): same seed, same sequence, in every browser */
-function rng(seed: number) {
+export function rng(seed: number) {
   let a = seed >>> 0
   return () => {
     a = (a + 0x6d2b79f5) >>> 0
@@ -61,7 +61,7 @@ function rng(seed: number) {
 }
 
 /** FNV-1a over a string: a stable seed from the block number and the roster */
-function hash(s: string) {
+export function hash(s: string) {
   let h = 0x811c9dc5
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i)
