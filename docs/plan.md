@@ -45,6 +45,7 @@
 - 책상 방 라우터는 `/rooms/office/app`(과 그 아래)를 방 경로로 보지 않는다. 정확히 `/rooms/office`만 방이다.
 - 리라이트 초안(배포 때 `vercel.json`, 지금은 적용 안 함): **`/rooms/office/app/(.*)` → 오피스 배포가 먼저**, 그다음 책상 방 SPA 폴백(`/((?!api/).*)` → `/index.html`). 순서가 바뀌면 오피스 앱 주소가 책상 방으로 먹힌다.
 - 오피스는 `OFFICE_BASE=/rooms/office/app/`로 빌드한다(에셋·`/api/*` 모두 이 base를 따른다).
+- 운영 배포(#10): Vercel 환경 변수 `OFFICE_BASE=/rooms/office/app/`로 빌드하고, `vercel.json`의 리라이트 `/rooms/office/app/:path*` → `/:path*`가 정적 파일과 `/api/*` 함수를 같은 경로로 서빙한다. 그래서 자기 도메인(`agent-office-lovat.vercel.app`)에서도, rowansong.dev의 프록시 뒤에서도 같은 빌드가 열린다. 상대 base(`./`)는 쓰지 않는다: 끝 `/` 없는 주소·깊은 경로에서 에셋·`/api/*`가 어긋난다.
 
 **메시지(postMessage)**: 봉투 `{ ns: 'rowansong.room', v: 1, type, ...fields }`. 그 밖의 것은 무시한다.
 
