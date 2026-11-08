@@ -1,29 +1,25 @@
 import { Html } from '@react-three/drei'
-import { useFrame, useThree } from '@react-three/fiber'
-import { useEffect, useMemo, useRef } from 'react'
-import { Box3, BoxGeometry, Mesh, MeshBasicMaterial, Raycaster, Vector2, Vector3, type Object3D } from 'three'
+import { useFrame } from '@react-three/fiber'
+import { useMemo, useRef } from 'react'
+import { Box3, Vector3, type Object3D } from 'three'
 import { openApprovalBox } from './approval/panel'
 import { Agents } from './Agents'
 import { useRole } from './ApprovalBox'
 import { Icon } from './ApprovalIcons'
 import { meshesOf, useOffice } from './nodes'
+import { hitBox, useCanvasPick } from './pick'
+import { Shelf } from './Shelf'
 import type { OfficeWorld } from './world'
-
-/** the library's binders (#67): body, spine band, label, SECRET stamp */
-const BINDER = /^shelf_r\d+_b\d+(_band|_label|_secret)?$/
 
 /** The whole office as baked (room, desks, wall, lounge) and the agents moving through it. */
 export function Office({ world }: { world: OfficeWorld }) {
   const { scene, nodes } = useOffice()
-  // the binders start hidden: the docs viewer (#65) shows one per filed issue and the stamp only on SECRET ones
-  useEffect(() => {
-    for (const [name, node] of Object.entries(nodes)) if (BINDER.test(name)) node.visible = false
-  }, [nodes])
   return (
     <>
       <primitive object={scene} />
       <Agents world={world} />
       <TrayClick scene={scene} nodes={nodes} />
+      <Shelf world={world} scene={scene} nodes={nodes} />
       {world.approvals && <DoorKey world={world} nodes={nodes} />}
     </>
   )
@@ -36,51 +32,11 @@ export function Office({ world }: { world: OfficeWorld }) {
  * size is the target instead, so the empty tray can be clicked too.
  */
 function TrayClick({ scene, nodes }: { scene: Object3D; nodes: Record<string, Object3D> }) {
-  const { gl, camera } = useThree()
   const targets = useMemo(() => {
-    const hit = scene.getObjectByName('hit_approval')
-    const size = hit?.userData.size as [number, number, number] | undefined
-    if (hit && hit.userData.hit === 'approval' && size?.length === 3) {
-      const box = new Mesh(new BoxGeometry(...size), new MeshBasicMaterial({ visible: false }))
-      hit.updateWorldMatrix(true, false)
-      hit.matrixWorld.decompose(box.position, box.quaternion, new Vector3())
-      box.updateMatrixWorld(true)
-      return [box]
-    }
-    return nodes.desk_0_in ? meshesOf(nodes.desk_0_in) : []
+    const box = hitBox(scene, 'approval')
+    return box ? [box] : nodes.desk_0_in ? meshesOf(nodes.desk_0_in) : []
   }, [scene, nodes])
-
-  useEffect(() => {
-    if (!targets.length) return
-    const el = gl.domElement
-    const ray = new Raycaster()
-    const ndc = new Vector2()
-    const over = (e: MouseEvent) => {
-      const r = el.getBoundingClientRect()
-      ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1)
-      ray.setFromCamera(ndc, camera)
-      return ray.intersectObjects(targets, false).length > 0
-    }
-    let down: [number, number] | null = null
-    const onMove = (e: PointerEvent) => {
-      if (e.buttons) return // dragging the camera
-      el.style.cursor = over(e) ? 'pointer' : ''
-    }
-    const onDown = (e: PointerEvent) => (down = [e.clientX, e.clientY])
-    const onClick = (e: MouseEvent) => {
-      const moved = down ? Math.hypot(e.clientX - down[0], e.clientY - down[1]) : 0
-      if (moved < 5 && over(e)) openApprovalBox()
-    }
-    el.addEventListener('pointermove', onMove)
-    el.addEventListener('pointerdown', onDown)
-    el.addEventListener('click', onClick)
-    return () => {
-      el.removeEventListener('pointermove', onMove)
-      el.removeEventListener('pointerdown', onDown)
-      el.removeEventListener('click', onClick)
-      el.style.cursor = ''
-    }
-  }, [gl, camera, targets])
+  useCanvasPick(() => targets, openApprovalBox)
   return null
 }
 
