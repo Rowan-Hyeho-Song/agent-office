@@ -2024,7 +2024,10 @@ def build_lounge():
     # floor plants (#126): one species each, each its own node (PLANT_NODES) so its leaves can bake at half density
     for name, species, px, pz in PLANTS:
         objs = plant_tris(name, PLANT_BUILDERS[species](name, px, pz, G))
-        fp(name, objs, "decor")
+        # #184: the grid blocks only the pot (core): the canopy is above head height in part, and a watering agent must
+        # reach the pot. The slot (overlap check) keeps the whole plant
+        pot_parts = [o for o in objs if o.name.split(".")[0] in {f"{name}_{p}" for p in ("body", "rim", "foot", "saucer", "leg", "ring")}]
+        fp(name, objs, "decor", core=pot_parts)
         PLANT_NODES.append(join(name, objs))
     # floor lamp by the sofa (its shade glows live)
     lx, lz = SOFA[0] + 1.3, SOFA[1] + 0.25
