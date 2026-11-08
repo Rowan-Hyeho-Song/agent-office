@@ -39,7 +39,7 @@ Node contract (the app reads glTF extras):
   prop_book_l|r                   live "bot" (#135): the book's halves, pivot on the spine axis (local z); the app
                                    attaches them to prop_book; _l opens by +180° about local z (lies flat at -x)
   prop_watering_can_spout          empty, child of the can: the spout's end, local +z = the water's way out
-  omok_board                       the 15 x 15 board (lounge atlas, 3x texels: the lines are baked)
+  omok_board                       the 15 x 15 board and its two stone bowls (lounge atlas, 3x texels: the lines are baked)
   omok_grid                        empty at the (0, 0) intersection on the board top, +x = columns, +z = rows
                                    (extras n, cell, stone_h)
   omok_stone_b|w                   live "bot" samples (the app hides them and instances the stones on the board);
@@ -1419,10 +1419,9 @@ PLANT_NODES = []  # (node, name): each floor plant is its own baked node in the 
 
 
 # ================================================================ LOUNGE (atlas: lounge)
-OMOK_NODES = []  # the omok board: its own baked node in the lounge atlas at OMOK_DENSITY (1.2 mm lines)
+OMOK_NODES = []  # the omok board with its bowls: its own baked node in the lounge atlas at OMOK_DENSITY (1.2 mm lines)
 OMOK_DENSITY = 3.0
 OMOK = dict(n=15, cell=0.0257, board=0.42, top=0.77, stone_d=0.022, stone_h=0.008)
-OMOK_BOARD_PARTS = 0  # set by build_omok: its first parts are the board (they become omok_board), then the bowls
 OMOK_BOWLS = {}  # "b" | "w" -> the grab point in the bowl (web): build_props puts prop_piece_a|b there
 SRNG = random.Random(135)  # #135's own draws (the stone heaps)
 
@@ -1539,7 +1538,7 @@ def stone_mats():
 
 
 def build_omok(gx, gz, G):
-    """the board's parts first (OMOK_BOARD_PARTS of them), then the bowls, lids and heaps (lounge atlas)"""
+    """the board, its bowls, lids and heaps: all baked into the omok_board node"""
     B, top = OMOK["board"], OMOK["top"]
     span = OMOK["cell"] * (OMOK["n"] - 1)
     x0, z0 = gx - span / 2, gz - span / 2  # the (0, 0) intersection: the board's -x, -z corner
@@ -1562,8 +1561,6 @@ def build_omok(gx, gz, G):
     grid.matrix_world = Mx((x0, top, z0))  # +x = columns, +z = rows
     grid["n"], grid["cell"], grid["stone_h"] = OMOK["n"], OMOK["cell"], OMOK["stone_h"]
     NODES.append({"obj": grid, "play": "omok"})
-    global OMOK_BOARD_PARTS
-    OMOK_BOARD_PARTS = len(parts)  # everything above is the board node
     # bowls: wooden pots with the stones heaped in them, the lid upside down beside; black by game_a (-x)
     bowl_m = plastic("#5e3f27", 0.5, 0, 0.3, "omok_bowl")  # designer: dark walnut (orange read as a terracotta pot)
     rim_m = plastic("#7a5236", 0.5, 0, 0.3, "omok_lid_rim")
@@ -1675,8 +1672,9 @@ def build_lounge():
               cyl("stool_foot", 0.15, 0.02, (gx + dx, 0.01, gz), metal, G, 24)]
     fp("game", p[mark:], "floor")  # the table with its two stools
     p = [o for o in p if o not in board]
-    OMOK_NODES.append(join("omok_board", board[:OMOK_BOARD_PARTS]))  # its own node: the lines need texels (below)
-    p += board[OMOK_BOARD_PARTS:]
+    # its own node at OMOK_DENSITY: the 1.2 mm lines need texels, and the bowls are near-field too (office-quality.md 0:
+    # >= 500 px/m up close, #156)
+    OMOK_NODES.append(join("omok_board", board))
     # coffee counter against the right wall (#109: it used to cut into the door), built in its own frame: local +x = front
     c = []
     c += [box("counter", (0.6, 0.9, 0.7), (0, 0.45, 0), plastic("#2b2f3a", 0.6, 0, 0.2, "counter"), G, bev=0.01),
