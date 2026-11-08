@@ -136,7 +136,7 @@ body,
   background: var(--surface-raised); border: 1px solid var(--color-line); border-left: var(--bubble-stripe) solid var(--agent); padding: var(--space-2) var(--space-3); }
 .approval-item:hover { border-color: color-mix(in srgb, var(--approval-accent) 60%, var(--color-line)); border-left-color: var(--agent); }
 .approval-item .row1 { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); }
-.approval-item .t { display: block; margin: var(--space-1) 0; font-size: 15px; line-height: 1.45; color: var(--color-text); }
+.approval-item .t { display: block; margin: var(--space-1) 0; font-size: 15px; line-height: 1.45; color: var(--color-text); word-break: keep-all; overflow-wrap: anywhere; }
 .approval-item .meta { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .approval-item .meta .who { color: var(--agent-ink); }
 .approval-date { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
@@ -152,7 +152,7 @@ body,
 .approval-detail { position: relative; }
 .approval-back { font-family: var(--font-pixel); font-size: var(--font-size-1); background: none; border: 0; color: var(--color-text-muted); padding: 0; cursor: pointer; margin-bottom: var(--space-2); }
 .approval-back:hover { color: var(--color-text); }
-.approval-title { font-family: var(--font-text); font-size: 17px; font-weight: 600; line-height: 1.45; margin: var(--space-2) 0 var(--space-1); color: var(--color-text); letter-spacing: 0; }
+.approval-title { font-family: var(--font-text); font-size: 17px; font-weight: 600; line-height: 1.45; margin: var(--space-2) 0 var(--space-1); color: var(--color-text); letter-spacing: 0; word-break: keep-all; overflow-wrap: anywhere; }
 .approval-meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
 .approval-meta .who { color: var(--agent-ink); }
 .approval-meta a { color: var(--color-cyan); }
@@ -240,4 +240,5 @@ fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap
 .door-key svg { width: 12px; height: 12px; }
 .door-key:hover, .door-key:focus-visible { opacity: 1; color: var(--door-hover); }
 .approval-stamp text { font-family: var(--font-pixel); }
-@media (max-width: 640px) { .approval-box { top: 0; right: 0; bottom: 0; width: 100%; } }
+/* full screen on phones: an opaque board, nothing of the HUD behind shows through */
+@media (max-width: 640px) { .approval-box { top: 0; right: 0; bottom: 0; width: 100%; background: var(--color-void); } .approval-box .approval-body { background: var(--color-surface); } }
