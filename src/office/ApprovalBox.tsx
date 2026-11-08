@@ -104,7 +104,7 @@ function Box({ src }: { src: ApprovalSource }) {
           <div className={`approval-body${thud ? ' thud' : ''}`}>
             <div className="approval-head">
               <h2>결재함</h2>
-              <button type="button" className="approval-close" aria-label="닫기" onClick={closeApprovalBox}>
+              <button type="button" className="approval-close" aria-label="결재함 닫기 Esc" onClick={closeApprovalBox}>
                 Esc
               </button>
             </div>
