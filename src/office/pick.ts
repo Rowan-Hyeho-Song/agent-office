@@ -22,12 +22,12 @@ export function hitBox(scene: Object3D, kind: string): Mesh | null {
 
 /**
  * Pointer cursor over the targets and a click (not a camera drag) on them. `targets` is read at every pointer event, so
- * it may change; `onPick` gets all hits nearest first.
+ * it may change; `onPick` gets all hits nearest first; `onHover` fires when the pointer enters or leaves the targets.
  */
-export function useCanvasPick(targets: () => Object3D[], onPick: (hits: Intersection[]) => void) {
+export function useCanvasPick(targets: () => Object3D[], onPick: (hits: Intersection[]) => void, onHover?: (over: boolean) => void) {
   const { gl, camera } = useThree()
-  const latest = useRef({ targets, onPick })
-  latest.current = { targets, onPick }
+  const latest = useRef({ targets, onPick, onHover })
+  latest.current = { targets, onPick, onHover }
   const ray = useMemo(() => new Raycaster(), [])
   const ndc = useMemo(() => new Vector2(), [])
   useEffect(() => {
@@ -44,7 +44,16 @@ export function useCanvasPick(targets: () => Object3D[], onPick: (hits: Intersec
     const onMove = (e: PointerEvent) => {
       if (e.buttons) return // dragging the camera
       const now = hits(e).length > 0
-      if (now !== over) el.style.cursor = (over = now) ? 'pointer' : ''
+      if (now !== over) {
+        el.style.cursor = (over = now) ? 'pointer' : ''
+        latest.current.onHover?.(over)
+      }
+    }
+    const onLeave = () => {
+      if (!over) return
+      el.style.cursor = ''
+      over = false
+      latest.current.onHover?.(false)
     }
     const onDown = (e: PointerEvent) => (down = [e.clientX, e.clientY])
     const onClick = (e: MouseEvent) => {
@@ -54,13 +63,18 @@ export function useCanvasPick(targets: () => Object3D[], onPick: (hits: Intersec
       if (h.length) latest.current.onPick(h)
     }
     el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerleave', onLeave)
     el.addEventListener('pointerdown', onDown)
     el.addEventListener('click', onClick)
     return () => {
       el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerleave', onLeave)
       el.removeEventListener('pointerdown', onDown)
       el.removeEventListener('click', onClick)
-      if (over) el.style.cursor = ''
+      if (over) {
+        el.style.cursor = ''
+        latest.current.onHover?.(false)
+      }
     }
   }, [gl, camera, ray, ndc])
 }

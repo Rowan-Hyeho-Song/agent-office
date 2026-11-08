@@ -112,10 +112,12 @@ export function Door({ nodes }: { nodes: OfficeNodes }) {
       down = null
       if (moved < 6 && !isLocked() && hit(e)) leaveOffice('door')
     }
+    // the cursor is written only when the door's own state changes, so it doesn't undo the office pickers' (pick.ts)
+    let over = false
     const onMove = (e: PointerEvent) => {
       const on = !isLocked() && hit(e)
       view.current.hover = on
-      el.style.cursor = on ? 'pointer' : ''
+      if (on !== over) el.style.cursor = (over = on) ? 'pointer' : ''
     }
     el.addEventListener('pointerdown', onDown)
     el.addEventListener('pointerup', onUp)
@@ -127,7 +129,7 @@ export function Door({ nodes }: { nodes: OfficeNodes }) {
       el.removeEventListener('pointerup', onUp)
       el.removeEventListener('pointermove', onMove)
       el.removeEventListener('pointerleave', onLeave)
-      el.style.cursor = ''
+      if (over) el.style.cursor = ''
     }
   }, [gl, camera, door])
 
