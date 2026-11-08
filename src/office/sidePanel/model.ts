@@ -75,6 +75,12 @@ export function fitScale(screen: Size, s: SideShape, roomScreenW: number): numbe
   return Math.min(1, (leftArea(screen, s).w - SIDE.fitMargin) / roomScreenW)
 }
 
+/**
+ * When the fit scale is measured again (#190): on opening, on a new panel width / sheet stage and on a screen resize, never
+ * because the camera moved, so the viewer's wheel and orbit stay theirs while the panel is open. '' = closed (scale 1).
+ */
+export const fitKey = (screen: Size, s: SideShape) => (s.open ? `${s.width}|${s.sheet}|${screen.w}x${screen.h}` : '')
+
 /** the area that is still 3D (clicks, WASD, bubbles); the panel / sheet covers the rest */
 export function leftArea(screen: Size, s: SideShape): Size {
   if (!s.open) return screen
