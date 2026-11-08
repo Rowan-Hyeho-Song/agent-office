@@ -5,6 +5,7 @@ import { Suspense, useEffect, useState } from 'react'
 import { AgentList } from './office/AgentList'
 import { ApprovalBox } from './office/ApprovalBox'
 import { DebugPanel } from './office/DebugPanel'
+import { DocsViewer } from './office/DocsViewer'
 import { Office } from './office/Office'
 import { useCameraBusy } from './room/Door'
 import { RoomUi } from './room/RoomUi'
@@ -70,6 +71,7 @@ export function App() {
       </p>
       <AgentList world={world} />
       <ApprovalBox world={world} />
+      <DocsViewer world={world} />
       <RoomUi />
       {world.debug && <DebugPanel world={world} />}
     </>

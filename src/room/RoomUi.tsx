@@ -2,6 +2,7 @@ import { useFrame } from '@react-three/fiber'
 import { useEffect, useRef, useState } from 'react'
 import { DESK_URL, ROOM_MODE, isLocked, leaveOffice, listenToDesk, onEntered, onLeaveStart, postToParent } from './link'
 import { closeApprovalBox, isApprovalBoxOpen } from '../office/approval/panel'
+import { closeDocs, isDocsOpen } from '../office/docs/panel'
 import { anyPanelOpen, closeAllPanels, closeTopPanel } from './panels'
 
 /** DOM side: desk messages, Esc, and the way out (a link standalone; a focusable door button in a room) */
@@ -15,6 +16,7 @@ export function RoomUi() {
       onLeaveStart(() => {
         closeAllPanels()
         closeApprovalBox()
+        closeDocs()
         setLocked(true)
       }),
     [],
@@ -27,8 +29,9 @@ export function RoomUi() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || isLocked()) return
       // A panel first, then the desk. Capture phase: we look before the panels' own Esc handlers run, so one press
-      // is one step (the approval box steps back or closes by itself; a closing panel must not also exit).
-      if (isApprovalBoxOpen()) return
+      // is one step (the approval box and the docs viewer step back or close by themselves; a closing panel must not
+      // also exit).
+      if (isApprovalBoxOpen() || isDocsOpen()) return
       if (anyPanelOpen()) closeTopPanel()
       else leaveOffice('esc')
     }
