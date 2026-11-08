@@ -1791,11 +1791,18 @@ def grip_at(o, side, pos, fingers, palm, M=None):
     return child_empty(o if hasattr(o, "matrix_world") else None, name, base @ grip_frame(pos, fingers, palm, side), {"grip_for": side})
 
 
+def web_z_along(d):
+    """a rotation whose web (glTF) local +z points along the web direction d. The glTF export turns Blender local
+    axes too: Blender local -Y becomes glTF local +Z (and Blender +Z becomes glTF +Y). Aligning Blender +Z instead
+    left the spout and the contact normals at right angles (#184)."""
+    return wv(d).normalized().to_track_quat("-Y", "Z").to_matrix().to_4x4()
+
+
 def contact(o, part, pos, normal, side="", M=None):
     """<name>_contact_<part>[_side]: pos and the outward normal in the prop's frame (web); o = a prop, or a name
     string for a baked thing (then M is its frame)"""
     n = wv(normal).normalized()
-    R = n.to_track_quat("Z", "Y").to_matrix().to_4x4()
+    R = web_z_along(normal)
     obj = hasattr(o, "matrix_world")
     base = o.matrix_world if obj else M
     name = (o.name if obj else o) + f"_contact_{part}" + (f"_{side}" if side else "")
@@ -1947,7 +1954,7 @@ def build_props():
     coll("export").objects.link(e)
     e.parent = can
     # local +z along the spout (up and out): from the direction itself (an Euler here lost the upward tilt, #184)
-    e.matrix_world = can.matrix_world @ Matrix.Translation(W(0.212, -0.06, 0.0)) @ wv((math.cos(a), math.sin(a), 0.0)).to_track_quat("Z", "Y").to_matrix().to_4x4()
+    e.matrix_world = can.matrix_world @ Matrix.Translation(W(0.212, -0.06, 0.0)) @ web_z_along((math.cos(a), math.sin(a), 0.0))
     NODES.append({"obj": e, "play": "spout"})
     # omok stones in the hand (#135: the chess pieces became go stones): a = black, b = white, home on the heap in
     # its bowl, next to the sample stone. Center pivot, held in the pinch ("OK hand", agents.md 2.7): the point where
