@@ -40,7 +40,7 @@ export const sessionFile = (sessionId) => join(SESSIONS, `${String(sessionId).re
  */
 export function resolveSeat(input, config, saved, pinnedEnv = process.env.AGENT_OFFICE_SEAT) {
   const pinned = Number.parseInt(pinnedEnv ?? '', 10)
-  if (Number.isInteger(pinned) && pinned >= 0 && pinned <= 3) return pinned
+  if (Number.isInteger(pinned) && pinned >= 0 && pinned <= 4) return pinned
   const fromTitle = seatFor(input.session_title, config.seats ?? DEFAULT_SEATS)
   if (fromTitle !== null) return fromTitle
   return Number.isInteger(saved?.seat) ? saved.seat : null
