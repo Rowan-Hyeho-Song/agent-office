@@ -45,6 +45,8 @@ export function makePlayTools(world: OfficeWorld) {
     force(agent: string, kind: string) {
       const ids = Object.keys(world.rigs)
       world.forceGoal = world.forceGoal ?? {}
+      // everyone else goes to their own desk, so nobody else is sent to the same spots by the schedule
+      for (const id of ids) if (id !== agent && !world.forceGoal[id]) world.forceGoal[id] = { spot: 'work_' + Number(id.split('_')[1]), pose: 'idle' }
       if (kind === 'pingpong' || kind === 'boardgame') {
         const other = ids[(ids.indexOf(agent) + 1) % ids.length]
         const spots = kind === 'pingpong' ? ['pingpong_a', 'pingpong_b'] : ['game_a', 'game_b']
