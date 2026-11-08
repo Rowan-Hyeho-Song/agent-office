@@ -13,14 +13,21 @@ import { meshesOf, useOffice } from './nodes'
 import { hitBox, useCanvasPick } from './pick'
 import { Shelf } from './Shelf'
 import { Whiteboard } from './Whiteboard'
+import { Cutaway } from './cutaway'
+import { Occluders } from './occluders'
+import { Outside } from './OutsideView'
+import { WALL_CUT, wallOf } from './walls'
 import type { OfficeWorld } from './world'
 
 /** The whole office as baked (room, desks, wall, lounge) and the agents moving through it. */
 export function Office({ world }: { world: OfficeWorld }) {
-  const { scene, nodes } = useOffice()
+  const { scene, nodes, fades } = useOffice()
   return (
     <>
       <primitive object={scene} />
+      <Cutaway scene={scene} />
+      <Occluders groups={fades} />
+      <Outside nodes={nodes} world={world} />
       <Agents world={world} />
       <TrayClick scene={scene} nodes={nodes} />
       <ClockRig scene={scene} nodes={nodes} />
@@ -58,11 +65,13 @@ function DoorKey({ world, nodes }: { world: OfficeWorld; nodes: Record<string, O
   const wrap = useRef<HTMLDivElement>(null)
   const anchor = useMemo(() => doorCorner(nodes.screen_door), [nodes])
   const camDir = useMemo(() => new Vector3(), [])
-  // hide the dot while the door screen faces away from the camera
+  const wall = useMemo(() => wallOf(nodes.screen_door ?? null), [nodes])
+  // hide the dot while the door screen faces away from the camera or its wall is lowered below it
   useFrame(({ camera }) => {
     if (!anchor || !wrap.current) return
     camDir.copy(camera.position).sub(anchor.position)
-    wrap.current.style.visibility = camDir.dot(anchor.normal) > 0 ? 'visible' : 'hidden'
+    const up = !wall || anchor.position.y < WALL_CUT[wall]
+    wrap.current.style.visibility = up && camDir.dot(anchor.normal) > 0 ? 'visible' : 'hidden'
   })
   if (!anchor || role !== 'visitor') return null
   return (

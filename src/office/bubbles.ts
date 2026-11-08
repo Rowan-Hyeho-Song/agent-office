@@ -207,10 +207,12 @@ const ACTIVITY_ICON: Record<string, string> = {
   private: 'lock',
 }
 
-/** the chip over a working agent's head ("파일 편집 중"); null when it is not working or wrapping up */
+/** the chip over a working agent's head ("파일 편집 중"), or a night shift's (#110); null otherwise */
 export function statusTag(status: AgentStatus | undefined): Tag | null {
   if (!status) return null
   if (status.state === 'wrapping') return { icon: 'card', label: '카드 정리 중', private: false }
+  if (status.state === 'off' && status.night === 'sleep') return { icon: 'sleep', label: '조는 중', private: false }
+  if (status.state === 'idle' && status.night === 'duty') return { icon: 'coffee', label: '야간 당번', private: false }
   if (status.state !== 'working') return null
   const key = status.activity ?? 'other'
   return { icon: ACTIVITY_ICON[key] ?? 'cmd', label: activityLabel(status.activity), private: key === 'private' }

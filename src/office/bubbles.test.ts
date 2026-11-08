@@ -107,3 +107,11 @@ describe('statusTag', () => {
     expect(statusTag({ state: 'idle', since: 0 })).toBeNull()
   })
 })
+
+describe('night tags (#110)', () => {
+  it('sleepers and the night-duty agent get a tag', () => {
+    expect(statusTag({ state: 'off', since: 0, night: 'sleep' })).toEqual({ icon: 'sleep', label: '조는 중', private: false })
+    expect(statusTag({ state: 'idle', since: 0, night: 'duty' })).toEqual({ icon: 'coffee', label: '야간 당번', private: false })
+    expect(statusTag({ state: 'off', since: 0 })).toBeNull()
+  })
+})

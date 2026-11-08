@@ -12,8 +12,8 @@ import {
   type NavSpot,
 } from './nav'
 
-// the nav_* empties after the #20 re-bake (desk sides moved off the desks, hall_game / hall_ne added)
-const RAW = `bulletin 1.75 -2.05 0 stand; coffee -2.6 1.32 1.5708 stand; desk_side_0 -1.9 -1.72 1.32 stand; desk_side_1 -0.6 -1.72 1.32 stand; desk_side_2 -2.1 -0.8 0.969 stand; desk_side_3 -2 -0.2 2.092 stand; door -2.95 2.12 1.5708 door; game_a -1.95 1.55 -1.5708 stool; game_b -0.75 1.55 1.5708 stool; hall_door -2.5 2.25 0 hall; hall_east 2 -0.6 0 hall; hall_front 0.1 1.2 0 hall; hall_lounge 2.95 1.85 0 hall; hall_game -1.35 0.7 0 hall; hall_ne 3.1 0 0 hall; hall_mid -0.35 -0.55 0 hall; hall_west -2.3 0.75 0 hall; hall_work -1.8 -1.35 0 hall; meet_a -0.75 -0.55 -1.5708 meet; meet_b 0.05 -0.55 1.5708 meet; meet_c 0 -1.55 -0.7854 meet; meet_d 0.62 -1.55 0.7854 meet; pingpong_a 0.42 0.95 -1.5708 play; pingpong_b 3.08 0.95 1.5708 play; shelf 2.85 -2.05 0 stand; sofa_0 -0.18 2.1 0 sofa; sofa_1 0.35 2.1 0 sofa; sofa_2 0.88 2.1 0 sofa; whiteboard 0.35 -2.05 0 stand; work_0 -2.45 -1.86 0 work; work_1 -1.15 -1.86 0 work; work_2 -2.61 -1.15 1.5708 work; work_3 -2.61 0.15 1.5708 work`
+// the nav_* empties of the 9 x 7 m layout (#109): 34 spots incl. hall_back
+const RAW = `bulletin 2.55 -2.6 0 stand; coffee 3.56 -2 -1.5708 stand; desk_side_0 -1.85 -2.52 1.5182 stand; desk_side_1 -0.05 -2.52 1.5182 stand; desk_side_2 -3.59 -2.07 3.089 stand; desk_side_3 -3.59 -0.27 3.089 stand; door -3.95 2.6 1.5708 door; game_a -2.2 2.2 -1.5708 stool; game_b -1 2.2 1.5708 stool; hall_back 2 -1.7 0 hall; hall_door -3.3 2.6 0 hall; hall_east 3.1 -1.3 0 hall; hall_front 0.2 1.3 0 hall; hall_game -1.6 1.2 0 hall; hall_lounge 3.95 1.6 0 hall; hall_mid -1 -0.6 0 hall; hall_ne 4.1 0 0 hall; hall_west -3 1.4 0 hall; hall_work -2.2 -1.5 0 hall; meet_a -1.4 -0.6 -1.5708 meet; meet_b -0.6 -0.6 1.5708 meet; meet_c 0.79 -1.9 -0.7854 meet; meet_d 1.41 -1.9 0.7854 meet; pingpong_a 0.87 0 -1.5708 play; pingpong_b 3.53 0 1.5708 play; shelf 3.75 -2.6 0 stand; sofa_0 1.67 2.55 0 sofa; sofa_1 2.2 2.55 0 sofa; sofa_2 2.73 2.55 0 sofa; whiteboard 1.1 -2.6 0 stand; work_0 -2.8 -2.57 0 work; work_1 -1 -2.57 0 work; work_2 -3.64 -1.12 1.5708 work; work_3 -3.64 0.68 1.5708 work`
 
 const SPOTS: NavSpot[] = RAW.split(';').map((s) => {
   const [id, x, z, ry, kind] = s.trim().split(/\s+/)
@@ -24,7 +24,7 @@ const byId = Object.fromEntries(SPOTS.map((s) => [s.id, s]))
 const sp = (id: string, x: number, z: number): NavSpot => ({ id, x, z, ry: 0, kind: 'hall' })
 
 describe('real spot list and EDGES', () => {
-  it('has 33 spots', () => expect(SPOTS).toHaveLength(33))
+  it('has 34 spots', () => expect(SPOTS).toHaveLength(34))
 
   it('every EDGES endpoint is a known spot id', () => {
     for (const [a, b] of EDGES) {
@@ -164,5 +164,30 @@ describe('patchSpots (?debug=1&nav=)', () => {
     expect(out.find((s) => s.id === 'c')).toEqual({ id: 'c', x: 7, z: 8, ry: 0, kind: 'hall' })
     expect(out.find((s) => s.id === 'a')).toEqual(sp('a', 0, 0))
     expect(patchSpots(base, '')).toBe(base)
+  })
+})
+
+describe('blocked spots (#110)', () => {
+  const g = buildGraph(SPOTS)
+  const sides = new Set(['desk_side_0', 'desk_side_1', 'desk_side_2', 'desk_side_3'])
+
+  it('a quiet route never walks through a desk side', () => {
+    for (const a of SPOTS) {
+      for (const b of SPOTS) {
+        if (sides.has(a.id) || sides.has(b.id)) continue
+        const p = shortestPath(g, a.id, b.id, sides)
+        expect(p, a.id + ' to ' + b.id).not.toBeNull()
+        for (const id of p!) expect(sides.has(id)).toBe(false)
+      }
+    }
+  })
+
+  it('the night shift keeps clear of the desks on its coffee and shelf trips', () => {
+    for (const from of ['work_0', 'work_1', 'work_2', 'work_3', 'coffee', 'shelf']) {
+      for (const to of ['coffee', 'shelf']) {
+        const p = shortestPath(g, from, to, sides)!
+        expect(p.some((id) => sides.has(id))).toBe(false)
+      }
+    }
   })
 })
