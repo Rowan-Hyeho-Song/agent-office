@@ -95,7 +95,7 @@
 | 훅 | 보내는 것 | 사무실 상태 |
 |---|---|---|
 | SessionStart | `start` | 출근(쉬는 중) |
-| UserPromptSubmit | `activity: think` | 작업 중 · 생각하는 중 |
+| UserPromptSubmit | `activity: think` | 작업 중 · 생각 중 |
 | PreToolUse | `activity`: edit · read · delegate, Bash는 test · build · install · git · run · other | 작업 중 · 활동 문구 |
 | Stop(턴 끝) | `stop` | 정리 중 → 작업 일지 초안(6절) |
 | SessionEnd | `end` | 퇴근 |

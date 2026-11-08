@@ -20,6 +20,8 @@ import type { PaperPlanes } from './plane'
 import type { AgentRig } from './rig'
 import { FakePropsFeed, LivePropsFeed, type PropsFeed } from './propsFeed'
 import { FakeStatusSource, type StatusSource } from './status'
+import type { ScreenForce } from './screenLive'
+import type { ScreenState } from './screens'
 import { supabase } from './supabase'
 
 /** the four agents = desks 0..3 (#5); agent_<seat> in the glb */
@@ -32,6 +34,28 @@ export const AGENT_INFO: Record<string, { name: string; role: string; color: str
   agent_3: { name: '루프 LOOP', role: '코더', color: '#4df3ff' },
 }
 export const AGENT_COLORS: Record<string, string> = Object.fromEntries(AGENTS.map((a) => [a, AGENT_INFO[a].color]))
+
+/**
+ * Debug only (#75): force a monitor into one of the five states, window.__office.screens.
+ *   set(seat | 'all', 'work' | 'wrap' | 'rest' | 'off' | 'private' | null, activity?)  null = back to the real status
+ *   stats()  { uploads, fullDraws, stripDraws } counted by the screens since the page started
+ */
+export class ScreenDebug {
+  force: Partial<Record<number, ScreenForce>> = {}
+  /** set by the scene */
+  counters: () => { uploads: number; fullDraws: number; stripDraws: number; ms: number } = () => ({ uploads: 0, fullDraws: 0, stripDraws: 0, ms: 0 })
+  /** set by the scene: where each monitor is (for placing a screenshot camera) */
+  centers: () => number[][] = () => []
+  set(seat: number | 'all', state: ScreenState | null, activity?: string) {
+    for (const s of seat === 'all' ? [0, 1, 2, 3] : [seat]) {
+      if (state) this.force[s] = { state, activity }
+      else delete this.force[s]
+    }
+  }
+  stats() {
+    return this.counters()
+  }
+}
 
 export interface OfficeWorld {
   debug: boolean
@@ -55,6 +79,8 @@ export interface OfficeWorld {
   board: BoardStore
   /** set under ?debug=1 with the fake library: window.__office.fakeBoard.add(n, title, seat, col) / .move(n, col) / .decide(title, note, n) / .secret(n) */
   fakeBoard: FakeBoard | null
+  /** debug only: force the monitor screens (ScreenDebug) */
+  screens: ScreenDebug
   director: Director
   /** debug only: shifts the play clock to preview later schedules */
   timeOffsetMs: number
@@ -106,6 +132,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     live,
     props: live && supabase ? new LivePropsFeed(supabase) : fakeProps!,
     fakeProps,
+    screens: new ScreenDebug(),
     director: new Director(AGENTS),
     timeOffsetMs: 0,
     goals: {},
