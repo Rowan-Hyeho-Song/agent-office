@@ -164,6 +164,7 @@ node .claude/skills/office-bake/check-glb.mjs --want hit_library,neon_approval -
 - 사물을 만들 때 부품을 합치기 **전에** `fp(name, objs, kind, wall=None, grow=(x, z))`로 월드 바운딩 박스를 남긴다. 물건이 아닌 비울 자리는 `fp_box`로 남긴다.
 - glb에는 빈 노드 `slot_<name>`(extras `slot` = 종류, `size [w, h, d]`, `wall`)로 나간다.
 - 모델 개선(#108)의 새 모델은 이 자리 안에 들어가야 한다.
+- 자리에 쓰는 공간(에이전트 패드, 선수 자리)이 들어 있으면 몸체만 extras `core {at, size}`로 함께 나간다(#147). 책상은 `fp(..., core=책상 부품)`, 탁구대는 `grow` 전 크기다. 앱의 격자 길찾기(#138)는 `core`로 칸을 막고, `core`가 없으면 `size`가 곧 몸체다.
 
 | 종류 | 무엇 | 자리에 넣는 것 |
 |---|---|---|
@@ -183,6 +184,7 @@ node .claude/skills/office-bake/check-glb.mjs --want hit_library,neon_approval -
 | 같은 벽의 wall · wall | 0.1 m(벽을 따라, 높이 포함) | 액자끼리 붙지 않게 |
 | wall · 바닥의 것 | 0(3D로 겹치지 않음) | 시계 아래 카운터는 되지만, 몸체를 파고들면 안 됨 |
 | 바닥의 모든 것 · 벽 안쪽 | 벽에 붙는 것(0)까지만 | 벽 밖으로 나가지 않게 |
+| 회의 원 · 바닥의 것(쓰는 공간 포함), 회의 원끼리 | 0(겹치지 않음) | 회의 대형(#141)이 반지름 0.75 m 둘레에 선다. 원은 `nav_meet_center_*`의 extras `r`(1.0 m = 0.75 m + 몸)이다(#147). 벽 안에 들어가야 한다 |
 
 - 홀 동선 폭 0.8 m 이상은 앱의 동선 검사(#17)가 홀 노드 사이 경로로 확인한다.
 - 바운딩 박스 검사라 보수적이다. 모니터 위 끝과 창턱처럼 실제로는 안 닿는 것도 걸린다. 걸리면 규칙을 고치지 말고 자리를 옮긴다.
