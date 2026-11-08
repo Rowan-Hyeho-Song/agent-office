@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>타임랩스 시안</title>
+<!-- 시안 열람용으로만 CDN에서 갈무리를 불러온다(앱은 자체 서빙, office-ui.md 7절). -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/galmuri.css" />
+<link rel="stylesheet" href="../../src/styles/tokens.css" />
+<style>
+/* 색·글꼴·간격·시간은 tokens.css만 쓴다(--replay-* 는 #80에서 더함) */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--color-void); color: var(--color-text); font-family: var(--font-text); font-size: 15px; line-height: 1.6; color-scheme: dark; }
+:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.page { max-width: 1240px; margin: 0 auto; padding: var(--space-8) var(--space-4) 96px; }
+h1, h2, h3 { font-family: var(--font-pixel); font-weight: 400; margin: 0; }
+h1 { font-size: var(--font-size-2); line-height: 36px; }
+h2 { font-size: var(--font-size-2); line-height: 36px; margin-top: 56px; }
+h3 { font-size: var(--font-size-1); line-height: var(--line-height-1); color: var(--color-text-muted); margin: var(--space-6) 0 var(--space-2); }
+.kicker { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-amber); letter-spacing: var(--letter-spacing-label); }
+p.lead, .note { color: var(--color-text-muted); }
+p.lead { max-width: 74ch; margin: var(--space-2) 0 0; }
+.note { font-size: 13px; }
+header.top { border-bottom: 1px solid var(--color-line); padding-bottom: var(--space-4); }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-3); margin-top: var(--space-4); }
+.rule { border: 1px solid var(--color-line); background: var(--color-surface); padding: var(--space-3) var(--space-4); font-size: 14px; color: var(--color-text-muted); }
+.rule b { display: block; font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); color: var(--color-text); margin-bottom: var(--space-1); }
+.demo-bar { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-3) 0; }
+.btn-doc { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-line); padding: var(--space-1) var(--space-3); cursor: pointer; }
+.btn-doc[aria-pressed='true'] { background: var(--color-cyan); color: var(--color-ink); }
+
+/* ───────── 재생 모드 무대 ───────── */
+.stage { position: relative; width: 100%; aspect-ratio: 16 / 10; overflow: hidden; border: 1px solid var(--color-line); background: var(--color-void); container-type: inline-size; }
+.stage .scene { position: absolute; inset: 0; background: radial-gradient(ellipse 60% 50% at 50% 55%, #1a1f29, var(--color-void) 75%); display: grid; place-items: center; }
+.stage .scene .ph { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-faint); }
+.stage .scene.has-bg { background-size: cover; background-position: center; }
+.stage .scene.has-bg .ph { display: none; }
+.grain { position: absolute; inset: 0; pointer-events: none; opacity: var(--replay-grain); mix-blend-mode: screen; background-repeat: repeat; }
+.vignette { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 120px 30px rgb(0 0 0 / 0.55); }
+.bar-top { position: absolute; left: 0; right: 0; top: 0; height: var(--replay-top-h); background: var(--replay-bar); border-bottom: 1px solid var(--color-line); display: flex; align-items: center; gap: var(--space-3); padding: 0 var(--space-4) 0 216px; }
+.bar-top .reserve { position: absolute; left: var(--space-4); top: 50%; transform: translateY(-50%); width: 184px; height: 40px; border: 1px dashed var(--color-text-faint); display: grid; place-items: center; font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-faint); }
+.title-chip { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); display: flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
+.when { margin: 0 auto; text-align: center; line-height: 1.1; }
+.when .rec { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); display: block; }
+.when .date { font-family: var(--font-pixel); font-size: var(--font-size-2); color: var(--color-text); letter-spacing: 0.02em; }
+.when .date .flip { display: inline-block; }
+.seg { display: inline-flex; border: 1px solid var(--color-line); }
+.seg button { font-family: var(--font-pixel); font-size: var(--font-size-1); background: none; color: var(--color-text-muted); border: 0; padding: 0 var(--space-2); height: 28px; cursor: pointer; white-space: nowrap; }
+.seg button + button { border-left: 1px solid var(--color-line); }
+.seg button[aria-checked='true'], .seg button[aria-pressed='true'] { background: var(--color-text); color: var(--color-ink); }
+.seg button:hover:not([aria-checked='true']) { color: var(--color-cyan); }
+.btn-x { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-line); height: 32px; padding: 0 var(--space-3); cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; clip-path: polygon(0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%); }
+.btn-x:hover { border-color: var(--color-cyan); color: var(--color-cyan); }
+.tip.on ~ * .subtitle, .stage.tipping .subtitle { opacity: 0; }
+.subtitle { position: absolute; left: 50%; bottom: calc(var(--replay-bottom-h) + 16px); transform: translateX(-50%); max-width: min(720px, 90%); background: rgb(5 7 10 / 0.82); border: 1px solid var(--color-line); padding: 6px 14px; font-size: 14px; line-height: 1.5; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.subtitle .who { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--agent-ink, var(--color-text-muted)); margin-right: 6px; }
+.subtitle .meta { color: var(--color-text-muted); font-family: var(--font-pixel); font-size: var(--font-size-1); margin-left: 6px; }
+.redact { display: inline-block; height: 0.9em; vertical-align: -0.1em; background: var(--secret-ink); outline: 1px solid var(--color-text-faint); }
+.secret-chip { font-family: var(--font-pixel); font-size: var(--font-size-1); background: var(--manila); color: var(--manila-ink); padding: 0 6px; margin-left: 6px; }
+.live-toast { position: absolute; right: var(--space-4); top: calc(var(--replay-top-h) + 12px); display: none; align-items: center; gap: var(--space-2); background: var(--color-surface-alpha); border: 1px solid var(--color-line); padding: 6px 6px 6px 12px; font-size: 14px; }
+.live-toast.on { display: flex; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--replay-live); box-shadow: 0 0 8px var(--replay-live); animation: livepulse 2s ease-in-out infinite; }
+.live-toast .lbl { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--replay-live); }
+@keyframes livepulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { :root:not([data-motion='full']) .live-dot { animation: none; } }
+:root[data-motion='reduce'] .live-dot { animation: none; }
+
+/* ───────── 타임라인 막대 ───────── */
+.bar-bottom { position: absolute; left: 0; right: 0; bottom: 0; height: var(--replay-bottom-h); background: var(--replay-bar); border-top: 1px solid var(--color-line); padding: var(--space-2) var(--space-4) 2px; display: grid; grid-template-rows: 36px 1fr; gap: 6px; }
+.tl-controls { display: flex; align-items: center; gap: var(--space-2); }
+.ib { width: 36px; height: 32px; display: grid; place-items: center; background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-line); cursor: pointer; padding: 0; }
+.ib:hover { border-color: var(--color-cyan); color: var(--color-cyan); }
+.ib svg { width: 12px; height: 12px; shape-rendering: crispEdges; }
+.ib.play { width: 44px; background: var(--color-text); color: var(--color-ink); border-color: var(--color-text); }
+.ib.play:hover { background: var(--color-cyan); border-color: var(--color-cyan); color: var(--color-ink); }
+.pos { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); white-space: nowrap; }
+.pos b { color: var(--color-text); font-weight: 400; }
+.spacer { flex: 1; }
+.tl-track { position: relative; display: grid; grid-template-columns: 52px 1fr; column-gap: var(--space-2); min-height: 0; }
+.lanes-lbl { display: grid; grid-auto-rows: var(--replay-lane-h); align-content: start; padding-top: 14px; font-family: var(--font-pixel); font-size: 11px; line-height: var(--replay-lane-h); }
+.lanes-lbl span { white-space: nowrap; text-align: right; }
+.tl-canvas-wrap { position: relative; min-width: 0; }
+.tl-canvas-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.tl-slider { position: absolute; inset: 0; cursor: pointer; touch-action: none; }
+.tl-slider:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+.tip { position: absolute; z-index: 5; bottom: calc(var(--replay-bottom-h) - 6px); width: 280px; pointer-events: none; display: none; }
+.tip.on { display: block; }
+.tip .tab { display: inline-block; height: var(--bubble-tab-h); line-height: var(--bubble-tab-h); padding: 0 8px; font-family: var(--font-pixel); font-size: var(--font-size-1); background: var(--agent, var(--color-text-muted)); color: var(--color-ink); }
+.tip .tab.secret { background: var(--manila); color: var(--manila-ink); }
+.tip .body { background: var(--color-surface); border: 1px solid var(--color-line); border-left: var(--bubble-stripe) solid var(--agent, var(--color-text-muted)); padding: var(--bubble-pad-y) var(--bubble-pad-x); font-size: 14px; line-height: 1.45; clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--bubble-cut)), calc(100% - var(--bubble-cut)) 100%, 0 100%); }
+.tip .meta { display: block; margin-top: 4px; font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+[data-seat='0'] { --agent: var(--agent-0); --agent-ink: var(--agent-0-ink); }
+[data-seat='1'] { --agent: var(--agent-1); --agent-ink: var(--agent-1-ink); }
+[data-seat='2'] { --agent: var(--agent-2); --agent-ink: var(--agent-2-ink); }
+[data-seat='3'] { --agent: var(--agent-3); --agent-ink: var(--agent-3-ink); }
+[data-seat='o'] { --agent: var(--color-text); --agent-ink: var(--color-text); }
+[data-seat='n'] { --agent: var(--color-text-muted); --agent-ink: var(--color-text-muted); }
+
+/* 휴대폰 막대 */
+.stage.compact { aspect-ratio: 390 / 760; max-width: 390px; }
+.stage.compact .bar-top { padding: 0 var(--space-3); height: 48px; }
+.stage.compact .bar-bottom { height: 124px; padding: var(--space-2) var(--space-3); grid-template-rows: 36px 1fr; }
+.stage.compact .tl-track { grid-template-columns: 1fr; }
+.stage.compact .lanes-lbl { display: none; }
+.stage.compact .subtitle { bottom: 138px; white-space: normal; font-size: 13px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+
+/* 범례 */
+.legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-2) var(--space-4); margin-top: var(--space-3); }
+.legend div { display: flex; align-items: center; gap: var(--space-2); font-size: 14px; color: var(--color-text-muted); }
+.legend canvas { width: 36px; height: 24px; flex: none; }
+
+/* 들어가는 곳 */
+.entries { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: var(--space-4); margin-top: var(--space-3); }
+.card { border: 1px solid var(--color-line); background: var(--color-surface); padding: var(--space-4); }
+.card .cap { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); margin-top: var(--space-2); }
+.clock-wall { display: flex; gap: var(--space-4); align-items: center; justify-content: center; background: #2b2f3a; padding: var(--space-6) 0; }
+.clock-wall canvas { width: 120px; height: 120px; image-rendering: auto; cursor: pointer; }
+.hud-btn { position: relative; display: inline-flex; align-items: center; gap: var(--space-1); font-family: var(--font-pixel); font-size: var(--font-size-1); height: 32px; padding: 0 var(--space-3); color: var(--color-text); background: var(--color-surface-alpha); border: 1px solid var(--color-line); clip-path: polygon(0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%); cursor: pointer; }
+.hud-btn:hover, .hud-btn.hover { border-color: var(--color-cyan); color: var(--color-cyan); }
+.paper { background: var(--paper); color: var(--paper-ink); padding: var(--space-4); font-size: 14px; }
+.paper .folder { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--paper-muted); }
+.paper h4 { margin: 2px 0 var(--space-2); font-size: 17px; }
+.paper .replay-btn { font-family: var(--font-pixel); font-size: var(--font-size-1); background: none; color: var(--paper-ink); border: 1px solid var(--paper-ink); padding: 4px 10px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.paper .replay-btn:hover { background: var(--paper-ink); color: var(--paper); }
+.paper .replay-btn small { color: inherit; opacity: 0.75; font-size: 12px; }
+
+/* 2D 목록 */
+.list { background: var(--color-void); max-width: 390px; border: 1px solid var(--color-line); height: 760px; overflow: auto; scrollbar-color: var(--bubble-dim-line) transparent; scrollbar-width: thin; }
+.list header { position: sticky; top: 0; z-index: 2; background: var(--color-void); border-bottom: 1px solid var(--color-line); padding: var(--space-3); }
+.list header h3 { margin: 0 0 var(--space-2); color: var(--color-text); font-size: var(--font-size-2); line-height: 32px; }
+.list .sum { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); margin-top: var(--space-2); }
+.spark { display: block; width: 100%; height: 28px; margin-top: var(--space-2); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--space-2); }
+.chip { font-family: var(--font-pixel); font-size: var(--font-size-1); background: none; color: var(--color-text-muted); border: 1px solid var(--color-line); height: 28px; padding: 0 var(--space-2); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.chip[aria-pressed='true'] { color: var(--color-text); border-color: var(--color-text); }
+.day h4 { position: sticky; top: var(--list-head, 0px); z-index: 1; margin: 0; padding: 6px var(--space-3); background: var(--color-surface); font-family: var(--font-pixel); font-size: var(--font-size-1); font-weight: 400; color: var(--color-text-muted); border-bottom: 1px solid var(--color-line); }
+.day ol { list-style: none; margin: 0; padding: 0; }
+.row { display: grid; grid-template-columns: 40px 1fr; gap: 2px var(--space-2); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-line); border-left: 3px solid var(--agent, var(--color-line)); }
+.row time { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); padding-top: 2px; }
+.row .top { display: flex; align-items: center; gap: 6px; font-family: var(--font-pixel); font-size: var(--font-size-1); }
+.row .top .who { color: var(--agent-ink); }
+.row .top .kind { color: var(--color-text-muted); }
+.row .top canvas { width: 12px; height: 12px; }
+.row .ttl { grid-column: 2; font-size: 14px; line-height: 1.45; word-break: keep-all; overflow-wrap: anywhere; }
+.row .num { grid-column: 2; font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.row .num .add { color: var(--color-green); }
+.row .num .del { color: var(--color-red); }
+body.embed .page > *:not(.embed-on), body.embed .embed-hide { display: none; }
+body.embed .page { padding: 0; max-width: none; }
+body.embed .embed-on { display: block; margin: 0; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="top">
+    <div class="kicker">AGENT OFFICE · #80 · 확정 2026-11-08</div>
+    <h1>타임랩스: 작업 이력 재생</h1>
+    <p class="lead">프로젝트가 처음부터 지금까지 어떻게 만들어졌는지 사무실에서 다시 재생합니다(plan.md 6.7절). 점 하나 = 일 하나. 표본은 #81의 실제 사본(<code>src/timeline/fixtures/*.json</code>) 230개 점(11.05 – 11.08)입니다. rowansong.dev 53개 점은 공개 결재 전이라 사본에서부터 제목이 없는 SECRET 점입니다.</p>
+  </header>
+
+  <section id="hero" data-embed="hero">
+    <h2>1. 재생 모드의 사무실</h2>
+    <div class="rules">
+      <div class="rule"><b>실시간과 구분 = 레터박스</b>위아래 검은 띠(위 56px · 아래 176px)가 생기고 필름 그레인 5%가 깔립니다. 장면 색은 바꾸지 않습니다. 에이전트 색이 정보라서 세피아·흑백으로 덮지 않습니다.</div>
+      <div class="rule"><b>위 띠 = 언제</b>가운데 큰 날짜·시각(갈무리 24)과 “기록 재생 중”. 오른쪽에 프로젝트 고르기와 [지금으로]. 왼쪽 216px은 책상 방의 “← 책상으로” 자리(#6)라 비웁니다.</div>
+      <div class="rule"><b>아래 띠 = 타임라인 막대</b>조작 줄 + 줄(lane) 여섯: 주인 · 메모 · 메시 · 휴 · 루프 · 이전. 누가 언제 몰아서 일했는지가 줄로 보입니다.</div>
+      <div class="rule"><b>자막</b>지금 재생 중인 점을 막대 위에 한 줄로: 시각 · 에이전트 · 종류 — 제목(+/−). 장면을 못 봐도 무슨 일인지 읽히고, 화면 읽기에도 같은 문장을 씁니다.</div>
+    </div>
+    <div class="demo-bar">
+      <button class="btn-doc" type="button" id="demo-live">실시간 신호 들어옴</button>
+      <button class="btn-doc" type="button" id="demo-secret">SECRET 점으로</button>
+      <button class="btn-doc" type="button" id="demo-null">역할 분담 이전 점으로</button>
+      <button class="btn-doc" type="button" id="demo-motion" aria-pressed="false">움직임 줄이기</button>
+    </div>
+    <div class="stage" id="stage-main"></div>
+    <p class="note">막대: 드래그, 클릭, 키보드(Space 재생·멈춤, ←/→ 이전·다음 점, Shift+←/→ 이전·다음 날, Home/End, 1·2·3 속도, Esc 지금으로). 점에 올리면 꼬리표가 뜹니다.</p>
+  </section>
+
+  <section id="legend-sec">
+    <h2>2. 점의 모양</h2>
+    <p class="lead">색 = 누가(에이전트 색), 모양 = 무엇을. 모양만으로도 구분되게 했습니다(색각 이상 · 흑백 인쇄). 아직 재생되지 않은 점은 35%로 흐립니다.</p>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <section id="entry-sec" data-embed="entry">
+    <h2>3. 들어가는 곳</h2>
+    <div class="entries">
+      <div class="card">
+        <div class="clock-wall"><canvas id="clock-idle" width="240" height="240" aria-hidden="true"></canvas><canvas id="clock-hover" width="240" height="240" aria-hidden="true"></canvas></div>
+        <div class="cap">벽시계(이미 왼쪽 벽 출입문 옆에 있음) · 평소 / 호버</div>
+        <p class="note">시간을 거슬러 보는 기능이라 <b>시계</b>가 입구입니다. 새 사물 없이 지금 벽시계를 씁니다. 평소에는 실제 시각(사무실 기준 Asia/Seoul)을 가리킵니다. 호버하면 청록 테두리와 꼬리표 “타임랩스”가 뜨고, 누르면 바늘이 거꾸로 1.2초 감기며 재생 모드로 들어갑니다. 재생 중에는 바늘이 재생 시각을 따라 돕니다.</p>
+      </div>
+      <div class="card">
+        <div style="display:flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; background: #11151c; padding: var(--space-6) var(--space-4); justify-content: flex-end;">
+          <button class="hud-btn" type="button"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" fill="currentColor" shape-rendering="crispEdges"><path d="M6 2h1v8H6zM5 3h1v6H5zM4 4h1v4H4zM3 5h1v2H3zM11 2h1v8h-1zM10 3h1v6h-1zM9 4h1v4H9zM8 5h1v2H8z"/></svg>타임랩스</button>
+          <button class="hud-btn hover" type="button"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" fill="currentColor" shape-rendering="crispEdges"><path d="M6 2h1v8H6zM5 3h1v6H5zM4 4h1v4H4zM3 5h1v2H3zM11 2h1v8h-1zM10 3h1v6h-1zM9 4h1v4H9zM8 5h1v2H8z"/></svg>타임랩스</button>
+        </div>
+        <div class="cap">HUD 버튼 · 오른쪽 아래 구석 · 평소 / 호버</div>
+        <p class="note">키보드·화면 읽기 사용자의 입구입니다. 오른쪽 아래가 비어 있어(왼쪽 위 = 책상으로, 오른쪽 위 = 결재함 탭, 왼쪽 아래 = OWNER · 안내) 그 자리에 둡니다.</p>
+      </div>
+      <div class="card">
+        <div class="paper">
+          <div class="folder">agent-office · 파일철 #45</div>
+          <h4>결재함·서재 문서 뷰어·화이트보드 칸반 시안</h4>
+          <button class="replay-btn" type="button">⏪ 이 일의 이력 재생 <small>11.07 – 11.08 · 9개 점</small></button>
+        </div>
+        <div class="cap">문서 뷰어 파일철 머리(#65)</div>
+        <p class="note">파일철 제목 아래, 목차 위. 그 이슈가 열린 때부터 닫힌 때까지만 재생합니다(막대 양끝이 그 기간). 점 수를 같이 적어 얼마나 걸리는지 짐작하게 합니다.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="mobile-sec">
+    <h2>4. 휴대폰</h2>
+    <p class="lead">휴대폰 기본은 2D 목록입니다(plan 6.7). 3D 재생은 목록의 [사무실에서 보기]로 들어가며, 이때 막대는 줄 이름표 없이 6px 줄로 줄어듭니다.</p>
+    <div class="entries">
+      <div><div class="list" id="list" data-embed="list"></div><div class="cap note">2D 목록(키보드 · 화면 읽기 · 휴대폰 기본)</div></div>
+      <div><div class="stage compact" id="stage-m" data-embed="bar-m"></div><div class="cap note">휴대폰 3D 재생 막대</div></div>
+    </div>
+  </section>
+</div>
+
+<div class="tip" id="tip" aria-hidden="true"><span class="tab"></span><div class="body"></div></div>
+
+<script id="sample" type="application/json">[{"k":"work","t":1793855943,"a":-1,"p":1,"s":1,"ad":4440,"de":0,"f":36},{"k":"work","t":1793858892,"a":-1,"p":1,"s":1,"ad":490,"de":97,"f":19},{"k":"work","t":1793862994,"a":-1,"p":1,"s":1,"ad":2195,"de":662,"f":23},{"k":"work","t":1793863143,"a":-1,"p":1,"s":1,"ad":132,"de":203,"f":5},{"k":"work","t":1793863156,"a":-1,"p":1,"s":1,"ad":2,"de":2,"f":1},{"k":"work","t":1793892023,"a":-1,"p":1,"s":1,"ad":6726,"de":1508,"f":62},{"k":"work","t":1793894165,"a":-1,"p":1,"s":1,"ad":1873,"de":42,"f":75},{"k":"work","t":1793894461,"a":-1,"p":1,"s":1,"ad":58,"de":12,"f":4},{"k":"work","t":1793894837,"a":-1,"p":1,"s":1,"ad":37,"de":15,"f":2},{"k":"work","t":1793894983,"a":-1,"p":1,"s":1,"ad":1,"de":1,"f":1},{"k":"work","t":1793895232,"a":-1,"p":1,"s":1,"ad":24,"de":6,"f":3},{"k":"work","t":1793896052,"a":-1,"p":1,"s":1,"ad":160,"de":32,"f":8},{"k":"work","t":1793896490,"a":-1,"p":1,"s":1,"ad":272,"de":16,"f":14},{"k":"work","t":1793913071,"a":-1,"p":1,"s":1,"ad":99,"de":0,"f":1},{"k":"work","t":1793913071,"a":-1,"p":1,"s":1,"ad":245,"de":70,"f":28},{"k":"work","t":1793913071,"a":-1,"p":1,"s":1,"ad":6,"de":3,"f":2},{"k":"work","t":1793917051,"a":-1,"p":1,"s":1,"ad":26,"de":172,"f":20},{"k":"work","t":1793928175,"a":-1,"p":1,"s":1,"ad":201,"de":37,"f":22},{"k":"work","t":1793931334,"a":-1,"p":1,"s":1,"ad":6,"de":18,"f":1},{"k":"work","t":1793931959,"a":-1,"p":1,"s":1,"ad":21,"de":9,"f":1},{"k":"work","t":1793934342,"a":-1,"p":1,"s":1,"ad":29,"de":4,"f":2},{"k":"work","t":1793934342,"a":-1,"p":1,"s":1,"ad":78,"de":26,"f":4},{"k":"work","t":1793936814,"a":-1,"p":1,"s":1,"ad":80,"de":24,"f":3},{"k":"work","t":1793948388,"a":-1,"p":1,"s":1,"ad":37,"de":20,"f":1},{"k":"work","t":1793948388,"a":-1,"p":1,"s":1,"ad":62,"de":21,"f":5},{"k":"work","t":1793948388,"a":-1,"p":1,"s":1,"ad":15,"de":0,"f":2},{"k":"work","t":1793953659,"a":-1,"p":1,"s":1,"ad":234,"de":61,"f":32},{"k":"work","t":1793969876,"a":-1,"p":1,"s":1,"ad":42,"de":13,"f":14},{"k":"work","t":1793970112,"a":-1,"p":1,"s":1,"ad":199,"de":106,"f":19},{"k":"work","t":1793970912,"a":-1,"p":1,"s":1,"ad":29,"de":28,"f":12},{"k":"work","t":1793971898,"a":-1,"p":1,"s":1,"ad":5,"de":5,"f":3},{"k":"work","t":1793972071,"a":-1,"p":1,"s":1,"ad":35,"de":35,"f":4},{"k":"work","t":1793972867,"a":-1,"p":1,"s":1,"ad":121,"de":14,"f":8},{"k":"work","t":1793972877,"a":-1,"p":1,"s":1,"ad":1,"de":1,"f":1},{"k":"decision","t":1793977200,"a":0,"p":0,"ti":"훅은 도구 이름만, 문서는 등급제"},{"k":"decision","t":1793977200,"a":0,"p":0,"ti":"상태 네 가지 + 시각 기반 놀이"},{"k":"decision","t":1793977200,"a":0,"p":0,"ti":"별도 공개 저장소로 시작"},{"k":"work","t":1794020824,"a":-1,"p":1,"s":1,"ad":774,"de":12,"f":14},{"k":"work","t":1794021445,"a":-1,"p":1,"s":1,"ad":12,"de":8,"f":2},{"k":"work","t":1794021617,"a":-1,"p":1,"s":1,"ad":2,"de":2,"f":2},{"k":"work","t":1794022933,"a":-1,"p":1,"s":1,"ad":35,"de":6,"f":5},{"k":"work","t":1794023161,"a":-1,"p":1,"s":1,"ad":9,"de":3,"f":2},{"k":"work","t":1794023310,"a":-1,"p":1,"s":1,"ad":10,"de":7,"f":2},{"k":"work","t":1794023444,"a":-1,"p":1,"s":1,"ad":9,"de":10,"f":2},{"k":"work","t":1794063365,"a":-1,"p":1,"s":1,"ad":47,"de":5,"f":2},{"k":"work","t":1794063465,"a":-1,"p":0,"ti":"docs: 에이전트 오피스 설계·작업 방식, 사무실 에셋 시험판","ad":515,"de":0,"f":5},{"k":"plan","t":1794063498,"a":-1,"p":0,"ti":"신호 통로: 훅 → /api/events → Supabase → 실시간 구독","i":1},{"k":"plan","t":1794063500,"a":-1,"p":0,"ti":"작업 문서: Stop 훅 작업 카드 + 공개 등급·승인 + 열람","i":2},{"k":"plan","t":1794063502,"a":0,"p":0,"ti":"사무실 공간: 모델·라이트 베이킹, 상태 네 가지, 시각 기반 놀이","i":3},{"k":"plan","t":1794063503,"a":-1,"p":0,"ti":"방문자 상호작용과 문: 쪽지·간식·응원, presence, 책상 방에서 들어오고 나가기","i":4},{"k":"plan","t":1794063504,"a":-1,"p":0,"ti":"열린 질문 정하기: 에이전트 구성, Supabase 공유 여부, 주소, 카드 작성 주체","i":5},{"k":"plan","t":1794063592,"a":-1,"p":0,"ti":"이슈·PR 템플릿, 이미지 첨부(image-assets 프리릴리스)","i":6},{"k":"decision","t":1794063600,"a":0,"p":0,"ti":"에이전트 4명(기획·3D·디자인·코더), Supabase는 방명록과 같은 프로젝트(테이블만 나눔), 문서는 일한 에이전트가 직접"},{"k":"decision","t":1794063600,"a":0,"p":0,"ti":"회의 재연: 회의록 표 한 줄 = 대사 한 번(첫 문장), SECRET은 검은 줄"},{"k":"decision","t":1794063600,"a":0,"p":0,"ti":"훅은 자리·신호·활동 종류만 보낸다. 자리는 세션 이름으로, Bash는 종류로 PC 안에서 정한다. 신호가 끊긴 뒤 상태는 페이지가 시각으로 판단한다"},{"k":"decision","t":1794063600,"a":0,"p":0,"ti":"에이전트는 떠다니고(호버 포드), 동선 지점 그래프를 따라 이동, 메시지는 마주 보고 대화"},{"k":"decision","t":1794063600,"a":0,"p":0,"ti":"문서 체계: 기획서·회의록·결정·보고서·작업 일지. 원본은 GitHub(이슈·댓글·PR), Action으로 서버에 사본, 한 이슈 = 한 파일철"},{"k":"decision","t":1794063600,"a":0,"p":0,"ti":"책상 방 안에서 iframe으로 띄우고 주소만 `/rooms/office`"},{"k":"decision","t":1794063600,"a":0,"p":0,"ti":"문서는 프로젝트 폴더 → 파일철 → 문서. 공개 안 된 문서도 SECRET 표지로 존재를 보임"},{"k":"decision","t":1794063600,"a":0,"p":0,"ti":"GitHub 댓글 형식 요청 → 사무실 결재함 → 주인 로그인(GitHub, 허용 목록 1명)으로 결재 → 결과 댓글 + 결재 훅. 도구 권한 묻기는 제외"},{"k":"decision","t":1794063600,"a":0,"p":0,"ti":"작업 이력 타임랩스: 프로젝트(저장소)별 + 전체 타임라인, 점 = 커밋·이슈·회의록·결재·결정·배포. 점 순서로 재생하고 그 시점 사무실을 다시 만든다. 공개 규칙은 6.3 등급 그대로, 코드·diff·경로는 보내지 않음 (#76)"},{"k":"decision","t":1794063600,"a":0,"p":0,"ti":"에이전트 형태를 몸통 없는 떠 있는 머리 + 떠 있는 두 손으로 (몸통·호버 포드·팔 제거). 이름·색은 #26 결재 그대로"},{"k":"decision","t":1794063600,"a":0,"p":0,"ti":"오피스 = rowansong.dev 허브에 붙는 첫 번째 방, 잠긴 모니터는 문"},{"k":"work","t":1794063764,"a":-1,"p":0,"ti":"이슈 폼·PR 템플릿, image-assets 이미지 첨부 (#6) (#7)","ad":292,"de":1,"f":9,"i":6},{"k":"work","t":1794063853,"a":-1,"p":1,"s":1,"ad":22,"de":4,"f":2},{"k":"plan","t":1794063865,"a":-1,"p":0,"ti":"[문서] 방 구조 반영: rowansong.dev 책상 방 = 허브, 오피스 = 첫 번째 방","i":8},{"k":"work","t":1794063916,"a":-1,"p":0,"ti":"docs: 방 구조 반영 — 책상 방 허브, 오피스는 첫 번째 방, 잠긴 모니터는 문 (#8) (#9)","ad":14,"de":5,"f":2,"i":8},{"k":"work","t":1794064721,"a":-1,"p":1,"s":1,"ad":8,"de":1,"f":2},{"k":"plan","t":1794064742,"a":-1,"p":0,"ti":"[문서] 방 이동 결정: 책상 방 안에 띄우고 주소만, 뒤로가기도 같은 퇴장 애니메이션","i":10},{"k":"plan","t":1794064744,"a":0,"p":0,"ti":"[에셋] 사무실 1차 모델: 방·작업 자리 4개·화이트보드·서재·휴식 공간·출입문, 라이트 베이킹","i":11},{"k":"plan","t":1794064745,"a":-1,"p":0,"ti":"[기능] 웹 뼈대: Vite + React Three Fiber로 사무실 glb 띄우기","i":12},{"k":"work","t":1794064771,"a":-1,"p":0,"ti":"docs: 방 이동 결정 — 책상 방 안 iframe + 주소만 /rooms/office, 나가는 입구 넷·애니메이션 하나 (#10) (#13)","ad":6,"de":3,"f":1,"i":10},{"k":"plan","t":1794064816,"a":-1,"p":1,"s":1},{"k":"work","t":1794064892,"a":-1,"p":1,"s":1,"ad":323,"de":0,"f":9},{"k":"plan","t":1794065797,"a":-1,"p":1,"s":1},{"k":"work","t":1794065955,"a":-1,"p":1,"s":1,"ad":16,"de":5,"f":1},{"k":"deploy","t":1794066034,"a":-1,"p":1,"s":1},{"k":"work","t":1794066180,"a":1,"p":0,"ti":"asset: 사무실 1차 모델 — 방·작업 자리 4·화이트보드·게시판·서재·휴식 공간·출입문, 떠다니는 로봇 4대(부품·회전축), 동선 지점, 라이트 베이킹 (#11) (#14)","ad":1289,"de":0,"f":10,"i":11},{"k":"work","t":1794066218,"a":-1,"p":0,"ti":"feat: 웹 뼈대 — Vite + React Three Fiber로 사무실 glb 띄우기, 구운 아틀라스·실시간 조명 로봇 (#12) (#15)","ad":1620,"de":0,"f":12,"i":12},{"k":"plan","t":1794066270,"a":0,"p":0,"ti":"[에셋] 사무실 2차: 로봇 밝기·포드 빛, 화면·게시 표면 슬롯","i":16},{"k":"plan","t":1794066347,"a":0,"p":0,"ti":"[기능] 사무실 이동·놀이: 동선 그래프 호버 이동 + 시각 기반 결정적 놀이 + 교체 가능한 상태 소스","i":17},{"k":"plan","t":1794066639,"a":0,"p":0,"ti":"[디자인] 사무실 말풍선·모니터 화면·출입문 화면: 시안 + 디자인 토큰","i":18},{"k":"work","t":1794066921,"a":1,"p":0,"ti":"asset: 사무실 2차 — 로봇 밝기·포드 빛, 화면 슬롯 screen_work_0..3·screen_door, 게시 표면 surface_*, 빈 노드 보존 (#16) (#19)","ad":63,"de":25,"f":7,"i":16},{"k":"plan","t":1794066980,"a":0,"p":0,"ti":"[에셋] 놀이 소품을 들 수 있게: 라켓·공·컵·물뿌리개·보드게임 말 live 노드 + 로봇 잡는 점","i":20},{"k":"minutes","t":1794067177,"a":0,"p":0,"ti":"회의록: 열린 질문 정하기: 에이전트 구성, Supabase 공유 여부, 주소, 카드 작성 주체","i":5},{"k":"minutes","t":1794067179,"a":1,"p":0,"ti":"회의록: [에셋] 사무실 2차: 로봇 밝기·포드 빛, 화면·게시 표면 슬롯","i":16},{"k":"decision","t":1794067179,"a":0,"p":0,"ti":"b. 로봇 기본 위치: 지금 놀이 배치 유지. 앱이 위치를 잡고, 상태를 못 받았을 때의 기본 장면으로도 적당","i":16},{"k":"minutes","t":1794067180,"a":3,"p":0,"ti":"회의록: [기능] 사무실 이동·놀이: 동선 그래프 호버 이동 + 시각 기반 결정적 놀이 + 교체 가능한 상태 소스","i":17},{"k":"minutes","t":1794067183,"a":0,"p":0,"ti":"회의록: [디자인] 사무실 말풍선·모니터 화면·출입문 화면: 시안 + 디자인 토큰","i":18},{"k":"plan","t":1794067288,"a":0,"p":0,"ti":"[문서] 문서 체계: 기획서·회의록·보고서를 쌓고 방문자에게 공개 범위만큼 보여 주기","i":21},{"k":"minutes","t":1794067969,"a":0,"p":0,"ti":"회의록: [디자인] 사무실 말풍선·모니터 화면·출입문 화면: 시안 + 디자인 토큰","i":18},{"k":"decision","t":1794067969,"a":0,"p":0,"ti":"시안·토큰·근거 문서를 PR #23으로 올렸다. 근거는 `docs/design/office-ui.md`에 있다.","i":18},{"k":"work","t":1794068020,"a":0,"p":0,"ti":"docs: 문서 체계 — 기획서·회의록·결정·보고서·작업 일지, 프로젝트 폴더, SECRET 문서, 회의 재연, 결재·주인 로그인, 에이전트 4명 (#21) (#22)","ad":90,"de":21,"f":1,"i":21},{"k":"plan","t":1794068094,"a":0,"p":0,"ti":"[기능] 문서 수집: docs 테이블 + /api/docs + GitHub Action(이슈·협의 기록·PR → 기획서·회의록·보고서)","i":24},{"k":"plan","t":1794068095,"a":0,"p":0,"ti":"[기능] 주인 로그인 + 결재: 🖊 결재 요청 댓글 → 결재함 → ✅ 결재 댓글 + 결재 훅","i":25},{"k":"plan","t":1794068117,"a":0,"p":0,"ti":"[디자인] 에이전트 4명의 정체성: 이름·색·외형 포인트·이름표·성격 (첫 결재 건)","i":26},{"k":"minutes","t":1794068156,"a":2,"p":0,"ti":"회의록: 신호 통로: 훅 → /api/events → Supabase → 실시간 구독","i":1},{"k":"decision","t":1794068156,"a":0,"p":0,"ti":"훅 스크립트가 로컬에서 Bash 명령을 정해진 종류(`test`·`build`·`install`·`git`·`run`·`other`)로 분류해 `activity` 값만 보낸다. 분류 규칙은 훅 설정 파일에 두고(예:","i":1},{"k":"minutes","t":1794068217,"a":0,"p":0,"ti":"회의록: [기능] 사무실 이동·놀이: 동선 그래프 호버 이동 + 시각 기반 결정적 놀이 + 교체 가능한 상태 소스","i":17},{"k":"decision","t":1794068217,"a":0,"p":0,"ti":"지점 좌표는 glb(Blender), 간선은 앱의 `EDGES` 표(코드)가 맡습니다. 새 지점은 `?debug=1&nav=id:x:z[:ry[:kind]]`로 먼저 검사한 뒤 굽습니다. 테스트는 vitest 4입니","i":17},{"k":"work","t":1794068245,"a":2,"p":0,"ti":"design: 사무실 말풍선·모니터·출입문 시안과 디자인 토큰 (#18) (#23)","ad":1273,"de":0,"f":3,"i":18},{"k":"minutes","t":1794068306,"a":0,"p":0,"ti":"회의록: [디자인] 사무실 말풍선·모니터 화면·출입문 화면: 시안 + 디자인 토큰","i":18},{"k":"decision","t":1794068306,"a":0,"p":0,"ti":"활동 문구는 훅 activity와 1:1이다: 파일 편집 중(`edit`), 코드 읽는 중(`read`), 테스트 실행 중(`test`), 빌드 중(`build`), 설치 중(`install`), 버전 기록 중(`g","i":18},{"k":"approval","t":1794068820,"a":2,"p":0,"ti":"[디자인] 에이전트 4명의 정체성: 이름·색·외형 포인트·이름표·성격 (첫 결재 건)","i":26},{"k":"approval","t":1794068821,"a":2,"p":0,"ti":"[디자인] 에이전트 4명의 정체성: 이름·색·외형 포인트·이름표·성격 (첫 결재 건)","i":26},{"k":"approval","t":1794068822,"a":2,"p":0,"ti":"[디자인] 에이전트 4명의 정체성: 이름·색·외형 포인트·이름표·성격 (첫 결재 건)","i":26},{"k":"approval","t":1794069023,"a":"o","p":0,"ti":"[디자인] 에이전트 4명의 정체성: 이름·색·외형 포인트·이름표·성격 (첫 결재 건)","i":26,"done":1},{"k":"approval","t":1794069024,"a":"o","p":0,"ti":"[디자인] 에이전트 4명의 정체성: 이름·색·외형 포인트·이름표·성격 (첫 결재 건)","i":26,"done":1},{"k":"approval","t":1794069025,"a":"o","p":0,"ti":"[디자인] 에이전트 4명의 정체성: 이름·색·외형 포인트·이름표·성격 (첫 결재 건)","i":26,"done":1},{"k":"plan","t":1794069044,"a":0,"p":0,"ti":"[에셋] 에이전트 4명: 떠 있는 머리 + 떠 있는 두 손(메모·메시·휴·루프), 자리 색 순서, 종이비행기","i":27},{"k":"minutes","t":1794069065,"a":2,"p":0,"ti":"회의록: [디자인] 에이전트 4명의 정체성: 이름·색·외형 포인트·이름표·성격 (첫 결재 건)","i":26},{"k":"decision","t":1794069065,"a":0,"p":0,"ti":"리베이스본은 `feature/26-agent-identity-v2`로 올려 PR. 원래 브랜치는 결재 댓글의 시안 링크 때문에 남김","i":26},{"k":"plan","t":1794069157,"a":0,"p":0,"ti":"[디자인] 몸통 없는 에이전트: 떠 있는 머리 + 떠 있는 두 손, 역할 부품 다시 배치","i":28},{"k":"minutes","t":1794069167,"a":0,"p":0,"ti":"회의록: [디자인] 에이전트 4명의 정체성: 이름·색·외형 포인트·이름표·성격 (첫 결재 건)","i":26},{"k":"decision","t":1794069167,"a":0,"p":0,"ti":"① 이름, ② 색은 확정 유지. ③ 외형은 머리 위 부품은 살리고 몸통 기반 부분만 #28에서 다시 결재","i":26},{"k":"work","t":1794069223,"a":2,"p":0,"ti":"docs: 에이전트 형태 — 몸통 없는 떠 있는 머리 + 떠 있는 두 손 (#28) (#29)","ad":2,"de":1,"f":1,"i":28},{"k":"work","t":1794069321,"a":2,"p":0,"ti":"design: 에이전트 4명 정체성 — 메모·메시·휴·루프, 호박·라벤더·마젠타·청록, 이름표·성격 (#26) (#30)","ad":578,"de":65,"f":5,"i":26},{"k":"work","t":1794069524,"a":3,"p":0,"ti":"feat: 사무실 이동·놀이 — 동선 그래프 호버 이동, 시각 기반 결정적 놀이, 교체 가능한 상태 소스 (#17) (#31)","ad":2178,"de":50,"f":18,"i":17},{"k":"minutes","t":1794069957,"a":2,"p":0,"ti":"회의록: [디자인] 몸통 없는 에이전트: 떠 있는 머리 + 떠 있는 두 손, 역할 부품 다시 배치","i":28},{"k":"decision","t":1794069957,"a":0,"p":0,"ti":"종이비행기를 넣는다. 짧은 일 넘기기(세션 간 메시지·이슈 배정) = 종이비행기, 협의 기록(회의록) = 대면 회의 재연으로 나눈다. 보낸 쪽이 포스트잇을 접어 던지고, 받는 쪽이 손을 들어 받는다(루프는 한 손으로","i":28},{"k":"minutes","t":1794070061,"a":2,"p":0,"ti":"회의록: [디자인] 몸통 없는 에이전트: 떠 있는 머리 + 떠 있는 두 손, 역할 부품 다시 배치","i":28},{"k":"decision","t":1794070061,"a":0,"p":0,"ti":"얼굴 `agent_i_face`는 캔버스 슬롯이다(UV 0–1, extras `screen=true`·`aspect` 1.667·`w`·`h`, 기본 재질 = 꺼진 화면). 앱이 약 300 × 180 px로 상태가 ","i":28},{"k":"plan","t":1794070074,"a":0,"p":0,"ti":"[디자인] 자리별 책상 꾸미기: 각 에이전트가 고른 소품 반영","i":32},{"k":"approval","t":1794070233,"a":3,"p":0,"ti":"신호 통로: 훅 → /api/events → Supabase → 실시간 구독","i":1},{"k":"work","t":1794070292,"a":-1,"p":0,"ti":"feat: 신호 통로 — 훅(PC 안에서 자리·활동 분류) → /api/events → Supabase → 실시간 구독 (#1) (#33)","ad":1406,"de":37,"f":22,"i":1},{"k":"plan","t":1794070312,"a":0,"p":0,"ti":"[오류] 훅이 세션 이름 낱말만으로 자리를 정해 다른 프로젝트(회사 업무) 활동도 보낼 수 있음","i":34},{"k":"approval","t":1794070528,"a":"o","p":0,"ti":"신호 통로: 훅 → /api/events → Supabase → 실시간 구독","i":1,"done":1},{"k":"work","t":1794070555,"a":3,"p":0,"ti":"fix: 훅은 허용 폴더(agent-office·rowansong.dev와 worktree) 안의 세션만 보냄, 흔한 영어 자리 낱말 제거 (#34) (#35)","ad":130,"de":20,"f":7,"i":34},{"k":"approval","t":1794070851,"a":2,"p":0,"ti":"[디자인] 몸통 없는 에이전트: 떠 있는 머리 + 떠 있는 두 손, 역할 부품 다시 배치","i":28},{"k":"approval","t":1794070852,"a":2,"p":0,"ti":"[디자인] 몸통 없는 에이전트: 떠 있는 머리 + 떠 있는 두 손, 역할 부품 다시 배치","i":28},{"k":"approval","t":1794070970,"a":"o","p":0,"ti":"[디자인] 몸통 없는 에이전트: 떠 있는 머리 + 떠 있는 두 손, 역할 부품 다시 배치","i":28,"done":1},{"k":"approval","t":1794070971,"a":"o","p":0,"ti":"[디자인] 몸통 없는 에이전트: 떠 있는 머리 + 떠 있는 두 손, 역할 부품 다시 배치","i":28,"done":1},{"k":"minutes","t":1794071006,"a":0,"p":0,"ti":"회의록: [에셋] 놀이 소품을 들 수 있게: 라켓·공·컵·물뿌리개·보드게임 말 live 노드 + 로봇 잡는 점","i":20},{"k":"decision","t":1794071006,"a":0,"p":0,"ti":"회전축 extras 이름은 `pivot_at`(값·의미는 같음). 예전 `pivot`은 three의 GLTFExporter 규칙과 충돌","i":20},{"k":"work","t":1794071041,"a":1,"p":0,"ti":"asset: 놀이 소품 live 노드 8개 + 로봇 잡는 점, 동선 지점 보정(NAV_PATCH) 반영, pivot → pivot_at (#20) (#36)","ad":125,"de":17,"f":7,"i":20},{"k":"work","t":1794071091,"a":3,"p":0,"ti":"feat: 문서 수집 — GitHub 이슈·협의 기록·결재·머지된 PR → /api/docs → Supabase docs (#24) (#37)","ad":2027,"de":1,"f":31,"i":24},{"k":"plan","t":1794071095,"a":0,"p":0,"ti":"[오류] 공개 저장소라 누구나 쓴 이슈·댓글이 문서·결재로 들어감 — 작성자 거름 필요(배포 전 필수)","i":38},{"k":"work","t":1794071237,"a":2,"p":0,"ti":"design: 몸통 없는 에이전트 — 떠 있는 머리 + 떠 있는 두 손(A 엄지·검지 장갑), 네 명의 개성 반영 (#28) (#39)","ad":603,"de":324,"f":2,"i":28},{"k":"approval","t":1794071349,"a":2,"p":0,"ti":"[디자인] 자리별 책상 꾸미기: 각 에이전트가 고른 소품 반영","i":32},{"k":"plan","t":1794071366,"a":0,"p":0,"ti":"[기능] 동선 지점 임시 보정(NAV_PATCH) 제거 — #20 모델 반영 뒤","i":41},{"k":"work","t":1794071501,"a":3,"p":0,"ti":"fix: 문서·결재는 주인·협업자가 쓴 것만 — 워크플로·수집·/api/docs 세 곳에서 작성자 거름 (#38) (#40)","ad":179,"de":24,"f":8,"i":38},{"k":"work","t":1794071504,"a":3,"p":0,"ti":"fix: 모델에 동선 지점이 들어와 앱의 임시 보정(NAV_PATCH) 제거 (#41) (#42)","ad":5,"de":26,"f":3,"i":41},{"k":"approval","t":1794071856,"a":"o","p":0,"ti":"[디자인] 자리별 책상 꾸미기: 각 에이전트가 고른 소품 반영","i":32,"done":1},{"k":"plan","t":1794071879,"a":0,"p":0,"ti":"[에셋] 자리별 책상 소품: 메모·메시·휴·루프 책상 꾸미기 + LIVE 소품 노드","i":43},{"k":"plan","t":1794071881,"a":0,"p":0,"ti":"[기능] 책상 LIVE 소품 10개를 데이터와 연결 + 훅이 명령 성공/실패 값만 추가로 보냄","i":44},{"k":"plan","t":1794071928,"a":0,"p":0,"ti":"[디자인] 문서 화면: 결재함(주인·방문자) → 서재 문서 뷰어(SECRET 표지) → 화이트보드 칸반","i":45},{"k":"work","t":1794071967,"a":2,"p":0,"ti":"design: 자리별 책상 꾸미기 — 메모·메시·휴·루프 소품, LIVE 소품 10개 (#32) (#46)","ad":371,"de":0,"f":2,"i":32},{"k":"minutes","t":1794072203,"a":0,"p":0,"ti":"회의록: [기능] 주인 로그인 + 결재: 🖊 결재 요청 댓글 → 결재함 → ✅ 결재 댓글 + 결재 훅","i":25},{"k":"decision","t":1794072203,"a":0,"p":0,"ti":"주인 판별은 서버가 Supabase 토큰을 검증해 `auth.identities`의 GitHub ID로만 한다(`user_metadata`는 믿지 않음). 🖊·✅는 주인 계정 것만 받고, 결과는 주인의 요청과만 짝","i":25},{"k":"work","t":1794072223,"a":3,"p":0,"ti":"feat: 주인 로그인·결재 — 🖊 요청 수집, 결재함(2D), /api/approve가 ✅ 댓글, 결재 훅 (#25) (#47)","ad":1813,"de":64,"f":33,"i":25},{"k":"plan","t":1794072238,"a":0,"p":0,"ti":"[오류] 결재를 두 번 빠르게 누르면 ✅ 댓글이 두 번 달릴 수 있음","i":48},{"k":"approval","t":1794072348,"a":2,"p":0,"ti":"[디자인] 문서 화면: 결재함(주인·방문자) → 서재 문서 뷰어(SECRET 표지) → 화이트보드 칸반","i":45},{"k":"approval","t":1794072736,"a":2,"p":0,"ti":"[디자인] 문서 화면: 결재함(주인·방문자) → 서재 문서 뷰어(SECRET 표지) → 화이트보드 칸반","i":45},{"k":"work","t":1794072945,"a":3,"p":0,"ti":"fix: 결재를 두 번 빠르게 눌러도 ✅ 댓글은 한 번 — 댓글 전에 deciding으로 잠금 (#48) (#50)","ad":103,"de":10,"f":6,"i":48},{"k":"work","t":1794072948,"a":3,"p":0,"ti":"feat: 책상 LIVE 소품 상태 모델 + 훅이 test·build 성공/실패 값만 보냄 (#44 앞부분) (#49)","ad":795,"de":46,"f":20,"i":44},{"k":"plan","t":1794072968,"a":0,"p":0,"ti":"[기능] 종이비행기: 세션 간 일 넘기기 신호(받는 자리만) + 비행·받기 연출 + OUT 서류함","i":51},{"k":"minutes","t":1794073069,"a":1,"p":0,"ti":"회의록: [에셋] 에이전트 4명: 떠 있는 머리 + 떠 있는 두 손(메모·메시·휴·루프), 자리 색 순서, 종이비행기","i":27},{"k":"decision","t":1794073069,"a":0,"p":0,"ti":"노드 구조는 agents.md 2.3을 따르되 `agent_i_beam`을 새로 둔다.","i":27},{"k":"minutes","t":1794073202,"a":1,"p":0,"ti":"회의록: [에셋] 에이전트 4명: 떠 있는 머리 + 떠 있는 두 손(메모·메시·휴·루프), 자리 색 순서, 종이비행기","i":27},{"k":"decision","t":1794073202,"a":0,"p":0,"ti":"`_grip`: 위치 (0, 0.015, 0). 손 기준 쿼터니언은 오른손 (0.7071, 0, −0.7071, 0), 왼손 (0.7071, 0, 0.7071, 0).","i":27},{"k":"work","t":1794073229,"a":1,"p":0,"ti":"docs: 에이전트 문서를 #27 모델에 맞춤 — _grip 회전, 빛기둥 agent_i_beam, 루프 고리 25° 숙임 (#27) (#53)","ad":4,"de":3,"f":1,"i":27},{"k":"work","t":1794073983,"a":1,"p":0,"ti":"asset+feat: 에이전트 4명 — 떠 있는 머리 + 떠 있는 두 손(메모·메시·휴·루프), 자리 색 순서, 종이비행기, rig 새 구조·놀이 선호 (#27) (#52)","ad":1049,"de":217,"f":12,"i":27},{"k":"plan","t":1794074032,"a":0,"p":0,"ti":"[오류] 앱의 빛기둥이 불투명한 원뿔·치마처럼 보임 — 덧셈 혼합 + 아래로 옅어지게","i":54},{"k":"work","t":1794074414,"a":3,"p":0,"ti":"fix: 빛기둥이 몸통처럼 보이지 않게 — 덧셈 혼합·아래로 옅어짐·바닥 빛 웅덩이, 고리 색 날림 방지 (#54) (#55)","ad":83,"de":3,"f":3,"i":54},{"k":"minutes","t":1794074436,"a":0,"p":0,"ti":"회의록: [에셋] 자리별 책상 소품: 메모·메시·휴·루프 책상 꾸미기 + LIVE 소품 노드","i":43},{"k":"decision","t":1794074436,"a":0,"p":0,"ti":"LIVE 소품은 desks.md 4절의 이름 그대로 만든다. 종류는 조명을 받을 것 = `bot`, 발광 = `neon`, 달력 = `screen`, 오리 바라볼 점 = `anchor`(새 종류, 빈 노드)로 한다.","i":43},{"k":"work","t":1794074570,"a":1,"p":0,"ti":"docs: 메모 책상 배치 — 서류함·종이비행기는 오른쪽 끝, 달력·모래시계는 왼쪽 (#43) (#57)","ad":11,"de":8,"f":2,"i":43},{"k":"minutes","t":1794074573,"a":1,"p":0,"ti":"회의록: [에셋] 자리별 책상 소품: 메모·메시·휴·루프 책상 꾸미기 + LIVE 소품 노드","i":43},{"k":"decision","t":1794074573,"a":0,"p":0,"ti":"메모 책상 좌우 교환. 모래시계·달력은 일부 가려져도 됨(얼굴 표정과 같은 정보, 가까이서만 읽는 소품)","i":43},{"k":"work","t":1794074919,"a":1,"p":0,"ti":"asset: 자리별 책상 소품 — 메모·메시·휴·루프, LIVE 소품 노드, 루프 고리 25°, 집어 드는 소품 굽기 제외 (#43) (#56)","ad":323,"de":35,"f":6,"i":43},{"k":"work","t":1794075338,"a":3,"p":0,"ti":"feat: LIVE 책상 소품 3D 연결 — 서류함·달력·모래시계·도장·턴테이블·링 조명·태블릿·램프·신호등·오리 (#44) (#58)","ad":154,"de":1,"f":3,"i":44},{"k":"plan","t":1794075343,"a":0,"p":0,"ti":"[기능] 메모 서류함: 기본 카메라에서도 쌓인 장 수가 보이게","i":59},{"k":"minutes","t":1794076109,"a":0,"p":0,"ti":"회의록: [기능] 종이비행기: 세션 간 일 넘기기 신호(받는 자리만) + 비행·받기 연출 + OUT 서류함","i":51},{"k":"decision","t":1794076109,"a":0,"p":0,"ti":"PR #60으로 #51 완료 기준을 채움(영상은 프레임으로 대신, Realtime 실경로는 배포 보류로 미확인).","i":51},{"k":"work","t":1794076135,"a":3,"p":0,"ti":"feat: 종이비행기 — 세션 간 일 넘기기 신호(받는 자리만) + 비행·받기 연출 + OUT 서류함 (#51) (#60)","ad":530,"de":33,"f":23,"i":51},{"k":"minutes","t":1794076744,"a":0,"p":0,"ti":"회의록: [기능] 메모 서류함: 기본 카메라에서도 쌓인 장 수가 보이게","i":59},{"k":"decision","t":1794076744,"a":0,"p":0,"ti":"모델은 바꾸지 않고 앱에서만 처리(장당 0.8 cm, 꼬리표 3 × 3 cm, 호박색 #ffb347).","i":59},{"k":"plan","t":1794076746,"a":0,"p":0,"ti":"[기능] 종이비행기 받기: 엄지·검지로 꼬리를 집는 'pinch' 손 자세","i":62},{"k":"minutes","t":1794076755,"a":2,"p":0,"ti":"회의록: [기능] 종이비행기: 세션 간 일 넘기기 신호(받는 자리만) + 비행·받기 연출 + OUT 서류함","i":51},{"k":"decision","t":1794076755,"a":0,"p":0,"ti":"받기 그립은 앱 오프셋 + 새 'pinch' 손 자세(휴 스포이트·메시 정점 집기에도 다시 씀).","i":51},{"k":"work","t":1794077055,"a":3,"p":0,"ti":"feat: 메모 서류함 — 장당 0.8 cm, 맨 위 비스듬히, 5장 넘으면 호박 '+' 꼬리표 (#59) (#61)","ad":284,"de":11,"f":6,"i":59},{"k":"minutes","t":1794077688,"a":0,"p":0,"ti":"회의록: [기능] 종이비행기 받기: 엄지·검지로 꼬리를 집는 'pinch' 손 자세","i":62},{"k":"decision","t":1794077688,"a":0,"p":0,"ti":"pinch = 검지 2.38 · 엄지 1.72 · 옆 회전 −0.4 / −0.3 rad, 나머지 세 손가락 0.8. `HAND_SHAPES.pinch`로 다른 손 버릇에서도 다시 씀.","i":62},{"k":"work","t":1794078080,"a":3,"p":0,"ti":"feat: 종이비행기 받기 — 엄지·검지로 꼬리를 집는 pinch 손 자세 (#62) (#63)","ad":200,"de":12,"f":3,"i":62},{"k":"minutes","t":1794078082,"a":2,"p":0,"ti":"회의록: [기능] 종이비행기 받기: 엄지·검지로 꼬리를 집는 'pinch' 손 자세","i":62},{"k":"decision","t":1794078082,"a":0,"p":0,"ti":"#62 완료 기준(네 에이전트 받는 컷, 움직임 줄이기면 흔들림 없음, 디자이너 확인)을 모두 채움.","i":62},{"k":"approval","t":1794095319,"a":"o","p":0,"ti":"[디자인] 문서 화면: 결재함(주인·방문자) → 서재 문서 뷰어(SECRET 표지) → 화이트보드 칸반","i":45,"done":1},{"k":"plan","t":1794095412,"a":0,"p":0,"ti":"[기능] 결재함 화면에 #45 시안 입히기 (목록 · 도장 · 반려 의견 필수 · 방문자 표지 · 열쇠 점 로그인)","i":64},{"k":"plan","t":1794095413,"a":0,"p":0,"ti":"[기능] 서재 문서 뷰어: 파일철 · 회의록 대화 · SECRET 표지","i":65},{"k":"plan","t":1794095415,"a":0,"p":0,"ti":"[기능] 화이트보드 칸반: 진행 중 · 검토 · 완료 + 최근 결정","i":66},{"k":"plan","t":1794095416,"a":0,"p":0,"ti":"[3D 에셋] 결재함 서류함(+ nav_approval)과 서재 파일철 · SECRET 책","i":67},{"k":"plan","t":1794095418,"a":0,"p":0,"ti":"[기능] 방 모드: 책상 방 안에서 열리기 · 나가기 요청 · 메시지 약속 · base 경로","i":68},{"k":"plan","t":1794095437,"a":0,"p":1,"s":1},{"k":"minutes","t":1794095479,"a":0,"p":0,"ti":"회의록: [디자인] 문서 화면: 결재함(주인·방문자) → 서재 문서 뷰어(SECRET 표지) → 화이트보드 칸반","i":45},{"k":"decision","t":1794095479,"a":0,"p":0,"ti":"#45 시안은 확정. 구현은 #64·#65·#66·#67로 나누고, 책상 방 문 연결은 #68(오피스 쪽)과 rowansong.dev#6(책상 방 쪽)으로 나눈다. #4에는 방문자 상호작용만 남긴다.","i":45},{"k":"work","t":1794095640,"a":2,"p":0,"ti":"design: 결재함·서재 문서 뷰어·화이트보드 칸반 시안 확정 + 결재·종이·SECRET·보드 토큰 (#45) (#69)","ad":895,"de":0,"f":3,"i":45},{"k":"minutes","t":1794095736,"a":1,"p":0,"ti":"회의록: [3D 에셋] 결재함 서류함(+ nav_approval)과 서재 파일철 · SECRET 책","i":67},{"k":"decision","t":1794095736,"a":0,"p":0,"ti":"누르는 곳은 `hit_*` 빈 노드로 둔다. 결재함 = `desk_0_in`. 서재 노드는 `lib_\u003cs>_\u003ck>`(+`_band`, `_secret`), `screen_spines_\u003cs>`, `screen_shel","i":67},{"k":"minutes","t":1794095761,"a":3,"p":0,"ti":"회의록: [기능] 방 모드: 책상 방 안에서 열리기 · 나가기 요청 · 메시지 약속 · base 경로","i":68},{"k":"decision","t":1794095761,"a":0,"p":0,"ti":"방문자 주소 `/rooms/office`, 오피스 앱 `/rooms/office/app/`(base 경로 설정값). 메시지 약속 v1은 위 표대로. 반려, 계속 SECRET, 고쳐서 공개는 모두 의견 필수.","i":68},{"k":"minutes","t":1794096514,"a":2,"p":0,"ti":"회의록: [3D 에셋] 결재함 서류함(+ nav_approval)과 서재 파일철 · SECRET 책","i":67},{"k":"decision","t":1794096514,"a":0,"p":0,"ti":"결재함 = `desk_0_in`(새 서류함 없음, 기획이 범위 변경 승인). 대기 > 0이면 `neon_approval`(지름 1.5 cm, IN 서류함 앞 오른쪽 모서리)이 켜짐. `nav_approval`은 만들","i":67},{"k":"work","t":1794096561,"a":3,"p":0,"ti":"docs: 결재함 — '고쳐서 공개'도 의견 필수, 선택지별 의견 안내 문구 (#64) (#70)","ad":25,"de":9,"f":2,"i":64},{"k":"work","t":1794096583,"a":3,"p":0,"ti":"docs: 출입문 '누른 직후' — 접힘 대신 문 화면으로 파고듦, 방 모드 자리 약속 (#68) (#71)","ad":9,"de":20,"f":3,"i":68},{"k":"approval","t":1794096604,"a":0,"p":1,"s":1},{"k":"minutes","t":1794096643,"a":1,"p":0,"ti":"회의록: [3D 에셋] 결재함 서류함(+ nav_approval)과 서재 파일철 · SECRET 책","i":67},{"k":"decision","t":1794096643,"a":0,"p":0,"ti":"서재 노드는 `shelf_r\u003cr>_b\u003ck>`(+`_band`, `_label`, `_secret`)와 `screen_shelf_r\u003cr>`. 라벨은 권마다 공유 캔버스 `spines`의 칸(`flipY = false`","i":67},{"k":"work","t":1794096691,"a":1,"p":0,"ti":"asset: 서재 파일철 30칸·SECRET 도장, 결재함 = IN 서류함(호박 점·누르는 상자) (#67) (#73)","ad":198,"de":8,"f":7,"i":67},{"k":"minutes","t":1794096864,"a":0,"p":0,"ti":"회의록: [기능] 결재함 화면에 #45 시안 입히기 (목록 · 도장 · 반려 의견 필수 · 방문자 표지 · 열쇠 점 로그인)","i":64},{"k":"decision","t":1794096864,"a":0,"p":0,"ti":"의견 필수 = 반려 · 고쳐서 공개 · 계속 SECRET(서버와 화면 같음). 결재함 = `desk_0_in`(+`hit_approval`, `neon_approval`).","i":64},{"k":"work","t":1794097006,"a":3,"p":0,"ti":"docs: 결재함 시안 — 산출물 확인 배지 빗금 16%, 어두운 스크롤바 (#64) (#74)","ad":4,"de":2,"f":2,"i":64},{"k":"plan","t":1794097026,"a":0,"p":0,"ti":"[기능] 모니터 화면 다섯 상태 (#18 시안): 작업 중 · 정리 중 · 휴식 · 퇴근 · 비공개","i":75},{"k":"work","t":1794097176,"a":3,"p":0,"ti":"feat: 결재함에 #45 시안 입히기 — 목록·도장·의견 필수·방문자 표지·열쇠 점·서류함 클릭 (#64) (#72)","ad":1493,"de":176,"f":21,"i":64},{"k":"plan","t":1794097223,"a":0,"p":0,"ti":"[기능] 작업 이력 타임랩스: 프로젝트별 커밋·작업 타임라인을 사무실에서 재생","i":76},{"k":"work","t":1794097317,"a":3,"p":0,"ti":"fix: 결재함 제목 keep-all, 휴대폰 전체 화면 판 불투명 (#64) (#77)","ad":4,"de":3,"f":1,"i":64},{"k":"work","t":1794097344,"a":0,"p":0,"ti":"docs: 작업 이력 타임랩스 설계 — plan.md 6.7절 (#76) (#78)","ad":61,"de":0,"f":1,"i":76},{"k":"plan","t":1794097402,"a":0,"p":0,"ti":"[디자인] 타임랩스: 타임라인 막대 · 재생 모드 · 점 → 장면 · 들어가는 곳","i":80},{"k":"plan","t":1794097403,"a":0,"p":0,"ti":"[기능] 타임랩스 데이터: 점 형식 · 백필 스크립트 · 에이전트 귀속 · 공개 거름","i":81},{"k":"plan","t":1794097405,"a":0,"p":0,"ti":"[기능] 타임랩스 재생 엔진: 시점 상태 복원 · 장면 연출 · 재생 조작 · 공유 주소","i":82},{"k":"minutes","t":1794097451,"a":0,"p":0,"ti":"회의록: [기능] 작업 이력 타임랩스: 프로젝트별 커밋·작업 타임라인을 사무실에서 재생","i":76},{"k":"decision","t":1794097451,"a":0,"p":0,"ti":"타임라인은 프로젝트별 + 전체, 첫 커밋부터 전체. 점 순서로 재생하고 빈 시간은 줄인다. 공개 규칙은 6.3 등급을 그대로 쓰고, 코드·diff·경로는 보내지 않는다.","i":76},{"k":"plan","t":1794097630,"a":0,"p":0,"ti":"[기획] 에이전트별 스킬·도구 도입: 조사 결과와 결재","i":83},{"k":"approval","t":1794097640,"a":0,"p":0,"ti":"[기획] 에이전트별 스킬·도구 도입: 조사 결과와 결재","i":83},{"k":"approval","t":1794097740,"a":"o","p":0,"ti":"[기획] 에이전트별 스킬·도구 도입: 조사 결과와 결재","i":83,"done":1},{"k":"work","t":1794098017,"a":0,"p":0,"ti":"chore: office-bake 프로젝트 스킬 — 굽기 규칙·glb 검사 스크립트 (#83) (#84)","ad":285,"de":0,"f":3,"i":83},{"k":"work","t":1794098098,"a":0,"p":0,"ti":"chore: axe-core 접근성 검사(pnpm a11y), 결재함 닫기 버튼 이름에 Esc (#83) (#85)","ad":124,"de":2,"f":4,"i":83},{"k":"approval","t":1794098337,"a":2,"p":0,"ti":"[디자인] 타임랩스: 타임라인 막대 · 재생 모드 · 점 → 장면 · 들어가는 곳","i":80},{"k":"work","t":1794098485,"a":0,"p":0,"ti":"chore: frontend-design 공식 스킬 (anthropics/skills 41bbe19) (#83) (#87)","ad":248,"de":0,"f":2,"i":83},{"k":"work","t":1794098489,"a":-1,"p":1,"s":1,"ad":248,"de":0,"f":2},{"k":"plan","t":1794098515,"a":0,"p":1,"s":1}]</script>
+<script>
+// ───────── 데이터 ─────────
+const RAW = JSON.parse(document.getElementById('sample').textContent)
+const KIND = { work: '작업', plan: '기획서', minutes: '회의록', approval: '결재', decision: '결정', deploy: '배포' }
+const AGENT = { 0: ['메모', 'MEMO'], 1: ['메시', 'MESH'], 2: ['휴', 'HUE'], 3: ['루프', 'LOOP'], o: ['주인', 'OWNER'], n: ['이전', '역할 분담 이전'] }
+const LANES = ['o', 0, 1, 2, 3, 'n']
+const seat = (e) => (e.a === -1 ? 'n' : e.a)
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim()
+const COL = () => ({ 0: css('--agent-0'), 1: css('--agent-1'), 2: css('--agent-2'), 3: css('--agent-3'), o: css('--color-text'), n: css('--color-text-muted') })
+const DOW = ['일', '월', '화', '수', '목', '금', '토']
+function kst(t) { const d = new Date((t + 9 * 3600) * 1000); return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate(), h: d.getUTCHours(), mi: d.getUTCMinutes(), w: DOW[d.getUTCDay()] } }
+const p2 = (n) => String(n).padStart(2, '0')
+const dayKey = (t) => { const k = kst(t); return `${k.m}.${p2(k.d)}` }
+const sizeOf = (e) => { const n = (e.ad || 0) + (e.de || 0); return n < 50 ? 0 : n < 500 ? 1 : 2 }
+const stepMs = (e) => (e.k === 'minutes' ? +css('--replay-minutes-ms') : +css('--replay-step-ms'))
+
+// ───────── 점 모양(캔버스) ─────────
+function glyph(ctx, e, x, y, col, future, scale = 1) {
+  const secret = e.s
+  ctx.save(); ctx.globalAlpha = future ? +css('--replay-future-alpha') : 1
+  ctx.translate(Math.round(x), Math.round(y)); ctx.scale(scale, scale)
+  const fill = secret ? css('--manila') : col
+  ctx.fillStyle = fill; ctx.strokeStyle = col; ctx.lineWidth = 1.5
+  const R = [3, 4.5, 6][sizeOf(e)]
+  ctx.beginPath()
+  switch (e.k) {
+    case 'work': ctx.arc(0, 0, R, 0, Math.PI * 2); break
+    case 'plan': ctx.rect(-4, -4, 8, 8); break
+    case 'minutes': ctx.moveTo(-5, -4); ctx.lineTo(5, -4); ctx.lineTo(5, 2); ctx.lineTo(0, 2); ctx.lineTo(-3, 5); ctx.lineTo(-3, 2); ctx.lineTo(-5, 2); ctx.closePath(); break
+    case 'decision': ctx.moveTo(0, -5); ctx.lineTo(5, 0); ctx.lineTo(0, 5); ctx.lineTo(-5, 0); ctx.closePath(); break
+    case 'deploy': ctx.moveTo(0, -5); ctx.lineTo(5, 4); ctx.lineTo(-5, 4); ctx.closePath(); break
+    case 'approval':
+      ctx.arc(0, 0, 4.5, 0, Math.PI * 2); ctx.lineWidth = 2; ctx.stroke(); ctx.beginPath()
+      if (e.done) { ctx.arc(0, 0, 2, 0, Math.PI * 2); ctx.fill() }
+      ctx.restore(); return
+  }
+  ctx.fill(); if (secret) ctx.stroke()
+  ctx.restore()
+}
+
+// ───────── 타임라인 막대 ─────────
+function Timeline(stage, opt = {}) {
+  const compact = !!opt.compact
+  stage.innerHTML = `
+    <div class="scene"><span class="ph">3D 사무실 (지금 모델 그대로)</span></div>
+    <div class="grain" aria-hidden="true"></div><div class="vignette"></div>
+    <div class="bar-top">
+      ${compact ? '' : '<div class="reserve">← 책상으로 (#6 자리)</div>'}
+      ${compact ? '' : `<span class="title-chip"><svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true" shape-rendering="crispEdges"><path d="M6 2h1v8H6zM5 3h1v6H5zM4 4h1v4H4zM3 5h1v2H3zM11 2h1v8h-1zM10 3h1v6h-1zM9 4h1v4H9zM8 5h1v2H8z"/></svg>타임랩스</span>
+      <div class="seg" role="radiogroup" aria-label="프로젝트"><button role="radio" aria-checked="true" data-p="all">전체</button><button role="radio" aria-checked="false" data-p="0">agent-office</button><button role="radio" aria-checked="false" data-p="1">rowansong.dev</button></div>`}
+      <div class="when" ${compact ? 'style="margin:0"' : ''}><span class="rec">▶ 기록 재생 중</span><span class="date" aria-live="off"></span></div>
+      ${compact ? '<span class="spacer"></span>' : ''}
+      <button class="btn-x" type="button" data-exit>지금으로 <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true" shape-rendering="crispEdges"><path d="M1 2h1v8H1zM2 3h1v6H2zM3 4h1v4H3zM4 5h1v2H4zM6 2h1v8H6zM7 3h1v6H7zM8 4h1v4H8zM9 5h1v2H9zM10 2h1v8h-1z"/></svg></button>
+    </div>
+    <div class="live-toast" role="status"><span class="live-dot" aria-hidden="true"></span><span class="lbl">LIVE</span><span>지금 <b class="lw">루프</b>가 일하는 중</span><button class="btn-x" type="button">실시간으로 →</button></div>
+    <div class="subtitle" aria-hidden="true"></div>
+    <div class="bar-bottom">
+      <div class="tl-controls">
+        <button class="ib" type="button" data-prev aria-label="이전 점"><svg viewBox="0 0 12 12" fill="currentColor"><path d="M1 2h2v8H1zM9 2h1v8H9zM8 3h1v6H8zM7 4h1v4H7zM6 5h1v2H6zM4 5h2v2H4z"/></svg></button>
+        <button class="ib play" type="button" data-play aria-label="재생"><svg viewBox="0 0 12 12" fill="currentColor"><path class="pl" d="M3 1h1v10H3zM4 2h1v8H4zM5 3h1v6H5zM6 4h1v4H6zM7 5h1v2H7z"/></svg></button>
+        <button class="ib" type="button" data-next aria-label="다음 점"><svg viewBox="0 0 12 12" fill="currentColor"><path d="M9 2h2v8H9zM2 2h1v8H2zM3 3h1v6H3zM4 4h1v4H4zM5 5h1v2H5zM6 5h2v2H6z"/></svg></button>
+        <div class="seg" role="radiogroup" aria-label="속도"><button role="radio" aria-checked="true" data-s="1">×1</button><button role="radio" aria-checked="false" data-s="4">×4</button><button role="radio" aria-checked="false" data-s="16">×16</button></div>
+        <span class="pos"></span>
+        <span class="spacer"></span>
+        ${compact ? '' : '<button class="btn-x" type="button">☰ 목록으로 보기</button><button class="btn-x" type="button">🔗 이 시점 링크</button>'}
+      </div>
+      <div class="tl-track">
+        <div class="lanes-lbl" aria-hidden="true">${LANES.map((l) => `<span data-seat="${l}" style="color:var(--agent-ink)">${AGENT[l][0]}</span>`).join('')}</div>
+        <div class="tl-canvas-wrap"><canvas></canvas><div class="tl-slider" role="slider" tabindex="0" aria-label="타임라인" aria-valuemin="1"></div></div>
+      </div>
+    </div>`
+  const $ = (s) => stage.querySelector(s)
+  const cv = $('.tl-canvas-wrap canvas'), wrap = $('.tl-canvas-wrap'), slider = $('.tl-slider')
+  const S = { proj: 'all', ev: RAW, i: Math.floor(RAW.length * 0.52), playing: false, speed: 1, prog: 0, scroll: 0, hover: -1 }
+  const LH = compact ? +css('--replay-lane-h-compact').replace('px', '') : +css('--replay-lane-h').replace('px', '')
+  const TOP = compact ? 11 : 12 // minimap above lanes
+  function filter() { S.ev = S.proj === 'all' ? RAW : RAW.filter((e) => String(e.p) === S.proj); S.i = Math.min(S.i, S.ev.length - 1) }
+  // x layout: by order, min step, day breaks get extra room
+  function layout(w) {
+    const n = S.ev.length, days = new Set(S.ev.map((e) => dayKey(e.t))).size
+    const step = Math.max(compact ? 5 : +css('--replay-pt-step').replace('px', ''), (w - 16 - (days - 1) * 10) / n)
+    const xs = []; let x = 8, prev = null
+    for (const e of S.ev) { const k = dayKey(e.t); if (prev && k !== prev) x += 10; xs.push(x); x += step; prev = k }
+    return { xs, total: x + 8, step }
+  }
+  function draw() {
+    const dpr = Math.min(2, devicePixelRatio || 1), w = wrap.clientWidth, h = wrap.clientHeight
+    cv.width = w * dpr; cv.height = h * dpr
+    const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h)
+    const col = COL(), L = layout(w), scrolls = L.total > w
+    const px = L.xs[S.i] + (S.playing ? S.prog * L.step : 0)
+    if (scrolls) { const want = px - w * 0.5; S.scroll = Math.max(0, Math.min(L.total - w, want)) } else S.scroll = 0
+    const lanesY = TOP, lanesH = LANES.length * LH, bandY = lanesY + lanesH + 3, axisY = bandY + 8
+    // minimap: whole history, 1px per point, viewport frame
+    const mmH = compact ? 6 : 8
+    S.ev.forEach((e, k) => { ctx.fillStyle = col[seat(e)]; ctx.globalAlpha = k <= S.i ? 0.9 : 0.3; ctx.fillRect(Math.round((k / S.ev.length) * w), 1, Math.max(1, w / S.ev.length - 0.5), mmH - 2) })
+    ctx.globalAlpha = 1
+    if (scrolls) { ctx.strokeStyle = css('--color-text'); ctx.lineWidth = 1; ctx.strokeRect((S.scroll / L.total) * w + 0.5, 0.5, (w / L.total) * w - 1, mmH - 1) }
+    ctx.save(); ctx.translate(-S.scroll, 0)
+    // lane rules
+    ctx.strokeStyle = css('--color-line'); ctx.lineWidth = 1
+    for (let l = 0; l <= LANES.length; l++) { ctx.beginPath(); ctx.moveTo(S.scroll, lanesY + l * LH + 0.5); ctx.lineTo(S.scroll + w, lanesY + l * LH + 0.5); ctx.stroke() }
+    // day ticks + labels
+    ctx.font = '11px Galmuri11'; ctx.textBaseline = 'top'
+    let prev = null, lastLbl = -1e9
+    S.ev.forEach((e, k) => {
+      const key = dayKey(e.t)
+      if (key !== prev) {
+        const x = L.xs[k] - 5, kk = kst(e.t)
+        ctx.strokeStyle = css('--color-text-faint'); ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.moveTo(x + 0.5, lanesY); ctx.lineTo(x + 0.5, axisY + 2); ctx.stroke(); ctx.setLineDash([])
+        if (x - lastLbl > 60) { ctx.fillStyle = css('--color-text-muted'); ctx.fillText(`${kk.m}.${p2(kk.d)} ${kk.w}`, x + 3, axisY); lastLbl = x } // 붙은 날은 눈금만
+        prev = key
+      }
+    })
+    // pinned day label: the day of the first visible point stays readable at the left edge
+    if (S.scroll > 0) { const k0 = L.xs.findIndex((x) => x >= S.scroll + 4); if (k0 > 0) { const kk = kst(S.ev[k0].t), lbl = `${kk.m}.${p2(kk.d)} ${kk.w}`; ctx.fillStyle = css('--color-void'); ctx.fillRect(S.scroll, axisY - 1, ctx.measureText(lbl).width + 8, 14); ctx.fillStyle = css('--color-text-muted'); ctx.fillText(lbl, S.scroll + 3, axisY) } }
+    // project band
+    S.ev.forEach((e, k) => {
+      const x0 = L.xs[k] - L.step / 2, x1 = (L.xs[k + 1] ?? L.xs[k] + L.step) - L.step / 2
+      ctx.fillStyle = e.p === 1 ? css('--replay-project-hub') : css('--replay-project-office'); ctx.fillRect(x0, bandY, x1 - x0, 4)
+      if (e.p === 1) { ctx.fillStyle = 'rgba(0,0,0,.45)'; for (let x = Math.ceil(x0); x < x1; x += 3) ctx.fillRect(x, bandY, 1, 4) }
+    })
+    // deploy lines
+    S.ev.forEach((e, k) => { if (e.k === 'deploy') { ctx.strokeStyle = css('--color-text'); ctx.globalAlpha = k <= S.i ? 0.5 : 0.2; ctx.beginPath(); ctx.moveTo(L.xs[k] + 0.5, lanesY); ctx.lineTo(L.xs[k] + 0.5, lanesY + lanesH); ctx.stroke(); ctx.globalAlpha = 1 } })
+    // points
+    S.ev.forEach((e, k) => {
+      const lane = LANES.indexOf(seat(e)), y = lanesY + lane * LH + LH / 2
+      glyph(ctx, e, L.xs[k], y, col[seat(e)], k > S.i, compact ? 0.55 : 1)
+    })
+    // hover ring
+    if (S.hover >= 0) { const e = S.ev[S.hover], y = lanesY + LANES.indexOf(seat(e)) * LH + LH / 2; ctx.strokeStyle = css('--color-cyan'); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(L.xs[S.hover], y, 8, 0, Math.PI * 2); ctx.stroke() }
+    // playhead
+    ctx.fillStyle = css('--replay-playhead'); ctx.fillRect(Math.round(px) - 1, lanesY - 2, 2, lanesH + 8)
+    ctx.beginPath(); ctx.moveTo(px - 5, lanesY - 7); ctx.lineTo(px + 5, lanesY - 7); ctx.lineTo(px + 5, lanesY - 3); ctx.lineTo(px, lanesY + 1); ctx.lineTo(px - 5, lanesY - 3); ctx.closePath(); ctx.fill()
+    ctx.restore()
+    S.L = L; S.geo = { lanesY, LH }
+    text()
+  }
+  function line(e, html = true) {
+    const k = kst(e.t), a = AGENT[seat(e)][0], kind = KIND[e.k] + (e.k === 'approval' ? (e.done ? ' 결과' : ' 요청') : '')
+    const title = e.s ? (html ? `<span class="redact" style="width:9em"></span><span class="secret-chip">SECRET · 결재 전</span>` : 'SECRET, 결재 전이라 제목을 가렸어요') : (e.ti || '')
+    const num = e.k === 'work' ? (html ? `<span class="meta">+${e.ad} −${e.de} · 파일 ${e.f}</span>` : ` 줄 ${e.ad}개 더함 ${e.de}개 뺌, 파일 ${e.f}개`) : ''
+    return { when: `${k.y}.${p2(k.m)}.${p2(k.d)} ${k.w} ${p2(k.h)}:${p2(k.mi)}`, a, kind, title, num }
+  }
+  function text() {
+    const e = S.ev[S.i], L = line(e), k = kst(e.t)
+    $('.date').textContent = compact ? `${k.m}.${p2(k.d)} ${k.w} ${p2(k.h)}:${p2(k.mi)}` : `${k.y}.${p2(k.m)}.${p2(k.d)} ${k.w} ${p2(k.h)}:${p2(k.mi)}`
+    const sub = $('.subtitle'); sub.dataset.seat = seat(e)
+    sub.innerHTML = `<span class="who">${L.a} · ${L.kind}</span>${L.title}${L.num}`
+    const left = S.ev.slice(S.i).reduce((s, x) => s + stepMs(x), 0) / S.speed / 1000
+    $('.pos').innerHTML = `<b>${S.i + 1}</b> / ${S.ev.length}` + (compact ? '' : ` · 남은 ${Math.floor(left / 60)}:${p2(Math.round(left % 60))}`)
+    const T = line(e, false)
+    slider.setAttribute('aria-valuemax', S.ev.length); slider.setAttribute('aria-valuenow', S.i + 1)
+    slider.setAttribute('aria-valuetext', `${S.i + 1}번째 점, ${T.when}, ${T.a}, ${T.kind}: ${T.title}${T.num}`)
+    $('[data-play]').setAttribute('aria-label', S.playing ? '멈춤' : '재생')
+    $('[data-play] svg').innerHTML = S.playing ? '<path d="M3 2h2v8H3zM7 2h2v8H7z"/>' : '<path d="M3 1h1v10H3zM4 2h1v8H4zM5 3h1v6H5zM6 4h1v4H6zM7 5h1v2H7z"/>'
+  }
+  // playback
+  let raf = 0, t0 = 0
+  function tick(now) {
+    if (!S.playing) return
+    const dur = stepMs(S.ev[S.i]) / S.speed
+    S.prog = Math.min(1, (now - t0) / dur)
+    if (S.prog >= 1) { if (S.i >= S.ev.length - 1) { S.playing = false; S.prog = 0; draw(); return } S.i++; S.prog = 0; t0 = now }
+    draw(); raf = requestAnimationFrame(tick)
+  }
+  function play(on) { S.playing = on; S.prog = 0; cancelAnimationFrame(raf); if (on) { t0 = performance.now(); raf = requestAnimationFrame(tick) } draw() }
+  function go(i) { S.i = Math.max(0, Math.min(S.ev.length - 1, i)); S.prog = 0; if (S.playing) t0 = performance.now(); draw() }
+  function dayJump(dir) { const cur = dayKey(S.ev[S.i].t); let i = S.i; while (i + dir >= 0 && i + dir < S.ev.length && dayKey(S.ev[i + dir].t) === cur) i += dir; i += dir; if (dir < 0) { const k = dayKey(S.ev[Math.max(0, i)].t); while (i > 0 && dayKey(S.ev[i - 1].t) === k) i-- } go(i) }
+  $('[data-play]').onclick = () => play(!S.playing)
+  $('[data-prev]').onclick = () => go(S.i - 1)
+  $('[data-next]').onclick = () => go(S.i + 1)
+  stage.querySelectorAll('[data-s]').forEach((b) => b.onclick = () => { S.speed = +b.dataset.s; stage.querySelectorAll('[data-s]').forEach((x) => x.setAttribute('aria-checked', String(x === b))); draw() })
+  stage.querySelectorAll('[data-p]').forEach((b) => b.onclick = () => { S.proj = b.dataset.p; stage.querySelectorAll('[data-p]').forEach((x) => x.setAttribute('aria-checked', String(x === b))); filter(); draw() })
+  const nearest = (cx) => { const x = cx + S.scroll; let best = 0, bd = 1e9; S.L.xs.forEach((v, k) => { const d = Math.abs(v - x); if (d < bd) { bd = d; best = k } }); return { k: best, d: bd } }
+  slider.addEventListener('pointerdown', (ev) => { slider.setPointerCapture(ev.pointerId); const r = wrap.getBoundingClientRect(); go(nearest(ev.clientX - r.left).k); slider.onpointermove = (m) => go(nearest(m.clientX - r.left).k) })
+  slider.addEventListener('pointerup', () => { slider.onpointermove = null })
+  slider.addEventListener('pointermove', (ev) => { if (slider.onpointermove) return; const r = wrap.getBoundingClientRect(), n = nearest(ev.clientX - r.left), y = ev.clientY - r.top; const lane = Math.floor((y - S.geo.lanesY) / S.geo.LH); S.hover = n.d < 6 && LANES.indexOf(seat(S.ev[n.k])) === lane ? n.k : -1; showTip(S.hover, r); draw() })
+  slider.addEventListener('pointerleave', () => { S.hover = -1; showTip(-1); draw() })
+  slider.addEventListener('keydown', (e) => {
+    const k = e.key
+    if (k === ' ') { e.preventDefault(); play(!S.playing) }
+    else if (k === 'ArrowRight') { e.preventDefault(); e.shiftKey ? dayJump(1) : go(S.i + 1) }
+    else if (k === 'ArrowLeft') { e.preventDefault(); e.shiftKey ? dayJump(-1) : go(S.i - 1) }
+    else if (k === 'Home') { e.preventDefault(); go(0) } else if (k === 'End') { e.preventDefault(); go(S.ev.length - 1) }
+    else if ('123'.includes(k)) stage.querySelector(`[data-s="${[1, 4, 16]['123'.indexOf(k)]}"]`).click()
+  })
+  function showTip(k, r) {
+    const tip = document.getElementById('tip')
+    if (k < 0) { tip.classList.remove('on'); stage.classList.remove('tipping'); return }
+    const e = S.ev[k], L = line(e), sr = stage.getBoundingClientRect()
+    tip.dataset.seat = seat(e)
+    tip.querySelector('.tab').className = 'tab' + (e.s ? ' secret' : '')
+    tip.querySelector('.tab').textContent = `${L.a} · ${L.kind}${e.s ? ' · SECRET' : ''}`
+    tip.querySelector('.body').innerHTML = `${e.s ? '<span class="redact" style="width:12em"></span>' : L.title || '(제목 없음)'}<span class="meta">${L.when.slice(5)}${e.k === 'work' ? ` · +${e.ad} −${e.de} · 파일 ${e.f}` : ''}${e.i && !e.s ? ` · #${e.i} ↗` : ''}${e.s ? ' · 결재 전이라 제목을 가렸어요' : ''}${e.a === -1 ? ' · 역할 분담 이전' : ''}</span>`
+    const x = r.left + S.L.xs[k] - S.scroll - sr.left
+    tip.style.left = Math.max(8, Math.min(sr.width - 288, x - 20)) + sr.left + window.scrollX + 'px'
+    tip.style.top = sr.top + window.scrollY + sr.height - (compact ? 124 : +css('--replay-bottom-h').replace('px', '')) - 4 + 'px'
+    tip.style.bottom = 'auto'; tip.style.transform = 'translateY(-100%)'
+    tip.classList.add('on'); stage.classList.add('tipping')
+  }
+  // grain
+  const gr = $('.grain')
+  // one 256px noise tile, repeated; 12 times a second it only jumps to a random offset (no redraw)
+  const tile = document.createElement('canvas'); tile.width = tile.height = 256
+  { const g = tile.getContext('2d'), img = g.createImageData(256, 256); for (let i = 0; i < img.data.length; i += 4) { const v = Math.random() * 255; img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255 } g.putImageData(img, 0, 0) }
+  gr.style.backgroundImage = `url(${tile.toDataURL()})`
+  setInterval(() => { if (+css('--replay-grain') > 0) gr.style.backgroundPosition = `${(Math.random() * 256) | 0}px ${(Math.random() * 256) | 0}px` }, 1000 / 12)
+  addEventListener('resize', draw)
+  const api = { S, draw, go, play, el: stage, setBg(url) { const sc = $('.scene'); sc.classList.add('has-bg'); sc.style.backgroundImage = `url(${url})` }, live(on, who = '루프') { $('.lw').textContent = who; $('.live-toast').classList.toggle('on', on) }, hoverAt(k) { S.hover = k; draw(); showTip(k, wrap.getBoundingClientRect()) } }
+  draw()
+  return api
+}
+
+// ───────── 범례 ─────────
+function legend() {
+  const col = COL(), host = document.getElementById('legend')
+  const items = [
+    [{ k: 'work', ad: 20 }, 0, '작업(커밋 = PR 하나) · 작게: 50줄 미만'],
+    [{ k: 'work', ad: 300 }, 0, '작업 · 중간: 500줄 미만'],
+    [{ k: 'work', ad: 2000 }, 0, '작업 · 크게: 500줄 이상'],
+    [{ k: 'plan' }, 0, '기획서(이슈 열림)'],
+    [{ k: 'minutes' }, 2, '회의록(🗂 협의 기록)'],
+    [{ k: 'decision' }, 2, '결정'],
+    [{ k: 'approval' }, 1, '결재 요청(🖊) · 요청한 에이전트 줄'],
+    [{ k: 'approval', done: true }, 'o', '결재 결과(✅) · 주인 줄'],
+    [{ k: 'deploy' }, 'n', '배포(main) · 모든 줄을 가로지르는 세로선'],
+    [{ k: 'work', ad: 300, s: true }, 3, 'SECRET 점: 마닐라 속 + 에이전트 색 테두리'],
+    [{ k: 'work', ad: 300 }, 'n', '역할 분담 이전(agent: null) · “이전” 줄, 회색'],
+    [{ k: 'work', ad: 300 }, 1, '아직 재생 안 된 점(35%)', true],
+  ]
+  host.innerHTML = items.map((_, i) => `<div><canvas width="72" height="48"></canvas><span>${items[i][2]}</span></div>`).join('')
+  host.querySelectorAll('canvas').forEach((c, i) => { const g = c.getContext('2d'); g.scale(2, 2); glyph(g, items[i][0], 18, 12, col[items[i][1]], !!items[i][3], 1.5) })
+}
+
+// ───────── 벽시계 ─────────
+function clock(c, hover, h = 10, m = 10) {
+  const g = c.getContext('2d'), W = c.width, cx = W / 2
+  g.clearRect(0, 0, W, W)
+  if (hover) { g.shadowColor = css('--color-cyan'); g.shadowBlur = 24; g.strokeStyle = css('--color-cyan'); g.lineWidth = 6; g.strokeRect(14, 14, W - 28, W - 28); g.shadowBlur = 0 }
+  g.fillStyle = '#f4f4f0'; g.fillRect(20, 20, W - 40, W - 40)
+  g.fillStyle = '#1f2a44'
+  for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2, big = k % 3 === 0, r0 = big ? 72 : 80, r1 = 92; g.save(); g.translate(cx, cx); g.rotate(a); g.fillRect(-(big ? 4 : 2), -r1, big ? 8 : 4, r1 - r0); g.restore() }
+  const hand = (a, len, w) => { g.save(); g.translate(cx, cx); g.rotate(a); g.fillRect(-w / 2, -len, w, len + 8); g.restore() }
+  g.fillStyle = '#111111'; hand(((h % 12) + m / 60) / 12 * Math.PI * 2, 48, 10); hand(m / 60 * Math.PI * 2, 76, 7)
+  if (hover) { g.fillStyle = css('--color-cyan'); g.beginPath(); g.arc(cx, cx, 7, 0, Math.PI * 2); g.fill() }
+}
+
+// ───────── 2D 목록 ─────────
+function list(host) {
+  const col = COL()
+  const per = {}; RAW.forEach((e) => { const k = dayKey(e.t); (per[k] = per[k] || []).push(e) })
+  const days = Object.keys(per)
+  const counts = days.map((d) => per[d].length), max = Math.max(...counts)
+  host.innerHTML = `<header><h3>타임랩스</h3>
+    <div class="chips" role="group" aria-label="프로젝트"><button class="chip" aria-pressed="true">전체 ${RAW.length}</button><button class="chip" aria-pressed="false">agent-office ${RAW.filter((e) => e.p === 0).length}</button><button class="chip" aria-pressed="false">rowansong.dev ${RAW.filter((e) => e.p === 1).length}</button></div>
+    <canvas class="spark" width="732" height="56" role="img" aria-label="날짜별 점 수: ${days.map((d, i) => `${d} ${counts[i]}개`).join(', ')}"></canvas>
+    <div class="sum">${days[0]} – ${days.at(-1)} · 점 ${RAW.length}개 · 최근이 위</div>
+    <div class="chips"><button class="chip" aria-pressed="false">▶ 사무실에서 보기</button><button class="chip" aria-pressed="false">종류 ▾</button><button class="chip" aria-pressed="false">에이전트 ▾</button></div></header>
+    ${days.slice().reverse().map((d) => { const k = kst(per[d][0].t); return `<section class="day" aria-label="${k.m}월 ${k.d}일 ${k.w}요일"><h4>${k.m}월 ${k.d}일 ${k.w}요일 · ${per[d].length}개</h4><ol>${per[d].slice().reverse().slice(0, 14).map((e) => { const t = kst(e.t), a = AGENT[seat(e)][0]; return `<li class="row" data-seat="${seat(e)}"><time datetime="${new Date(e.t * 1000).toISOString()}">${p2(t.h)}:${p2(t.mi)}</time><div class="top"><canvas width="24" height="24" data-g='${JSON.stringify({ k: e.k, ad: e.ad, de: e.de, s: e.s, done: e.done, a: e.a })}' aria-hidden="true"></canvas><span class="who">${a}</span><span class="kind">${KIND[e.k]}${e.k === 'approval' ? (e.done ? ' 결과' : ' 요청') : ''}</span>${e.s ? '<span class="secret-chip">SECRET</span>' : ''}</div><div class="ttl">${e.s ? '<span class="redact" style="width:11em" role="img" aria-label="결재 전이라 제목을 가렸어요"></span>' : e.ti || ''}</div>${e.k === 'work' ? `<div class="num"><span class="add">+${e.ad}</span> <span class="del">−${e.de}</span> · 파일 ${e.f}${e.i && !e.s ? ` · #${e.i}` : ''}</div>` : ''}</li>` }).join('')}${per[d].length > 14 ? `<li class="row"><span></span><button class="chip">${per[d].length - 14}개 더 보기</button></li>` : ''}</ol></section>` }).join('')}`
+  host.querySelectorAll('canvas[data-g]').forEach((c) => { const e = JSON.parse(c.dataset.g), g = c.getContext('2d'); g.scale(2, 2); glyph(g, e, 6, 6, col[e.a === -1 ? 'n' : e.a]) })
+  const sp = host.querySelector('.spark'), g = sp.getContext('2d'), bw = sp.width / days.length
+  counts.forEach((n, i) => { g.fillStyle = css('--color-text-muted'); const hh = Math.max(2, (n / max) * (sp.height - 26)); g.fillRect(i * bw + 6, sp.height - 24 - hh, bw - 12, hh); g.fillStyle = css('--color-text-muted'); g.font = '20px Galmuri11'; g.fillText(`${days[i]} · ${n}`, i * bw + 6, sp.height - 2) })
+  host.style.setProperty('--list-head', host.querySelector('header').offsetHeight + 'px')
+}
+
+// ───────── 시작 ─────────
+const q = new URLSearchParams(location.search)
+document.fonts.load('12px Galmuri11').then(() => document.fonts.load('24px Galmuri11')).then(() => {
+  const main = Timeline(document.getElementById('stage-main'))
+  const mob = Timeline(document.getElementById('stage-m'), { compact: true })
+  if (q.get('bg')) { main.setBg(q.get('bg')); mob.setBg(q.get('bg')) }
+  legend(); list(document.getElementById('list'))
+  clock(document.getElementById('clock-idle'), false); clock(document.getElementById('clock-hover'), true)
+  document.getElementById('demo-live').onclick = () => main.live(!main.el.querySelector('.live-toast.on'))
+  document.getElementById('demo-secret').onclick = () => main.go(RAW.findIndex((e, k) => k > main.S.i && e.s))
+  document.getElementById('demo-null').onclick = () => main.go(RAW.findIndex((e) => e.a === -1))
+  const mb = document.getElementById('demo-motion')
+  mb.onclick = () => { const on = mb.getAttribute('aria-pressed') !== 'true'; mb.setAttribute('aria-pressed', String(on)); document.documentElement.dataset.motion = on ? 'reduce' : 'full' }
+  // screenshot hooks
+  if (q.has('i')) main.go(+q.get('i'))
+  if (q.has('live')) main.live(true)
+  if (q.has('hover')) main.hoverAt(+q.get('hover'))
+  if (q.has('mi')) mob.go(+q.get('mi'))
+  const em = q.get('embed')
+  if (em) { document.body.classList.add('embed'); const t = document.querySelector(`[data-embed="${em}"]`); for (let n = t; n && n !== document.body; n = n.parentElement) { n.classList.add('embed-on'); if (n.parentElement) [...n.parentElement.children].forEach((c) => { if (c !== n && !c.contains(t) && n.parentElement !== document.body && !n.parentElement.classList.contains('page')) c.classList.add('embed-hide') }) } main.draw(); mob.draw() }
+  document.body.dataset.ready = '1'
+})
+</script>
+</body>
+</html>
