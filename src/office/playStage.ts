@@ -24,8 +24,9 @@ import {
   type Material,
 } from 'three'
 import type { Goal } from './director'
+import type { GripDemo } from './debugPlay'
 import { GRIPS, GripClock, STONE_H, handFor, stoneGrip, tipAt, type Curl, type StoneGrip } from './grip'
-import { fitFingers, handGripMatrix, offsetOf, resolveTarget, type GripTarget } from './gripTargets'
+import { contactNormal, fitFingers, handGripMatrix, offsetOf, resolveTarget, type GripTarget } from './gripTargets'
 import { fingerModelOf, type AgentRig, type PropBank } from './rig'
 import { meshesOf } from './nodes'
 import type { StatusMap } from './status'
@@ -47,6 +48,8 @@ const BLADE_Y = 0.175
 const FACE_GAP = 0.023
 /** the held object rises from where it rests to where it is held in this long, s */
 const LIFT_S = 0.35
+/** carrying a prop back to where it rests, s */
+const PUT_S = 0.4
 
 export interface StageIn {
   /** office time, ms */
@@ -64,6 +67,9 @@ export interface StageIn {
   stamp: boolean
   /** agent id → its colour, for the winning rings */
   colors: Record<string, string>
+  /** ?debug=1: pair games started by hand (debugPlay.ts) instead of the schedule's, and a grip demo to loop */
+  forcedSessions?: PlaySession[]
+  gripDemo?: GripDemo | null
 }
 
 /** the 2 s score tag over the net after a point */
@@ -92,6 +98,8 @@ export class PlayStage {
   private lastHand = new Map<string, Matrix4>()
   private forced = new Set<Object3D>()
   private arrivedAt = new Map<string, number>()
+  /** what each hand carries: when its activity ends the hand puts the prop back where it came from, then lets go (no prop moves on its own) */
+  private carry = new Map<string, { rig: AgentRig; side: 'l' | 'r'; kind: string; objName: string; prefer?: string; held: Matrix4; seen: boolean; putStart: number | null; extra: ((pose: Matrix4) => void) | null }>()
 
   // ping-pong
   private tableNode: Object3D | undefined
@@ -245,7 +253,7 @@ export class PlayStage {
    * One hand and one object for this frame. `want`: should the hand be holding. `held`: the object's world pose while it is held
    * (null: where it rests; for a fixture like a mouse, always where it is). Returns whether the object is the hand's now.
    */
-  private grip(rig: AgentRig, side: 'l' | 'r', kind: string, objName: string, want: boolean, held: Matrix4 | null, inp: StageIn, prefer?: string): boolean {
+  private grip(rig: AgentRig, side: 'l' | 'r', kind: string, objName: string, want: boolean, held: Matrix4 | null, inp: StageIn, prefer?: string, carryCall = false): boolean {
     const spec = GRIPS[kind]?.[side]
     const tgt = this.target(objName, kind, side)
     const key = `${rig.id}:${side}`
@@ -259,9 +267,7 @@ export class PlayStage {
     }
     const hand = rig.parts.hands[side]
     const info = tgt.obj ? this.props.info(rig, kind, prefer ?? objName) : null
-    let home = tgt.obj ? this.props.homeWorld(tgt.obj) : new Matrix4()
-    // a prop that rests out of reach (the can, the book) is not walked to: the hand takes it where it is held
-    if (tgt.obj && held && new Vector3().setFromMatrixPosition(home).distanceTo(new Vector3(rig.x, 1, rig.z)) > 1.3) home = held
+    const home = tgt.obj ? this.props.homeWorld(tgt.obj) : new Matrix4()
     let pose = home
     if (out.attached && held) pose = blend(home, held, ease((inp.t - (clock.attachedAt ?? inp.t)) / Math.max(LIFT_S, rig.gestureMin)))
     else if (out.attached && !tgt.obj) pose = held ?? home
@@ -282,9 +288,53 @@ export class PlayStage {
       if (out.attached) {
         this.props.force(tgt.obj, pose)
         this.forced.add(tgt.obj)
+        if (!carryCall) {
+          const e = this.carry.get(lastKey)
+          this.carry.set(lastKey, { rig, side, kind, objName, prefer, held: pose.clone(), seen: true, putStart: null, extra: e?.extra ?? null })
+        }
       }
     }
     return out.attached
+  }
+
+  /** ?debug=1: the grip stages in a loop in place (6 s: held from 0.4 s to 3.4 s, then put back and let go), for close-ups */
+  private demo(inp: StageIn) {
+    const d = inp.gripDemo
+    if (!d) return
+    const rig = inp.rigs[d.agent]
+    if (!rig?.visible || rig.arrived !== inp.goals[d.agent]?.spot) return
+    const c = inp.t % 6
+    if (c < 0.4 || c > 3.4) return
+    const tgt = this.target(d.obj, d.kind, d.side)
+    if (!tgt) return
+    const held = tgt.obj ? this.props.homeWorld(tgt.obj) : null
+    if (held) held.elements[13] += 0.06
+    this.grip(rig, d.side, d.kind, d.obj, true, held, inp, d.obj)
+  }
+
+  /** objects whose activity has ended: carried home by the hand (0.4 s), then let go with the "after" opening */
+  private putBack(inp: StageIn) {
+    for (const [k, e] of this.carry) {
+      if (e.seen) continue
+      const clock = this.clock(`${e.rig.id}:${e.side}`)
+      const obj = this.target(e.objName, e.kind, e.side)?.obj
+      if (clock.current.attached && obj && e.rig.visible) {
+        e.putStart ??= inp.t
+        const dur = inp.reduced ? 0 : Math.max(PUT_S, e.rig.gestureMin)
+        const kk = dur > 0 ? (inp.t - e.putStart) / dur : 1
+        if (kk < 1) {
+          const pose = blend(e.held, this.props.homeWorld(obj), ease(kk))
+          this.grip(e.rig, e.side, e.kind, e.objName, true, pose, inp, e.prefer, true)
+          e.extra?.(pose)
+          continue
+        }
+        // down: put it exactly where it came from, then open the hand
+        this.props.force(obj, this.props.homeWorld(obj))
+        this.forced.add(obj)
+      }
+      this.grip(e.rig, e.side, e.kind, e.objName, false, null, inp, e.prefer, true)
+      if (clock.current.stage === 'rest') this.carry.delete(k)
+    }
   }
 
   // ------------------------------------------------------------------------------------------------------------- frame
@@ -307,7 +357,7 @@ export class PlayStage {
     }
     const ids = Object.keys(inp.rigs)
     const busy = new Set(ids.filter((a) => inp.status[a]?.state === 'working' || inp.status[a]?.state === 'off' || inp.status[a]?.night === 'duty'))
-    const sessions = inp.replaying ? [] : sessionsAt(inp.now, ids, busy)
+    const sessions = inp.forcedSessions?.length ? inp.forcedSessions : inp.replaying ? [] : sessionsAt(inp.now, ids, busy)
     let pp: PlaySession | null = null
     let og: PlaySession | null = null
     for (const s of sessions) {
@@ -322,7 +372,10 @@ export class PlayStage {
     }
     this.pingpong(pp, inp)
     this.omok(og, inp)
+    for (const e of this.carry.values()) e.seen = false
     for (const id of ids) this.solo(inp.rigs[id], inp.goals[id], inp, pp, og)
+    this.demo(inp)
+    this.putBack(inp)
     for (const id of ids) {
       inp.rigs[id].applyDrive('l')
       inp.rigs[id].applyDrive('r')
@@ -723,7 +776,10 @@ export class PlayStage {
         // the left hand carries the can's belly (grip_l), following it
         if (attached) {
           const tl = this.target(can.node.name, 'watering_can', 'l')
-          if (tl) this.leftHand(rig, 'watering_can', tl, held, can.node.name, inp)
+          if (tl) {
+            this.leftHand(rig, 'watering_can', tl, held, can.node.name, inp)
+            this.setExtra(rig, 'r', can.node.name, (m) => this.leftHand(rig, 'watering_can', tl, m, can.node.name, inp))
+          }
         }
         this.pouring = { on: attached && tilt > 0.5 && !inp.reduced, rig, held, soilY: plant.soilY }
       }
@@ -741,7 +797,10 @@ export class PlayStage {
         const attached = this.grip(rig, 'l', 'book', book.node.name, true, held, inp)
         if (attached) {
           const tr = this.target(book.node.name, 'book', 'r')
-          if (tr) this.rightHand(rig, 'book', tr, held, inp)
+          if (tr) {
+            this.rightHand(rig, 'book', tr, held, inp)
+            this.setExtra(rig, 'l', book.node.name, (m) => this.rightHand(rig, 'book', tr, m, inp))
+          }
         }
         this.reading = { rig, openAt: (this.clocks.get(`${rig.id}:l`)?.attachedAt ?? t), turnAt: u }
       }
@@ -776,6 +835,12 @@ export class PlayStage {
     if (goal.pose === 'idle' && resting && goal.spot === `work_${seat}` && (seat === 0 || seat === 1 || seat === 3)) {
       this.grip(rig, 'r', 'mouse', `desk_${seat}_mouse`, true, null, inp)
     }
+  }
+
+  private setExtra(rig: AgentRig, side: 'l' | 'r', objName: string, fn: (pose: Matrix4) => void) {
+    // the carry entry of the hand that holds the prop (water: the right hand, the book: the left)
+    const e = [...this.carry.values()].find((x) => x.rig === rig && x.objName === objName && x.side === (side === 'r' ? 'r' : 'l'))
+    if (e) e.extra = fn
   }
 
   private pouring: { on: boolean; rig: AgentRig; held: Matrix4; soilY: number } | null = null
@@ -816,7 +881,7 @@ export class PlayStage {
     const spec = GRIPS.button.r!
     const m = contact.matrixWorld
     const P = new Vector3().setFromMatrixPosition(m)
-    const n = new Vector3(0, 1, 0).transformDirection(m) // out of the button, toward the hand
+    const n = contactNormal(this.sceneRef, contact) // out of the button, toward the hand
     const press = u > 0.5 && u < 0.6 ? 0.012 : 0
     // the hand points in along −n, palm down
     const y = n.clone().negate()

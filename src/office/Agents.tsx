@@ -293,6 +293,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
       tablet: desk.tablet,
       stamp: desk.stamp,
       colors: AGENT_COLORS,
+      forcedSessions: world.debug ? world.forcedSessions : undefined,
+      gripDemo: world.debug ? world.gripDemo : null,
     })
     const tag = playStage.tag
     if (tagEl.current) {

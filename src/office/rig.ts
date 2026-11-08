@@ -488,6 +488,13 @@ export class PropBank {
         this.quat.setFromAxisAngle(UP, yaw)
         if (p.kind === 'watering_can') this.quat.multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -0.5))
       }
+      // a go stone that has been placed is back on its bowl at once (the next one of the pile): nothing flies home
+      if (!grip && p.kind === 'piece') {
+        p.node.position.copy(this.pos)
+        p.node.quaternion.copy(this.quat)
+        p.node.visible = !p.holder || !p.holder.attached || p.holder.rig.visible
+        continue
+      }
       p.node.position.lerp(this.pos, k)
       p.node.quaternion.slerp(this.quat, k)
       p.node.visible = !p.holder || !p.holder.attached || p.holder.rig.visible

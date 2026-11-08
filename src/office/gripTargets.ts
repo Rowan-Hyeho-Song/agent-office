@@ -24,6 +24,27 @@ export interface GripTarget {
   contacts: Contact[]
 }
 
+const AXES = new WeakMap<object, 'y' | 'z'>()
+
+/**
+ * Which local axis of a contact node is its outward normal. Blender aims +z; the glTF export maps that to the node's +y (the first #172
+ * bake), and the re-bake that fixes it makes the node's +z the normal. Read it from the go stone's top contact, which must face up, so
+ * both bakes work.
+ */
+export function contactAxis(scene: Object3D): 'y' | 'z' {
+  let a = AXES.get(scene)
+  if (!a) {
+    const n = scene.getObjectByName('prop_piece_a_contact_index')
+    scene.updateMatrixWorld(true)
+    a = n && new Vector3(0, 0, 1).transformDirection(n.matrixWorld).y > 0.9 ? 'z' : 'y'
+    AXES.set(scene, a)
+  }
+  return a
+}
+
+/** a contact node's outward normal in the world */
+export const contactNormal = (scene: Object3D, node: Object3D) => (contactAxis(scene) === 'z' ? new Vector3(0, 0, 1) : new Vector3(0, 1, 0)).transformDirection(node.matrixWorld)
+
 const FINGER_ORDER = ['index', 'middle', 'ring', 'little', 'thumb'] as const
 
 /** the grip target of `objName` for a `kind` of grip, or null when the model has no grip empty for that hand */
@@ -42,7 +63,7 @@ export function resolveTarget(scene: Object3D, objName: string, kind: string, si
     const node = scene.getObjectByName(`${objName}_contact_${f}${side === 'l' ? '_l' : ''}`) ?? scene.getObjectByName(`${objName}_contact_${f}`)
     if (!node) continue
     const m = local(node)
-    contacts.push({ finger: f, p: new Vector3().setFromMatrixPosition(m), n: new Vector3(0, 1, 0).transformDirection(m) })
+    contacts.push({ finger: f, p: new Vector3().setFromMatrixPosition(m), n: (contactAxis(scene) === 'z' ? new Vector3(0, 0, 1) : new Vector3(0, 1, 0)).transformDirection(m) })
   }
   return { key: `${objName}:${side}`, kind, side, obj, pg: local(grip), contacts }
 }

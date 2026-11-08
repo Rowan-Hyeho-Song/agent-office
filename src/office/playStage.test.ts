@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { Object3D, Vector3 } from 'three'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { loadOffice, stubCanvas } from './glbLoad'
+import { contactNormal } from './gripTargets'
 import { PlayStage, type StageIn } from './playStage'
 import { AgentRig, PropBank, buildRig } from './rig'
 import type { Goal } from './director'
@@ -22,9 +23,9 @@ async function world() {
   return { scene, nodes, props, rigs, stage }
 }
 
-function findSession(kind: 'pingpong' | 'boardgame'): PlaySession {
-  for (let m = 0; m < 3000; m++) {
-    const s = sessionsAt(1_790_000_000_000 + m * 180_000, IDS).find((x) => x.kind === kind)
+function findSession(kind: 'pingpong' | 'boardgame', agent?: string): PlaySession {
+  for (let m = 0; m < 6000; m++) {
+    const s = sessionsAt(1_790_000_000_000 + m * 180_000, IDS).find((x) => x.kind === kind && (!agent || x.players.includes(agent)))
     if (s) return s
   }
   throw new Error('no session')
@@ -61,7 +62,7 @@ const tipWorld = (rig: AgentRig, side: 'l' | 'r', f: number | 'thumb', out = new
   return out.copy(tip).applyMatrix4(j.matrixWorld)
 }
 const at = (scene: Object3D, name: string) => scene.getObjectByName(name)!.getWorldPosition(new Vector3())
-const up = (scene: Object3D, name: string) => new Vector3(0, 1, 0).transformDirection(scene.getObjectByName(name)!.matrixWorld)
+const up = (scene: Object3D, name: string) => contactNormal(scene, scene.getObjectByName(name)!)
 
 describe('PlayStage', () => {
   it('ping-pong: the same office time gives the same ball position, in two separate worlds', async () => {
@@ -162,6 +163,42 @@ describe('PlayStage', () => {
     expect(a.worst).toBeLessThan(0.003)
     expect(a.minOff).toBeGreaterThan(-0.0005)
   }, 60000)
+
+  it('omok: at the place instant each agent hand is palm down and toward the body, fingers forward and down (designer: 30–45°), the stone flat', async () => {
+    for (const agent of IDS) {
+      const s = findSession('boardgame', agent)
+      const w = await world()
+      const goals = seat(w.rigs, s)
+      let n = 0
+      let palmMax = -Infinity
+      let pitchMin = Infinity
+      let pitchMax = -Infinity
+      let flat = 1
+      for (let k = 0; k < 500; k++) {
+        const now = s.startMs + 15_000 + 100 + k * 40
+        w.stage.update(inp(w, goals, now, k * 0.04))
+        w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
+        w.props.update(0.04)
+        const r = w.rigs[agent]
+        const d = r.drive.r
+        if (r.want?.kind !== 'piece' || !r.want.attached || !d?.target || d.w < 0.999) continue
+        const palm = new Vector3(0, 0, 1).transformDirection(d.target)
+        const fingers = new Vector3(0, 1, 0).transformDirection(d.target)
+        palmMax = Math.max(palmMax, palm.y)
+        pitchMin = Math.min(pitchMin, fingers.y)
+        pitchMax = Math.max(pitchMax, fingers.y)
+        const stone = w.scene.getObjectByName('prop_piece_' + (r.want.prefer!.endsWith('a') ? 'a' : 'b'))!
+        flat = Math.min(flat, new Vector3(0, 1, 0).transformDirection(stone.matrixWorld).y)
+        n++
+      }
+      if (LOG) appendFileSync(LOG, 'place hand ' + agent + ': ' + n + ' frames, palm normal y <= ' + palmMax.toFixed(2) + ', finger pitch y in [' + pitchMin.toFixed(2) + ', ' + pitchMax.toFixed(2) + '], stone normal y >= ' + flat.toFixed(3) + '\n')
+      expect(n, agent).toBeGreaterThan(5)
+      expect(palmMax, agent + ' palm down').toBeLessThan(-0.5)
+      expect(pitchMax, agent + ' fingers down').toBeLessThan(-0.25)
+      expect(pitchMin, agent + ' fingers not straight down').toBeGreaterThan(-0.85)
+      expect(flat, agent + ' stone flat').toBeGreaterThan(0.95)
+    }
+  }, 120000)
 
   it('nobody seated: the ball waits on the table', async () => {
     const w = await world()

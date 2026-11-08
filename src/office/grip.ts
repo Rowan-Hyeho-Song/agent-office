@@ -428,14 +428,18 @@ export interface StoneGrip {
   off: { index: number; middle: number }
 }
 
+/** the hand's pitch over the board while it holds a stone: its fingers point forward and this far down (designer: 30–45°) */
+export const STONE_PITCH = (40 * Math.PI) / 180
+
 /**
- * The 바둑식 hold (agents.md 2.10): the stone's bottom face on the middle fingertip, the index fingertip on its top face, the stone's
- * faces parallel to the fingers. The hand is turned so that the index finger is above the middle one (the hand's x axis is the
- * stone's normal). The middle finger starts at its table value; it and the index finger are bent and swung, as little as it takes,
- * until the index tip stands one stone's thickness above the middle tip.
+ * The 바둑식 hold (agents.md 2.10): the palm down and toward the body, the fingers pointing forward and down by `pitch`, the stone flat
+ * (horizontal) between the index fingertip above it and the middle fingertip under it. In the hand's frame the stone's normal is the
+ * direction of "up" for such a hand, (0, −sin pitch, −cos pitch); the middle finger starts at its table value, and it and the index finger
+ * are bent and swung, as little as it takes, until the index tip stands one stone's thickness above the middle tip along that normal.
  */
-export function stoneGrip(middle: FingerModel, index: FingerModel, hold: { index: number; middle: number }): StoneGrip {
-  const n = new Vector3(index.sx, 0, 0) // the index finger lies on this side of the middle one
+export function stoneGrip(middle: FingerModel, index: FingerModel, hold: { index: number; middle: number }, pitch = STONE_PITCH): StoneGrip {
+  const n = new Vector3(0, -Math.sin(pitch), -Math.cos(pitch))
+  const f = new Vector3(0, Math.cos(pitch), -Math.sin(pitch)) // the forward direction along the board, in the hand's frame
   let best: { cm: number; bm: number; fit: Fit; cost: number } | null = null
   for (let cm = 0.05; cm <= 0.8; cm += 0.05)
     for (let bm = -0.45; bm <= 0.451; bm += 0.075) {
@@ -446,10 +450,7 @@ export function stoneGrip(middle: FingerModel, index: FingerModel, hold: { index
     }
   const { cm, bm, fit } = best!
   const M = tipAt(middle, cm, bm)
-  const O3 = tipAt({ ...middle, tip: new Vector3() }, cm, bm)
-  const d = M.clone().sub(O3)
-  d.addScaledVector(n, -d.dot(n)).normalize()
-  const z = new Vector3().crossVectors(d, n)
-  const m = new Matrix4().makeBasis(d, n, z).setPosition(M.clone().addScaledVector(n, STONE_H / 2))
+  const z = new Vector3().crossVectors(f, n)
+  const m = new Matrix4().makeBasis(f, n, z).setPosition(M.clone().addScaledVector(n, STONE_H / 2))
   return { m, index: { a: fit.a, b: fit.b }, middle: { a: cm, b: bm }, err: { index: fit.err, middle: 0 }, off: { index: fit.off, middle: 0 } }
 }

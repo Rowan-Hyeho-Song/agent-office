@@ -6,7 +6,7 @@ import { loadOffice } from './glbLoad'
 import { PlayStage } from './playStage'
 import { AgentRig, PropBank, buildRig } from './rig'
 import { stubCanvas } from './glbLoad'
-import { WATERED, plantsFrom, WATER_STAND, canPose, headingTo, landing, plantAhead, solvePour, spoutOf, standFor, type Plant } from './water'
+import { WATERED, WATER_PLANTS, plantsFrom, standOf, canPose, headingTo, landing, plantAhead, solvePour, spoutOf, type Plant } from './water'
 import { playAt } from './play'
 
 stubCanvas()
@@ -24,7 +24,7 @@ describe('watering lands on the soil (#184)', () => {
     const { local, scene } = await spoutLocal()
     const plants = plantsFrom(scene)
     for (const p of plants) {
-      const st = p.name === WATERED.name ? WATER_STAND : standFor(p)
+      const st = standOf(p)
       const heading = headingTo(st.x, st.z, p.x, p.z)
       expect(plantAhead(st.x, st.z, heading, 1.6, plants)?.name).toBe(p.name)
       const pour = solvePour(p, st.x, st.z, heading, local)
@@ -47,8 +47,9 @@ describe('watering lands on the soil (#184)', () => {
       const a = playAt(m * 3, ['agent_0', 'agent_1', 'agent_2', 'agent_3'])
       found = Object.values(a).find((x) => x.kind === 'water') ?? null
     }
-    expect(found?.stand).toEqual(WATER_STAND)
-    expect(found?.face).toEqual({ x: WATERED.x, z: WATERED.z })
+    const plant = WATER_PLANTS.find((p) => p.x === found?.face?.x && p.z === found?.face?.z)!
+    expect(plant).toBeTruthy()
+    expect(found?.stand).toEqual(standOf(plant))
   })
 
   it('in the running stage the stream lands on the soil for each agent\'s own hands', async () => {
@@ -56,7 +57,7 @@ describe('watering lands on the soil (#184)', () => {
     const props = new PropBank(scene, nodes)
     const rigs = Object.fromEntries([0, 1, 2, 3].map((i) => [`agent_${i}`, new AgentRig(`agent_${i}`, i, buildRig(scene, nodes, i), '#ffffff')]))
     const stage = new PlayStage(scene, nodes, props)
-    const st = WATER_STAND
+    const st = standOf(WATERED)
     const heading = headingTo(st.x, st.z, WATERED.x, WATERED.z)
     for (const [id, r] of Object.entries(rigs)) {
       r.at = 'hall_lounge'
@@ -90,3 +91,34 @@ describe('watering lands on the soil (#184)', () => {
   })
 })
 void ({} as Plant)
+
+describe('where the watering agent stands (#184)', () => {
+  it('every plant: a walkable stand beside the pot (≤ 0.6 m from its centre), facing it, reachable by the grid planner, and the stream lands in the soil from there', async () => {
+    const { local, scene, nodes } = await spoutLocal()
+    const { meshesOf } = await import('./nodes')
+    const { rasterFootprint } = await import('./floorMask')
+    const { buildGrid, cellAt, findPath } = await import('./grid')
+    const { GRAPH } = await import('./navSpots.fixture')
+    const grid = buildGrid(rasterFootprint(Object.values(nodes).filter((m) => m.userData.atlas).flatMap(meshesOf), 0.05, scene), GRAPH)
+    for (const p of PLANTS_FOR_STANDS(scene)) {
+      const st = standOf(p)
+      const d = Math.hypot(st.x - p.x, st.z - p.z)
+      const heading = headingTo(st.x, st.z, p.x, p.z)
+      // the bearing from the stand to the pot, against the heading the Director's slot gives (atan2(-dx, -dz))
+      const want = Math.atan2(-(p.x - st.x), -(p.z - st.z))
+      const err = Math.abs(Math.atan2(Math.sin(heading - want), Math.cos(heading - want))) * (180 / Math.PI)
+      const c = cellAt(grid, st.x, st.z)
+      expect(c, p.name + ' on the grid').toBeGreaterThanOrEqual(0)
+      expect(grid.blocked[c], p.name + ' stand is walkable').toBeFalsy()
+      expect(findPath(grid, { x: -1, z: -0.6 }, st), p.name + ' reachable').toBeTruthy()
+      const pour = solvePour(p, st.x, st.z, heading, local)
+      expect(pour.err, p.name + ' stream lands on the soil centre').toBeLessThan(p.r)
+      if (LOG) appendFileSync(LOG, 'water stand ' + p.name + ': ' + (d * 1000).toFixed(0) + ' mm from the pot centre, facing error ' + err.toFixed(1) + ' deg, landing ' + (pour.err * 1000).toFixed(1) + ' mm from the soil centre\n')
+      expect(d, p.name + ' close to the pot').toBeLessThanOrEqual(0.6)
+      expect(err, p.name + ' faces the pot').toBeLessThanOrEqual(20)
+    }
+  }, 60000)
+})
+
+const PLANTS_FOR_STANDS = (scene: Parameters<typeof plantsFrom>[0]) => plantsFrom(scene).filter((p) => p.name in STANDS_KEYS)
+const STANDS_KEYS: Record<string, true> = { plant_corner: true, plant_sofa: true, plant_desk: true, succulent: true }

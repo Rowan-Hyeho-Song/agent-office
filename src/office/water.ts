@@ -21,14 +21,24 @@ export const PLANTS: Plant[] = [
   { name: 'succulent', x: -4.32, z: -1.36, soilY: 0.74 + 0.05 - 0.015 + 0.003, r: 0.04 - 0.006 }, // 휴's desk
 ]
 
-/** the plant the schedule waters (play.ts) and where its watering agent stands, 0.78 m from the soil centre on the room side */
+/** the plant the first test and the debug tools use */
 export const WATERED = PLANTS[0]
-export const WATER_STAND = { x: 4.0, z: 2.45 }
-/** a floor point 0.75 m from a plant toward the middle of the room: where a test stands an agent for each plant */
-export function standFor(p: Plant, dist = 0.75): { x: number; z: number } {
-  const len = Math.hypot(p.x, p.z) || 1
-  return { x: p.x - (p.x / len) * dist, z: p.z - (p.z / len) * dist }
+
+/**
+ * Where an agent stands to water each plant: beside the pot, as close as the walkable floor allows (the planter and canopy block the grid
+ * within about 0.45 m of the fig and the desk's sansevieria; the grid planner can walk to each of these, propsHome / water tests check it).
+ * Found by scanning the floor around each pot, room side first, then around to the opposite side.
+ */
+export const STANDS: Record<string, { x: number; z: number }> = {
+  plant_corner: { x: 4.14, z: 2.59 }, // 0.60 m, on the room side of the corner
+  plant_sofa: { x: 1.13, z: 2.35 }, // 0.45 m, between the side table and the sofa's front
+  plant_desk: { x: 0.0, z: -2.7 }, // 0.50 m, in front of the stand
+  succulent: { x: -3.84, z: -1.21 }, // 0.50 m, at HUE's desk side
+  vine: { x: 0, z: 0 }, // placed when the model has its soil empty
 }
+export const standOf = (p: Plant) => STANDS[p.name]
+/** the plants the schedule waters (the floor plants; the desk succulent is left to its owner) */
+export const WATER_PLANTS = [PLANTS[0], PLANTS[1], PLANTS[2]]
 /** heading (rad, rig convention: it faces its −z) that looks from (x, z) at (tx, tz) */
 export const headingTo = (x: number, z: number, tx: number, tz: number) => Math.atan2(-(tx - x), -(tz - z))
 
