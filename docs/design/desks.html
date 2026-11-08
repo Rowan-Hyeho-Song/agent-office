@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>사무실 책상 꾸미기</title>
+<!-- 시안 열람용으로만 CDN에서 갈무리를 불러온다(앱은 자체 서빙, office-ui.md 7절). -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/galmuri.css" />
+<link rel="stylesheet" href="../../src/styles/tokens.css" />
+<style>
+/* 소품 재질 색: Blender office_bake.py의 책상 재질 + 소품별 색. 에이전트 색은 tokens.css --agent-0..3 */
+:root {
+  --desk-top: #c9b89a; --desk-metal: #2a2c31; --monitor: #16181d; --kb: #2c3038;
+  --tray: #5a606c; --paper: #efece4; --paper-y: #ffe27a; --ink-red: #c8413b; --wood: #c99a5b;
+  --ivory: #f6f3ec; --gray: #8a8f99; --terracotta: #b5654a; --leaf: #3f7d4a; --duck: #ffd23f;
+  --lamp-warm: #ffe2b0; --sig-g: #39d98a; --sig-y: #ffd23f; --sig-r: var(--color-red);
+  --checker-1: #b07a5a; --checker-2: #6a8fb5; --checker-3: #7aa35a; --checker-4: #d6c14a;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--color-void); color: var(--color-text); font-family: var(--font-text); font-size: 15px; line-height: 1.6; color-scheme: dark; }
+.page { max-width: 1240px; margin: 0 auto; padding: var(--space-8) var(--space-4) 96px; }
+h1, h2, h3 { font-family: var(--font-pixel); font-weight: 400; margin: 0; }
+h1 { font-size: var(--font-size-2); line-height: 36px; }
+h2 { font-size: var(--font-size-2); line-height: 36px; margin-top: 56px; }
+h3 { font-size: var(--font-size-1); line-height: var(--line-height-1); color: var(--color-text-muted); letter-spacing: var(--letter-spacing-label); margin: var(--space-6) 0 var(--space-2); }
+.kicker { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-amber); letter-spacing: var(--letter-spacing-label); }
+p.lead, .note { color: var(--color-text-muted); }
+p.lead { max-width: 74ch; margin: var(--space-2) 0 0; }
+.note { font-size: 13px; }
+header.top { border-bottom: 1px solid var(--color-line); padding-bottom: var(--space-4); }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-3); margin-top: var(--space-4); }
+.rule { border: 1px solid var(--color-line); background: var(--color-surface); padding: var(--space-3) var(--space-4); font-size: 14px; color: var(--color-text-muted); }
+.rule b { display: block; font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); color: var(--color-text); margin-bottom: var(--space-1); }
+[data-seat='0'] { --agent: var(--agent-0); --agent-ink: var(--agent-0-ink); }
+[data-seat='1'] { --agent: var(--agent-1); --agent-ink: var(--agent-1-ink); }
+[data-seat='2'] { --agent: var(--agent-2); --agent-ink: var(--agent-2-ink); }
+[data-seat='3'] { --agent: var(--agent-3); --agent-ink: var(--agent-3-ink); }
+.desks { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: var(--space-4); margin-top: var(--space-4); }
+.card { border: 1px solid var(--color-line); border-top: 3px solid var(--agent); background: var(--color-surface); padding: var(--space-4); min-width: 0; }
+.nametag { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1); display: inline-flex; padding: 0 var(--space-2); background: var(--agent); color: var(--color-ink); clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%); }
+.who { display: flex; align-items: baseline; gap: var(--space-2); margin: var(--space-2) 0 var(--space-3); }
+.who b { font-family: var(--font-pixel); font-weight: 700; font-size: var(--font-size-2); line-height: 30px; color: var(--agent-ink); }
+.who span { color: var(--color-text-muted); font-size: 14px; }
+.views { display: grid; gap: var(--space-2); }
+.views figure { margin: 0; border: 1px solid var(--color-line); background: color-mix(in srgb, var(--color-void) 70%, var(--color-surface)); }
+.views svg { display: block; width: 100%; height: auto; }
+figcaption { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); padding: var(--space-1) var(--space-2); }
+ol.items { margin: var(--space-3) 0 0; padding-left: 1.4em; font-size: 14px; }
+ol.items li { margin-bottom: var(--space-1); }
+ol.items li::marker { color: var(--agent-ink); font-family: var(--font-pixel); }
+.live { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-ink); background: var(--color-cyan); padding: 0 var(--space-1); margin-left: var(--space-1); }
+.gone { color: var(--color-text-muted); font-size: 13px; margin-top: var(--space-2); }
+.stage { border: 1px solid var(--color-line); overflow-x: auto; background: radial-gradient(ellipse 80% 60% at 50% 100%, color-mix(in srgb, var(--color-amber) 10%, transparent), transparent 70%), var(--color-void); }
+.stage svg { display: block; margin: 0 auto; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; margin-top: var(--space-2); }
+th, td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-line); vertical-align: top; }
+th { font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); color: var(--color-text-muted); }
+code { font-family: var(--font-pixel); font-size: var(--font-size-1); }
+.legend { display: flex; flex-wrap: wrap; gap: var(--space-4); font-size: 13px; color: var(--color-text-muted); margin-top: var(--space-2); }
+.legend i { display: inline-block; width: 14px; height: 10px; vertical-align: middle; margin-right: var(--space-1); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="top">
+  <div class="kicker">AGENT OFFICE · #32 · 확정 (2026-11-08 결재) · 모델 #43 · 데이터 #44</div>
+  <h1>네 자리의 책상</h1>
+  <p class="lead">각 에이전트가 고른 소품을 지금 책상(1.2 × 0.62 m, 높이 0.74 m)에 놓았다. 키보드 앞 손 자리는 비워 두고, 소품은 <b>책상 양 끝과 모니터 옆</b>으로 모았다. 일할 때 방문자는 머리 뒤에서 책상을 보는데, 가운데는 머리가 가리고 양 끝만 보이기 때문이다.</p>
+  <div class="rules">
+    <div class="rule"><b>손 자리는 비운다</b>키보드(±0.21)와 그 앞, 오른쪽 마우스 자리(0.30)는 #28의 타자 치는 손이 오가는 곳. 빗금 친 영역에는 아무것도 두지 않는다.</div>
+    <div class="rule"><b>멀리서는 빛과 색 덩어리</b>기본 카메라(112 px/m)에서 10 cm 소품은 11px. 그래서 데이터와 이어지는 소품은 대부분 <b>빛</b>으로 상태를 말한다(신호등, 링 조명, 램프, 태블릿). 나머지는 색 덩어리로만 읽혀도 된다.</div>
+    <div class="rule"><b>원래 소품은 주인 것으로</b>지금 책상에 공통으로 있던 머그·화분·서류 더미는 주인 소품으로 바꿨다. 메시만 머그를 남겼다(빈 자리가 있고 싫다는 말이 없음).</div>
+    <div class="rule"><b>LIVE = 앱이 바꾸는 것</b>데이터와 이어지는 소품만 live 노드(실시간 조명·발광), 나머지는 굽는다. LIVE 표시가 붙은 것이 코더 몫.</div>
+  </div>
+  <div class="legend"><span><i style="background: repeating-linear-gradient(135deg, var(--color-text-faint) 0 2px, transparent 2px 5px)"></i>손 자리(비움)</span><span><i style="border: 1.5px dashed var(--color-cyan)"></i>LIVE 소품</span><span><i style="border: 1.5px dashed var(--color-text-muted)"></i>머리가 가리는 범위(일할 때 뒤에서 볼 때)</span></div>
+</header>
+
+<section>
+  <h2>1. 자리별</h2>
+  <div class="desks" id="desks"></div>
+</section>
+
+<section>
+  <h2>2. 기본 카메라에서 · 일할 때 뒤에서 본 네 책상</h2>
+  <p class="lead">112 px/m. 머리(#28)를 반투명으로 겹쳐, 가운데가 가려져도 양 끝 소품과 빛이 남는지 본다.</p>
+  <div class="stage" id="row"></div>
+  <p class="note">신호등(루프)·링 조명(메시)·숙인 램프(휴)는 빛이라 멀리서도 보인다. 메모 책상은 빛 대신 서류함·모래시계 덩어리와 호박색 서류가 자리를 말한다.</p>
+</section>
+
+<section>
+  <h2>3. 요청 반영표</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>누구</th><th>요청</th><th>반영</th></tr></thead>
+    <tbody id="asks"></tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>4. LIVE 소품 (코더용)</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>노드</th><th>무엇이 바뀌나</th><th>데이터</th></tr></thead>
+    <tbody id="lives"></tbody>
+  </table></div>
+</section>
+
+</div>
+
+<script>
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim()
+const TOP = 0.74 // 책상 윗면
+
+/* 소품: 책상 좌표(m). x = 앉은 쪽에서 오른쪽 +, z = 앞(에이전트 쪽) +, 모니터 쪽 −. w×d 바닥 크기, h 높이.
+   kind는 그리기 모양. live = 앱이 바꾸는 노드 이름 */
+const DESKS = [
+  { seat: 0, ko: '메모', en: 'MEMO', role: '기획', code: 'RB-10', src: 'https://github.com/Rowan-Hyeho-Song/agent-office/issues/32',
+    gone: '머그, 화분 (메모: “화분 같은 장식으로 어수선한 것은 싫음”)', mouse: true,
+    items: [
+      { n: 1, name: 'IN / OUT 서류함', kind: 'tray', x: 0.44, z: -0.16, w: 0.24, d: 0.3, h: 0.15, color: '--tray', live: 'desk_0_in · desk_0_out', note: '두 단 서류함. 서류 높이가 바뀜. 오른쪽 끝(일할 때 왼쪽 끝은 휴 머리에 가려 #43에서 좌우 교환)' },
+      { n: 2, name: '결재 도장 + 인주', kind: 'stamp', x: 0.46, z: 0.13, w: 0.08, d: 0.06, h: 0.075, color: '--agent-0', live: 'prop_stamp', note: '마우스와 겹쳐 마우스 바깥으로. 결재 때 손에 듦(#20 소품 규칙)' },
+      { n: 3, name: '접어 둔 종이비행기 셋', kind: 'planes', x: 0.44, z: -0.22, w: 0.16, d: 0.1, h: 0.03, y0: 0.15, color: '--paper-y', note: '서류함 위에 올려 둠' },
+      { n: 4, name: '탁상 달력', kind: 'cal', x: -0.24, z: -0.13, w: 0.12, d: 0.07, h: 0.1, color: '--paper', live: 'screen_cal_0', note: '오늘 날짜. 앞면이 캔버스 슬롯' },
+      { n: 5, name: '모래시계', kind: 'hourglass', x: -0.5, z: -0.22, w: 0.06, d: 0.06, h: 0.11, color: '--wood', live: 'desk_0_hourglass', note: '결재를 기다릴 때만 뒤집혀 흐름' },
+    ] },
+  { seat: 1, ko: '메시', en: 'MESH', role: '3D', code: 'RB-11', src: 'https://github.com/Rowan-Hyeho-Song/agent-office/issues/32',
+    gone: '서류 더미 (메시: “책상 위를 가득 채우는 잡동사니는 싫음”)', mouse: true, mug: true,
+    items: [
+      { n: 1, name: '턴테이블 + 큐브', kind: 'turntable', x: -0.43, z: -0.18, w: 0.14, d: 0.14, h: 0.065, color: '--agent-1', live: 'desk_1_turntable', note: '굽는 동안 돎(축 = 로컬 y)' },
+      { n: 2, name: '컬러 체커 카드', kind: 'checker', x: 0.15, z: -0.09, w: 0.15, d: 0.02, h: 0.1, color: '--gray', note: '모니터 받침에 기대 세움. 휴의 색견본과 겹치지 않게 칩을 탁하게' },
+      { n: 3, name: '링 조명', kind: 'ring', x: 0.46, z: -0.2, w: 0.16, d: 0.06, h: 0.32, color: '--agent-1', live: 'desk_1_ringlight', note: '라벤더 발광. 굽기가 끝나면 한 번 깜빡' },
+      { n: 4, name: '기본 도형 셋(구·원뿔·토러스)', kind: 'shapes', x: -0.42, z: 0.15, w: 0.18, d: 0.07, h: 0.06, color: '--ivory', note: '키보드 앞 왼쪽, 왼손 자리 바깥' },
+    ] },
+  { seat: 2, ko: '휴', en: 'HUE', role: '디자인', code: 'RB-12', src: 'https://github.com/Rowan-Hyeho-Song/agent-office/issues/32#issuecomment-6710137107',
+    gone: '머그, 큰 화분(작은 다육이로), 마우스(태블릿으로)', mouse: false,
+    items: [
+      { n: 1, name: '색견본 부채(팀 4색)', kind: 'fan', x: -0.4, z: -0.16, w: 0.16, d: 0.05, h: 0.17, color: '--agent-2', note: '모니터 왼쪽, 램프가 위에서 비춤' },
+      { n: 2, name: '펜 태블릿 + 펜', kind: 'tablet', x: 0.36, z: 0.06, w: 0.2, d: 0.14, h: 0.012, color: '--kb', live: 'desk_2_tablet', note: '마우스 자리. 디자인 파일 편집 중에만 마젠타로 빛남' },
+      { n: 3, name: '작은 다육이', kind: 'plant', x: 0.24, z: -0.18, w: 0.07, d: 0.07, h: 0.08, color: '--leaf', note: '모니터 아래 오른쪽' },
+      { n: 4, name: '숙인 데스크 램프', kind: 'lamp', x: -0.52, z: -0.26, w: 0.1, d: 0.1, h: 0.3, color: '--lamp-warm', live: 'desk_2_lamp', note: '출근하면 켜지고 퇴근하면 꺼짐(따뜻한 흰빛, 색을 늘리지 않음)' },
+    ] },
+  { seat: 3, ko: '루프', en: 'LOOP', role: '코더', code: 'RB-13', src: 'https://github.com/Rowan-Hyeho-Song/agent-office/issues/32',
+    gone: '머그, 서류 더미 (루프: “밤새는 개발자 클리셰는 싫음, 깔끔하고 밝게”)', mouse: true,
+    items: [
+      { n: 1, name: '신호등 탑 램프', kind: 'tower', x: 0.47, z: -0.24, w: 0.06, d: 0.06, h: 0.2, color: '--gray', live: 'desk_3_signal_g · _y · _r', note: '통과 초록 · 실행 중 노랑 · 실패 빨강' },
+      { n: 2, name: '고무 오리', kind: 'duck', x: -0.34, z: 0.12, w: 0.07, d: 0.06, h: 0.065, color: '--duck', live: 'desk_3_duck_look', note: '오리는 굽고, 테스트 실패 때 루프가 고개를 돌릴 빈 노드만 live' },
+      { n: 3, name: '세로 보조 모니터', kind: 'vmon', x: -0.46, z: -0.2, w: 0.2, d: 0.1, h: 0.4, color: '--monitor', note: '메인 모니터 왼쪽. 화면은 줄무늬 가짜 코드(구움, 은은한 발광)' },
+      { n: 4, name: '키캡 접시', kind: 'dish', x: 0.44, z: 0.13, w: 0.09, d: 0.09, h: 0.03, color: '--ivory', note: '마우스 옆' },
+      { n: 5, name: '케이블 정리 클립', kind: 'clips', x: 0.18, z: -0.29, w: 0.24, d: 0.02, h: 0.02, color: '--desk-metal', note: '책상 뒤 모서리, 가까이서만 보이는 꼼꼼함' },
+    ] },
+]
+const ASKS = [
+  ['메모', '결재 도장 — 키보드 오른쪽 끝', '마우스(0.30)와 겹쳐 마우스 바깥(0.46, 앞쪽)으로 옮김. 결재 때 손에 드는 소품이라 #20 소품 규칙(home·grip)을 따름'],
+  ['메모', '화분·인형 같은 장식이 싫음', '원래 책상의 화분과 머그를 뺌. 서류는 조금 쌓여 있음'],
+  ['메모', 'IN 높이 = 결재 대기, OUT = 오늘 넘긴 일, 달력 = 오늘, 모래시계 = 결재 대기 중', '반영. 서류 더미는 0~5장 단계, 달력 앞면은 캔버스 슬롯'],
+  ['메시', '턴테이블·컬러 체커·링 조명·기본 도형', '반영. 원래 서류 더미를 빼고 머그는 남김'],
+  ['메시 ↔ 휴', '컬러 체커 카드 vs 색견본 부채(둘 다 색 참조)', '모양을 갈라 놓음: 메시는 납작한 카드를 모니터 받침에 기댐(탁한 24칸), 휴는 서 있는 부채(팀 4색). 멀리서 휴 쪽만 선명한 색'],
+  ['휴', '태블릿을 마우스 자리에', '반영. 휴 책상만 마우스가 없음. 오른손 자리는 그대로라 타자·손 동작에 영향 없음'],
+  ['휴', '데스크 램프 · 색견본 부채 둘 다 왼쪽', '램프를 더 뒤(−0.52, −0.26)에 두고 머리를 숙여 부채를 위에서 비추게 함: 두 소품이 한 장면'],
+  ['루프', '신호등 = 테스트·빌드 결과', '반영. 노랑은 #1 activity로 바로, 초록·빨강은 종료 코드(후속, 코더)'],
+  ['루프', '고무 오리 — 실패하면 고개를 돌림', '오리는 굽고, 바라볼 점만 빈 노드로'],
+  ['루프', '“밤새는 개발자” 클리셰 싫음', '원래 머그와 서류를 빼고 케이블 클립으로 정돈. 보조 모니터 화면은 밝은 줄무늬'],
+  ['네 명', '빛 소품이 셋(휴 램프, 메시 링 조명, 루프 신호등)', '모양과 색을 갈라 놓음: 숙인 따뜻한 흰빛 / 라벤더 고리 / 세 칸 탑. 메모는 빛 대신 서류 덩어리'],
+]
+
+/* ═════════ 그리기 ═════════ */
+function P(s, ox, oy) { // ox, oy = 원점의 화면 위치. 위에서 본 그림은 (x, z), 앞에서 본 그림은 (x, y)
+  const out = []
+  return {
+    out, s,
+    rect(x, y, w, h, fill, extra = '') { out.push(`<rect x="${ox + x * s}" y="${oy + y * s}" width="${w * s}" height="${h * s}" fill="${fill}" ${extra}/>`) },
+    circ(x, y, r, fill, extra = '') { out.push(`<circle cx="${ox + x * s}" cy="${oy + y * s}" r="${r * s}" fill="${fill}" ${extra}/>`) },
+    poly(pts, fill, extra = '') { out.push(`<polygon points="${pts.map(([x, y]) => `${ox + x * s},${oy + y * s}`).join(' ')}" fill="${fill}" ${extra}/>`) },
+    line(pts, stroke, w, extra = '') { out.push(`<polyline points="${pts.map(([x, y]) => `${ox + x * s},${oy + y * s}`).join(' ')}" fill="none" stroke="${stroke}" stroke-width="${w}" stroke-linecap="round" ${extra}/>`) },
+    text(x, y, t, extra = '') { out.push(`<text x="${ox + x * s}" y="${oy + y * s}" font-family="Galmuri11" font-size="12" ${extra}>${t}</text>`) },
+    raw(t) { out.push(t) },
+  }
+}
+
+/* 위에서 본 책상: z가 아래로(모니터가 위) */
+function topView(desk, s = 380) {
+  const W = 1.4, H = 0.82, g = P(s, (W / 2) * s, 0.42 * s)
+  const muted = css('--color-text-muted'), cyan = css('--color-cyan')
+  g.raw(`<defs><pattern id="hatch${desk.seat}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="6" fill="${css('--color-text-faint')}"/></pattern></defs>`)
+  g.rect(-0.6, -0.31, 1.2, 0.62, css('--desk-top'))
+  g.rect(-0.31, -0.22, 0.62, 0.04, css('--monitor')); g.rect(-0.1, -0.26, 0.2, 0.16, css('--monitor'), 'opacity="0.7"')
+  // 손 자리
+  g.rect(-0.28, -0.03, 0.56, 0.34, `url(#hatch${desk.seat})`, 'opacity="0.55"')
+  if (desk.mouse) g.rect(0.25, -0.01, 0.12, 0.2, `url(#hatch${desk.seat})`, 'opacity="0.55"')
+  g.rect(-0.21, -0.005, 0.42, 0.13, css('--kb'))
+  if (desk.mouse) g.rect(0.27, 0.02, 0.06, 0.1, css('--kb'))
+  if (desk.mug) g.circ(-0.42, -0.05, 0.04, css('--ivory'), `stroke="${css('--desk-metal')}"`)
+  for (const it of desk.items) {
+    const fill = css(it.color), st = it.live ? `stroke="${cyan}" stroke-width="1.5" stroke-dasharray="4 3"` : `stroke="${css('--desk-metal')}" stroke-width="0.8"`
+    if (['hourglass', 'plant', 'dish', 'turntable', 'tower'].includes(it.kind)) g.circ(it.x, it.z, it.w / 2, fill, st)
+    else g.rect(it.x - it.w / 2, it.z - it.d / 2, it.w, it.d, fill, st)
+    g.circ(it.x + it.w / 2, it.z - it.d / 2, 0.022, css('--color-surface'), `stroke="${css(`--agent-${desk.seat}`)}" stroke-width="1.2"`)
+    g.text(it.x + it.w / 2 - 0.009, it.z - it.d / 2 + 0.011, it.n, `fill="${css('--color-text')}" font-size="11"`)
+  }
+  g.text(-0.6, 0.39, '앞(에이전트 쪽)', `fill="${muted}"`); g.text(-0.6, -0.34, '모니터 쪽 · 벽', `fill="${muted}"`)
+  return `<svg viewBox="0 0 ${W * s} ${H * s}" role="img" aria-label="${desk.ko} 책상 위에서 본 배치">${g.out.join('')}</svg>`
+}
+
+/* 앞에서(에이전트 뒤에서) 본 책상: 뒤(z 작은 것)부터 그림 */
+function frontView(desk, s, { head = true, labels = true, ox = null, svg = true } = {}) {
+  const W = 1.4, H = 1.5
+  const g = P(s, ox ?? (W / 2) * s, 1.42 * s) // y는 위로 + → 화면에선 음수
+  const Y = (y) => -y
+  const metal = css('--desk-metal')
+  // 메인 모니터(뒷면)와 다리
+  g.rect(-0.6, Y(TOP), 1.2, 0.035, css('--desk-top'))
+  g.rect(-0.57, Y(TOP - 0.035), 0.04, TOP - 0.035, metal); g.rect(0.53, Y(TOP - 0.035), 0.04, TOP - 0.035, metal)
+  g.rect(-0.02, Y(0.92), 0.04, 0.18, css('--monitor')); g.rect(-0.31, Y(1.29), 0.62, 0.38, css('--monitor'))
+  const items = [...desk.items].sort((a, b) => a.z - b.z)
+  for (const it of items) drawFront(g, it, Y, desk.seat)
+  g.rect(-0.21, Y(TOP + 0.018), 0.42, 0.018, css('--kb'))
+  if (desk.mouse) g.rect(0.27, Y(TOP + 0.02), 0.06, 0.02, css('--kb'))
+  if (desk.mug) g.rect(-0.46, Y(TOP + 0.09), 0.08, 0.09, css('--ivory'))
+  if (head) { // 일할 때 머리(#28): 가운데 1.12 m, 0.42 × 0.32
+    g.rect(-0.21, Y(1.28), 0.42, 0.32, css('--bot-shell') || '#f6f3ec', `opacity="0.28" rx="${0.08 * s}"`)
+    g.rect(-0.21, Y(1.28), 0.42, 0.32, 'none', `stroke="${css('--color-text-muted')}" stroke-dasharray="4 3" rx="${0.08 * s}"`)
+  }
+  if (labels) for (const it of desk.items) g.text(it.x - 0.01, Y(TOP + (it.y0 ?? 0) + it.h) - 0.02, it.n, `fill="${css(`--agent-${desk.seat}`)}"`)
+  const body = g.out.join('')
+  return svg ? `<svg viewBox="0 0 ${W * s} ${H * s}" role="img" aria-label="${desk.ko} 책상 앞에서 본 모습">${body}</svg>` : body
+}
+function drawFront(g, it, Y, seat) {
+  const c = css(it.color), b = TOP + (it.y0 ?? 0), x = it.x, w = it.w, h = it.h
+  const agent = css(`--agent-${seat}`)
+  switch (it.kind) {
+    case 'tray': g.rect(x - w / 2, Y(b + h), w, h, c); for (const k of [0.02, 0.09]) g.rect(x - w / 2 + 0.015, Y(b + k + 0.035), w - 0.03, 0.035, css('--paper')); g.rect(x - w / 2, Y(b + 0.075), w, 0.008, css('--desk-metal')); break
+    case 'stamp': g.rect(x - 0.04, Y(b + 0.015), 0.07, 0.015, css('--ink-red')); g.rect(x + 0.015, Y(b + h), 0.03, h - 0.02, c); g.circ(x + 0.03, Y(b + h), 0.02, css('--wood')); break
+    case 'planes': for (const dx of [-0.05, 0, 0.05]) g.poly([[x + dx - 0.03, Y(b)], [x + dx + 0.03, Y(b)], [x + dx, Y(b + 0.03)]], c); break
+    case 'cal': g.poly([[x - w / 2, Y(b)], [x + w / 2, Y(b)], [x + w / 2 - 0.01, Y(b + h)], [x - w / 2 + 0.01, Y(b + h)]], c); g.rect(x - w / 2 + 0.01, Y(b + h), w - 0.02, 0.025, css('--color-red')); g.text(x - 0.02, Y(b + 0.025), '8', `fill="${css('--color-ink')}" font-size="${0.05 * g.s}"`); break
+    case 'hourglass': g.poly([[x - 0.03, Y(b + h)], [x + 0.03, Y(b + h)], [x, Y(b + h / 2)], [x + 0.03, Y(b)], [x - 0.03, Y(b)], [x, Y(b + h / 2)]], 'none', `stroke="${css('--wood')}" stroke-width="2"`); g.poly([[x - 0.022, Y(b)], [x + 0.022, Y(b)], [x, Y(b + 0.03)]], css('--paper-y')); g.rect(x - 0.035, Y(b + h), 0.07, 0.01, c); g.rect(x - 0.035, Y(b + 0.01), 0.07, 0.01, c); break
+    case 'turntable': g.rect(x - 0.07, Y(b + 0.015), 0.14, 0.015, css('--desk-metal')); g.rect(x - 0.025, Y(b + 0.065), 0.05, 0.05, css('--ivory')); g.rect(x - 0.07, Y(b + 0.018), 0.14, 0.004, agent); break
+    case 'checker': { const cols = ['--checker-1', '--checker-2', '--checker-3', '--checker-4']; g.rect(x - w / 2, Y(b + h), w, h, css('--monitor')); for (let i = 0; i < 6; i++) for (let j = 0; j < 4; j++) g.rect(x - w / 2 + 0.008 + i * 0.023, Y(b + h - 0.008 - j * 0.023) , 0.019, 0.019, css(cols[(i + j) % 4])); break }
+    case 'ring': g.rect(x - 0.005, Y(b + h - 0.07), 0.01, h - 0.07, css('--desk-metal')); g.rect(x - 0.05, Y(b + 0.012), 0.1, 0.012, css('--desk-metal')); g.circ(x, Y(b + h - 0.07), 0.07, 'none', `stroke="${agent}" stroke-width="${0.018 * g.s}" filter="url(#glow)"`); break
+    case 'shapes': g.circ(x - 0.06, Y(b + 0.03), 0.03, c); g.poly([[x - 0.02, Y(b)], [x + 0.03, Y(b)], [x + 0.005, Y(b + 0.06)]], css('--gray')); g.rect(x + 0.04, Y(b + 0.025), 0.06, 0.025, c, `rx="${0.012 * g.s}"`); break
+    case 'fan': { const sw = ['--agent-0', '--agent-1', '--agent-2', '--agent-3']; sw.forEach((v, i) => { const a = -27 + i * 18; g.raw(`<rect x="${0}" y="0" width="${0.035 * g.s}" height="${0.16 * g.s}" fill="${css(v)}" transform="translate(${g.out.length ? '' : ''}0 0)" style="display:none"/>`); g.poly(rotRect(x, b, 0.035, 0.16, a), css(v)) }); g.rect(x - 0.02, Y(b + 0.02), 0.04, 0.02, css('--desk-metal')); break }
+    case 'tablet': g.rect(x - w / 2, Y(b + h), w, h, c); g.rect(x - w / 2 + 0.01, Y(b + h + 0.004), w - 0.02, 0.004, agent); g.line([[x - 0.06, Y(b + h + 0.012)], [x + 0.06, Y(b + h + 0.008)]], css('--ivory'), 3); break
+    case 'plant': g.poly([[x - 0.035, Y(b + 0.05)], [x + 0.035, Y(b + 0.05)], [x + 0.025, Y(b)], [x - 0.025, Y(b)]], css('--terracotta')); for (const dx of [-0.025, 0, 0.025]) g.circ(x + dx, Y(b + 0.065 + (dx === 0 ? 0.012 : 0)), 0.02, c); break
+    case 'lamp': g.rect(x - 0.05, Y(b + 0.015), 0.1, 0.015, css('--desk-metal')); g.line([[x, Y(b + 0.015)], [x + 0.03, Y(b + 0.3)], [x + 0.13, Y(b + 0.24)]], css('--desk-metal'), 3); g.poly([[x + 0.1, Y(b + 0.26)], [x + 0.17, Y(b + 0.22)], [x + 0.15, Y(b + 0.18)], [x + 0.08, Y(b + 0.22)]], css('--desk-metal')); g.poly([[x + 0.115, Y(b + 0.2)], [x + 0.15, Y(b + 0.18)], [x + 0.08, Y(b)], [x - 0.02, Y(b)]], c, 'opacity="0.18"'); g.circ(x + 0.125, Y(b + 0.2), 0.012, c, 'filter="url(#glow)"'); break
+    case 'tower': g.rect(x - 0.006, Y(b + 0.06), 0.012, 0.06, css('--desk-metal')); [['--sig-r', 0.18], ['--sig-y', 0.13], ['--sig-g', 0.08]].forEach(([v, y], i) => g.rect(x - 0.025, Y(b + y + 0.045), 0.05, 0.045, css(v), `opacity="${i === 2 ? 1 : 0.35}" ${i === 2 ? 'filter="url(#glow)"' : ''}`)); g.rect(x - 0.027, Y(b + 0.23), 0.054, 0.01, css('--desk-metal')); break
+    case 'duck': g.circ(x, Y(b + 0.025), 0.03, c); g.circ(x + 0.02, Y(b + 0.055), 0.018, c); g.poly([[x + 0.035, Y(b + 0.057)], [x + 0.055, Y(b + 0.052)], [x + 0.035, Y(b + 0.048)]], css('--ink-red')); break
+    case 'vmon': g.rect(x - 0.01, Y(b + 0.08), 0.02, 0.08, c); g.rect(x - 0.05, Y(b + 0.01), 0.1, 0.01, c); g.rect(x - w / 2, Y(b + h), w, h - 0.08, c); for (let i = 0; i < 9; i++) g.rect(x - w / 2 + 0.02 + (i % 3) * 0.01, Y(b + h - 0.03 - i * 0.03), 0.06 + ((i * 37) % 5) * 0.015, 0.008, css(`--agent-${seat}`), 'opacity="0.5"'); break
+    case 'dish': g.rect(x - w / 2, Y(b + 0.012), w, 0.012, c, `rx="${0.006 * g.s}"`); for (const dx of [-0.025, 0, 0.025]) g.rect(x + dx - 0.01, Y(b + 0.03), 0.02, 0.018, css('--kb')); break
+    case 'clips': for (let i = 0; i < 5; i++) g.rect(x - w / 2 + i * 0.05, Y(b + 0.02), 0.012, 0.02, c); break
+  }
+}
+function rotRect(cx, base, w, h, deg) { // 아래 가운데를 축으로 돌린 칩 (앞에서 본 좌표, y는 화면 아래로 +)
+  const a = (deg * Math.PI) / 180, pts = [[-w / 2, 0], [w / 2, 0], [w / 2, h], [-w / 2, h]]
+  return pts.map(([px, py]) => [cx + px * Math.cos(a) + py * Math.sin(a), -(base + 0.02) - (-px * Math.sin(a) + py * Math.cos(a))])
+}
+
+function render() {
+  document.getElementById('desks').innerHTML = DESKS.map((d) => `<article class="card" data-seat="${d.seat}">
+    <span class="nametag">${d.en} · ${d.code} · ${d.role}</span>
+    <div class="who"><b>${d.ko}</b><span>${d.role} · 자리 ${d.seat}</span></div>
+    <div class="views">
+      <figure>${topView(d)}<figcaption>위에서 · 빗금 = 손 자리</figcaption></figure>
+      <figure><svg viewBox="0 ${-0.03 * 300} ${1.4 * 300} ${0.95 * 300}" role="img" aria-label="${d.ko} 책상 앞에서"><defs><filter id="glow"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>${frontView(d, 300, { svg: false })}</svg><figcaption>에이전트 뒤에서 · 점선 = 일할 때 머리</figcaption></figure>
+    </div>
+    <ol class="items">${d.items.map((it) => `<li><b>${it.name}</b>${it.live ? '<span class="live">LIVE</span>' : ''} — ${it.note}</li>`).join('')}</ol>
+    <div class="gone">뺀 것: ${d.gone}</div>
+    <a class="note" href="${d.src}">🪴 원래 제안</a>
+  </article>`).join('')
+  // 네 책상 한 줄 (112 px/m)
+  const s = 112, W = 1.4
+  const parts = DESKS.map((d, i) => frontView(d, s, { labels: false, svg: false, ox: (W / 2 + i * W) * s }))
+  document.getElementById('row').innerHTML = `<svg viewBox="0 ${-0.03 * s} ${4 * W * s} ${1.0 * s}" width="${4 * W * s}" height="${1.0 * s}" role="img" aria-label="네 책상 기본 카메라 크기"><defs><filter id="glow"><feGaussianBlur stdDeviation="1.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>${parts.join('')}${DESKS.map((d, i) => `<text x="${(W / 2 + i * W) * s - 12}" y="${0.95 * s}" font-family="Galmuri11" font-size="12" fill="${css(`--agent-${d.seat}-ink`)}">${d.ko}</text>`).join('')}</svg>`
+  document.getElementById('asks').innerHTML = ASKS.map((a) => `<tr><td>${a[0]}</td><td>${a[1]}</td><td>${a[2]}</td></tr>`).join('')
+  document.getElementById('lives').innerHTML = DESKS.flatMap((d) => d.items.filter((it) => it.live).map((it) => `<tr><td><code>${it.live}</code></td><td>${d.ko} · ${it.name}</td><td>${it.note}</td></tr>`)).join('')
+}
+document.fonts.load('12px Galmuri11').finally(render)
+</script>
+</body>
+</html>

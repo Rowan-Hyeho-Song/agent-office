@@ -1,0 +1,36 @@
+name: 3D 에셋
+description: Blender 모델·라이트 베이킹·애니메이션 작업
+title: "[에셋] "
+labels: [asset]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: 만들 것
+      description: 무엇을, 사무실 어디에, 어떤 상태(작업·정리·놀이·퇴근)에서 쓰나
+    validations:
+      required: true
+  - type: textarea
+    id: refs
+    attributes:
+      label: 레퍼런스 이미지
+      description: 원하는 느낌·형태. CLI에서는 `scripts/gh-image.sh 파일.png`로 올려 나온 마크다운을 붙인다.
+  - type: textarea
+    id: specs
+    attributes:
+      label: 치수·제약
+      description: 크기(m), 폴리곤·텍스처 예산, 움직이는 부품(피벗), 발광 부분
+      placeholder: |
+        - 크기: 책상 1.2 × 0.6 m
+        - 예산: 삼각형 5천 이하, 아틀라스 공유
+        - 움직임: 의자 회전(피벗: 기둥 중심)
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 기준
+      value: |
+        - [ ] 미리보기 렌더(정면·측면) 첨부
+        - [ ] glb + 아틀라스를 앱에 넣어 화면 확인
+        - [ ]
+    validations:
+      required: true

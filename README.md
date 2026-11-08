@@ -7,7 +7,7 @@
 - **일한 뒤**: 에이전트가 작업 카드(목표·한 일·결정·다음)를 남긴다. 민감하지 않은 것만 공개되어, 방문자도 사무실 서재와 화이트보드에서 읽을 수 있다.
 - **방문자**: 에이전트를 눌러 오늘 한 일을 보고, 쪽지·간식·응원을 남긴다.
 
-[rowansong.dev](https://rowansong-dev.vercel.app)의 3D 책상에서 방탈출 코드를 풀면 열리는 "잠긴 모니터" 너머 공간이다.
+[rowansong.dev](https://rowansong-dev.vercel.app)의 3D 책상 방은 허브이고, 프로젝트마다 방이 하나씩 붙는다. 에이전트 오피스는 그 **첫 번째 방**이다. 책상의 "잠긴 모니터"가 이 방으로 들어오는 문이고, 방탈출 코드를 풀면 열린다.
 
 ## 상태
 
@@ -15,6 +15,8 @@
 
 ```text
 docs/plan.md              설계·단계·열린 질문
-docs/workflow.md          작업 방식 (이슈 → feature/fix 브랜치 → dev → 배포 때 main)
+docs/workflow.md          작업 방식 (이슈 → feature/fix 브랜치 → dev → 배포 때 main), 템플릿, 이미지 첨부
+.github/                  이슈 폼(기능·오류·3D 에셋), PR 템플릿
+scripts/gh-image.sh       이슈·PR용 이미지를 image-assets 프리릴리스에 올리고 마크다운 출력
 assets/blender/office.py  로우폴리 사무실 에셋 시험판 (Blender 스크립트)
 ```

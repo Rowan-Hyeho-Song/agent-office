@@ -1,0 +1,189 @@
+// /api/docs, minus the database (#24): check the Action's token and payload, then turn each GitHub item into a
+// stored document: filter (paths, emails, keys, banned words), grade, parse the structure, summarize.
+// Pure apart from the store, so it's unit tested.
+
+import { ingestApprovals, type ApprovalStore } from '../approvals/ingest'
+import { gradeFor, redact } from './filter'
+import { agentsIn, parseApprovalRequest, parseApprovalResult, parseMinutes, section, summarize } from './parse'
+import { DOC_KINDS, type DocInput, type DocRow, type Speaker } from './types'
+
+export interface DocStore extends ApprovalStore {
+  upsert(rows: DocRow[]): Promise<void>
+  setOpenIssues(repo: string, open: number, at: string): Promise<void>
+  /** paper planes for newly assigned issues (agent_events kind handoff, #51) */
+  addHandoffs(events: { seat: number; to_seat: number; created_at: string }[]): Promise<void>
+}
+
+/** the planner (seat 0) hands a newly opened issue to the seats its "누가 하나" names (#51) */
+export const PLANNER_SEAT = 0
+export function handoffsFor(d: DocInput, row: DocRow) {
+  if (d.kind !== 'plan' || d.meta?.opened !== true) return []
+  return row.agents.filter((s) => s !== PLANNER_SEAT).map((to_seat) => ({ seat: PLANNER_SEAT, to_seat, created_at: d.created_at }))
+}
+
+export interface IngestConfig {
+  token: string
+  /** repos whose documents are public (plan.md 6.3); everything else is review = SECRET until approved */
+  publicRepos: string[]
+  /** extra words to hide (company names …), from server config, never from the repo */
+  banned: string[]
+  /** author_association values whose items are filed (#38); default OWNER, COLLABORATOR */
+  trusted?: string[]
+  /** author_association values whose ✅ results (and the 🖊 requests they answer) count; default OWNER */
+  approvers?: string[]
+}
+
+export const TRUSTED = ['OWNER', 'COLLABORATOR']
+export const APPROVERS = ['OWNER']
+
+/**
+ * The second check of who wrote it (#38): the Action already skips strangers, but a document that slips past
+ * (an edited Action, a leaked token) is still dropped here. Decisions need the owner on both the ✅ and the 🖊.
+ */
+export function fromTrustedAuthor(d: DocInput, cfg: Pick<IngestConfig, 'trusted' | 'approvers'> = {}): boolean {
+  const is = (who: unknown, allowed: string[]) =>
+    !!who && typeof who === 'object' && allowed.includes(String((who as { association?: unknown }).association ?? '').toUpperCase())
+  const approvers = cfg.approvers ?? APPROVERS
+  if (d.kind === 'decision') return is(d.author, approvers) && is(d.meta?.requestAuthor, approvers)
+  return is(d.author, cfg.trusted ?? TRUSTED)
+}
+
+export interface Payload {
+  docs: DocInput[]
+  /** the repo's open issue count, sent with issue events */
+  project?: { repo: string; open_issues: number }
+  /** 🖊 requests and ✅ results (#25), see src/approvals/ingest.ts */
+  approvals?: unknown[]
+}
+
+const MAX_DOCS = 100
+const MAX_BODY = 100_000
+const REPO = /^[\w.-]+\/[\w.-]+$/
+/** the Action only files these; worklogs come from the Stop hook later */
+const ACCEPTED = DOC_KINDS.filter((k) => k !== 'worklog')
+
+const isDate = (s: unknown) => typeof s === 'string' && !Number.isNaN(Date.parse(s))
+
+export function parseDoc(d: unknown): DocInput | null {
+  if (!d || typeof d !== 'object') return null
+  const x = d as Record<string, unknown>
+  const source = x.source as Record<string, unknown> | undefined
+  if (!(ACCEPTED as readonly unknown[]).includes(x.kind)) return null
+  if (typeof x.repo !== 'string' || !REPO.test(x.repo)) return null
+  if (typeof x.folder !== 'number' || !Number.isInteger(x.folder) || x.folder < 1) return null
+  if (typeof x.title !== 'string' || x.title.length > 300) return null
+  if (typeof x.body !== 'string' || x.body.length > MAX_BODY) return null
+  const author = x.author as Record<string, unknown> | undefined
+  if (!author || typeof author.login !== 'string' || typeof author.association !== 'string') return null
+  if (!source || !['issue', 'comment', 'pr'].includes(source.kind as string) || typeof source.url !== 'string') return null
+  // a document must point at its own repo on GitHub: a leaked token still can't file arbitrary pages
+  if (!source.url.toLowerCase().startsWith(`https://github.com/${x.repo.toLowerCase()}/`)) return null
+  if (!isDate(x.created_at) || !isDate(x.updated_at)) return null
+  if (x.meta !== undefined && (typeof x.meta !== 'object' || x.meta === null || Array.isArray(x.meta))) return null
+  return x as unknown as DocInput
+}
+
+const seatOf = (s: Speaker) => ('seat' in s ? [s.seat] : [])
+const uniq = (xs: number[]) => [...new Set(xs)].sort((a, b) => a - b)
+
+/** one GitHub item → the row to store */
+export function toRow(input: DocInput, cfg: Pick<IngestConfig, 'publicRepos' | 'banned'>): DocRow {
+  const title = redact(input.title, cfg.banned)
+  const body = redact(input.body, cfg.banned)
+  const grade = gradeFor(input.repo, cfg.publicRepos, [...title.hits, ...body.hits])
+  const meta = (input.meta ?? {}) as Record<string, unknown>
+  let data: Record<string, unknown> = { ...meta }
+  let agents: number[] = []
+  let summary: string
+
+  switch (input.kind) {
+    case 'minutes': {
+      const minutes = parseMinutes(body.text)
+      data = { ...data, minutes }
+      agents = minutes.flatMap((m) => m.rows.flatMap((r) => [...seatOf(r.from), ...r.to.flatMap(seatOf)]))
+      summary = summarize('minutes', body.text)
+      break
+    }
+    case 'decision': {
+      // the Action sends the matching 🖊 request's body in meta.request, so the decision knows what was asked
+      const request = typeof meta.request === 'string' ? parseApprovalRequest(redact(meta.request, cfg.banned).text) : null
+      data = { result: parseApprovalResult(body.text), request }
+      agents = request?.requesterSeat != null ? [request.requesterSeat] : []
+      summary = summarize('decision', body.text)
+      break
+    }
+    case 'plan':
+      agents = agentsIn(section(body.text, '누가 하나') ?? '')
+      summary = summarize('plan', body.text)
+      break
+    default:
+      agents = agentsIn(section(body.text, 'AI 작성') ?? '')
+      summary = summarize('report', body.text)
+  }
+
+  return {
+    kind: input.kind,
+    repo: input.repo,
+    folder: input.folder,
+    title: title.text,
+    summary,
+    body: body.text,
+    agents: uniq(agents),
+    source_kind: input.source.kind,
+    source_url: input.source.url,
+    grade,
+    approved: grade === 'public',
+    data,
+    created_at: input.created_at,
+    updated_at: input.updated_at,
+  }
+}
+
+/** constant-time string compare */
+export function sameToken(a: string, b: string) {
+  if (!a || !b) return false
+  let diff = a.length ^ b.length
+  for (let i = 0; i < Math.max(a.length, b.length); i++) diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0)
+  return diff === 0
+}
+
+export async function handle(request: Request, store: DocStore, cfg: IngestConfig, now = new Date()): Promise<Response> {
+  if (request.method !== 'POST') return new Response(null, { status: 405, headers: { allow: 'POST' } })
+  const auth = request.headers.get('authorization') ?? ''
+  if (!sameToken(auth.replace(/^Bearer\s+/i, ''), cfg.token)) return Response.json({ error: 'unauthorized' }, { status: 401 })
+  let body: unknown
+  try {
+    body = await request.json()
+  } catch {
+    return Response.json({ error: 'bad json' }, { status: 400 })
+  }
+  const p = body as Partial<Payload> | null
+  if (!p || !Array.isArray(p.docs) || p.docs.length > MAX_DOCS) return Response.json({ error: 'bad payload' }, { status: 400 })
+  if (p.approvals !== undefined && (!Array.isArray(p.approvals) || p.approvals.length > MAX_DOCS)) {
+    return Response.json({ error: 'bad payload' }, { status: 400 })
+  }
+  const docs = p.docs.map(parseDoc)
+  const bad = docs.findIndex((d) => !d)
+  if (bad >= 0) return Response.json({ error: `bad doc ${bad}` }, { status: 400 })
+
+  // strangers' items are skipped, not refused: one bad item must not stop a backfill batch
+  const kept = (docs as DocInput[]).filter((d) => fromTrustedAuthor(d, cfg))
+  const rows = kept.map((d) => toRow(d, cfg))
+  if (rows.length) await store.upsert(rows)
+  const handoffs = kept.flatMap((d, i) => handoffsFor(d, rows[i]))
+  if (handoffs.length) await store.addHandoffs(handoffs)
+  const project = p.project
+  if (project && typeof project.repo === 'string' && REPO.test(project.repo) && Number.isInteger(project.open_issues) && project.open_issues >= 0) {
+    await store.setOpenIssues(project.repo, project.open_issues, now.toISOString())
+  }
+  const approvals = p.approvals?.length
+    ? await ingestApprovals(p.approvals, store, { banned: cfg.banned, approvers: cfg.approvers ?? APPROVERS })
+    : undefined
+  return Response.json({
+    ok: true,
+    stored: rows.length,
+    skipped: docs.length - kept.length,
+    grades: rows.map((r) => r.grade),
+    ...(approvals ? { approvals } : {}),
+  })
+}

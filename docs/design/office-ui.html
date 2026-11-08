@@ -1,0 +1,878 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>사무실 UI 시안</title>
+<!-- 시안 열람용으로만 CDN에서 갈무리를 불러온다. 앱은 같은 버전 파일을 자체 서빙(근거 문서 5절). -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/galmuri.css" />
+<link rel="stylesheet" href="../../src/styles/tokens.css" />
+<style>
+/* 이 페이지의 색·글꼴·크기·시간은 모두 tokens.css의 변수만 쓴다. */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--color-void);
+  color: var(--color-text);
+  font-family: var(--font-text);
+  font-size: 15px;
+  line-height: 1.6;
+  color-scheme: dark;
+}
+:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ───── 문서 틀 ───── */
+.page { max-width: 1200px; margin: 0 auto; padding: var(--space-8) var(--space-4) 96px; }
+header.top { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: end; justify-content: space-between; border-bottom: 1px solid var(--color-line); padding-bottom: var(--space-4); }
+h1, h2, h3 { font-family: var(--font-pixel); font-weight: 400; margin: 0; }
+h1 { font-size: var(--font-size-2); line-height: 36px; }
+h2 { font-size: var(--font-size-2); line-height: 36px; margin-top: 56px; }
+h3 { font-size: var(--font-size-1); line-height: var(--line-height-1); color: var(--color-text-muted); letter-spacing: var(--letter-spacing-label); margin: var(--space-6) 0 var(--space-2); }
+.kicker { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-amber); letter-spacing: var(--letter-spacing-label); }
+p.lead { color: var(--color-text-muted); max-width: 70ch; margin: var(--space-2) 0 0; }
+.controls { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.btn {
+  font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1);
+  color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-line);
+  padding: var(--space-1) var(--space-3); cursor: pointer;
+}
+.btn:hover { border-color: var(--color-cyan); color: var(--color-cyan); }
+.btn[aria-pressed='true'] { background: var(--color-cyan); color: var(--color-ink); border-color: var(--color-cyan); }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-3); margin-top: var(--space-4); }
+.rule { border: 1px solid var(--color-line); background: var(--color-surface); padding: var(--space-3) var(--space-4); font-size: 14px; color: var(--color-text-muted); }
+.rule b { display: block; font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); color: var(--color-text); margin-bottom: var(--space-1); }
+.note { font-size: 13px; color: var(--color-text-muted); }
+
+/* ───── 3D 무대 흉내: 왼쪽 어두운 배경 / 오른쪽 밝은 배경(최악 조건) ───── */
+.stage { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; background: var(--color-line); border: 1px solid var(--color-line); margin-top: var(--space-2); }
+.pane { position: relative; height: 300px; overflow: hidden; }
+.pane[data-bg='dark'] {
+  background:
+    radial-gradient(ellipse 70% 40% at 50% 92%, color-mix(in srgb, var(--color-amber) 16%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--color-void), color-mix(in srgb, var(--color-surface) 70%, var(--color-void)));
+}
+.pane[data-bg='bright'] {
+  background:
+    linear-gradient(180deg, transparent 0 34%, color-mix(in srgb, var(--color-cyan) 70%, var(--color-text)) 34% 38%, transparent 38%),
+    linear-gradient(180deg, var(--color-text), color-mix(in srgb, var(--color-amber) 45%, var(--color-text)));
+}
+.stage[data-stage='edge'] .pane { height: 360px; }
+.pane-label { position: absolute; left: var(--space-2); bottom: var(--space-1); font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.pane[data-bg='bright'] .pane-label { color: var(--color-ink); }
+@media (max-width: 760px) { .stage { grid-template-columns: 1fr; } }
+
+/* 에이전트 자리 표시(3D 로봇 대신): 머리 위 가운데가 말풍선 기준점 */
+.bot { position: absolute; left: var(--x); top: var(--y); width: 0; height: 0; }
+.bot::before { /* 머리 */
+  content: ''; position: absolute; left: -18px; top: 0; width: 36px; height: 26px;
+  background: var(--color-line); border: 1px solid var(--color-halo); border-radius: 8px;
+  box-shadow: inset 0 -6px 0 color-mix(in srgb, var(--color-void) 40%, transparent);
+}
+.bot::after { /* 얼굴 판 */
+  content: ''; position: absolute; left: -11px; top: 7px; width: 22px; height: 9px; border-radius: 3px;
+  background: var(--agent); box-shadow: 0 0 10px var(--agent);
+}
+.bot[data-face='left']::after { left: -15px; }
+.bot[data-face='right']::after { left: -7px; }
+
+[data-agent='0'] { --agent: var(--agent-0); --agent-ink: var(--agent-0-ink); }
+[data-agent='1'] { --agent: var(--agent-1); --agent-ink: var(--agent-1-ink); }
+[data-agent='2'] { --agent: var(--agent-2); --agent-ink: var(--agent-2-ink); }
+[data-agent='3'] { --agent: var(--agent-3); --agent-ink: var(--agent-3-ink); }
+[data-agent='x'] { --agent: var(--agent-x); --agent-ink: var(--agent-x-ink); }
+
+/* ───── 말풍선 ─────
+   .ob = 기준점(머리 위, 0×0). 앱은 매 프레임 이 요소의 위치만 바꾼다.
+   data-kind: talk | react | private   data-side: right | left (판이 뻗는 쪽)   data-dir: up | down
+   규칙: 지시선이 닿는 쪽 = 에이전트 색 띠 + 이름 탭, 반대쪽 아래 모서리를 깎는다. */
+.ob { position: absolute; left: var(--x); top: calc(var(--y) - 4px); width: 0; height: 0; z-index: var(--z-bubble); pointer-events: none; --stack: 0px; --shift: 0px; }
+.ob-dot { position: absolute; left: -2px; top: -2px; width: 5px; height: 5px; background: var(--agent); box-shadow: 0 0 6px var(--agent); }
+.ob-lead { position: absolute; left: 0; bottom: 0; width: 1px; height: calc(var(--bubble-lead) + var(--stack)); background: var(--agent); box-shadow: 0 0 0 1px var(--color-halo); transform-origin: 50% 100%; animation: ob-lead-in var(--dur-fast) var(--ease-out) both; }
+.ob[data-dir='down'] .ob-lead { bottom: auto; top: 0; transform-origin: 50% 0; }
+.ob[data-dir='down'] { top: calc(var(--y) + 30px); } /* 아래로 펼칠 땐 기준점을 몸 아래(호버 포드)로: 얼굴을 덮지 않게 */
+
+.ob-card {
+  position: absolute; bottom: calc(var(--bubble-lead) + var(--stack));
+  width: max-content; max-width: var(--bubble-max-w);
+  filter: drop-shadow(0 0 1px var(--color-halo)) drop-shadow(0 6px 10px var(--color-halo));
+  animation: ob-bob 2.6s ease-in-out infinite;
+}
+.ob[data-side='right'] .ob-card { left: calc(var(--bubble-stripe) / -2 + var(--shift)); }
+.ob[data-side='left'] .ob-card { right: calc(var(--bubble-stripe) / -2 - var(--shift)); } /* --shift > 0 = 오른쪽으로 */
+.ob[data-dir='down'] .ob-card { bottom: auto; top: calc(var(--bubble-lead) + var(--stack)); }
+
+.ob-tab {
+  display: flex; align-items: center; gap: var(--space-1); width: max-content;
+  height: var(--bubble-tab-h); padding: 0 var(--space-2) 0 var(--space-1);
+  font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--bubble-tab-h);
+  color: var(--color-ink); background: var(--agent);
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
+  animation: ob-tab-in var(--dur-fast) var(--steps-hud) both;
+}
+.ob[data-side='left'] .ob-tab { margin-left: auto; padding: 0 var(--space-1) 0 var(--space-2); clip-path: polygon(0 6px, 6px 0, 100% 0, 100% 100%, 0 100%); }
+.ob-tab svg { width: 12px; height: 12px; flex: none; }
+
+.ob-box { --cut: var(--bubble-cut); padding: 1px; background: color-mix(in srgb, var(--agent) 55%, transparent); clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%); animation: ob-box-in var(--dur-base) var(--steps-hud) var(--dur-instant) both; transform-origin: 0 100%; }
+.ob[data-side='left'] .ob-box { clip-path: polygon(0 0, 100% 0, 100% 100%, var(--cut) 100%, 0 calc(100% - var(--cut))); transform-origin: 100% 100%; }
+.ob-body {
+  padding: var(--bubble-pad-y) var(--bubble-pad-x);
+  background: repeating-linear-gradient(to bottom, color-mix(in srgb, var(--color-text) 3%, transparent) 0 1px, transparent 1px 3px), var(--color-surface-alpha);
+  border-left: var(--bubble-stripe) solid var(--agent);
+  clip-path: inherit;
+}
+.ob[data-side='left'] .ob-body { border-left: 0; border-right: var(--bubble-stripe) solid var(--agent); }
+.ob-text {
+  margin: 0; font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1);
+  color: var(--color-text); word-break: keep-all; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--bubble-max-lines); line-clamp: var(--bubble-max-lines); overflow: hidden;
+}
+.ob-caret { color: var(--agent-ink); animation: caret var(--caret-blink) steps(1) infinite; }
+.ob-text:not([data-typing]) .ob-caret { display: none; }
+
+/* 방문자 반응: 튀어나오듯, 타자 없이 한 번에 */
+.ob[data-kind='react'] .ob-card { animation: ob-pop var(--dur-base) var(--ease-pop) both, ob-bob 2.6s ease-in-out var(--dur-base) infinite; }
+.ob[data-kind='react'] .ob-tab, .ob[data-kind='react'] .ob-box { animation: none; }
+/* 비공개: 내용 대신 자물쇠, 사선 무늬, 회색 글자 */
+.ob[data-kind='private'] .ob-body { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--agent) 12%, transparent) 0 4px, transparent 4px 8px), var(--color-surface-alpha); }
+.ob[data-kind='private'] .ob-text { color: var(--color-lock); display: flex; gap: var(--space-2); align-items: center; }
+.ob[data-kind='private'] .ob-text svg { width: 12px; height: 12px; flex: none; }
+/* 대화에서 상대의 지난 말풍선: 투명도 대신 색을 뺀다(밝은 배경에서도 글자 대비 유지) */
+.ob[data-dim] { --agent: var(--bubble-dim-line); }
+.ob[data-dim] .ob-tab { color: var(--color-text-muted); background: var(--color-surface); }
+.ob[data-dim] .ob-text { color: var(--color-text-muted); }
+.ob[data-dim] .ob-card { animation: none; }
+
+/* ───── 머리 위 상태 꼬리표 ───── */
+.ot { position: absolute; left: var(--x); top: calc(var(--y) - 4px); width: 0; height: 0; z-index: var(--z-tag); pointer-events: none; }
+.ot-chip {
+  position: absolute; left: 0; bottom: 8px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: var(--space-1);
+  height: var(--tag-h); max-width: var(--tag-max-w); padding: 0 var(--space-2) 0 var(--space-1);
+  font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--tag-h); white-space: nowrap;
+  color: var(--color-text); background: var(--color-surface-alpha);
+  border-left: var(--bubble-stripe) solid var(--agent);
+  box-shadow: 0 0 0 1px var(--color-halo);
+  animation: ot-in var(--dur-fast) var(--steps-hud) both;
+}
+.ot-chip::after { /* 머리를 가리키는 짧은 꼭지 */
+  content: ''; position: absolute; left: calc(50% - 3px); bottom: -5px; width: 6px; height: 5px;
+  background: var(--agent); clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+.ot-chip svg { width: 12px; height: 12px; flex: none; color: var(--agent-ink); }
+.ot-chip span { overflow: hidden; text-overflow: ellipsis; }
+.ot[data-kind='private'] .ot-chip { color: var(--color-lock); background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--agent) 12%, transparent) 0 4px, transparent 4px 8px), var(--color-surface-alpha); }
+.ot[data-kind='private'] .ot-chip svg { color: var(--color-lock); }
+@media (max-width: 640px) {
+  .ot-chip { padding: 0 var(--space-1); }
+  .ot-chip span { display: none; } /* 좁은 화면: 아이콘만 */
+  .ob[data-dim] { display: none; } /* 좁은 화면: 지금 말하는 쪽만 */
+}
+
+@keyframes ob-lead-in { from { transform: scaleY(0); } }
+@keyframes ob-tab-in { from { clip-path: inset(0 100% 0 0); } }
+@keyframes ob-box-in { from { transform: scale(0.6, 0); opacity: 0; } }
+@keyframes ob-pop { from { transform: scale(0.6); opacity: 0; } }
+@keyframes ob-bob { 50% { translate: 0 calc(var(--bob-px) * -1px); } }
+@keyframes ot-in { from { opacity: 0; translate: 0 4px; } }
+@keyframes caret { 50% { opacity: 0; } }
+
+/* ───── 모니터·문 카드 ───── */
+.screens { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-4); margin-top: var(--space-2); }
+.scard { border: 1px solid var(--color-line); background: var(--color-surface); padding: var(--space-3); min-width: 0; }
+.scard h3 { margin: 0 0 var(--space-2); color: var(--color-text); }
+.scard .bezel { background: var(--color-void); border: 6px solid var(--color-line); border-radius: 4px; line-height: 0; }
+.scard canvas.full { width: 100%; height: auto; display: block; }
+.minis { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: end; margin-top: var(--space-3); }
+.mini { font-size: 12px; color: var(--color-text-muted); line-height: 1.4; }
+.mini canvas { display: block; margin-bottom: var(--space-1); border: 2px solid var(--color-line); background: var(--color-void); }
+.scard p { margin: var(--space-2) 0 0; font-size: 13px; color: var(--color-text-muted); }
+.doors { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: var(--space-4); margin-top: var(--space-2); }
+.doors .bezel { width: 205px; border-width: 8px; border-color: var(--color-text); border-radius: 2px; }
+.doors canvas.full { width: 205px; cursor: pointer; }
+
+/* 아이콘·문구 표 */
+table { border-collapse: collapse; width: 100%; font-size: 14px; margin-top: var(--space-2); }
+th, td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-line); vertical-align: middle; }
+th { font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); color: var(--color-text-muted); }
+td svg { width: 24px; height: 24px; color: var(--color-cyan); display: block; }
+td code, .rule code { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text); }
+.table-wrap { overflow-x: auto; }
+
+/* 화면 읽기 로그 미리보기 */
+.logview { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1); background: var(--color-surface); border: 1px solid var(--color-line); padding: var(--space-3) var(--space-4); margin: var(--space-2) 0 0; min-height: 60px; list-style: none; color: var(--color-text-muted); }
+.logview li::before { content: '▸ '; color: var(--color-cyan); }
+
+.frames { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-4); margin-top: var(--space-2); }
+.frames iframe { width: 100%; height: 340px; border: 1px solid var(--color-line); background: var(--color-void); }
+.phone { width: 362px; max-width: 100%; }
+.phone iframe { width: 100%; height: 680px; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-void); }
+
+/* 끼워 보기 모드(?embed=…): 무대 하나만 */
+body.embed .page { padding: 0; }
+body.embed .hide-embed { display: none !important; }
+body.embed .stage { margin: 0; border: 0; }
+body.embed h3 { margin: 0; padding: var(--space-2) var(--space-3); }
+body.embed[data-embed='mobile'] .stage { grid-template-columns: 1fr; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="top hide-embed">
+  <div>
+    <div class="kicker">AGENT OFFICE · #18 · 시안</div>
+    <h1>사무실 말풍선 · 모니터 · 출입문</h1>
+    <p class="lead">책상 방 HUD 콜아웃의 사무실 변형. 색·글꼴·크기·시간은 <code>src/styles/tokens.css</code>만 쓴다. 근거와 대비 수치는 <code>docs/design/office-ui.md</code>.</p>
+  </div>
+  <div class="controls">
+    <button class="btn" id="replay" type="button">다시 재생</button>
+    <button class="btn" id="motion" type="button" aria-pressed="false">움직임 줄이기</button>
+  </div>
+</header>
+
+<!-- ───────────────────────────── 1. 말풍선 ───────────────────────────── -->
+<section id="bubbles">
+  <h2 class="hide-embed">1. 말풍선 (HTML 오버레이)</h2>
+  <div class="rules hide-embed">
+    <div class="rule"><b>한 가족, 두 크기</b>대화·반응·비공개는 <em>말풍선</em>(이름 탭 + 판 + 지시선), 작업 중 활동은 더 작은 <em>꼬리표</em>(아이콘 + 문구). 한 에이전트에 하나만: 말풍선이 뜨면 꼬리표는 숨는다.</div>
+    <div class="rule"><b>서류철 탭</b>책상 방은 이름표가 판 안에 있다. 사무실은 이름을 판 위로 튀어나온 서류철 탭으로 뺐다. 지시선이 닿는 쪽 = 색 띠 + 탭, 반대쪽 아래 모서리를 깎는다.</div>
+    <div class="rule"><b>마주 보면 바깥으로</b>대면 대화에서 판은 상대 반대쪽으로 뻗는다. 지금 말하는 쪽은 또렷하게, 상대의 지난 말은 50%로. 그래도 겹치면 새 말풍선을 위로 쌓는다(8px 간격).</div>
+    <div class="rule"><b>길이</b>한 줄 약 18자, 최대 3줄·36자. 넘으면 말줄임하고 원문은 화면 읽기 로그로. 머무는 시간 1.6초 + 글자당 0.07초(최대 6초).</div>
+  </div>
+
+  <h3>대면 대화 · 메모(기획) → 메시(3D)</h3>
+  <div class="stage" data-stage="talk"></div>
+
+  <div class="hide-embed">
+    <h3>회의 재연 · 세 번 주고받기 (자동 재생, <span class="turn">1/3</span>)</h3>
+    <div class="stage" data-stage="meeting"></div>
+    <p class="note">한 에이전트에 말풍선은 하나: 같은 사람이 다시 말하면 자기 말풍선이 새 문장으로 바뀌고, 상대의 지난 말은 회색으로 남는다. 그래서 몇 번을 주고받아도 화면에는 둘까지만 뜬다. 탭 이름은 대화 종류(대화·회의·반응·비공개)를 보여 준다.</p>
+
+    <h3>방문자 반응 · 간식을 받은 휴 / 비공개 대화 중인 루프</h3>
+    <div class="stage" data-stage="react"></div>
+
+    <h3>머리 위 상태 꼬리표 · 활동 네 가지</h3>
+    <div class="stage" data-stage="tags"></div>
+
+    <h3>가장자리 · 위로 넘치면 아래로, 오른쪽으로 넘치면 왼쪽으로, 겹치면 위로 쌓기</h3>
+    <div class="stage" data-stage="edge"></div>
+    <p class="note">시안의 뒤집기·쌓기는 아래 스크립트의 <code>fit()</code>이 실제로 계산한다(창 폭을 바꿔 보면 다시 계산). 앱에서는 같은 규칙을 투영 좌표로 매 프레임 적용한다.</p>
+
+    <h3>화면 읽기 로그 (role="log", aria-live="polite")</h3>
+    <p class="note">타자 효과가 끝난 문장만 한 번 넣는다. 꼬리표·모니터는 읽어 주지 않고(너무 잦음), 에이전트 목록의 이름에 지금 활동을 붙여 필요할 때 읽게 한다.</p>
+    <ol class="logview" id="logview" aria-hidden="true"></ol>
+  </div>
+  <div role="log" aria-live="polite" aria-label="사무실 대화" class="sr-only" id="srlog"></div>
+</section>
+
+<!-- 무대 내용: data-bg마다 복제된다. --x/--y는 무대 안 비율. data-pref-side는 기본 방향(겹침·가장자리에서 fit()이 바꿈) -->
+<template id="t-talk">
+  <div class="bot" data-agent="0" data-face="right" style="--x:48%;--y:70%"></div>
+  <div class="bot" data-agent="1" data-face="left" style="--x:60%;--y:70%"></div>
+  <div class="ob" data-agent="1" data-kind="talk" data-pref-side="right" data-order="1" data-pair data-dim style="--x:60%;--y:70%">
+    <i class="ob-lead"></i><i class="ob-dot"></i>
+    <div class="ob-card"><div class="ob-tab">MESH · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text">네, 볼게요.</p></div></div></div>
+  </div>
+  <div class="ob" data-agent="0" data-kind="talk" data-pref-side="left" data-order="2" data-pair style="--x:48%;--y:70%">
+    <i class="ob-lead"></i><i class="ob-dot"></i>
+    <div class="ob-card"><div class="ob-tab">MEMO · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-type data-speaker="메모(기획)" data-to="메시(3D)">에셋 이슈 올렸어요. 치수 같이 봐 줄래요?</p></div></div></div>
+  </div>
+</template>
+
+<template id="t-meeting">
+  <div class="bot" data-agent="0" data-face="right" style="--x:48%;--y:72%"></div>
+  <div class="bot" data-agent="2" data-face="left" style="--x:60%;--y:72%"></div>
+</template>
+
+<template id="t-react">
+  <div class="bot" data-agent="2" style="--x:22%;--y:72%"></div>
+  <div class="ob" data-agent="2" data-kind="react" data-pref-side="right" style="--x:22%;--y:72%">
+    <i class="ob-lead"></i><i class="ob-dot"></i>
+    <div class="ob-card"><div class="ob-tab"><svg data-icon="heart"></svg>HUE · 반응</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-log data-speaker="휴(디자인)">오, 간식이다! 고마워요</p></div></div></div>
+  </div>
+  <div class="bot" data-agent="3" style="--x:84%;--y:72%"></div>
+  <div class="ob" data-agent="3" data-kind="private" data-pref-side="left" style="--x:84%;--y:72%">
+    <i class="ob-lead"></i><i class="ob-dot"></i>
+    <div class="ob-card"><div class="ob-tab">LOOP · 비공개</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-log data-speaker="루프(코더)"><svg data-icon="lock"></svg>비공개 대화</p></div></div></div>
+  </div>
+</template>
+
+<template id="t-tags">
+  <div class="bot" data-agent="0" style="--x:14%;--y:70%"></div>
+  <div class="ot" data-agent="0" style="--x:14%;--y:70%"><div class="ot-chip"><svg data-icon="edit"></svg><span>파일 편집 중</span></div></div>
+  <div class="bot" data-agent="1" style="--x:38%;--y:52%"></div>
+  <div class="ot" data-agent="1" style="--x:38%;--y:52%"><div class="ot-chip"><svg data-icon="cmd"></svg><span>명령 실행 중</span></div></div>
+  <div class="bot" data-agent="2" style="--x:62%;--y:70%"></div>
+  <div class="ot" data-agent="2" style="--x:62%;--y:70%"><div class="ot-chip"><svg data-icon="test"></svg><span>테스트 실행 중</span></div></div>
+  <div class="bot" data-agent="3" style="--x:86%;--y:52%"></div>
+  <div class="ot" data-agent="3" data-kind="private" style="--x:86%;--y:52%"><div class="ot-chip"><svg data-icon="lock"></svg><span>비공개 작업 중</span></div></div>
+</template>
+
+<template id="t-edge">
+  <div class="bot" data-agent="1" style="--x:10%;--y:12%"></div>
+  <div class="ob" data-agent="1" data-kind="talk" data-pref-side="right" style="--x:10%;--y:12%">
+    <i class="ob-lead"></i><i class="ob-dot"></i>
+    <div class="ob-card"><div class="ob-tab">MESH · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-type data-speaker="메시(3D)">화면 위쪽이라 아래로 펼쳐요.</p></div></div></div>
+  </div>
+  <div class="bot" data-agent="0" style="--x:74%;--y:84%"></div>
+  <div class="bot" data-agent="2" style="--x:80%;--y:72%"></div>
+  <div class="ob" data-agent="0" data-kind="talk" data-pref-side="right" data-order="1" style="--x:74%;--y:84%">
+    <i class="ob-lead"></i><i class="ob-dot"></i>
+    <div class="ob-card"><div class="ob-tab">MEMO · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text">앞뒤로 겹친 두 사람.</p></div></div></div>
+  </div>
+  <div class="ob" data-agent="2" data-kind="talk" data-pref-side="right" data-order="2" style="--x:80%;--y:72%">
+    <i class="ob-lead"></i><i class="ob-dot"></i>
+    <div class="ob-card"><div class="ob-tab">HUE · 대화</div><div class="ob-box"><div class="ob-body"><p class="ob-text" data-type data-speaker="휴(디자인)">새 말풍선은 위로 쌓고, 오른쪽 끝에 닿으면 왼쪽으로 펼쳐요. 아주 긴 문장은 세 줄에서 자르고 원문은 화면 읽기 로그로 보냅니다.</p></div></div></div>
+  </div>
+</template>
+
+<!-- ───────────────────────────── 2. 모니터 ───────────────────────────── -->
+<section id="monitors" class="hide-embed">
+  <h2>2. 모니터 화면 <span class="note">screen_work_0..3 · 캔버스 584 × 338 (0.57 × 0.33 m)</span></h2>
+  <div class="rules">
+    <div class="rule"><b>멀리서는 색과 덩어리, 가까이서 글자</b>기본 카메라(약 14 m)에서 모니터는 화면에 가로 약 60px. 이때 읽히는 건 바탕 밝기·에이전트 색·아이콘 덩어리뿐이다. 그래서 상태마다 화면의 밝기 패턴을 다르게 했다(작업 = 밝은 아이콘+띠, 휴식 = 거의 어둠 속 작은 점, 퇴근 = 꺼짐).</div>
+    <div class="rule"><b>활동 문구는 48px = 갈무리 ×4</b>1/4 축소(약 6 m)에서 12px = 갈무리 원본 크기라 가장 또렷하다. 이름·시각은 24px(×2): 가까이 갔을 때의 덤.</div>
+    <div class="rule"><b>그리는 빈도</b>캔버스 텍스처는 바뀔 때마다 GPU로 다시 올라간다. 화면은 초당 8번이면 충분하고(계단식 움직임이 오히려 화면답다), 상태가 그대로면 진행 띠만 다시 그린다.</div>
+  </div>
+  <div class="screens" id="monitor-cards"></div>
+  <p class="note">작은 미리보기는 큰 캔버스를 절반씩 줄여 그린 것(밉맵 흉내)이고, 화면 배율은 앱과 같게 최대 1.5배까지만 적용했다. 실제 3D에서는 비스듬히 보이므로 이보다 조금 더 좁다.</p>
+
+  <h3>활동 문구와 아이콘 (꼬리표·모니터 공통)</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>아이콘</th><th>activity</th><th>문구</th><th>언제</th></tr></thead>
+    <tbody id="icon-table"></tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ───────────────────────────── 3. 출입문 ───────────────────────────── -->
+<section id="door" class="hide-embed">
+  <h2>3. 출입문 화면 <span class="note">screen_door · 캔버스 820 × 1823 (0.8 × 1.78 m, 세로)</span></h2>
+  <div class="rules">
+    <div class="rule"><b>문 너머 = 책상 방 단말기</b>문 화면은 책상 방 단말기 OS의 호박색 형광·이중선 프레임·반전 제목 표시줄(<code>DESK.LNK</code>)을 그대로 입었다. “이 문은 저쪽으로 간다”를 색으로 말한다.</div>
+    <div class="rule"><b>hover = 네온</b>책상 방 규칙(“네온이 보이면 누를 수 있다”)대로 테두리·화살표·안내가 청록으로 바뀌고 화살표가 왼쪽으로 한 칸씩 밀린다. 커서는 pointer.</div>
+    <div class="rule"><b>누른 직후 = 문으로 들어감</b>한 번 번쩍(호박색 60%, 80ms)하고 화면은 켜진 채. 그동안 오피스 카메라가 이 화면으로 파고들고(0.7초), 책상 방이 CRT 되감기를 이어받는다(rowansong.dev #6). 처음 안의 세로 접힘은 뺐다. 번쩍임은 한 번뿐(초당 3회 기준 아래).</div>
+  </div>
+  <div class="doors" id="door-cards"></div>
+  <p class="note">평소 카드에 마우스를 올리면 hover, 누르면 누른 직후 상태를 그 자리에서 볼 수 있다. 큰 그림은 1/4 크기, 작은 그림은 기본 카메라 거리(약 12 m, 1/8)에서 보이는 크기.</p>
+</section>
+
+<!-- ───────────────────────────── 4. 움직임 줄이기 · 모바일 ───────────────────────────── -->
+<section id="reduced" class="hide-embed">
+  <h2>4. 움직임 줄이기 · 좁은 화면</h2>
+  <div class="rules">
+    <div class="rule"><b>움직임 줄이기에서 빠지는 것</b>타자 효과(바로 전체 문장), 커서 깜빡임, 둥실거림, 계단식 펼침·튀어나옴(0.12초 페이드로 대체), 문 화면의 번쩍임·접힘(어두워지며 “이동 중”). 모니터의 진행 띠는 움직이지 않고 칸이 채워진 채 멈춘다.</div>
+    <div class="rule"><b>켜는 곳</b>OS 설정 <code>prefers-reduced-motion</code>, 또는 책상 방과 공유하는 설정을 <code>html[data-motion="reduce"]</code>로. 토큰만 바뀌므로 컴포넌트는 같은 코드.</div>
+    <div class="rule"><b>좁은 화면(≤ 640px)</b>말풍선 폭 200px, 지금 말하는 쪽만 보이고, 꼬리표는 아이콘만. 글자 크기는 줄이지 않는다(12px 아래는 픽셀 폰트가 깨진다).</div>
+  </div>
+  <div class="frames">
+    <div><h3>기본</h3><iframe title="대화 말풍선, 기본 움직임" data-src="?embed=talk&motion=full"></iframe></div>
+    <div><h3>움직임 줄이기</h3><iframe title="대화 말풍선, 움직임 줄이기" data-src="?embed=talk&motion=reduce"></iframe></div>
+  </div>
+  <h3>모바일 폭 360px</h3>
+  <div class="phone"><iframe title="모바일 폭 미리보기" data-src="?embed=mobile"></iframe></div>
+</section>
+
+</div>
+
+<script>
+/* ═════════════ 토큰 읽기 ═════════════ */
+const root = document.documentElement
+const T = (n) => getComputedStyle(root).getPropertyValue(n).trim()
+const N = (n) => parseFloat(T(n))
+const hex = (h) => { h = h.replace('#', ''); return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) }
+const mix = (a, b, t) => { const A = hex(a), B = hex(b); return `rgb(${A.map((v, i) => Math.round(v * (1 - t) + B[i] * t)).join(',')})` }
+const alpha = (a, t) => `rgba(${hex(a).join(',')},${t})`
+
+/* ═════════════ 12px 비트맵 아이콘 (#=칠함) ═════════════
+   꼬리표 12px(×1), 모니터 96px(×8), 문 화살표 288px(×24). 정수배로만 키워 픽셀이 뭉개지지 않게. */
+const ICONS = {
+  edit: ['..........##', '.........###', '........###.', '.......###..', '......###...', '.....###....', '....###.....', '...###......', '..###.......', '.##.........', '.#..........', '............'],
+  cmd: ['............', '############', '#..........#', '#.#........#', '#..#.......#', '#...#......#', '#..#.......#', '#.#...###..#', '#..........#', '############', '............', '............'],
+  test: ['...######...', '....#..#....', '....#..#....', '....#..#....', '...#....#...', '..#......#..', '.#..####..#.', '.#.######.#.', '#.########.#', '#.########.#', '############', '............'],
+  read: ['..####......', '.#....#.....', '#......#....', '#......#....', '#......#....', '#......#....', '.#....##....', '..#####.#...', '.......###..', '........###.', '.........###', '..........##'],
+  build: ['..#######...', '.########...', '..#######...', '.....##.....', '.....##.....', '.....##.....', '.....##.....', '.....##.....', '.....##.....', '.....##.....', '....####....', '............'],
+  install: ['.....##.....', '.....##.....', '.....##.....', '.....##.....', '..########..', '...######...', '....####....', '.....##.....', '#..........#', '#..........#', '############', '............'],
+  git: ['..##........', '.####.......', '..##........', '..##....##..', '..##...####.', '..##....##..', '..##...##...', '..##..##....', '..####......', '..##........', '.####.......', '..##........'],
+  run: ['............', '..##........', '..####......', '..######....', '..########..', '..#########.', '..#########.', '..########..', '..######....', '..####......', '..##........', '............'],
+  delegate: ['#####.......', '#...##......', '#....#......', '#.##.#......', '#....#...#..', '#.##.#...##.', '#....######.', '#.##.#...##.', '#....#...#..', '######......', '............', '............'],
+  card: ['............', '############', '#..........#', '#.##.#####.#', '#..........#', '#.##.#####.#', '#..........#', '#.##.###...#', '#..........#', '############', '............', '............'],
+  lock: ['...######...', '..#......#..', '..#......#..', '..#......#..', '############', '############', '####....####', '####....####', '#####..#####', '#####..#####', '############', '############'],
+  coffee: ['............', '..#..#..#...', '...#..#..#..', '............', '##########..', '#........###', '#........#.#', '#........#.#', '#........###', '.#......#...', '..######....', '############'],
+  power: ['.....##.....', '.....##.....', '..#..##..#..', '.#...##...#.', '#....##....#', '#..........#', '#..........#', '#..........#', '.#........#.', '..#......#..', '...######...', '............'],
+  arrow: ['............', '.....#......', '....##......', '...###......', '..##########', '.###########', '.###########', '..##########', '...###......', '....##......', '.....#......', '............'],
+  heart: ['............', '.###...###..', '#####.#####.', '###########.', '###########.', '###########.', '.#########..', '..#######...', '...#####....', '....###.....', '.....#......', '............'],
+  think: ['............', '.##########.', '#..........#', '#..........#', '#.##.##.##.#', '#.##.##.##.#', '#..........#', '.##########.', '..##........', '..#.........', '.#..........', '............'],
+  bot: ['.....##.....', '.....##.....', '.##########.', '#..........#', '#.##....##.#', '#.##....##.#', '#..........#', '#...####...#', '#..........#', '.##########.', '...#....#...', '..##....##..'],
+}
+function svgIcon(name) {
+  const rows = ICONS[name]; let d = ''
+  rows.forEach((r, y) => [...r].forEach((c, x) => { if (c === '#') d += `M${x} ${y}h1v1h-1z` }))
+  return `<svg viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true"><path fill="currentColor" d="${d}"/></svg>`
+}
+function hydrateIcons(scope) {
+  scope.querySelectorAll('svg[data-icon]').forEach((s) => { s.outerHTML = svgIcon(s.dataset.icon) })
+}
+function drawIcon(ctx, name, x, y, size, color) {
+  const px = size / 12; ctx.fillStyle = color
+  ICONS[name].forEach((r, ry) => [...r].forEach((c, rx) => { if (c === '#') ctx.fillRect(Math.round(x + rx * px), Math.round(y + ry * px), Math.ceil(px), Math.ceil(px)) }))
+}
+
+/* 활동 문구: 꼬리표와 모니터가 같은 표를 쓴다. key = 훅이 보내는 activity 이름(#1 결정, 1:1) */
+const ACTIVITIES = [
+  { key: 'edit', icon: 'edit', label: '파일 편집 중', tools: 'Edit · Write' },
+  { key: 'read', icon: 'read', label: '코드 읽는 중', tools: 'Read · Grep · Glob' },
+  { key: 'test', icon: 'test', label: '테스트 실행 중', tools: 'Bash → 훅이 테스트 명령으로 분류' },
+  { key: 'build', icon: 'build', label: '빌드 중', tools: 'Bash → 빌드' },
+  { key: 'install', icon: 'install', label: '설치 중', tools: 'Bash → 패키지 설치' },
+  { key: 'git', icon: 'git', label: '버전 기록 중', tools: 'Bash → git' },
+  { key: 'run', icon: 'run', label: '앱 실행 중', tools: 'Bash → 앱·스크립트 실행' },
+  { key: 'other', icon: 'cmd', label: '명령 실행 중', tools: 'Bash → 그 밖의 명령' },
+  { key: 'delegate', icon: 'delegate', label: '일 나누는 중', tools: '하위 에이전트(Task) 띄움' },
+  { key: 'think', icon: 'think', label: '생각 중', tools: '요청을 받은 직후(UserPromptSubmit), 도구를 쓰기 전' },
+  { key: 'wrap', icon: 'card', label: '카드 정리 중', tools: 'Stop → 정리 중 상태' },
+  { key: 'private', icon: 'lock', label: '비공개 작업 중', tools: 'private 등급 프로젝트의 모든 도구' },
+  { key: 'rest', icon: 'coffee', label: '휴식 중', tools: '신호 없음 (모니터는 화면 보호기)' },
+  { key: 'off', icon: 'power', label: '퇴근', tools: '밤 · 오래 쉼 (모니터 꺼짐)' },
+]
+
+/* ═════════════ 1. 말풍선 무대 ═════════════ */
+const logEntries = []
+function pushLog(text) {
+  logEntries.push(text)
+  const sr = document.getElementById('srlog')
+  const li = document.createElement('p'); li.textContent = text; sr.append(li)
+  while (sr.children.length > 20) sr.firstChild.remove() // 로그 DOM은 최근 20개만
+  const view = document.getElementById('logview')
+  if (view) { view.innerHTML = logEntries.slice(-6).map((t) => `<li>${t.replace(/</g, '&lt;')}</li>`).join('') }
+}
+
+function renderStages() {
+  logEntries.length = 0
+  document.getElementById('srlog').textContent = ''
+  document.querySelectorAll('.stage').forEach((stage) => {
+    const tpl = document.getElementById('t-' + stage.dataset.stage)
+    stage.innerHTML = ''
+    for (const bg of ['dark', 'bright']) {
+      const pane = document.createElement('div')
+      pane.className = 'pane'; pane.dataset.bg = bg
+      pane.append(tpl.content.cloneNode(true))
+      const label = document.createElement('span'); label.className = 'pane-label'
+      label.textContent = bg === 'dark' ? '어두운 3D 배경' : '밝은 3D 배경 + 네온 (최악 조건)'
+      pane.append(label)
+      stage.append(pane)
+      hydrateIcons(pane)
+      pane.querySelectorAll('.ob').forEach((ob) => { ob.dataset.side = ob.dataset.prefSide; ob.dataset.dir = 'up' })
+    }
+  })
+  prepareText()
+  fitAll()
+  typeAll()
+  playMeeting(0)
+}
+
+/* 길이 규칙: 36자 넘으면 말줄임(화면), 원문은 로그로 */
+function prepareText() {
+  const max = N('--bubble-max-chars')
+  document.querySelectorAll('.ob[data-kind="talk"] .ob-text').forEach((p) => {
+    const full = p.textContent.trim()
+    p.dataset.full = full
+    p.textContent = [...full].length > max ? [...full].slice(0, max - 1).join('') + '…' : full
+  })
+}
+
+/* 가장자리·겹침 규칙 (무대 = 화면이라고 보고 안전 영역 토큰을 그대로 적용) */
+function fitAll() {
+  document.querySelectorAll('.pane').forEach(fit)
+}
+/* 등장 애니메이션(scale)·둥실(translate) 중에도 최종 자리를 재도록 transform을 뺀 상자 */
+function cardRect(card) {
+  const o = card.offsetParent.getBoundingClientRect()
+  const left = o.left + card.offsetLeft, top = o.top + card.offsetTop
+  return { left, top, right: left + card.offsetWidth, bottom: top + card.offsetHeight }
+}
+function fit(pane) {
+  const P = pane.getBoundingClientRect()
+  const top = P.top + N('--safe-top') * 0.5 // 시안 무대는 화면보다 작아 안전 영역을 절반만
+  const side = N('--safe-side')
+  const gap = N('--bubble-stack-gap')
+  const obs = [...pane.querySelectorAll('.ob')]
+  for (const ob of obs) {
+    ob.dataset.side = ob.dataset.prefSide; ob.dataset.dir = 'up'
+    ob.style.setProperty('--stack', '0px'); ob.style.setProperty('--shift', '0px')
+    const card = ob.querySelector('.ob-card')
+    if (!card.offsetParent) continue // 숨긴 말풍선·숨긴 무대
+    let r = cardRect(card)
+    if (r.top < top) { ob.dataset.dir = 'down'; r = cardRect(card) }
+    // 마주 보는 대화(data-pair)는 바깥 방향을 지킨다: 상대 쪽으로 뒤집지 않고 안쪽으로 밀기만
+    if (!('pair' in ob.dataset)) {
+      if (r.right > P.right - side && ob.dataset.side === 'right') ob.dataset.side = 'left'
+      else if (r.left < P.left + side && ob.dataset.side === 'left') ob.dataset.side = 'right'
+    }
+    r = cardRect(card)
+    // 양쪽 다 안 되면 안쪽으로 밀어 넣기
+    if (r.right > P.right - side) ob.style.setProperty('--shift', `${P.right - side - r.right}px`)
+    if (r.left < P.left + side) ob.style.setProperty('--shift', `${P.left + side - r.left}px`)
+  }
+  // 겹침: 나중 말풍선(data-order 큰 쪽)을 위로 쌓는다
+  const visible = obs.filter((o) => o.querySelector('.ob-card').offsetParent).sort((a, b) => (+a.dataset.order || 0) - (+b.dataset.order || 0))
+  for (let i = 1; i < visible.length; i++) {
+    const cur = visible[i]
+    for (let j = 0; j < i; j++) {
+      const a = cardRect(visible[j].querySelector('.ob-card'))
+      const b = cardRect(cur.querySelector('.ob-card'))
+      const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left)
+      const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
+      if (overlapX > 0 && overlapY > -gap && cur.dataset.dir === 'up') {
+        const prev = parseFloat(cur.style.getPropertyValue('--stack')) || 0
+        cur.style.setProperty('--stack', `${prev + overlapY + gap}px`)
+      }
+    }
+  }
+}
+
+/* 타자 효과: --type-ms-per-char, 전체는 --type-max-ms 안에. 0이면 바로 전체.
+   다 쓴 문장만 화면 읽기 로그에 넣는다(어두운·밝은 두 판에서 한 번만). */
+let typers = [], logged = new Set()
+function log(p) {
+  const key = p.dataset.speaker + p.dataset.full + (p.dataset.turn || '')
+  if (logged.has(key)) return; logged.add(key)
+  pushLog(`${p.dataset.speaker}${p.dataset.to ? ' → ' + p.dataset.to : ''}: ${p.dataset.full}`)
+}
+/** returns how long the text takes to type (ms) */
+function typeEl(p) {
+  const per = N('--type-ms-per-char'), max = N('--type-max-ms')
+  const chars = [...p.textContent]
+  if (!per) { log(p); return 0 }
+  const step = Math.min(per, max / chars.length)
+  const caret = document.createElement('b'); caret.className = 'ob-caret'; caret.textContent = '▌'
+  const txt = document.createTextNode('')
+  p.textContent = ''; p.append(txt, caret); p.dataset.typing = ''
+  let i = 0
+  const id = setInterval(() => {
+    i++; txt.textContent = chars.slice(0, i).join('')
+    if (i >= chars.length) { clearInterval(id); delete p.dataset.typing; log(p) }
+  }, step)
+  typers.push(id)
+  return step * chars.length
+}
+function typeAll() {
+  typers.forEach(clearInterval); typers = []; logged = new Set()
+  document.querySelectorAll('.ob-text[data-log]').forEach((p) => { p.dataset.full = p.textContent.trim(); log(p) })
+  document.querySelectorAll('.ob-text[data-type]').forEach(typeEl)
+}
+/** 머무는 시간 = base + 글자 수 × per-char (최대 hold-max) */
+const holdMs = (text) => Math.min(N('--hold-max-ms'), N('--hold-base-ms') + [...text].length * N('--hold-per-char-ms'))
+
+/* 이름 = 자리 번호(#26 결재). 한글 이름, 이름표, 역할 */
+const NAMES = [['메모', 'MEMO', '기획'], ['메시', 'MESH', '3D'], ['휴', 'HUE', '디자인'], ['루프', 'LOOP', '코더']]
+
+/* ── 회의 재연: 회의록에서 자른 문장을 차례로 ── */
+const MEETING = [
+  { a: 0, to: 2, side: 'left', text: '3번 안건이요. 말풍선 길이는 36자로 끊기로 했죠.' },
+  { a: 2, to: 0, side: 'right', text: '네. 넘치는 부분은 서재 회의록에서 읽게 하고요.' },
+  { a: 0, to: 2, side: 'left', text: '좋아요, 그럼 다음 안건으로.' },
+]
+let meetingTimer
+function makeBubble(pane, { a, to, side, text }, order, kind) {
+  const bot = pane.querySelector(`.bot[data-agent="${a}"]`)
+  const ob = document.createElement('div')
+  ob.className = 'ob'
+  Object.assign(ob.dataset, { agent: a, kind: 'talk', prefSide: side, side, dir: 'up', order, pair: '' })
+  ob.setAttribute('style', bot.getAttribute('style'))
+  const max = N('--bubble-max-chars')
+  const shown = [...text].length > max ? [...text].slice(0, max - 1).join('') + '…' : text
+  ob.innerHTML = `<i class="ob-lead"></i><i class="ob-dot"></i><div class="ob-card"><div class="ob-tab">${NAMES[a][1]} · ${kind}</div><div class="ob-box"><div class="ob-body"><p class="ob-text"></p></div></div></div>`
+  const p = ob.querySelector('.ob-text')
+  p.textContent = shown
+  Object.assign(p.dataset, { full: text, speaker: `${NAMES[a][0]}(${NAMES[a][2]})`, to: `${NAMES[to][0]}(${NAMES[to][2]})`, turn: order })
+  pane.append(ob)
+  return p
+}
+function playMeeting(turn = 0) {
+  clearTimeout(meetingTimer)
+  const panes = document.querySelectorAll('[data-stage="meeting"] .pane')
+  if (!panes.length) return
+  if (turn >= MEETING.length) { meetingTimer = setTimeout(() => { panes.forEach((p) => p.querySelectorAll('.ob').forEach((o) => o.remove())); playMeeting(0) }, 2000); return }
+  const t = MEETING[turn]
+  let typing = 0
+  panes.forEach((pane) => {
+    pane.querySelectorAll(`.ob[data-agent="${t.a}"]`).forEach((o) => o.remove()) // 말풍선은 한 사람에 하나
+    pane.querySelectorAll('.ob').forEach((o) => (o.dataset.dim = '')) // 상대의 지난 말은 회색으로
+    const p = makeBubble(pane, t, turn + 1, '회의')
+    fit(pane)
+    typing = typeEl(p)
+  })
+  const label = document.querySelector('.turn'); if (label) label.textContent = `${turn + 1}/${MEETING.length}`
+  meetingTimer = setTimeout(() => playMeeting(turn + 1), typing + holdMs(t.text))
+}
+
+/* ═════════════ 2. 모니터 캔버스 ═════════════ */
+const MW = 584, MH = 338
+const MONITORS = [
+  { state: 'work', agent: 0, act: 'edit', title: '작업 중', desc: '아이콘 + 활동 문구 + 흐르는 진행 띠. 진짜 진행률은 모르므로 “움직이고 있다”만 보인다. 오른쪽 아래는 이번 작업 경과 시간.' },
+  { state: 'work', agent: 1, act: 'test', title: '작업 중 · 다른 활동', desc: '도구가 바뀌면 아이콘과 문구만 바뀐다. 에이전트 색은 바탕 틴트(8%)·이름·진행 띠에만.' },
+  { state: 'wrap', agent: 2, act: 'wrap', title: '정리 중', desc: '작업 카드의 네 칸(목표·한 일·결정·다음)이 차례로 채워진다. 화이트보드로 가기 전 잠깐.' },
+  { state: 'rest', agent: 3, act: 'rest', title: '휴식 (화면 보호기)', desc: '거의 어두운 화면에 에이전트 표시가 천천히 튕긴다. 멀리서 “자리 비움”으로 읽힌다.' },
+  { state: 'off', agent: 0, act: 'off', title: '퇴근 (꺼짐 · 대기)', desc: '빛을 거의 내지 않는다(불이 하나씩 꺼지는 연출과 맞춤). 대기 표시등만 호박색 점.' },
+  { state: 'private', agent: 1, act: 'private', title: '비공개 작업 중', desc: '내용·도구 종류를 숨긴다. 사선 무늬 + 자물쇠 + 회색. 진행 띠는 남겨 “지금 일하고 있음”은 보인다.' },
+]
+const startedAt = performance.now()
+function clock() { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
+function elapsed(t) { const s = 724 + Math.floor(t); return [s / 3600, (s / 60) % 60, s % 60].map((v) => String(Math.floor(v)).padStart(2, '0')).join(':') }
+
+function drawMonitor(ctx, m, t, reduced) {
+  const pad = N('--screen-pad'), fsS = N('--screen-fs-s'), fsL = N('--screen-fs-l'), ic = N('--screen-icon')
+  const col = T(`--agent-${m.agent}`), ink = T(`--agent-${m.agent}-ink`)
+  const bg = T('--screen-bg'), text = T('--color-text'), muted = T('--color-text-muted'), faint = T('--color-text-faint'), lock = T('--color-lock')
+  const pixel = (size, bold) => `${bold ? 700 : 400} ${size}px Galmuri11, monospace`
+  ctx.clearRect(0, 0, MW, MH)
+  ctx.textBaseline = 'top'
+
+  if (m.state === 'off') {
+    ctx.fillStyle = T('--screen-off'); ctx.fillRect(0, 0, MW, MH)
+    ctx.font = pixel(fsS); ctx.fillStyle = alpha(faint, 0.6); ctx.fillText('대기', pad, MH - pad - fsS)
+    const on = reduced || Math.floor(t * 0.8) % 2 === 0 // 느린 숨쉬기
+    ctx.shadowColor = T('--color-amber'); ctx.shadowBlur = on ? 12 : 4
+    ctx.fillStyle = on ? T('--color-amber') : mix(T('--color-amber'), T('--screen-off'), 0.5)
+    ctx.fillRect(MW - pad - 12, MH - pad - 12, 12, 12); ctx.shadowBlur = 0
+    scan(ctx); return
+  }
+  const tint = N('--screen-tint')
+  ctx.fillStyle = m.state === 'private' ? mix(bg, lock, 0.05) : mix(bg, col, m.state === 'rest' ? tint * 0.35 : tint)
+  ctx.fillRect(0, 0, MW, MH)
+  if (m.state === 'private') { // 사선 무늬
+    ctx.save(); ctx.strokeStyle = alpha(col, N('--screen-hatch')); ctx.lineWidth = 8
+    for (let x = -MH; x < MW; x += 28) { ctx.beginPath(); ctx.moveTo(x, MH); ctx.lineTo(x + MH, 0); ctx.stroke() }
+    ctx.restore()
+  }
+
+  if (m.state === 'rest') {
+    const size = 72, L = MW - 2 * pad - size, H = MH - 2 * pad - size - fsS - 8
+    const tri = (v, len) => { const p = v % (2 * len); return p < len ? p : 2 * len - p }
+    const tt = reduced ? 3 : t
+    const x = pad + tri(tt * 38, L), y = pad + tri(tt * 27 + 40, H)
+    drawIcon(ctx, 'bot', x, y, size, alpha(ink, 0.8))
+    ctx.font = pixel(fsS); ctx.fillStyle = muted
+    ctx.fillText('휴식 중', pad, MH - pad - fsS)
+    ctx.textAlign = 'right'; ctx.fillText(clock(), MW - pad, MH - pad - fsS); ctx.textAlign = 'left'
+    scan(ctx); return
+  }
+
+  // 윗줄: 이름 · 시각
+  ctx.font = pixel(fsS); ctx.fillStyle = m.state === 'private' ? lock : ink
+  ctx.fillText(`${NAMES[m.agent][1]} · RB-1${m.agent}`, pad, pad)
+  ctx.textAlign = 'right'; ctx.fillStyle = muted; ctx.fillText(clock(), MW - pad, pad); ctx.textAlign = 'left'
+  ctx.fillStyle = mix(m.state === 'private' ? lock : col, bg, 0.7); ctx.fillRect(pad, pad + fsS + 10, MW - 2 * pad, 2)
+
+  // 가운데: 아이콘 + 활동 문구
+  const a = ACTIVITIES.find((x) => x.key === m.act)
+  const cy = 172
+  const fg = m.state === 'private' ? lock : text
+  drawIcon(ctx, a.icon, pad, cy - ic / 2, ic, m.state === 'private' ? lock : ink)
+  ctx.font = pixel(fsL, true); ctx.fillStyle = fg; ctx.textBaseline = 'middle'
+  ctx.fillText(a.label, pad + ic + 24, cy + 2); ctx.textBaseline = 'top'
+
+  // 아랫줄
+  const by = MH - pad - 16
+  if (m.state === 'wrap') {
+    const fields = ['목표', '한 일', '결정', '다음']
+    const done = reduced ? 4 : Math.floor(t * 1.4) % 6
+    ctx.font = pixel(fsS)
+    let x = pad
+    fields.forEach((f, i) => {
+      ctx.fillStyle = i < done ? col : mix(col, bg, 0.75); ctx.fillRect(x, by - 4, 20, 20)
+      if (i >= done) { ctx.fillStyle = mix(bg, col, tint); ctx.fillRect(x + 3, by - 1, 14, 14) }
+      ctx.fillStyle = i < done ? text : muted; ctx.textBaseline = 'middle'; ctx.fillText(f, x + 28, by + 7); ctx.textBaseline = 'top'
+      x += 28 + ctx.measureText(f).width + 28
+    })
+  } else {
+    const c = m.state === 'private' ? lock : col
+    const head = reduced ? -1 : Math.floor(t * 8) % 12
+    for (let i = 0; i < 12; i++) {
+      const lit = reduced ? true : (i - head + 12) % 12 < 3
+      ctx.fillStyle = lit ? c : mix(c, bg, 0.8); ctx.fillRect(pad + i * 32, by, 24, 12)
+    }
+    ctx.font = pixel(fsS); ctx.fillStyle = muted; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'
+    ctx.fillText(elapsed(t), MW - pad, by + 6); ctx.textAlign = 'left'; ctx.textBaseline = 'top'
+  }
+  scan(ctx)
+}
+function scan(ctx) {
+  ctx.fillStyle = `rgb(255 255 255 / ${N('--screen-scanline')})`
+  for (let y = 0; y < ctx.canvas.height; y += 3) ctx.fillRect(0, y, ctx.canvas.width, 1)
+}
+
+/* 큰 캔버스 → 작은 미리보기: 절반씩 줄여 밉맵 흉내. 화면 배율은 앱처럼 최대 1.5 */
+const halves = new Map()
+function downsample(src, dst) {
+  let cur = src, w = src.width, h = src.height, k = 0
+  while (w / 2 >= dst.width) {
+    const key = `${src.width}x${src.height}:${k++}`
+    let c = halves.get(key)
+    if (!c) { c = document.createElement('canvas'); c.width = Math.round(w / 2); c.height = Math.round(h / 2); halves.set(key, c) }
+    const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.clearRect(0, 0, c.width, c.height); x.drawImage(cur, 0, 0, c.width, c.height)
+    cur = c; w = c.width; h = c.height
+  }
+  const d = dst.getContext('2d'); d.imageSmoothingQuality = 'high'; d.clearRect(0, 0, dst.width, dst.height); d.drawImage(cur, 0, 0, dst.width, dst.height)
+}
+function miniCanvas(cssW, cssH, label) {
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5)
+  const c = document.createElement('canvas')
+  c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr)
+  c.style.width = cssW + 'px'; c.style.height = cssH + 'px'
+  const wrap = document.createElement('div'); wrap.className = 'mini'
+  wrap.append(c, Object.assign(document.createElement('span'), { textContent: label }))
+  return { wrap, c }
+}
+
+const monitorViews = []
+function buildMonitors() {
+  const host = document.getElementById('monitor-cards')
+  for (const m of MONITORS) {
+    const card = document.createElement('div'); card.className = 'scard'
+    card.innerHTML = `<h3>${m.title}</h3><div class="bezel"></div><div class="minis"></div><p>${m.desc}</p>`
+    const full = document.createElement('canvas'); full.width = MW; full.height = MH; full.className = 'full'
+    full.setAttribute('role', 'img'); full.setAttribute('aria-label', `모니터 화면: ${m.title}`)
+    card.querySelector('.bezel').append(full)
+    const q = miniCanvas(146, 85, '1/4 · 약 6 m')
+    const o = miniCanvas(62, 36, '전경 · 약 14 m')
+    card.querySelector('.minis').append(q.wrap, o.wrap)
+    host.append(card)
+    monitorViews.push({ m, full, minis: [q.c, o.c] })
+  }
+  document.getElementById('icon-table').innerHTML = ACTIVITIES.map((a) => `<tr><td>${svgIcon(a.icon)}</td><td><code>${a.key}</code></td><td><code>${a.label}</code></td><td>${a.tools}</td></tr>`).join('')
+}
+
+/* ═════════════ 3. 출입문 캔버스 ═════════════ */
+const DW = 820, DH = 1823
+function drawDoorContent(ctx, hover, t, reduced) {
+  const bg = T('--door-bg'), ph = T('--door-phosphor'), dim = T('--door-phosphor-dim'), hv = T('--door-hover'), ink = T('--color-ink')
+  const fsS = N('--door-fs-s'), fsL = N('--door-fs-l'), ic = N('--door-icon')
+  const accent = hover ? hv : ph
+  ctx.clearRect(0, 0, DW, DH)
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, DW, DH)
+  ctx.fillStyle = alpha(hover ? hv : ph, hover ? 0.07 : 0.04); ctx.fillRect(0, 0, DW, DH)
+  // 이중선 프레임 (단말기 OS)
+  ctx.strokeStyle = hover ? hv : dim
+  ctx.lineWidth = 8; ctx.strokeRect(40, 40, DW - 80, DH - 80)
+  ctx.lineWidth = 4; ctx.strokeRect(64, 64, DW - 128, DH - 128)
+  // 반전 제목 표시줄
+  ctx.fillStyle = accent; ctx.fillRect(64, 64, DW - 128, 96)
+  ctx.fillStyle = ink; ctx.font = `400 ${fsS}px Galmuri11, monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+  ctx.fillText('DESK.LNK', DW / 2, 112)
+  // 화살표 (hover: 한 칸씩 왼쪽으로)
+  const nudge = hover && !reduced ? -(Math.floor(t * 5) % 3) * 24 : 0
+  drawIcon(ctx, 'arrow', (DW - ic) / 2 + nudge, 470, ic, accent)
+  // 큰 글자
+  ctx.fillStyle = ph; ctx.font = `700 ${fsL}px Galmuri11, monospace`
+  ctx.fillText('책상으로', DW / 2, 960)
+  ctx.font = `400 ${fsS}px Galmuri11, monospace`; ctx.fillStyle = dim
+  ctx.fillText('ROWAN/OS · 허브', DW / 2, 1080)
+  // 아래: 평소엔 주소, hover엔 안내
+  ctx.fillStyle = hover ? hv : dim
+  const blink = hover && !reduced && Math.floor(t * 2) % 2 === 1
+  ctx.fillText(hover ? '클릭해서 돌아가기' + (blink ? ' ' : '_') : 'rowansong.dev', DW / 2, DH - 200)
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top'
+  scan(ctx)
+}
+function drawDoor(ctx, state, t, reduced) {
+  if (state !== 'press') { drawDoorContent(ctx, state === 'hover', t, reduced); return }
+  const dur = N('--door-press-ms') / 1000
+  const p = t / dur
+  const bg = T('--door-bg'), ph = T('--door-phosphor'), dim = T('--door-phosphor-dim')
+  if (reduced) { // 어두워지며 “이동 중”
+    drawDoorContent(ctx, true, 0, true)
+    ctx.fillStyle = alpha(bg, Math.min(1, p)); ctx.fillRect(0, 0, DW, DH)
+    if (p >= 1) { ctx.fillStyle = dim; ctx.font = `400 ${N('--door-fs-s')}px Galmuri11, monospace`; ctx.textAlign = 'center'; ctx.fillText('이동 중…', DW / 2, DH / 2); ctx.textAlign = 'left' }
+    return
+  }
+  ctx.fillStyle = T('--screen-off'); ctx.fillRect(0, 0, DW, DH)
+  if (p < 0.18) { // 한 번 번쩍
+    drawDoorContent(ctx, true, 0, false)
+    ctx.fillStyle = alpha(ph, 0.6 * (1 - p / 0.18)); ctx.fillRect(0, 0, DW, DH)
+  } else { // 켜진 채로 둔다: 카메라가 이 화면으로 파고든다(#68 · rowansong.dev #6 X1)
+    drawDoorContent(ctx, true, 0, false)
+  }
+}
+const doorViews = []
+function buildDoors() {
+  const host = document.getElementById('door-cards')
+  const defs = [
+    { state: 'idle', title: '평소', desc: '호박색 형광 단말기. 큰 화살표와 “책상으로”는 전경 거리에서도 덩어리로 읽힌다.' },
+    { state: 'hover', title: 'hover (누를 수 있음)', desc: '테두리·제목 표시줄·화살표·안내가 청록 네온으로. 화살표가 왼쪽으로 한 칸씩.' },
+    { state: 'press', title: '누른 직후', desc: '한 번 번쩍(80ms)하고 켜진 채. 실제로는 그동안 카메라가 이 화면으로 파고든다(0.7초). 시안은 2.4초마다 다시 재생.' },
+  ]
+  for (const d of defs) {
+    const card = document.createElement('div'); card.className = 'scard'
+    card.innerHTML = `<h3>${d.title}</h3><div class="bezel"></div><div class="minis"></div><p>${d.desc}</p>`
+    const full = document.createElement('canvas'); full.width = DW; full.height = DH; full.className = 'full'
+    full.setAttribute('role', 'img'); full.setAttribute('aria-label', `출입문 화면: ${d.title}`)
+    card.querySelector('.bezel').append(full)
+    const o = miniCanvas(102, 227, '전경 · 약 12 m (1/8)')
+    card.querySelector('.minis').append(o.wrap)
+    host.append(card)
+    const view = { def: d, state: d.state, full, minis: [o.c], since: performance.now() }
+    if (d.state === 'idle') { // 이 카드는 직접 해 보기
+      full.tabIndex = 0
+      full.addEventListener('pointerenter', () => { if (view.state !== 'press') view.state = 'hover' })
+      full.addEventListener('pointerleave', () => { if (view.state !== 'press') view.state = 'idle' })
+      const press = () => { view.state = 'press'; view.since = performance.now(); setTimeout(() => { view.state = 'idle'; view.since = performance.now() }, 1800) }
+      full.addEventListener('click', press)
+      full.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); press() } })
+    }
+    doorViews.push(view)
+  }
+}
+
+/* ═════════════ 그리기 루프: 초당 8번(모니터 권장 빈도와 같음) ═════════════ */
+const isReduced = () => root.dataset.motion === 'reduce' || (root.dataset.motion !== 'full' && matchMedia('(prefers-reduced-motion: reduce)').matches)
+let lastDraw = 0
+function loop(now) {
+  requestAnimationFrame(loop)
+  if (now - lastDraw < 125) return
+  lastDraw = now
+  const t = (now - startedAt) / 1000, reduced = isReduced()
+  for (const v of monitorViews) {
+    drawMonitor(v.full.getContext('2d'), v.m, t, reduced)
+    v.minis.forEach((c) => downsample(v.full, c))
+  }
+  for (const v of doorViews) {
+    let local = (now - v.since) / 1000
+    if (v.def.state === 'press') local = local % 2.4
+    drawDoor(v.full.getContext('2d'), v.state, local, reduced)
+    v.minis.forEach((c) => downsample(v.full, c))
+  }
+}
+
+/* ═════════════ 시작 ═════════════ */
+const params = new URLSearchParams(location.search)
+if (params.get('motion')) root.dataset.motion = params.get('motion')
+const embed = params.get('embed')
+if (embed) { document.body.classList.add('embed'); document.body.dataset.embed = embed }
+if (embed === 'mobile') { // 모바일: 대화 + 꼬리표 무대를 함께
+  const tags = document.querySelector('[data-stage="tags"]')
+  document.querySelector('[data-stage="talk"]').after(tags)
+}
+
+const motionBtn = document.getElementById('motion')
+function syncMotionBtn() { motionBtn.setAttribute('aria-pressed', String(isReduced())) }
+motionBtn.addEventListener('click', () => { root.dataset.motion = isReduced() ? 'full' : 'reduce'; syncMotionBtn(); renderStages() })
+document.getElementById('replay').addEventListener('click', () => { renderStages(); doorViews.forEach((v) => (v.since = performance.now())) })
+let resizeT
+addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(fitAll, 100) })
+
+document.fonts.load('12px Galmuri11').then(() => document.fonts.load('700 48px Galmuri11')).finally(() => {
+  syncMotionBtn()
+  renderStages()
+  if (!embed) {
+    buildMonitors(); buildDoors()
+    document.querySelectorAll('iframe[data-src]').forEach((f) => { f.src = location.pathname + f.dataset.src })
+  }
+  requestAnimationFrame(loop)
+})
+</script>
+</body>
+</html>

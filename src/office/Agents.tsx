@@ -1,0 +1,194 @@
+import { Html } from '@react-three/drei'
+import { useFrame, useThree } from '@react-three/fiber'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { BufferGeometry, Color, Float32BufferAttribute, Line, LineBasicMaterial, LineSegments, type Group, type Mesh } from 'three'
+import { buildGraph, patchSpots, type NavGraph } from './nav'
+import { checkNav, edgeKey } from './navcheck'
+import { meshesOf, useOffice } from './nodes'
+import { DeskLive } from './deskLive'
+import { PaperPlanes } from './plane'
+import { ScreenLive } from './screenLive'
+import { deskProps } from './props'
+import { AgentRig, PropBank, buildRig } from './rig'
+import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
+
+/**
+ * Same rule as the design tokens (src/styles/tokens.css): html[data-motion="reduce"|"full"] (the setting shared
+ * with the desk room) wins, otherwise the OS prefers-reduced-motion.
+ */
+function useReducedMotion() {
+  const read = () => {
+    const forced = document.documentElement.dataset.motion
+    if (forced === 'reduce' || forced === 'full') return forced === 'reduce'
+    return matchMedia('(prefers-reduced-motion: reduce)').matches
+  }
+  const [reduced, setReduced] = useState(read)
+  useEffect(() => {
+    const on = () => setReduced(read())
+    const m = matchMedia('(prefers-reduced-motion: reduce)')
+    m.addEventListener('change', on)
+    const attr = new MutationObserver(on)
+    attr.observe(document.documentElement, { attributes: true, attributeFilter: ['data-motion'] })
+    return () => {
+      m.removeEventListener('change', on)
+      attr.disconnect()
+    }
+  }, [])
+  return reduced
+}
+
+/** The agents: each frame the director picks goals from the status source and the clock, the rigs move. */
+export function Agents({ world }: { world: OfficeWorld }) {
+  const { scene, nodes, spots } = useOffice()
+  const graph = useMemo(() => {
+    // ?debug=1&nav=… tries spots before they are re-baked into the model
+    const tryout = world.debug ? (new URLSearchParams(location.search).get('nav') ?? '') : ''
+    return buildGraph(patchSpots(spots, tryout))
+  }, [world, spots])
+  const rigs = useMemo(
+    () =>
+      Object.fromEntries(
+        world.director.agents.map((id, i) => [id, new AgentRig(id, i, buildRig(scene, nodes, i), AGENT_COLORS[id])]),
+      ),
+    [world, scene, nodes],
+  )
+  // the props agents pick up while playing (#20, #27); once per loaded scene
+  const props = useMemo(() => (scene.userData.props ??= new PropBank(scene, nodes)) as PropBank, [scene, nodes])
+  // the LIVE desk props (#44): what each desk shows about its agent
+  const desks = useMemo(() => new DeskLive(nodes), [nodes])
+  // the work monitors (#75); ?debug=1&screens=off leaves them blank (the frame-cost baseline)
+  const maxAniso = useThree((s) => s.gl.capabilities.getMaxAnisotropy())
+  const screens = useMemo(
+    () => (world.debug && new URLSearchParams(location.search).get('screens') === 'off' ? null : new ScreenLive(nodes, maxAniso)),
+    [world, nodes, maxAniso],
+  )
+  world.screens.counters = () => ({ uploads: screens?.uploads ?? 0, fullDraws: screens?.fullDraws ?? 0, stripDraws: screens?.stripDraws ?? 0, ms: screens?.ms ?? 0 })
+  world.screens.centers = () => screens?.monitors.map((m) => m.sphere.center.toArray()) ?? []
+  // handoffs between agents fly as a paper plane (#51)
+  const planes = useMemo(() => (scene.userData.planes ??= new PaperPlanes(props, nodes)) as PaperPlanes, [scene, props, nodes])
+  world.planes = planes
+  const reduced = useReducedMotion()
+  world.rigs = rigs
+  world.graph = graph
+
+  useEffect(
+    () =>
+      world.source.onMessage((m) => {
+        world.director.receive(m)
+        planes.receive(m)
+      }),
+    [world, planes],
+  )
+
+  useFrame((state, dt) => {
+    const now = officeNow(world)
+    const t = state.clock.elapsedTime
+    const status = world.source.getSnapshot()
+    const goals = world.director.goals(now, Math.floor(now / 60000), status, (a) => rigs[a].arrived)
+    world.goals = goals
+    const desk = deskProps({ ...world.props.getSnapshot(), status, now })
+    // the coder looks at its rubber duck when a test fails (set before the rigs move)
+    if (rigs.agent_3) rigs.agent_3.watch = desk.duckLook && rigs.agent_3.arrived === `work_3` ? desks.duckPoint() : null
+    for (const id in rigs) rigs[id].setGoal(goals[id], graph)
+    for (const id in rigs) rigs[id].update(dt, t, graph, rigs, reduced, status[id])
+    // the planner picks up its stamp the moment the owner decides something
+    if (desk.stamp && rigs.agent_0?.visible) rigs.agent_0.want = { kind: 'stamp', side: 'r' }
+    props.hold(new Map(Object.values(rigs).map((r) => [r, r.want])))
+    planes.update(state.clock.elapsedTime, graph, rigs, reduced)
+    props.update(Math.min(dt, 0.1))
+    desks.update(desk, t, Math.min(dt, 0.1), reduced)
+    screens?.update({ t, now, status, reduced, camera: state.camera, forced: world.debug ? world.screens.force : undefined })
+  })
+
+  return (
+    <>
+      {Object.values(rigs).map((rig) => (
+        <Bubble key={rig.id} world={world} rig={rig} />
+      ))}
+      {world.debug && <NavDebug world={world} graph={graph} meshes={Object.values(nodes).filter((m) => m.userData.atlas).flatMap(meshesOf)} />}
+    </>
+  )
+}
+
+/** placeholder speech bubble above the head (the real bubble design comes from the designer) */
+function Bubble({ world, rig }: { world: OfficeWorld; rig: AgentRig }) {
+  const anchor = useRef<Group>(null)
+  const box = useRef<HTMLDivElement>(null)
+  useFrame(() => {
+    const text = world.goals[rig.id]?.bubble
+    anchor.current?.position.set(rig.group.position.x, rig.parts.head.position.y + 0.55, rig.group.position.z)
+    const el = box.current
+    if (!el) return
+    el.style.display = text && !rig.hidden ? 'block' : 'none'
+    if (text && el.textContent !== text) el.textContent = text
+  })
+  return (
+    <group ref={anchor}>
+      <Html center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
+        <div ref={box} className="bubble-placeholder" style={{ display: 'none', borderColor: AGENT_COLORS[rig.id] }} />
+      </Html>
+    </group>
+  )
+}
+
+const MAX_ROUTE = 32
+
+/** ?debug=1: the nav graph (red = an edge that hits furniture), spot names, and each agent's remaining route */
+function NavDebug({ world, graph, meshes }: { world: OfficeWorld; graph: NavGraph; meshes: Mesh[] }) {
+  const check = useMemo(() => checkNav(graph, meshes), [graph, meshes])
+  world.check = check
+
+  const edges = useMemo(() => {
+    const pos: number[] = []
+    const col: number[] = []
+    const ok = new Color('#5c6b80')
+    const bad = new Color('#ff3030')
+    for (const key in check.edges) {
+      const [a, b] = key.split('|').map((id) => graph.spots[id])
+      pos.push(a.x, 0.03, a.z, b.x, 0.03, b.z)
+      const c = check.edges[edgeKey(a.id, b.id)] ? ok : bad
+      col.push(c.r, c.g, c.b, c.r, c.g, c.b)
+    }
+    const geo = new BufferGeometry()
+    geo.setAttribute('position', new Float32BufferAttribute(pos, 3))
+    geo.setAttribute('color', new Float32BufferAttribute(col, 3))
+    return new LineSegments(geo, new LineBasicMaterial({ vertexColors: true, depthTest: false, transparent: true }))
+  }, [check, graph])
+
+  const routes = useMemo(
+    () =>
+      Object.keys(world.rigs).map((id) => {
+        const geo = new BufferGeometry()
+        geo.setAttribute('position', new Float32BufferAttribute(new Float32Array(MAX_ROUTE * 3), 3))
+        const line = new Line(geo, new LineBasicMaterial({ color: AGENT_COLORS[id], depthTest: false, transparent: true }))
+        line.renderOrder = 2
+        return { id, line }
+      }),
+    [world.rigs],
+  )
+
+  useFrame(() => {
+    for (const { id, line } of routes) {
+      const pts = world.rigs[id].route(graph).slice(0, MAX_ROUTE)
+      const attr = line.geometry.getAttribute('position') as Float32BufferAttribute
+      pts.forEach((p, i) => attr.setXYZ(i, p.x, 0.06, p.z))
+      attr.needsUpdate = true
+      line.geometry.setDrawRange(0, pts.length)
+      line.geometry.computeBoundingSphere()
+    }
+  })
+
+  return (
+    <>
+      <primitive object={edges} renderOrder={1} />
+      {routes.map(({ id, line }) => (
+        <primitive key={id} object={line} />
+      ))}
+      {Object.values(graph.spots).map((s) => (
+        <Html key={s.id} position={[s.x, 0.05, s.z]} center zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
+          <span className="nav-label">{s.id}</span>
+        </Html>
+      ))}
+    </>
+  )
+}

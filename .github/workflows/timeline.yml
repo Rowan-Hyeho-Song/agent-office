@@ -1,0 +1,23 @@
+# DRAFT (#81): new timelapse points on every push to dev / main (docs/plan.md 6.7). Not enabled: it only runs by
+# hand (workflow_dispatch) and sends nothing until the office is deployed. At deployment: uncomment the push
+# trigger, add scripts/timeline/event.mjs (pushed commits -> build.mjs `collect` -> POST { points } to
+# OFFICE_TIMELINE_URL; the server filters again, like /api/docs) and the secrets OFFICE_TIMELINE_URL and
+# OFFICE_DOCS_TOKEN.
+name: office timeline (draft)
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [dev, main]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "draft - nothing is sent"
