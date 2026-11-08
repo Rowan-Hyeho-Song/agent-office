@@ -85,11 +85,13 @@ export interface Personality {
 }
 
 export const PERSONALITIES: Record<string, Personality> = {
-  agent_0: { name: '메모', aggr: 1, defn: 1, noise: 0.08, slip: 0.06, think: [2800, 4000] }, // balanced, deliberate
-  agent_1: { name: '메시', aggr: 0.8, defn: 1.3, noise: 0.1, slip: 0.04, think: [2000, 3400] }, // defensive
-  agent_2: { name: '휴', aggr: 1, defn: 0.9, noise: 0.6, slip: 0.25, think: [1500, 3800] }, // creative, random-ish
-  agent_3: { name: '루프', aggr: 1.35, defn: 0.8, noise: 0.1, slip: 0.08, think: [1500, 2300] }, // aggressive, quick
+  agent_0: { name: '메모', aggr: 1, defn: 1, noise: 0.08, slip: 0.06, think: [900, 2200] }, // balanced
+  agent_1: { name: '메시', aggr: 1, defn: 1.1, noise: 0.1, slip: 0.04, think: [900, 2200] }, // defensive
+  agent_2: { name: '휴', aggr: 1, defn: 0.9, noise: 0.6, slip: 0.25, think: [900, 2200] }, // creative, random-ish
+  agent_3: { name: '루프', aggr: 1.35, defn: 0.8, noise: 0.1, slip: 0.08, think: [600, 1400] }, // aggressive, quick
 }
+/** think time of the AI against a visitor (#137): not bound by the agent-vs-agent clock */
+export const VISITOR_THINK: [number, number] = [600, 1400]
 export const DEFAULT_PERSONALITY = PERSONALITIES.agent_0
 export const personalityOf = (agent: string) => PERSONALITIES[agent] ?? DEFAULT_PERSONALITY
 
@@ -137,6 +139,8 @@ export function aiMove(s: OmokState, p: Personality, seed: number): number {
   const me = s.toMove
   const you: Color = me === 1 ? 2 : 1
   if (s.moveIndex === 0) return 7 * N + 7
+  // games get bolder as they drag on, so they end
+  const push = 1 + Math.max(0, s.moveIndex - 16) * 0.06
   const cands: { cell: number; score: number }[] = []
   let win = -1
   let block = -1
@@ -148,7 +152,7 @@ export function aiMove(s: OmokState, p: Personality, seed: number): number {
     if (def >= 100000) block = block < 0 ? c : block
     const centre = 3 - (Math.abs((c % N) - 7) + Math.abs(((c / N) | 0) - 7)) * 0.1
     const jitter = 1 + p.noise * (((hash(`${seed}|${s.moveIndex}|${c}`) / 4294967296) * 2) - 1)
-    cands.push({ cell: c, score: (att * p.aggr + def * p.defn * 0.9 + centre) * jitter })
+    cands.push({ cell: c, score: (att * p.aggr * push + def * p.defn * 0.7 + centre) * jitter })
   }
   if (win >= 0) return win
   if (block >= 0) return block
@@ -172,6 +176,8 @@ interface Game {
   /** which of the two players has black */
   black: 0 | 1
   moves: number[]
+  /** stones already on the board when the block starts ("a game in progress"); the timed moves follow */
+  openN: number
   /** start of each move's thinking, relative to the game start; one extra entry = when the last hand finished */
   starts: number[]
   thinks: number[]
@@ -185,10 +191,23 @@ interface Game {
 interface Run { games: Game[] }
 const cache = new Map<string, Run>()
 
-function buildGame(seed: number, players: [string, string], black: 0 | 1, at: number): Game {
+function buildGame(seed: number, players: [string, string], black: 0 | 1, at: number, first: boolean): Game {
   const roles: [string, string] = black === 0 ? players : [players[1], players[0]] // [black, white]
   let s = newGame()
   const moves: number[] = []
+  // seeded opening of the block's first game: 6-10 stones by AI self-play (with the personalities), shown from the start, never already won
+  const openN = first ? 6 + (hash(`${seed}|open`) % 5) : 0 // later games in the block start from an empty board
+  while (s.moveIndex < openN && s.result === 'playing') {
+    const mv = aiMove(s, personalityOf(roles[s.toMove === 1 ? 0 : 1]), hash(`${seed}|open`))
+    moves.push(mv)
+    s = play(s, mv)!
+  }
+  if (s.result !== 'playing') {
+    moves.pop() // an opening must not be decided
+    s = newGame()
+    for (const m of moves) s = play(s, m)!
+  }
+  const opened = moves.length
   const starts: number[] = []
   const thinks: number[] = []
   let t = 0
@@ -203,7 +222,7 @@ function buildGame(seed: number, players: [string, string], black: 0 | 1, at: nu
     t += th + HAND_MS
     s = play(s, mv)!
   }
-  return { seed, black, moves, starts, thinks, length: t + WIN_MS + RESET_MS, tHandsDone: t, finalState: s, at }
+  return { seed, black, moves, openN: opened, starts, thinks, length: t + WIN_MS + RESET_MS, tHandsDone: t, finalState: s, at }
 }
 
 export interface OmokView {
@@ -250,7 +269,7 @@ export function gameAt(seed: number, players: [string, string], tMs: number, dis
   while (g.length === 0 || g[g.length - 1].at + g[g.length - 1].length <= t) {
     const i = g.length
     const at = i === 0 ? 0 : g[i - 1].at + g[i - 1].length
-    g.push(buildGame(hash(`${seed}|game|${i}`), players, (i % 2) as 0 | 1, at))
+    g.push(buildGame(hash(`${seed}|game|${i}`), players, (i % 2) as 0 | 1, at, i === 0))
   }
   let lo = 0
   let hi = g.length - 1
@@ -288,12 +307,13 @@ export function gameAt(seed: number, players: [string, string], tMs: number, dis
   const since = u - game.starts[a]
   const hand = since < th ? 0 : Math.min(1, (since - th) / HAND_MS)
   const placed = since >= th && hand >= PLACE_AT ? a + 1 : a
-  place(board, game.moves, placed)
-  const color: Color = a % 2 === 0 ? 1 : 2
+  const o = game.openN
+  place(board, game.moves, o + placed)
+  const color: Color = (o + a) % 2 === 0 ? 1 : 2
   const phase: OmokView['phase'] = since < th ? 'thinking' : hand < 0.5 ? 'pick' : 'place'
   return {
-    ...base, board, lastMove: placed > 0 ? game.moves[placed - 1] : -1,
-    toMove: (placed % 2 === 0 ? 1 : 2) as Color, moveIndex: placed, phase,
-    handT01: discrete ? 0 : hand, pending: !discrete && since >= th && placed === a ? { move: game.moves[a], color } : null,
+    ...base, board, lastMove: o + placed > 0 ? game.moves[o + placed - 1] : -1,
+    toMove: ((o + placed) % 2 === 0 ? 1 : 2) as Color, moveIndex: o + placed, phase,
+    handT01: discrete ? 0 : hand, pending: !discrete && since >= th && placed === a ? { move: game.moves[o + a], color } : null,
   }
 }
