@@ -34,7 +34,7 @@ describe('MeetingRunner', () => {
     expect(r.start(buildScript(meta, convs), 0, status())).toBe(true)
     const trail = run(r, () => !r.busy)
     const spots = (g: Record<string, Goal>) => Object.fromEntries(Object.entries(g).map(([a, x]) => [a, x.spot]))
-    expect(spots(trail[0])).toEqual({ agent_2: 'meet_a', agent_3: 'meet_b' })
+    expect(spots(trail[0])).toEqual({ agent_2: 'meet_floor_0', agent_3: 'meet_floor_1' })
     expect(trail.some((g) => g.agent_2?.pose === 'talk' && g.agent_2.lookAt === 'agent_3')).toBe(true)
     expect(trail.some((g) => g.agent_0?.spot === 'whiteboard' && g.agent_0.pose === 'post')).toBe(true)
     expect(trail.some((g) => g.agent_3?.spot === 'work_3')).toBe(true)

@@ -131,8 +131,28 @@ if (overlap) {
       }
       if (g < need + 0.3) rows.push({ pair: `${a.name} · ${b.name}`, kinds: `${a.kind}/${b.kind}`, where, gap: g, need, ok: g >= need - 1e-3 })
     }
+  // meeting rings (#147): nav_meet_center_* with extras r; the circle keeps clear of every floor footprint (with its
+  // use room: an agent at a desk counts) and of the other rings, and stays inside the walls
+  const rings = scene.children.filter((o) => o.userData.nav === 'meet_center' && o.userData.r).map((o) => {
+    const p = o.getWorldPosition(new Vector3())
+    return { name: o.name.replace(/^nav_/, ''), x: p.x, z: p.z, r: o.userData.r }
+  })
+  for (const c of rings) {
+    for (const s of items.filter((x) => x.kind !== 'wall')) {
+      const dx = Math.max(s.lo[0] - c.x, 0, c.x - s.hi[0])
+      const dz = Math.max(s.lo[2] - c.z, 0, c.z - s.hi[2])
+      const g = Math.hypot(dx, dz) - c.r
+      if (g < 0.3) rows.push({ pair: `${c.name} · ${s.name}`, kinds: `ring/${s.kind}`, where: 'floor', gap: g, need: 0, ok: g >= -1e-3 })
+    }
+    for (const d of rings.filter((x) => x.name > c.name)) {
+      const g = Math.hypot(c.x - d.x, c.z - d.z) - c.r - d.r
+      rows.push({ pair: `${c.name} · ${d.name}`, kinds: 'ring/ring', where: 'floor', gap: g, need: 0, ok: g >= -1e-3 })
+    }
+    if (room && (c.x - c.r < room.lo[0] || c.x + c.r > room.hi[0] || c.z - c.r < room.lo[2] || c.z + c.r > room.hi[2]))
+      rows.push({ pair: `${c.name} · room`, kinds: 'ring/room', where: 'walls', gap: -1, need: 0, ok: false })
+  }
   rows.sort((x, y) => x.gap - x.need - (y.gap - y.need))
-  console.log('\noverlap: pairs closer than their minimum + 0.3 m (gap < 0 = overlapping)')
+  console.log('\noverlap: pairs closer than their minimum + 0.3 m (gap < 0 = overlapping; ring = a meeting circle, #147)')
   console.log('| pair | kinds | checked | gap (m) | min (m) | |')
   console.log('|---|---|---|---|---|---|')
   for (const r of rows) console.log(`| ${r.pair} | ${r.kinds} | ${r.where} | ${r.gap.toFixed(2)} | ${r.need.toFixed(2)} | ${r.ok ? 'ok' : 'FAIL'} |`)

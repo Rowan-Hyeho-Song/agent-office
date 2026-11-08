@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { OFF_AFTER, WORKING_FOR, WRAPPING_FOR, effective, toHandoff, toStatusMap, type EventRow, type StatusRow } from './liveStatus'
+import { liveStatusFor, OFF_AFTER, WORKING_FOR, WRAPPING_FOR, effective, toHandoff, toStatusMap, type EventRow, type StatusRow } from './liveStatus'
 
 const MIN = 60_000
 const NOW = Date.parse('2026-03-15T12:00:00.000Z')
@@ -147,5 +147,43 @@ describe('toHandoff (#51)', () => {
     expect(toHandoff(ev({ to_seat: 7 }), AGENTS)).toBeNull()
     expect(toHandoff(ev({ seat: 9 }), AGENTS)).toBeNull()
     expect(toHandoff(ev({ seat: 2, to_seat: 2 }), AGENTS)).toBeNull()
+  })
+})
+
+describe('liveStatusFor', () => {
+  // a client whose channel() hands back the same topic, and refuses listeners after subscribe(), like realtime-js
+  const fakeClient = () => {
+    const topics = new Map<string, { subscribed: boolean }>()
+    let channels = 0
+    const client = {
+      channel(topic: string) {
+        if (!topics.has(topic)) {
+          topics.set(topic, { subscribed: false })
+          channels++
+        }
+        const t = topics.get(topic)!
+        const ch = {
+          on() {
+            if (t.subscribed) throw new Error(`cannot add callbacks for ${topic} after subscribe()`)
+            return ch
+          },
+          subscribe() {
+            t.subscribed = true
+            return ch
+          },
+        }
+        return ch
+      },
+      from: () => ({ select: () => new Promise(() => {}) }),
+    }
+    return { client: client as unknown as Parameters<typeof liveStatusFor>[0], channels: () => channels }
+  }
+
+  it('builds the world twice (StrictMode) with one source and one channel', () => {
+    const { client, channels } = fakeClient()
+    const a = liveStatusFor(client, ['agent_0'])
+    const b = liveStatusFor(client, ['agent_0'])
+    expect(b).toBe(a)
+    expect(channels()).toBe(1)
   })
 })
