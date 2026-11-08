@@ -1,9 +1,9 @@
 // Pure helpers for timelapse points (#81): tiers, the keep-or-drop filter, merging by key. scripts/timeline/build.mjs
 // is the plain-JS twin the backfill and the Action run (node can't import TypeScript); build.test.ts compares them.
 
-import { redact } from '../docs/filter'
-import { sha256Hex } from './sha256'
-import { POINT_KINDS, type Point, type PointInput } from './types'
+import { redact } from '../docs/filter.js'
+import { sha256Hex } from './sha256.js'
+import { POINT_KINDS, type Point, type PointInput } from './types.js'
 
 export const TRUSTED = ['OWNER', 'COLLABORATOR']
 export const APPROVERS = ['OWNER']

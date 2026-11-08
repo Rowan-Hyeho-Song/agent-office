@@ -1,9 +1,9 @@
 // The library's shared state: the document list for the current role (the viewer and the bookshelf read it) and the
 // bodies fetched so far. A tiny external store like the approval panel's; React reads it with useSyncExternalStore.
 
-import type { Role } from '../approvals/source'
-import { groupLibrary, shelfLayout, type DocBody, type DocFolder, type DocMeta, type ShelfLayout } from './library'
-import type { DocsSource } from './source'
+import type { Role } from '../approvals/source.js'
+import { groupLibrary, shelfLayout, type DocBody, type DocFolder, type DocMeta, type ShelfLayout } from './library.js'
+import type { DocsSource } from './source.js'
 
 export interface Library {
   /** null until the first answer */

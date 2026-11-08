@@ -1,10 +1,10 @@
 // The development fake behind ?debug=1 (never used otherwise): sample approvals of every kind and a hand-driven
 // role, so the box can be built and screenshotted without Supabase. Driven from window.__office.approvals.
 
-import { needsOpinion, readChoice } from './approve'
-import type { ApprovalSource, Cover, DecideResult, Role } from './source'
-import type { StoredApproval } from './types'
-import { oldestFirst } from './view'
+import { needsOpinion, readChoice } from './approve.js'
+import type { ApprovalSource, Cover, DecideResult, Role } from './source.js'
+import type { StoredApproval } from './types.js'
+import { oldestFirst } from './view.js'
 
 const REPO = 'owner/agent-office'
 const at = (h: number, m: number) => new Date(2026, 10, 8, h, m).toISOString()

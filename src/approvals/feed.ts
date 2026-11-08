@@ -2,8 +2,8 @@
 // since …?". It uses the same token as the signal hook (OFFICE_HOOK_TOKEN), and gets only decided approvals
 // that the owner both asked for (🖊) and answered (✅): /api/docs and /api/approve never store anyone else's.
 
-import { sameToken } from '../docs/ingest'
-import type { StoredApproval } from './types'
+import { sameToken } from '../docs/ingest.js'
+import type { StoredApproval } from './types.js'
 
 export interface FeedStore {
   decidedFor(seat: number, since: string, limit: number): Promise<StoredApproval[]>
