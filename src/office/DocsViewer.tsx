@@ -1,3 +1,4 @@
+import { DockSlot } from './CornerDock'
 import { IssueReplayButton } from '../replay/IssueReplayButton'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
 import { fmtDay as fmtShortDay } from '../approvals/view'
@@ -161,10 +162,12 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
         {live}
       </div>
       {!open && (
-        <button type="button" className="approval-tab docs-launcher" aria-expanded={false} aria-controls="docs-box" onClick={toggleDocs}>
-          <Icon name="publish" />
-          서재
-        </button>
+        <DockSlot slot="docs">
+          <button type="button" className="dock-btn docs-launcher" aria-label="서재" aria-expanded={false} aria-controls="docs-box" onClick={toggleDocs}>
+            <Icon name="publish" />
+            <span className="dock-label">서재</span>
+          </button>
+        </DockSlot>
       )}
       {open && (
         <section id="docs-box" ref={box} tabIndex={-1} className="docs-box" aria-label="서재">

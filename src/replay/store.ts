@@ -2,6 +2,10 @@
 // external store: getSnapshot returns the same object until something the screen shows changes (a new object per call
 // blanked the page in #94). The per-frame progress of the current step is a plain field (`prog`), not part of the
 // snapshot, so the bar can read it from its animation frame without re-rendering React.
+//
+// One replay clock (#158): `clock` (ms, "tau") only ever moves by `advance(dTau)`, which the 3D scene calls with real dt x
+// speed. The speed is nothing but that rate: a step lasts the same tau at x1 and x16, the playhead lands at exact boundaries,
+// and everything on screen (walking, meetings, bubbles) is computed from tau, so x16 is x1 played faster.
 
 import { useSyncExternalStore } from 'react'
 import type { Point } from '../timeline/types'
@@ -37,8 +41,8 @@ export interface OpenOptions {
 }
 
 const END_HOLD_MS = 3000
-/** a meeting that holds a step at x1 never holds it longer than this */
-const HOLD_CAP_MS = 45_000
+/** a meeting never holds the next point longer than this (replay ms) */
+export const HOLD_CAP_MS = 45_000
 
 const INITIAL: ReplayState = { mode: 'off', project: ALL, projects: [], i: 0, count: 0, playing: false, speed: 1, flip: null, ended: false, loaded: false, issue: null }
 
@@ -57,17 +61,20 @@ export class ReplayStore {
   private cache: Scene | null = null
   private phase: 'step' | 'daybreak' = 'step'
   private elapsed = 0
-  private last = 0
   private held = 0
   private endedAt = 0
   /** progress 0..1 of the current step (or the day flip), for the bar's playhead */
   prog = 0
-  /** performance.now() when the playhead last landed on a point */
-  landedAt = 0
-  /** how the current point was reached (walking only follows `play`) */
+  /** the replay clock, ms: moves only by advance() */
+  clock = 0
+  /** the clock when the playhead last landed on a point */
+  landedClock = 0
+  /** how many landings so far (a scene tells a new one apart) */
+  landings = 0
+  /** how the current point was reached (a `seek` is a jump: the scene snaps everyone to the point) */
   landedVia: PointVia = 'seek'
-  /** set by the scene: a long scene (a meeting) holds the next point at x1 */
-  hold: () => boolean = () => false
+  /** set by the scene: how long (replay ms, 0 = not at all) the next point waits for a meeting or for walkers to arrive */
+  hold: () => number = () => 0
   /** where the points come from (the fixtures until /api/timeline is deployed); swapped in tests */
   source: () => Promise<Point[]> = loadFixtures
 
@@ -144,9 +151,8 @@ export class ReplayStore {
     this.phase = 'step'
     this.elapsed = 0
     this.prog = 0
-    this.last = performance.now()
     this.held = 0
-    this.landedAt = this.last
+    this.landedClock = this.clock
     this.set({
       mode: opts.mode ?? (narrow() ? 'list' : 'office'),
       project,
@@ -177,7 +183,8 @@ export class ReplayStore {
   // ---- moving --------------------------------------------------------------------------------------------------------
 
   private land(via: PointVia) {
-    this.landedAt = performance.now()
+    this.landedClock = this.clock
+    this.landings++
     this.landedVia = via
     const p = this.point
     if (p) this.pointListeners.forEach((l) => l(p, via))
@@ -219,7 +226,6 @@ export class ReplayStore {
     // at the end: start over
     const atEnd = this.state.ended || this.state.i >= this.win.length - 1
     if (atEnd) this.seek(0)
-    this.last = performance.now()
     this.set({ playing: true, ended: false })
   }
   pause() {
@@ -246,56 +252,74 @@ export class ReplayStore {
     this.land('seek')
   }
 
-  /** every animation frame while the office replay is on */
+  /** every animation frame (real ms): after the last point the replay returns to live a moment later */
   tick(now: number) {
-    const dt = Math.max(0, Math.min(100, now - this.last))
-    this.last = now
-    const s = this.state
-    if (s.mode !== 'office') return
-    if (s.ended) {
-      if (now - this.endedAt >= END_HOLD_MS) this.close()
-      return
-    }
-    if (!s.playing || !this.win.length) return
-    // a long scene (a meeting) holds the next point at x1 only
-    if (s.speed === 1 && this.phase === 'step' && this.prog >= 1 && this.hold() && this.held < HOLD_CAP_MS) {
-      this.held += dt
-      return
-    }
-    this.elapsed += dt
-    const cur = this.win[s.i]
-    const next = this.win[s.i + 1]
-    if (this.phase === 'step') {
-      const dur = stepMs(cur, s.speed)
-      this.prog = Math.min(1, this.elapsed / dur)
-      if (this.prog < 1) return
-      if (this.hold() && s.speed === 1 && this.held < HOLD_CAP_MS) return
-      if (!next) {
-        this.endedAt = now
-        return void this.set({ playing: false, ended: true })
-      }
-      if (isDaybreak(cur, next)) {
-        this.phase = 'daybreak'
-        this.elapsed = 0
-        this.prog = 0
-        return void this.set({ flip: whenText(atMs(cur)) })
-      }
-      return this.advance()
-    }
-    const dur = daybreakMs(s.speed)
-    this.prog = Math.min(1, this.elapsed / dur)
-    const text = flipText(whenText(atMs(cur)), whenText(atMs(next)), this.prog)
-    if (this.prog < 1) return void this.set({ flip: text })
-    this.advance()
+    if (this.state.mode !== 'office' || !this.state.ended) return
+    if (now - this.endedAt >= END_HOLD_MS) this.close()
   }
 
-  private advance() {
-    this.phase = 'step'
-    this.elapsed = 0
-    this.prog = 0
-    this.held = 0
-    this.set({ i: this.state.i + 1, flip: null })
-    this.land('play')
+  /** replay ms until the playhead reaches its next boundary (Infinity when it is not moving or is waiting there) */
+  untilBoundary(): number {
+    const s = this.state
+    if (s.mode !== 'office' || !s.playing || !this.win.length) return Infinity
+    const room = (this.phase === 'step' ? stepMs(this.win[s.i]) : daybreakMs()) - this.elapsed
+    return room > 0 ? room : Infinity
+  }
+
+  /**
+   * Move the replay clock on by `dTau` ms (real dt x speed) while playing. The playhead lands on each point at the exact
+   * clock of its boundary, so it lands at the same tau at any speed; a hold (a meeting, someone still walking) makes the
+   * next point wait, measured in tau, and the clock keeps running meanwhile.
+   */
+  advance(dTau: number) {
+    const s = this.state
+    if (s.mode !== 'office' || !s.playing || !this.win.length || s.ended) return
+    while (dTau > 0) {
+      const cur = this.win[this.state.i]
+      const next = this.win[this.state.i + 1]
+      const dur = this.phase === 'step' ? stepMs(cur) : daybreakMs()
+      const room = dur - this.elapsed
+      if (room > dTau) {
+        this.elapsed += dTau
+        this.clock += dTau
+        this.prog = this.elapsed / dur
+        if (this.phase === 'daybreak') this.set({ flip: flipText(whenText(atMs(cur)), whenText(atMs(next)), this.prog) })
+        return
+      }
+      this.clock += room
+      dTau -= room
+      this.elapsed = dur
+      this.prog = 1
+      if (this.phase === 'step') {
+        const cap = Math.min(HOLD_CAP_MS, this.hold())
+        if (this.held < cap) {
+          // wait here; the rest of this advance is spent waiting (the hold is released the moment its cap is used up)
+          const wait = Math.min(dTau, cap - this.held)
+          this.held += wait
+          this.clock += wait
+          dTau -= wait
+          if (this.held < cap) return
+        }
+        if (!next) {
+          this.endedAt = performance.now()
+          this.clock += dTau
+          return void this.set({ playing: false, ended: true })
+        }
+        if (isDaybreak(cur, next)) {
+          this.phase = 'daybreak'
+          this.elapsed = 0
+          this.prog = 0
+          this.set({ flip: whenText(atMs(cur)) })
+          continue
+        }
+      }
+      this.phase = 'step'
+      this.elapsed = 0
+      this.prog = 0
+      this.held = 0
+      this.set({ i: this.state.i + 1, flip: null })
+      this.land('play')
+    }
   }
 
   // ---- sharing -------------------------------------------------------------------------------------------------------

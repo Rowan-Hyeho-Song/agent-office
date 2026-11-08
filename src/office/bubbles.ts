@@ -86,6 +86,8 @@ export interface PlaceInput {
   pair: boolean
   /** the earlier line of a conversation: hidden on a narrow screen */
   dim: boolean
+  /** hangs below the head (a meeting before the whiteboard: the board stays visible) */
+  down?: boolean
 }
 
 export interface Placed {
@@ -140,8 +142,9 @@ export function placeBubbles(items: PlaceInput[], view: PlaceView): Record<strin
     out[i.id] = { side: i.prefSide, dir: 'up', stack: 0, shift: 0, visible: !gone }
     if (gone) continue
     const p = out[i.id]
+    if (i.down) p.dir = 'down'
     let r = cardRect(i, p)
-    if (r.top < top) {
+    if (r.top < top && p.dir === 'up') {
       p.dir = 'down'
       r = cardRect(i, p)
     }
@@ -160,7 +163,7 @@ export function placeBubbles(items: PlaceInput[], view: PlaceView): Record<strin
     const cur = live[k]
     const p = out[cur.id]
     // raise it until it clears every earlier bubble it overlaps (a few passes: clearing one can run into another)
-    for (let pass = 0; pass < 4 && p.dir === 'up'; pass++) {
+    for (let pass = 0; pass < 4 && (p.dir === 'up' || cur.down); pass++) {
       let moved = false
       for (let j = 0; j < k; j++) {
         const a = cardRect(live[j], out[live[j].id])
@@ -168,15 +171,15 @@ export function placeBubbles(items: PlaceInput[], view: PlaceView): Record<strin
         const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left)
         const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
         if (overlapX > 0 && overlapY > -BUBBLE.gap) {
-          // its bottom edge to the other's top edge, plus the gap
-          p.stack += b.bottom - a.top + BUBBLE.gap
+          // its bottom edge to the other's top edge, plus the gap (a hanging one moves down past the other's bottom)
+          p.stack += (p.dir === 'up' ? b.bottom - a.top : a.bottom - b.top) + BUBBLE.gap
           moved = true
         }
       }
       if (!moved) break
     }
     // stacked past the safe line by more than the stacking gap (designer, #107): hang it below the head instead
-    if (p.dir === 'up' && cardRect(cur, p).top < top - BUBBLE.gap) {
+    if (p.dir === 'up' && !cur.down && cardRect(cur, p).top < top - BUBBLE.gap) {
       p.dir = 'down'
       p.stack = 0
     }
@@ -241,6 +244,8 @@ export interface BubbleItem {
   log: string
   /** the earlier line of a conversation: grey, hidden on narrow screens */
   dim: boolean
+  /** hangs below the head: a meeting in the board circle keeps the whiteboard visible */
+  down?: boolean
   order: number
   /** the agent it faces (two speakers open their bubbles outward) */
   pairWith: string | null

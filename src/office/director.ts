@@ -1,8 +1,10 @@
 // Decides where each agent should be and what it does there, from the status source, the play schedule and
 // the messages in flight. Pure: no three.js; the rigs report arrivals back through `arrivedAt`.
 
+import { DESK_SIDES } from './nav'
 import { playAt, soloAt, type PlayKind } from './play'
 import { activityLabel, type OfficeMessage, type StatusMap } from './status'
+import type { Request } from './traffic'
 
 export type Pose = 'idle' | 'type' | 'post' | 'talk' | 'listen' | 'leave' | 'doze' | PlayKind
 
@@ -13,6 +15,14 @@ export interface Goal {
   face?: { x: number; z: number }
   /** an agent to turn the head toward (talking at a desk) */
   lookAt?: string
+  /** a standing pose of its own instead of the spot's (meeting formations, #141); `spot` is then only its label */
+  slot?: { x: number; z: number; ry: number }
+  /** do not set off before this office time, ms (staggered meeting departures) */
+  depart?: number
+  /** an agent to turn only the head toward (the body keeps the spot's / slot's direction) */
+  gaze?: string
+  /** a short reaction, started once when `key` changes: a 5° nod, with a slight hand lift (skipped with reduced motion) */
+  gesture?: { key: string; hand: boolean }
   /** placeholder speech bubble text (bubble design comes later) */
   bubble?: string
   /** walk clear of the desk sides (the night-duty agent, so it doesn't look like it wakes a sleeper) */
@@ -20,6 +30,15 @@ export interface Goal {
   /** what it's doing, for the debug panel */
   label: string
 }
+
+/** what the traffic planner is asked for a goal: its spot, or its own slot (#141); `notBefore` is the departure in planner seconds */
+export const requestOf = (goal: Goal, pace: number, notBefore?: number): Request => ({
+  spot: goal.spot,
+  ...(goal.slot ? { slot: goal.slot } : {}),
+  pace,
+  avoid: goal.quiet ? DESK_SIDES : undefined,
+  ...(notBefore !== undefined ? { notBefore } : {}),
+})
 
 /** how long a face-to-face talk lasts, how long to wait for both to arrive, how long a wrap-up takes */
 const TALK_MS = 6000

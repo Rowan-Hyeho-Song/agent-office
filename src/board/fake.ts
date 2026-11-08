@@ -4,7 +4,7 @@
 import { BoardStore } from './store'
 import { COLUMNS, asSeat, emptyBoard, type BoardCard, type BoardState, type Column } from './state'
 
-const REPO = 'owner/agent-office'
+const REPO = 'Rowan-Hyeho-Song/agent-office'
 const T0 = Date.UTC(2026, 10, 8, 0, 0, 0)
 
 export class FakeBoard {

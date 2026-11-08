@@ -4,6 +4,7 @@ import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing'
 import { Suspense, useEffect, useState } from 'react'
 import { AgentList } from './office/AgentList'
 import { ApprovalBox } from './office/ApprovalBox'
+import { CornerDock } from './office/CornerDock'
 import { DebugPanel } from './office/DebugPanel'
 import { DocsViewer } from './office/DocsViewer'
 import { CameraHint, CameraRig } from './office/cameraRig'
@@ -79,6 +80,7 @@ export function App() {
       </p>
       <CameraHint enabled={limits && !busy} />
       <AgentList world={world} />
+      <CornerDock />
       <ApprovalBox world={world} />
       <DocsViewer world={world} />
       <RoomUi />
