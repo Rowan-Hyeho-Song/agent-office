@@ -23,6 +23,7 @@ import { splitDecision } from '../board/state'
 import { LiveStatusSource } from './liveStatus'
 import type { NavGraph } from './nav'
 import type { NavCheck } from './navcheck'
+import type { TrafficPlanner } from './traffic'
 import type { PaperPlanes } from './plane'
 import type { AgentRig } from './rig'
 import { FakePropsFeed, LivePropsFeed, type PropsFeed } from './propsFeed'
@@ -114,6 +115,12 @@ export interface OfficeWorld {
   planes: PaperPlanes | null
   graph: NavGraph | null
   check: NavCheck | null
+  /** the traffic planner (#138), set by the scene; ?debug=1 draws its grid and plans when showGrid is on */
+  traffic: TrafficPlanner | null
+  showGrid: boolean
+  forceSpots: Record<string, string> | null
+  /** the planner's clock, s (accumulated frame time) */
+  simTime: number
 }
 
 function setKst(w: OfficeWorld, text: string) {
@@ -180,6 +187,10 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     planes: null,
     graph: null,
     check: null,
+    traffic: null,
+    showGrid: false,
+    forceSpots: null,
+    simTime: 0,
   }
   holder.w = world
   if (debug) setKst(world, query.get('kst') ?? '')

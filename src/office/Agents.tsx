@@ -7,8 +7,12 @@ import { seatName } from './meeting'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BufferGeometry, Color, Vector3, Float32BufferAttribute, Line, LineBasicMaterial, LineSegments, type Mesh } from 'three'
-import { buildGraph, dist, pathLength, patchSpots, shortestPath, type NavGraph } from './nav'
+import { buildGraph, DESK_SIDES, dist, pathLength, patchSpots, shortestPath, type NavGraph } from './nav'
+import { buildGrid } from './grid'
+import { TrafficPlanner } from './traffic'
+import { InstancedMesh, MeshBasicMaterial, PlaneGeometry, Matrix4, Group } from 'three'
 import { checkNav, edgeKey } from './navcheck'
+import { rasterFootprint } from './floorMask'
 import { meshesOf, useOffice } from './nodes'
 import { DeskLive } from './deskLive'
 import { PaperPlanes } from './plane'
@@ -56,6 +60,10 @@ export function Agents({ world }: { world: OfficeWorld }) {
     const tryout = world.debug ? (new URLSearchParams(location.search).get('nav') ?? '') : ''
     return buildGraph(patchSpots(spots, tryout))
   }, [world, spots])
+  // the walkable floor and the traffic plan (#138): built once from the model's furniture and the nav spots
+  const furniture = useMemo(() => Object.values(nodes).filter((m) => m.userData.atlas).flatMap(meshesOf), [nodes])
+  const planner = useMemo(() => new TrafficPlanner(buildGrid(rasterFootprint(furniture, 0.05, scene), graph), graph), [furniture, graph, scene])
+  const sim = useRef(0)
   const rigs = useMemo(
     () =>
       Object.fromEntries(
@@ -100,6 +108,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
     if (path) boardDistance[seat] = pathLength(graph, path)
   }
   world.graph = graph
+  world.traffic = planner
 
   useEffect(
     () =>
@@ -111,6 +120,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
   )
 
   useFrame((state, dt) => {
+    sim.current += Math.min(dt, 0.1)
+    world.simTime = sim.current
     const now = officeNow(world)
     const t = state.clock.elapsedTime
     // the timelapse (#82): the record's statuses and desk goals stand in for the live ones (and the director's play)
@@ -144,6 +155,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
     world.replay?.tick()
     const door = graph.spots.door
     world.meeting.apply(now, (a) => rigs[a].arrived, goals, door ? { x: door.x, z: door.z } : undefined)
+    // ?debug=1: window.__office.forceSpots = { agent_0: 'whiteboard', ... } sends agents to spots (head-on tests, screenshots)
+    if (world.debug && world.forceSpots) for (const id in world.forceSpots) if (goals[id]) goals[id] = { ...goals[id], spot: world.forceSpots[id], pose: 'idle', label: 'debug' }
     world.goals = goals
     const desk = scene
       ? deskProps({
@@ -160,8 +173,12 @@ export function Agents({ world }: { world: OfficeWorld }) {
     if (rigs.agent_3) rigs.agent_3.watch = desk.duckLook && rigs.agent_3.arrived === `work_3` ? desks.duckPoint() : null
     for (const id in rigs) {
       rigs[id].pace = scene ? REPLAY_PACE : 1
+      rigs[id].traffic = goals[id].pose !== 'leave'
+      if (rigs[id].traffic) planner.request(id, { spot: goals[id].spot, pace: rigs[id].pace, avoid: goals[id].quiet ? DESK_SIDES : undefined }, sim.current, Number(id.split('_')[1]))
       rigs[id].setGoal(goals[id], graph)
     }
+    planner.update(sim.current)
+    for (const id in rigs) rigs[id].track = rigs[id].traffic && planner.has(id) ? planner.sample(id, sim.current) : null
     walkHold.busy = !!scene && Object.keys(rigs).some((id) => walkPlan.current.walk[id] && rigs[id].arrived !== goals[id].spot)
     for (const id in rigs) rigs[id].update(dt, t, graph, rigs, reduced, status[id])
     // the planner picks up its stamp the moment the owner decides something
@@ -232,7 +249,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
 
   return (
     <>
-      {world.debug && <NavDebug world={world} graph={graph} meshes={Object.values(nodes).filter((m) => m.userData.atlas).flatMap(meshesOf)} />}
+      {world.debug && <NavDebug world={world} graph={graph} meshes={furniture} planner={planner} />}
     </>
   )
 }
@@ -240,9 +257,20 @@ export function Agents({ world }: { world: OfficeWorld }) {
 const MAX_ROUTE = 32
 
 /** ?debug=1: the nav graph (red = an edge that hits furniture), spot names, and each agent's remaining route */
-function NavDebug({ world, graph, meshes }: { world: OfficeWorld; graph: NavGraph; meshes: Mesh[] }) {
+function NavDebug({ world, graph, meshes, planner }: { world: OfficeWorld; graph: NavGraph; meshes: Mesh[]; planner: TrafficPlanner }) {
+  const { scene } = useOffice()
   const check = useMemo(() => checkNav(graph, meshes), [graph, meshes])
   world.check = check
+  ;(world as unknown as { footprint: () => unknown }).footprint = () => {
+    const f = rasterFootprint(meshes, 0.05, scene)
+    let bin = ''
+    for (let k = 0; k < f.bits.length; k += 8) {
+      let v = 0
+      for (let q = 0; q < 8; q++) v |= (f.bits[k + q] ?? 0) << q
+      bin += String.fromCharCode(v)
+    }
+    return { cell: f.cell, minX: f.minX, minZ: f.minZ, w: f.w, h: f.h, b64: btoa(bin) }
+  }
 
   const edges = useMemo(() => {
     const pos: number[] = []
@@ -273,9 +301,30 @@ function NavDebug({ world, graph, meshes }: { world: OfficeWorld; graph: NavGrap
     [world.rigs],
   )
 
+  // the walkable grid (#138): blocked cells red, carved docks amber; shown with the debug panel's checkbox
+  const gridView = useMemo(() => {
+    const g = planner.grid
+    const cells: number[] = []
+    for (let c = 0; c < g.blocked.length; c++) if (g.blocked[c] || g.dock[c]) cells.push(c)
+    const geo = new PlaneGeometry(g.cell * 0.92, g.cell * 0.92).rotateX(-Math.PI / 2)
+    const mesh = new InstancedMesh(geo, new MeshBasicMaterial({ transparent: true, opacity: 0.35, depthTest: false }), cells.length)
+    const m = new Matrix4()
+    const col = new Color()
+    cells.forEach((c, i) => {
+      m.makeTranslation(g.minX + ((c % g.w) + 0.5) * g.cell, 0.02, g.minZ + (Math.floor(c / g.w) + 0.5) * g.cell)
+      mesh.setMatrixAt(i, m)
+      mesh.setColorAt(i, col.set(g.dock[c] && !g.blocked[c] ? '#ffb020' : g.raw[c] ? '#ff2020' : '#ff8080'))
+    })
+    mesh.renderOrder = 1
+    const group = new Group()
+    group.add(mesh)
+    return group
+  }, [planner])
+
   useFrame(() => {
+    gridView.visible = world.showGrid
     for (const { id, line } of routes) {
-      const pts = world.rigs[id].route(graph).slice(0, MAX_ROUTE)
+      const pts = planner.has(id) ? planner.routePoints(id, world.simTime).slice(0, MAX_ROUTE) : world.rigs[id].route(graph).slice(0, MAX_ROUTE)
       const attr = line.geometry.getAttribute('position') as Float32BufferAttribute
       pts.forEach((p, i) => attr.setXYZ(i, p.x, 0.06, p.z))
       attr.needsUpdate = true
@@ -287,6 +336,7 @@ function NavDebug({ world, graph, meshes }: { world: OfficeWorld; graph: NavGrap
   return (
     <>
       <primitive object={edges} renderOrder={1} />
+      <primitive object={gridView} />
       {routes.map(({ id, line }) => (
         <primitive key={id} object={line} />
       ))}
