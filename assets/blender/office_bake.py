@@ -27,7 +27,11 @@ Node contract (the app reads glTF extras):
                                    the shared "spines" canvas: extras canvas, grid, px, cell), SECRET stamp (own pivot)
   screen_shelf_r<r>                live "screen": the folder name plate under each library row
   neon_approval                    live "neon": the amber dot on MEMO's IN tray (= the approval box)
-  hit_approval, hit_library        empties: click boxes (extras hit, size [w, h, d]; center + axes = the empty)
+  hit_approval, hit_library, hit_clock
+                                   empties: click boxes (extras hit, size [w, h, d]; center + axes = the empty)
+  clock_hand_h, clock_hand_m, clock_hub
+                                   live "bot": the wall clock (#91), pivot_at = face center, local +y = 12 o'clock,
+                                   local +z = out of the face; both hands export at 12, clockwise = negative turn about z
 Seats 0..3 = MEMO amber, MESH lavender, HUE magenta, LOOP cyan (#26); their forms: docs/design/agents.md 2 (#28).
 """
 import os
@@ -58,6 +62,8 @@ SOFA = (0.35, 2.15)
 GAME_TABLE = (-1.35, 1.55)
 SHELF_X = 2.85
 SHELF_W, SHELF_D = 1.1, 0.34  # the bookshelf against the back wall: width, depth
+CLOCK_AT, CLOCK_S = (-HX + 0.02, 1.85, 1.35), 0.40  # wall clock face center (left wall, over the coffee counter), size
+CLOCK_M = Mx((CLOCK_AT[0] + 0.01, CLOCK_AT[1], CLOCK_AT[2]), ry=math.pi / 2)  # the face front: local +z = web +x
 
 
 def frame(at):
@@ -601,6 +607,8 @@ def build_hits():
     # the IN tray (= the approval box, #67): roomy, it is small on screen
     hit("approval", "approval", frame(AGENTS[0]["at"]) @ Mx((TRAY[0], DESK_H + 0.08, TRAY[1])), (0.30, 0.20, 0.36))
     hit("library", "library", Mx((SHELF_X, 1.05, -HZ + 0.01 + SHELF_D / 2)), (SHELF_W + 0.03, 2.1, SHELF_D))
+    # the wall clock (#91): face and hands, a little proud of the face
+    hit("clock", "clock", CLOCK_M @ Mx((0, 0, 0.015)), (CLOCK_S + 0.04, CLOCK_S + 0.04, 0.05))
 
 
 # ================================================================ WALL ITEMS (atlas: wall_items)
@@ -645,12 +653,32 @@ def build_wall_items():
                 p.append(box("book", (bw, bh, bd), (x + bw / 2, y0 + 0.0125 + bh / 2, sz + 0.02), plastic(col, 0.7, 0, 0.2, "book"), G))
             x += bw + 0.003
     p += library_statics(shelf_m)
-    # a framed poster and a clock on the left wall above the coffee counter
-    lx = -HX + 0.02
-    p += [box("clock", (0.02, 0.32, 0.32), (lx, 1.85, 1.35), plastic("#f4f4f0", 0.4, 0, 0, "clock_face"), G),
-          box("hand_h", (0.012, 0.09, 0.012), (lx + 0.015, 1.88, 1.35), plastic("#111111", 0.5, 0, 0, "hand"), G),
-          box("hand_m", (0.012, 0.012, 0.12), (lx + 0.015, 1.85, 1.39), plastic("#111111", 0.5, 0, 0, "hand"), G)]
+    # the wall clock on the left wall above the coffee counter (#91: the timelapse entrance): face + 12 ticks baked,
+    # hands and hub live (build_clock)
+    p.append(box("clock", (0.02, CLOCK_S, CLOCK_S), CLOCK_AT, plastic("#f4f4f0", 0.4, 0, 0, "clock_face"), G))
+    tick = plastic("#1f2a44", 0.6, 0, 0, "clock_tick")
+    for k in range(12):
+        w, ln = (0.008, 0.030) if k % 3 == 0 else (0.004, 0.020)
+        p += place([box("clock_tick", (w, ln, 0.001), (0, 0.184 - ln / 2, 0.0005), tick, G)], CLOCK_M @ Mx(rz=-k * math.pi / 6))
     return join("wall_items", p)
+
+
+# ================================================================ WALL CLOCK (#91, docs/design/timelapse.md 4)
+# The timelapse's way in. The app turns the hands to the time (now, or the replayed moment) and lights the hub cyan on
+# hover; hit_clock is the click box. Sizes from the design's clock() drawing at 0.40 m = 200 px (1 px = 2 mm).
+def build_clock():
+    """clock_hand_h, clock_hand_m, clock_hub: live bot, pivot = the face center, node frame = CLOCK_M (local +y =
+    12 o'clock, local +z = out of the face = web +x). Both hands point at 12; clockwise = negative turn about local z."""
+    G = "export"
+    ink = plastic("#111111", 0.5, 0, 0, "clock_hand")
+    out = []
+    for name, (w, ln, z) in (("clock_hand_h", (0.020, 0.096, 0.0075)), ("clock_hand_m", (0.014, 0.152, 0.0110))):
+        tail = 0.016
+        hand = box(name, (w, ln + tail, 0.003), (0, (ln - tail) / 2, z), ink, G)
+        out.append(pivot(join(name, place([hand], CLOCK_M)), CLOCK_M))
+    hub = cyl("clock_hub", 0.01, 0.008, (0, 0, 0.0165), plastic("#111111", 0.35, 0.6, 0, "clock_hub"), G, 20, axis="z")
+    out.append(pivot(join("clock_hub", place([hub], CLOCK_M)), CLOCK_M))
+    return out
 
 
 # ================================================================ LOUNGE (atlas: lounge)
@@ -1223,6 +1251,8 @@ for i, a in enumerate(AGENTS):
 for o in work:
     baked(o, "work")
 baked(build_wall_items(), "wall_items")
+for o in build_clock():
+    live(o, "bot")
 lib = build_library()
 for o, kind in lib:
     live(o, kind)
@@ -1391,9 +1421,14 @@ if PREVIEW:
                 for o in parts:
                     o.matrix_world = R @ o.matrix_world
     bpy.context.view_layer.update()
+    for hand, turn in (("clock_hand_h", (10 + 10 / 60) / 12), ("clock_hand_m", 10 / 60)):  # 10:10 as in the design (#91)
+        o = bpy.data.objects[hand]
+        o.matrix_world = CLOCK_M @ Mx(rz=-turn * 2 * math.pi) @ CLOCK_M.inverted() @ o.matrix_world
+    bpy.context.view_layer.update()
     for name, (pos, target) in {"library": ((2.0, 1.4, -0.45), (2.78, 1.05, -2.55)),
                                 "library_spines": ((2.5, 1.12, -1.75), (2.6, 1.02, -2.45)),
-                                "approval": ((-1.55, 1.25, -1.65), (-2.0, 0.85, -2.45))}.items():
+                                "approval": ((-1.55, 1.25, -1.65), (-2.0, 0.85, -2.45)),
+                                "clock": ((-2.35, 1.8, 1.0), (-3.48, 1.85, 1.35))}.items():
         shoot(name, pos, target)
     # 2) holding props by their #20 grip offsets on the new _grip empties (preview-only poses)
     saved = {n: bpy.data.objects[n].matrix_world.copy() for n in ("prop_paddle_a", "prop_cup_1")}
@@ -1459,7 +1494,7 @@ scene.render.bake.target = "IMAGE_TEXTURES"
 # when they leave (props too since #43: a lifted paddle left its shadow on the table; the binders since #67: the app
 # shows only as many as there are files)
 for n in NODES:
-    if n["obj"].name.startswith(("agent_", "shelf_r")) or n.get("live") == "prop":
+    if n["obj"].name.startswith(("agent_", "shelf_r", "clock_")) or n.get("live") == "prop":
         n["obj"].hide_render = True
 
 atlases = {}
