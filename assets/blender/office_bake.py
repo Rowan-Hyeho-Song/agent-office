@@ -1956,7 +1956,7 @@ def build_props():
                 box("marker_clip", (0.003, 0.002, 0.022), (0, 0.0092, -0.04), cm, G, bev=0.0005, seg=1),
                 cyl("marker_band", 0.0077, 0.012, (0, 0, 0.03), cm, G, 16, axis="z"),
                 cyl("marker_plug", 0.006, 0.006, (0, 0, 0.058), cm, G, 12, axis="z", bev=0.001)]
-        out.append(prop(f"prop_marker_{k}", "marker", objs, (WHITEBOARD_X - 0.35 + k * 0.05, 0.9975 + 0.0085, zb + 0.04),
+        out.append(prop(f"prop_marker_{k}", "marker", objs, (WHITEBOARD_X - 0.42 + k * 0.14, 0.9975 + 0.0085, zb + 0.04),
                         (0.0, math.pi / 2, 0.0), **PEN_GRIP))
     return out
 
