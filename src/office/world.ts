@@ -14,6 +14,10 @@ import { feedBoardFromLibrary } from '../board/feed'
 import { BoardStore } from '../board/store'
 import type { Ref } from '../docs/library'
 import { Director, type Goal } from './director'
+import { BubbleCenter } from './bubbleCenter'
+import { MeetingRunner } from './meetingRun'
+import { ReplayControl } from './replay'
+import { splitDecision } from '../board/state'
 import { LiveStatusSource } from './liveStatus'
 import type { NavGraph } from './nav'
 import type { NavCheck } from './navcheck'
@@ -85,6 +89,12 @@ export interface OfficeWorld {
   /** debug only: window.__office.clock.set('10:10') pins the wall clock (Seoul time), set('') releases it */
   clock: { set(text: string): void } | null
   director: Director
+  /** bubbles outside a replay (#97): window.__office.bubbles.say(agent, { kind: 'talk' | 'react' | 'private', text }) */
+  bubbles: BubbleCenter
+  /** the meeting replay player (#97, reused by the timelapse #82): .onDecisionPinned(cb), .onEnd(cb), .view(now) */
+  meeting: MeetingRunner
+  /** what starts replays (null without a library): window.__office.replay.minutes(n) / .secret() / .private() / .pick(at?) / .stop() */
+  replay: ReplayControl | null
   /** debug only: shifts the play clock to preview later schedules */
   timeOffsetMs: number
   goals: Record<string, Goal>
@@ -122,7 +132,8 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
   const board = new BoardStore()
   const fakeBoard = docs ? new FakeBoard(board) : null
   if (library && !fakeBoard) feedBoardFromLibrary(library, board)
-  return {
+  const meeting = new MeetingRunner()
+  const world: OfficeWorld = {
     debug,
     board,
     fakeBoard,
@@ -138,6 +149,9 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     screens: new ScreenDebug(),
     clock: debug ? { set: setClockFromText } : null,
     director: new Director(AGENTS),
+    bubbles: new BubbleCenter(),
+    meeting,
+    replay: null,
     timeOffsetMs: 0,
     goals: {},
     rigs: {},
@@ -145,6 +159,24 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     graph: null,
     check: null,
   }
+  if (library) {
+    // the hourly idle replay is off under ?debug=1 unless &replay is in the address, so screenshots stay still
+    world.replay = new ReplayControl(library, meeting, { now: () => officeNow(world), status: () => world.source.getSnapshot(), reduced: prefersReducedMotion }, !debug || query.has('replay'))
+    world.replay.watch()
+  }
+  // the planner pins the decision on the whiteboard: the note fades in like any new one (#66)
+  meeting.onDecisionPinned(({ script, text }) => {
+    const s = splitDecision(text)
+    board.pin({ key: `meeting:${script.id}`, repo: script.repo, n: script.n, title: s.title, note: s.note, at: new Date().toISOString() })
+  })
+  return world
+}
+
+/** the same rule as the design tokens: html[data-motion="reduce"|"full"] wins, otherwise the OS setting */
+export function prefersReducedMotion(): boolean {
+  const forced = document.documentElement.dataset.motion
+  if (forced === 'reduce' || forced === 'full') return forced === 'reduce'
+  return matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 /** the library: Supabase, or under ?debug=1 the fake (shares the approval fake's role). ?debug=1&docs=owner|visitor opens the viewer */

@@ -4,6 +4,7 @@ import { Box3, CanvasTexture, MeshBasicMaterial, Raycaster, SRGBColorSpace, Vect
 import { meshesOf, type OfficeNodes } from '../office/nodes'
 import { DOOR_FX } from './doorFx'
 import { DOOR_H, DOOR_W, drawDoor, hoverTick } from './doorScreen'
+import { getDoorMessage } from './doorMessage'
 import { ROOM_MODE, isLocked, leaveOffice, onEntered, onLeaveStart } from './link'
 
 // The door screen's states (hover, press) and, in room mode, the camera that starts in front of it (O) and
@@ -83,10 +84,11 @@ export function Door({ nodes }: { nodes: OfficeNodes }) {
     const since = v.pressed === null ? null : now - v.pressed
     // the key changes only when a pixel would: hover/press, the arrow's and cursor's steps, the flash end
     const phase = since === null ? 'x' : since < DOOR_FX.pressFlashMs ? 'f' : since < DOOR_FX.reducedDimMs && reduced ? 'd' : 'p'
-    const key = `${v.hover ? 1 : 0}${phase}${v.hover || v.pressed !== null ? hoverTick(t) : ''}`
+    const message = getDoorMessage()
+    const key = `${v.hover ? 1 : 0}${phase}${v.hover || v.pressed !== null ? hoverTick(t) : ''}${message ? `|${message.masked ? 'm' : 't'}${message.text}` : ''}`
     if (key === v.key) return
     v.key = key
-    drawDoor(screen.ctx, { hover: v.hover, pressed: since, reduced, t })
+    drawDoor(screen.ctx, { hover: v.hover, pressed: since, reduced, t, message })
     screen.texture.needsUpdate = true
   })
 

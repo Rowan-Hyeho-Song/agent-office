@@ -1,0 +1,113 @@
+/* Speech bubbles and status tags over the office (#97): the design mock's rules (docs/design/office-ui.html, office-ui.md 3), values
+   from src/styles/tokens.css. The layer (src/office/bubbleLayer.ts) writes --x/--y/--stack/--shift and data-side/dir/kind/dim. */
+.ob-layer { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: var(--z-bubble); }
+.ob[data-agent='0'], .ot[data-agent='0'] { --agent: var(--agent-0); --agent-ink: var(--agent-0-ink); }
+.ob[data-agent='1'], .ot[data-agent='1'] { --agent: var(--agent-1); --agent-ink: var(--agent-1-ink); }
+.ob[data-agent='2'], .ot[data-agent='2'] { --agent: var(--agent-2); --agent-ink: var(--agent-2-ink); }
+.ob[data-agent='3'], .ot[data-agent='3'] { --agent: var(--agent-3); --agent-ink: var(--agent-3-ink); }
+.ob:not([data-dim]) { z-index: calc(var(--z-bubble) + 1); } /* the one speaking now is on top */
+.ob[data-leaving] { animation: ob-out var(--dur-fast) linear both; }
+@keyframes ob-out { to { opacity: 0; } }
+.ob-text .t, .ob-text .g { white-space: pre-wrap; }
+.ob-text .g { visibility: hidden; }
+.ob-open {
+  pointer-events: auto; display: block; margin: var(--space-1) 0 0; padding: 0; border: 0; background: none; cursor: pointer;
+  font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1); color: var(--agent-ink); text-decoration: underline;
+}
+.ob[data-dim] .ob-open { color: var(--color-text-muted); }
+.ob-open:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+/* ───── 말풍선 ─────
+   .ob = 기준점(머리 위, 0×0). 앱은 매 프레임 이 요소의 위치만 바꾼다.
+   data-kind: talk | react | private   data-side: right | left (판이 뻗는 쪽)   data-dir: up | down
+   규칙: 지시선이 닿는 쪽 = 에이전트 색 띠 + 이름 탭, 반대쪽 아래 모서리를 깎는다. */
+.ob { position: absolute; left: var(--x); top: calc(var(--y) - 4px); width: 0; height: 0; z-index: var(--z-bubble); pointer-events: none; --stack: 0px; --shift: 0px; }
+.ob-dot { position: absolute; left: -2px; top: -2px; width: 5px; height: 5px; background: var(--agent); box-shadow: 0 0 6px var(--agent); }
+.ob-lead { position: absolute; left: 0; bottom: 0; width: 1px; height: calc(var(--bubble-lead) + var(--stack)); background: var(--agent); box-shadow: 0 0 0 1px var(--color-halo); transform-origin: 50% 100%; animation: ob-lead-in var(--dur-fast) var(--ease-out) both; }
+.ob[data-dir='down'] .ob-lead { bottom: auto; top: 0; transform-origin: 50% 0; }
+.ob[data-dir='down'] { top: calc(var(--y) + 30px); } /* 아래로 펼칠 땐 기준점을 몸 아래(호버 포드)로: 얼굴을 덮지 않게 */
+
+.ob-card {
+  position: absolute; bottom: calc(var(--bubble-lead) + var(--stack));
+  width: max-content; max-width: var(--bubble-max-w);
+  filter: drop-shadow(0 0 1px var(--color-halo)) drop-shadow(0 6px 10px var(--color-halo));
+  animation: ob-bob 2.6s ease-in-out infinite;
+}
+.ob[data-side='right'] .ob-card { left: calc(var(--bubble-stripe) / -2 + var(--shift)); }
+.ob[data-side='left'] .ob-card { right: calc(var(--bubble-stripe) / -2 - var(--shift)); } /* --shift > 0 = 오른쪽으로 */
+.ob[data-dir='down'] .ob-card { bottom: auto; top: calc(var(--bubble-lead) + var(--stack)); }
+
+.ob-tab {
+  display: flex; align-items: center; gap: var(--space-1); width: max-content;
+  height: var(--bubble-tab-h); padding: 0 var(--space-2) 0 var(--space-1);
+  font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--bubble-tab-h);
+  color: var(--color-ink); background: var(--agent);
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
+  animation: ob-tab-in var(--dur-fast) var(--steps-hud) both;
+}
+.ob[data-side='left'] .ob-tab { margin-left: auto; padding: 0 var(--space-1) 0 var(--space-2); clip-path: polygon(0 6px, 6px 0, 100% 0, 100% 100%, 0 100%); }
+.ob-tab svg { width: 12px; height: 12px; flex: none; }
+
+.ob-box { --cut: var(--bubble-cut); padding: 1px; background: color-mix(in srgb, var(--agent) 55%, transparent); clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%); animation: ob-box-in var(--dur-base) var(--steps-hud) var(--dur-instant) both; transform-origin: 0 100%; }
+.ob[data-side='left'] .ob-box { clip-path: polygon(0 0, 100% 0, 100% 100%, var(--cut) 100%, 0 calc(100% - var(--cut))); transform-origin: 100% 100%; }
+.ob-body {
+  padding: var(--bubble-pad-y) var(--bubble-pad-x);
+  background: repeating-linear-gradient(to bottom, color-mix(in srgb, var(--color-text) 3%, transparent) 0 1px, transparent 1px 3px), var(--color-surface-alpha);
+  border-left: var(--bubble-stripe) solid var(--agent);
+  clip-path: inherit;
+}
+.ob[data-side='left'] .ob-body { border-left: 0; border-right: var(--bubble-stripe) solid var(--agent); }
+.ob-text {
+  margin: 0; font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1);
+  color: var(--color-text); word-break: keep-all; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--bubble-max-lines); line-clamp: var(--bubble-max-lines); overflow: hidden;
+}
+.ob-caret { color: var(--agent-ink); animation: caret var(--caret-blink) steps(1) infinite; }
+.ob-text:not([data-typing]) .ob-caret { display: none; }
+
+/* 방문자 반응: 튀어나오듯, 타자 없이 한 번에 */
+.ob[data-kind='react'] .ob-card { animation: ob-pop var(--dur-base) var(--ease-pop) both, ob-bob 2.6s ease-in-out var(--dur-base) infinite; }
+.ob[data-kind='react'] .ob-tab, .ob[data-kind='react'] .ob-box { animation: none; }
+/* 비공개: 내용 대신 자물쇠, 사선 무늬, 회색 글자 */
+.ob[data-kind='private'] .ob-body { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--agent) 12%, transparent) 0 4px, transparent 4px 8px), var(--color-surface-alpha); }
+.ob[data-kind='private'] .ob-text { color: var(--color-lock); display: flex; gap: var(--space-2); align-items: center; }
+.ob[data-kind='private'] .ob-text svg { width: 12px; height: 12px; flex: none; }
+/* 대화에서 상대의 지난 말풍선: 투명도 대신 색을 뺀다(밝은 배경에서도 글자 대비 유지) */
+.ob[data-dim] { --agent: var(--bubble-dim-line); }
+.ob[data-dim] .ob-tab { color: var(--color-text-muted); background: var(--color-surface); }
+.ob[data-dim] .ob-text { color: var(--color-text-muted); }
+.ob[data-dim] .ob-card { animation: none; }
+
+/* ───── 머리 위 상태 꼬리표 ───── */
+.ot { position: absolute; left: var(--x); top: calc(var(--y) - 4px); width: 0; height: 0; z-index: var(--z-tag); pointer-events: none; }
+.ot-chip {
+  position: absolute; left: 0; bottom: 8px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: var(--space-1);
+  height: var(--tag-h); max-width: var(--tag-max-w); padding: 0 var(--space-2) 0 var(--space-1);
+  font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--tag-h); white-space: nowrap;
+  color: var(--color-text); background: var(--color-surface-alpha);
+  border-left: var(--bubble-stripe) solid var(--agent);
+  box-shadow: 0 0 0 1px var(--color-halo);
+  animation: ot-in var(--dur-fast) var(--steps-hud) both;
+}
+.ot-chip::after { /* 머리를 가리키는 짧은 꼭지 */
+  content: ''; position: absolute; left: calc(50% - 3px); bottom: -5px; width: 6px; height: 5px;
+  background: var(--agent); clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+.ot-chip svg { width: 12px; height: 12px; flex: none; color: var(--agent-ink); }
+.ot-chip span { overflow: hidden; text-overflow: ellipsis; }
+.ot[data-kind='private'] .ot-chip { color: var(--color-lock); background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--agent) 12%, transparent) 0 4px, transparent 4px 8px), var(--color-surface-alpha); }
+.ot[data-kind='private'] .ot-chip svg { color: var(--color-lock); }
+@media (max-width: 640px) {
+  .ot-chip { padding: 0 var(--space-1); }
+  .ot-chip span { display: none; } /* 좁은 화면: 아이콘만 */
+  .ob[data-dim] { display: none; } /* narrow: only the one speaking now */
+}
+
+@keyframes ob-lead-in { from { transform: scaleY(0); } }
+@keyframes ob-tab-in { from { clip-path: inset(0 100% 0 0); } }
+@keyframes ob-box-in { from { transform: scale(0.6, 0); opacity: 0; } }
+@keyframes ob-pop { from { transform: scale(0.6); opacity: 0; } }
+@keyframes ob-bob { 50% { translate: 0 calc(var(--bob-px) * -1px); } }
+@keyframes ot-in { from { opacity: 0; translate: 0 4px; } }
+@keyframes caret { 50% { opacity: 0; } }
+

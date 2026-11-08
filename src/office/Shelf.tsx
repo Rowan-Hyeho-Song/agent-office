@@ -27,6 +27,15 @@ export function Shelf({ world, scene, nodes }: { world: OfficeWorld; scene: Obje
     rig.apply(layout)
   }, [rig, layout])
   useEffect(() => rig.redrawWhenFontsReady(), [rig])
+  // a replayed meeting is over: its minutes are filed, the binder lights up
+  useEffect(
+    () =>
+      world.meeting.onEnd((s) => {
+        void lib?.refresh()
+        rig.flash(s.repo, s.n)
+      }),
+    [world, lib, rig],
+  )
   useFrame((_, dt) => rig.update(Math.min(dt, 0.1)))
 
   const box = useMemo(() => hitBox(scene, 'library'), [scene])

@@ -1,7 +1,12 @@
 import { Html } from '@react-three/drei'
+import { setDoorMessage } from '../room/doorMessage'
+import { BubbleLayer, type Anchor, type TagItem } from './bubbleLayer'
+import { statusTag, type BubbleItem } from './bubbles'
+import { openDocs } from './docs/panel'
+import { seatName } from './meeting'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BufferGeometry, Color, Float32BufferAttribute, Line, LineBasicMaterial, LineSegments, type Group, type Mesh } from 'three'
+import { BufferGeometry, Color, Vector3, Float32BufferAttribute, Line, LineBasicMaterial, LineSegments, type Mesh } from 'three'
 import { buildGraph, patchSpots, type NavGraph } from './nav'
 import { checkNav, edgeKey } from './navcheck'
 import { meshesOf, useOffice } from './nodes'
@@ -11,6 +16,7 @@ import { ScreenLive } from './screenLive'
 import { deskProps } from './props'
 import { AgentRig, PropBank, buildRig } from './rig'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
+import type { RootState } from '@react-three/fiber'
 
 /**
  * Same rule as the design tokens (src/styles/tokens.css): html[data-motion="reduce"|"full"] (the setting shared
@@ -68,6 +74,19 @@ export function Agents({ world }: { world: OfficeWorld }) {
   const planes = useMemo(() => (scene.userData.planes ??= new PaperPlanes(props, nodes)) as PaperPlanes, [scene, props, nodes])
   world.planes = planes
   const reduced = useReducedMotion()
+  const layer = useRef<BubbleLayer | null>(null)
+  const narrow = useMemo(() => matchMedia('(max-width: 640px)'), [])
+  const head = useMemo(() => new Vector3(), [])
+  useEffect(() => {
+    const l = new BubbleLayer((t) => openDocs({ repo: t.repo, n: t.n, kind: 'minutes', row: t.row }))
+    l.mount()
+    layer.current = l
+    return () => {
+      l.dispose()
+      layer.current = null
+      setDoorMessage(null)
+    }
+  }, [])
   world.rigs = rigs
   world.graph = graph
 
@@ -85,6 +104,10 @@ export function Agents({ world }: { world: OfficeWorld }) {
     const t = state.clock.elapsedTime
     const status = world.source.getSnapshot()
     const goals = world.director.goals(now, Math.floor(now / 60000), status, (a) => rigs[a].arrived)
+    // a replayed meeting calls its agents in (plan 6.4); the director's goals are the fallback for everyone else
+    world.replay?.tick()
+    const door = graph.spots.door
+    world.meeting.apply(now, (a) => rigs[a].arrived, goals, door ? { x: door.x, z: door.z } : undefined)
     world.goals = goals
     const desk = deskProps({ ...world.props.getSnapshot(), status, now })
     // the coder looks at its rubber duck when a test fails (set before the rigs move)
@@ -98,36 +121,59 @@ export function Agents({ world }: { world: OfficeWorld }) {
     props.update(Math.min(dt, 0.1))
     desks.update(desk, t, Math.min(dt, 0.1), reduced)
     screens?.update({ t, now, status, reduced, camera: state.camera, forced: world.debug ? world.screens.force : undefined })
+    drawBubbles(state, now)
   })
+
+  const drawBubbles = (state: RootState, now: number) => {
+    const l = layer.current
+    if (!l) return
+    // a meeting's bubbles win over a staged talk's; one per agent
+    const byId = new Map<string, BubbleItem>()
+    for (const id in rigs) world.bubbles.goal(id, world.goals[id]?.bubble, now, world.goals[id]?.lookAt)
+    for (const b of world.bubbles.items(now, reduced)) byId.set(b.id, b)
+    const meet = world.meeting.view(now)
+    if (meet) {
+      for (const b of meet.frame.bubbles) {
+        const id = `agent_${b.seat}`
+        byId.set(id, {
+          id,
+          key: b.key,
+          seat: b.seat,
+          kind: b.kind,
+          label: b.kind === 'private' ? '비공개' : '회의',
+          text: b.text,
+          typed: b.typed,
+          log: b.log,
+          dim: b.dim,
+          order: b.order,
+          pairWith: b.pairWith === null ? null : `agent_${b.pairWith}`,
+          open: b.row && meet.script.repo && meet.script.n ? { repo: meet.script.repo, n: meet.script.n, row: b.row } : null,
+          who: seatName(b.seat),
+        })
+      }
+    }
+    const d = meet?.frame.door
+    const chars = d ? [...d.text] : []
+    setDoorMessage(d ? { text: chars.slice(0, d.typed).join(''), masked: d.masked } : null)
+    if (d && d.typed >= chars.length) l.note(d.key, d.log)
+    const rect = state.gl.domElement.getBoundingClientRect()
+    const anchors: Record<string, Anchor> = {}
+    const tags: TagItem[] = []
+    const status = world.source.getSnapshot()
+    for (const id in rigs) {
+      const rig = rigs[id]
+      head.set(rig.group.position.x, rig.parts.head.position.y + 0.3, rig.group.position.z).project(state.camera)
+      anchors[id] = { x: rect.left + ((head.x + 1) / 2) * rect.width, y: rect.top + ((1 - head.y) / 2) * rect.height, visible: head.z < 1 && !rig.hidden }
+      const tag = statusTag(status[id])
+      if (tag) tags.push({ id, seat: Number(id.split('_')[1]), ...tag })
+    }
+    l.update([...byId.values()], tags, anchors, { w: window.innerWidth, h: window.innerHeight, narrow: narrow.matches })
+  }
 
   return (
     <>
-      {Object.values(rigs).map((rig) => (
-        <Bubble key={rig.id} world={world} rig={rig} />
-      ))}
       {world.debug && <NavDebug world={world} graph={graph} meshes={Object.values(nodes).filter((m) => m.userData.atlas).flatMap(meshesOf)} />}
     </>
-  )
-}
-
-/** placeholder speech bubble above the head (the real bubble design comes from the designer) */
-function Bubble({ world, rig }: { world: OfficeWorld; rig: AgentRig }) {
-  const anchor = useRef<Group>(null)
-  const box = useRef<HTMLDivElement>(null)
-  useFrame(() => {
-    const text = world.goals[rig.id]?.bubble
-    anchor.current?.position.set(rig.group.position.x, rig.parts.head.position.y + 0.55, rig.group.position.z)
-    const el = box.current
-    if (!el) return
-    el.style.display = text && !rig.hidden ? 'block' : 'none'
-    if (text && el.textContent !== text) el.textContent = text
-  })
-  return (
-    <group ref={anchor}>
-      <Html center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
-        <div ref={box} className="bubble-placeholder" style={{ display: 'none', borderColor: AGENT_COLORS[rig.id] }} />
-      </Html>
-    </group>
   )
 }
 

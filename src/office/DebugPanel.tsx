@@ -112,6 +112,36 @@ function PropsDebug({ world, now }: { world: OfficeWorld; now: number }) {
   )
 }
 
+/** ?debug=1: bubbles of every kind and the meeting replay (#97): the same calls as window.__office.bubbles / .replay */
+function BubbleDebug({ world }: { world: OfficeWorld }) {
+  const r = world.replay
+  const say = (kind: 'talk' | 'react' | 'private', text: string, agent = 'agent_2') => world.bubbles.say(agent, { kind, text }, Date.now())
+  return (
+    <section>
+      <div className="who">
+        <b>말풍선 · 회의 재연</b> <small>{world.meeting.phase ?? '쉬는 중'}</small>
+      </div>
+      <div className="row">
+        <button onClick={() => say('talk', '에셋 이슈 올렸어요. 치수 같이 봐 줄래요?', 'agent_0')}>대화</button>
+        <button onClick={() => say('react', '오, 간식이다! 고마워요')}>반응</button>
+        <button onClick={() => say('private', '', 'agent_3')}>비공개</button>
+        <button onClick={() => world.bubbles.clear()}>지우기</button>
+      </div>
+      {r && (
+        <div className="row">
+          <button onClick={() => void r.minutes(28)}>#28 회의록</button>
+          <button onClick={() => void r.minutes(32)}>#32 (사용자 대사)</button>
+          <button onClick={() => void r.secret()}>SECRET</button>
+          <button onClick={() => void r.private()}>비공개</button>
+          <button onClick={() => void r.pick()}>시각 기반</button>
+          <button onClick={() => world.docs?.addMinutes(28)}>새 회의록 도착</button>
+          <button onClick={() => r.stop()}>멈춤</button>
+        </div>
+      )}
+    </section>
+  )
+}
+
 /** ?debug=1: drive the fake status source by hand and watch what the director decided */
 export function DebugPanel({ world }: { world: OfficeWorld }) {
   const [, tick] = useReducer((n: number) => n + 1, 0)
@@ -195,6 +225,7 @@ export function DebugPanel({ world }: { world: OfficeWorld }) {
           </button>
         </div>
       )}
+      <BubbleDebug world={world} />
       <PropsDebug world={world} now={now} />
       <footer>
         {world.director.pending.talks.join(', ')}
