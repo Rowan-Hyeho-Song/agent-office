@@ -40,7 +40,7 @@
 | 주소 | 누가 서빙 | 뭐가 보이나 |
 |---|---|---|
 | `/rooms/office` (정확히 이 경로, 끝 `/`만 허용) | 책상 방 앱(SPA 폴백) | 책상 방 + 오피스 iframe. 방문자가 보는 주소는 이것뿐 |
-| `/rooms/office/app/` (그 아래 전부) | 오피스 배포(리라이트) | 오피스 앱 자체. iframe의 `src`(`…/rooms/office/app/?embed=room`). 직접 열면 단독 오피스: "← 책상으로"가 `https://rowansong.dev/`(책상 방 루트)로 간다 |
+| `/rooms/office/app/` (그 아래 전부) | 오피스 배포(리라이트) | 오피스 앱 자체. iframe의 `src`(`…/rooms/office/app/?embed=room`). 직접 열면 단독 오피스: "← 책상으로"가 책상 방 루트(`https://rowansong-dev.vercel.app/`, 도메인을 붙이면 `VITE_DESK_URL`로 바꿈)로 간다 |
 
 - 책상 방 라우터는 `/rooms/office/app`(과 그 아래)를 방 경로로 보지 않는다. 정확히 `/rooms/office`만 방이다.
 - 리라이트 초안(배포 때 `vercel.json`, 지금은 적용 안 함): **`/rooms/office/app/(.*)` → 오피스 배포가 먼저**, 그다음 책상 방 SPA 폴백(`/((?!api/).*)` → `/index.html`). 순서가 바뀌면 오피스 앱 주소가 책상 방으로 먹힌다.
@@ -57,7 +57,7 @@
 | `leaving` | 책상 → 오피스 | 없음 | 나가기 시작(0 ms): 오피스는 열린 패널을 닫고 입력을 무시하며 문 화면으로 파고든다(X1, 700 ms). 책상은 응답을 기다리지 않고 450 ms 뒤 CRT 되감기(X2)를 시작한다 |
 
 허용 origin
-- 오피스: `event.source === window.parent` **이고** `event.origin`이 허용 목록(자기 origin + `VITE_ROOM_PARENT_ORIGINS`, 쉼표 구분, 기본 `https://rowansong.dev`)에 있을 때만 받는다. 부모에게는 명시한 targetOrigin(`'*'` 금지)으로 보낸다: 부모 origin(`location.ancestorOrigins[0]`, 없으면 `document.referrer`의 origin)이 허용 목록에 있을 때만, 아니면 보내지 않는다.
+- 오피스: `event.source === window.parent` **이고** `event.origin`이 허용 목록(자기 origin + `VITE_ROOM_PARENT_ORIGINS`, 쉼표 구분, 기본 `https://rowansong-dev.vercel.app,https://rowansong.dev`: 지금 배포 주소와 나중에 붙일 도메인)에 있을 때만 받는다. 부모에게는 명시한 targetOrigin(`'*'` 금지)으로 보낸다: 부모 origin(`location.ancestorOrigins[0]`, 없으면 `document.referrer`의 origin)이 허용 목록에 있을 때만, 아니면 보내지 않는다.
 - 책상: `event.source === iframe.contentWindow` **이고** `event.origin`이 오피스 origin(`VITE_OFFICE_URL`을 현재 주소 기준으로 푼 값; 배포에서는 같은 출처)일 때만 받는다.
 
 

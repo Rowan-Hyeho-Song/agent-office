@@ -1,4 +1,4 @@
-import { DEFAULT_PARENT_ORIGINS, allowedOrigins, envelope, parentOrigin, parseDeskMessage, type OfficeMessage } from './protocol'
+import { DEFAULT_DESK_URL, allowedOrigins, envelope, parentOrigin, parseDeskMessage, type OfficeMessage } from './protocol'
 
 /** `?embed=room` and really inside a frame: the desk draws the way back and plays the exit */
 export const ROOM_MODE = (() => {
@@ -11,7 +11,7 @@ export const ROOM_MODE = (() => {
 if (ROOM_MODE) document.documentElement.dataset.room = '1'
 
 /** standalone "← 책상으로" target */
-export const DESK_URL = (import.meta.env.VITE_DESK_URL as string | undefined) || `${DEFAULT_PARENT_ORIGINS}/`
+export const DESK_URL = (import.meta.env.VITE_DESK_URL as string | undefined) || DEFAULT_DESK_URL
 
 const allowed = allowedOrigins(location.origin, import.meta.env.VITE_ROOM_PARENT_ORIGINS as string | undefined)
 
