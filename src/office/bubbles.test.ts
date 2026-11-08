@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { leftArea } from './sidePanel/model'
 import { BUBBLE, cardRect, firstSentence, holdMs, maskText, pairSide, placeBubbles, statusTag, typeMs, typedCount, type PlaceInput } from './bubbles'
 
 describe('firstSentence', () => {
@@ -56,6 +57,17 @@ describe('placement', () => {
     const facing = placeBubbles([item({ x: 900, pair: true })], view).a
     expect(facing.side).toBe('right')
     expect(cardRect(item({ x: 900 }), facing).right).toBeLessThanOrEqual(view.w - BUBBLE.safeSide)
+  })
+  it('keeps cards out of the side panel: placed in the left area, a card is pushed back inside it (also a hanging one)', () => {
+    const area = leftArea({ w: 1280, h: 800 }, { open: true, width: 480, sheet: 'half' })
+    const v = { ...area, narrow: false }
+    for (const down of [false, true]) {
+      const lone = item({ x: 780, y: 400, down, pair: true })
+      const p = placeBubbles([lone], v).a
+      expect(p.visible).toBe(true)
+      expect(cardRect(lone, p).right).toBeLessThanOrEqual(area.w - BUBBLE.safeSide)
+    }
+    expect(placeBubbles([item({ x: 900 })], v).a.visible).toBe(false) // the head is under the panel
   })
   it('stacks the later of two overlapping bubbles upward', () => {
     const out = placeBubbles([item({ id: 'a', order: 1 }), item({ id: 'b', order: 2, x: 520, y: 410 })], view)
