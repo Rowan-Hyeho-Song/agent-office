@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { redact as redactTs } from '../../src/docs/filter'
+import { sha256Hex } from '../../src/timeline/sha256'
 import { toPoint, mergePoints as mergeTs } from '../../src/timeline/points'
 import {
   SEAT_WORDS,
@@ -49,7 +50,7 @@ const data = (over: object = {}) => ({
   issues: [issue(1, 'a', FORM), issue(2, '[에셋] b', '', { labels: [{ name: 'asset' }] }), issue(3, '이전 이슈', '무엇')],
   comments: [comment(1, 1, MINUTES), comment(1, 2, REQUEST), comment(1, 3, RESULT)],
   pulls: [pull(4, 'Closes #1'), pull(5, '', 'd1')],
-  devCommits: [commit('c1', 'feat: 하나 (#1) (#4)'), commit('c0', 'chore: 처음'), commit('m1', 'Merge branch main', 2)],
+  devCommits: [commit('c1', 'feat: 하나 (#1) (#4)'), commit('c0', 'chore: 처음', 1, 'Rowan-Hyeho-Song', '2026-11-08T04:00:00Z'), commit('m1', 'Merge branch main', 2)],
   mainCommits: [commit('d1', 'Merge pull request #5 from x/dev', 2), commit('c1', 'feat: 하나 (#1) (#4)')],
   docs: ['## 결정 기록\n\n| 날짜 | 결정 | 이유 |\n|---|---|---|\n| 2026-11-07 | 별도 저장소 | 이유 |'],
   logins: { 'Rowan-Hyeho-Song': 'OWNER' },
@@ -129,7 +130,7 @@ describe('kinds and attribution', () => {
 })
 
 describe('publish filter', () => {
-  it('review points have no title and are marked secret; sizes and numbers stay', () => {
+  it('review points have no title and are marked secret; sizes stay, address and numbers go', () => {
     const points = build(data({ repo: REV }), cfg)
     expect(points.length).toBeGreaterThan(0)
     for (const p of points) {
@@ -138,7 +139,24 @@ describe('publish filter', () => {
       expect(p.secret).toBe(true)
     }
     expect(JSON.stringify(points)).not.toMatch(/별도 저장소|회의록|feat/)
-    expect(points.find((p) => p.kind === 'work' && p.pr === 4)).toMatchObject({ additions: 10, files: 2 })
+    expect(points.find((p) => p.kind === 'work' && p.additions === 10)).toMatchObject({ additions: 10, files: 2, issue: null, pr: null })
+  })
+  it('review points are opaque: no URL, sha, number; the key is stable and unique', () => {
+    const a = build(data({ repo: REV }), cfg)
+    const text = JSON.stringify(a)
+    expect(text).not.toMatch(/github\.com|\/commit\/|issuecomment|[0-9a-f]{40}|#decision|sha\d|\/issues\//)
+    for (const p of a) {
+      expect(p.key).toMatch(/^review:[\w./-]+:[0-9a-f]{16}$/)
+      expect(p.issue).toBeNull()
+      expect(p.pr).toBeNull()
+    }
+    expect(new Set(a.map((p) => p.key)).size).toBe(a.length)
+    expect(build(data({ repo: REV }), cfg)).toEqual(a)
+  })
+  it('sha256Hex matches node:crypto', async () => {
+    const { createHash } = await import('node:crypto')
+    for (const t of ['', 'abc', 'x'.repeat(55), 'x'.repeat(56), 'x'.repeat(64), '한글 https://github.com/a/b/commit/1'])
+      expect(sha256Hex(t)).toBe(createHash('sha256').update(t).digest('hex'))
   })
   it('no file path or file name is ever collected: a point has only its own fields', () => {
     const p = build(data(), cfg).find((x) => x.kind === 'work')!
@@ -148,14 +166,14 @@ describe('publish filter', () => {
     expect(JSON.stringify(build(data(), cfg))).not.toMatch(/secret\/path|b\.ts/)
   })
   it('a public title with a path, email or key is hidden and the point drops to review', () => {
-    const d = data({ devCommits: [commit('c9', 'fix: C:\\Users\\me\\a.ts 와 me@example.com'), commit('c8', 'fix: sk-abcdefghijklmnopqrstuv')] })
-    for (const sha of ['c9', 'c8']) {
-      const p = build(d, cfg).find((x) => x.key.endsWith(`/${sha}`))!
+    const d = data({ devCommits: [commit('c9', 'fix: C:\\Users\\me\\a.ts 와 me@example.com', 1, 'Rowan-Hyeho-Song', '2026-11-08T07:00:00Z'), commit('c8', 'fix: sk-abcdefghijklmnopqrstuv', 1, 'Rowan-Hyeho-Song', '2026-11-08T08:00:00Z')] })
+    for (const at of ['2026-11-08T07:00:00Z', '2026-11-08T08:00:00Z']) {
+      const p = build(d, cfg).find((x) => x.at === at)!
       expect(p).toMatchObject({ title: '', secret: true, tier: 'review' })
     }
   })
   it('banned words hide the title', () => {
-    const p = build(data(), { ...cfg, banned: ['처음'] }).find((x) => x.key.endsWith('/c0'))!
+    const p = build(data(), { ...cfg, banned: ['처음'] }).find((x) => x.at === '2026-11-08T04:00:00Z')!
     expect(p).toMatchObject({ title: '', tier: 'review' })
   })
   it('a private repo produces nothing', () => {

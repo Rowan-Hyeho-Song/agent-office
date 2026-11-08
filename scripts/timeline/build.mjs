@@ -88,8 +88,9 @@ export function finalize(p, cfg = {}) {
   const t = redact(String(p.title ?? '').slice(0, TITLE_MAX), cfg.banned)
   // a hit hides the title and lowers a public point to review, like documents (plan.md 6.3)
   const secret = tier === 'review' || t.hits.length > 0
+  // review (SECRET) points are opaque: no source address, no issue / PR number (they go in a public repo)
   return {
-    key: p.key,
+    key: secret ? `review:${p.project}:${createHash('sha256').update(p.key).digest('hex').slice(0, 16)}` : p.key,
     project: p.project,
     at: stamp(p.at),
     kind: p.kind,
@@ -99,8 +100,8 @@ export function finalize(p, cfg = {}) {
     additions: count(p.additions),
     deletions: count(p.deletions),
     files: count(p.files),
-    issue: num(p.issue),
-    pr: num(p.pr),
+    issue: secret ? null : num(p.issue),
+    pr: secret ? null : num(p.pr),
     tier: secret ? 'review' : 'public',
   }
 }

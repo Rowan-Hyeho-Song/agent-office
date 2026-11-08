@@ -34,10 +34,12 @@ describe('/api/timeline handler', () => {
     expect(rows[0]).toMatchObject({ tier: 'public', secret: false, title: 'feat: 하나 (#1)', agent: 3 })
     expect(rows[0]).not.toHaveProperty('author')
   })
-  it('review repo: no title, secret; numbers and sizes stay', async () => {
+  it('review repo: no title, no address, no numbers, secret; sizes stay', async () => {
     const { post, rows } = setup()
     await post([input({ project: REV, key: `https://github.com/${REV}/commit/abc`, title: 'secret plan C:\\x\\y.ts' })])
-    expect(rows[0]).toMatchObject({ tier: 'review', secret: true, title: '', additions: 3, issue: 1 })
+    expect(rows[0]).toMatchObject({ tier: 'review', secret: true, title: '', additions: 3, issue: null, pr: null })
+    expect(rows[0].key).toMatch(/^review:[\w./-]+:[0-9a-f]{16}$/)
+    expect(JSON.stringify(rows[0])).not.toMatch(/github\.com|abc/)
   })
   it('a filter hit or banned word lowers a public point to review', async () => {
     const { post, rows } = setup()
@@ -100,9 +102,12 @@ describe('committed copies (src/timeline/fixtures)', () => {
     expect(file.points).toEqual(mergePoints(file.points))
     for (const p of file.points) {
       expect(p.project).toBe(file.project)
-      if (p.tier === 'review') expect(p).toMatchObject({ title: '', secret: true })
+      if (p.tier === 'review') expect(p).toMatchObject({ title: '', secret: true, issue: null, pr: null })
     }
-    if (file.tier === 'review') expect(file.points.every((p) => p.title === '' && p.secret)).toBe(true)
+    if (file.tier === 'review') {
+      expect(file.points.every((p) => p.title === '' && p.secret)).toBe(true)
+      expect(text).not.toMatch(/github\.com|\/commit\/|[0-9a-f]{40}|#\d/)
+    }
     expect(text).not.toMatch(/@|[A-Za-z]:\\|\/Users\/|token|sk-|C:/i)
   })
 })

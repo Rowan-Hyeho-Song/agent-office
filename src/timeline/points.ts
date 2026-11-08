@@ -2,6 +2,7 @@
 // is the plain-JS twin the backfill and the Action run (node can't import TypeScript); build.test.ts compares them.
 
 import { redact } from '../docs/filter'
+import { sha256Hex } from './sha256'
 import { POINT_KINDS, type Point, type PointInput } from './types'
 
 export const TRUSTED = ['OWNER', 'COLLABORATOR']
@@ -39,8 +40,9 @@ export function toPoint(p: PointInput, cfg: PointConfig): Point | null {
   const t = redact(String(p.title ?? '').slice(0, TITLE_MAX), cfg.banned)
   // a filter hit hides the title and lowers a public point to review, like documents
   const secret = tier === 'review' || t.hits.length > 0
+  // review (SECRET) points are opaque: no source address, no issue / PR number (the DB is readable by visitors)
   return {
-    key: p.key,
+    key: secret ? `review:${p.project}:${sha256Hex(p.key).slice(0, 16)}` : p.key,
     project: p.project,
     at: new Date(p.at).toISOString().replace(/\.\d{3}Z$/, 'Z'),
     kind: p.kind,
@@ -50,8 +52,8 @@ export function toPoint(p: PointInput, cfg: PointConfig): Point | null {
     additions: count(p.additions),
     deletions: count(p.deletions),
     files: count(p.files),
-    issue: num(p.issue),
-    pr: num(p.pr),
+    issue: secret ? null : num(p.issue),
+    pr: secret ? null : num(p.pr),
     tier: secret ? 'review' : 'public',
   }
 }
