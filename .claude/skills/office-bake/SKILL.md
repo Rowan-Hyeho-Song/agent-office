@@ -169,7 +169,7 @@ node .claude/skills/office-bake/check-glb.mjs --want hit_library,neon_approval -
 |---|---|---|
 | `floor` | 바닥에 서는 가구 | 쓰는 공간까지. 책상은 앞의 에이전트 자리(패드), 탁구대는 양 끝 선수 자리(`grow` 0.55 m), 게임 테이블은 스툴까지 |
 | `decor` | 화분, 스탠드 | 잎·갓까지 |
-| `wall` | 벽에 붙는 것(창, 보드, 시계, 출입문) | `wall` n·e·s·w(n = 뒤 −z, w = 왼쪽 −x). 벽에 붙어 서는 가구(책장, 카운터)는 `floor`에 `wall`을 같이 적는다 |
+| `wall` | 벽에 붙는 것(창, 보드, 시계, 출입문) | `wall` n·e·s·w(n = 뒤 −z, w = 왼쪽 −x). 벽에 붙어 서는 가구(책장, 카운터)는 `floor`에 `against`로 적는다. 바닥에 닿으면 가구라 벽이 내려가도 남는다(#115), 그래서 `wall`이 아니다 |
 | `clear` | 비워 둘 바닥 | 출입문 앞 0.8 m |
 | `room` | 벽 안쪽 | `build_slots`가 자동으로 넣는다 |
 
