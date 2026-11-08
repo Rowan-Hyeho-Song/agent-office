@@ -17,7 +17,7 @@ import { deskProps } from './props'
 import { AgentRig, PropBank, buildRig } from './rig'
 import { replay } from '../replay/store'
 import { atMs, stepMs } from '../replay/engine'
-import { shouldWalk, stageSpot, walkHold, WALK_HOLD_MS } from '../replay/walk'
+import { boardDistance, REPLAY_PACE, shouldWalk, stageSpot, walkHold, WALK_HOLD_MS } from '../replay/walk'
 import { replayDoorLine, replayGoals } from '../replay/scene'
 import { STAMP_MS } from './props'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
@@ -94,6 +94,11 @@ export function Agents({ world }: { world: OfficeWorld }) {
     }
   }, [])
   world.rigs = rigs
+  for (const id in rigs) {
+    const seat = Number(id.split('_')[1])
+    const path = graph.spots.whiteboard ? shortestPath(graph, `work_${seat}`, 'whiteboard') : null
+    if (path) boardDistance[seat] = pathLength(graph, path)
+  }
   world.graph = graph
 
   useEffect(
@@ -153,7 +158,10 @@ export function Agents({ world }: { world: OfficeWorld }) {
       : deskProps({ ...world.props.getSnapshot(), status, now })
     // the coder looks at its rubber duck when a test fails (set before the rigs move)
     if (rigs.agent_3) rigs.agent_3.watch = desk.duckLook && rigs.agent_3.arrived === `work_3` ? desks.duckPoint() : null
-    for (const id in rigs) rigs[id].setGoal(goals[id], graph)
+    for (const id in rigs) {
+      rigs[id].pace = scene ? REPLAY_PACE : 1
+      rigs[id].setGoal(goals[id], graph)
+    }
     walkHold.busy = !!scene && Object.keys(rigs).some((id) => walkPlan.current.walk[id] && rigs[id].arrived !== goals[id].spot)
     for (const id in rigs) rigs[id].update(dt, t, graph, rigs, reduced, status[id])
     // the planner picks up its stamp the moment the owner decides something

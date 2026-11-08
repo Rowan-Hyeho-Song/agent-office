@@ -4,7 +4,8 @@ import { isDocsOpen } from '../office/docs/panel'
 import { AGENT_INFO, type OfficeWorld } from '../office/world'
 import type { Point } from '../timeline/types'
 import { drawBar, nearest, type BarLayout } from './barDraw'
-import { ALL, LANES, LANE_NAME, SECRET_NOTE, SPEEDS, atMs, describe, dayLabel, laneOf, remainingMs, shortName, valueText, whenText, kst, type Lane } from './engine'
+import { boardDistance, pointWaitMs } from './walk'
+import { ALL, LANES, LANE_NAME, SECRET_NOTE, SPEEDS, atMs, describe, dayLabel, laneOf, remainingMs, shortName, stepMs, valueText, whenText, kst, type Lane } from './engine'
 import { replay, useReplay } from './store'
 import { ReplayList } from './ReplayList'
 import './replay.css'
@@ -190,7 +191,7 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
   const lane = laneOf(p)
   const when = whenText(atMs(p))
   const dateText = s.flip ?? (compact ? when.slice(5) : when)
-  const left = remainingMs(points, s.i, s.speed) / 1000
+  const left = remainingMs(points, s.i, s.speed, (k, first) => pointWaitMs(points, k, (p) => stepMs(p, 1), boardDistance, first)) / 1000
   const hp = hover >= 0 ? points[hover] : null
   const share = () => {
     const url = replay.shareUrl()
