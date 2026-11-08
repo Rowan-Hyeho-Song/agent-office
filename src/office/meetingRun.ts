@@ -173,9 +173,11 @@ export class MeetingRunner {
     const first = script.decision && script.seats.includes(PLANNER) && this.status[id(PLANNER)]?.state !== 'off' ? [PLANNER] : []
     const seated = [...first, ...script.seats.filter((x) => !first.includes(x))]
     const slots = new Map(formation(centre, seated.length, !!script.decision).map((s, i) => [seated[i], s] as const))
-    // farthest first (distance when the gathering starts), so the arrivals line up
+    // farthest first (distance when the gathering starts), so the arrivals line up. Measured from where the schedule
+    // puts the agent (its goal spot: the same for every visitor and in the timelapse), the rig only as a fallback
     const far = (seat: number) => {
-      const p = place?.at(id(seat))
+      const g = goals[id(seat)]
+      const p = (g && place?.spot(g.spot)) ?? place?.at(id(seat))
       const s = slots.get(seat)!
       return p ? Math.hypot(p.x - s.x, p.z - s.z) : 0
     }
