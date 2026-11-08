@@ -11,7 +11,18 @@ Run:  blender --background --factory-startup --python office_bake.py -- <out_dir
 Same pipeline as the rowansong.dev desk (bakekit.py), so the two rooms read as one world.
 
 Node contract (the app reads glTF extras):
-  room, work, wall_items, lounge   baked, one atlas each -> MeshBasicMaterial + atlas
+  atlases room, walls_nw, walls_se, work, wall_items, lounge (6 webp) -> MeshBasicMaterial + atlas. Baked nodes:
+  room                             the floor, carpet, rug, base edges; extras room = [HX, HZ, WALL_H] (#109: the app
+                                   reads the room size here)
+  wall_n|e|s|w                     the four walls (#111), pivot_at at the wall's foot (floor, middle of the wall),
+                                   extras wall; the app lowers the camera-side ones. n carries the window frame
+  door, boards, wallclock          hung on a wall: extras wall (w, n, w). shelf, lounge, desk_<i>, pad_<i>: on the floor
+  window_sky|skyline|mid|near, window_lights, window_portal
+                                   the city behind the window (#111): live "sky" (UV 0..1, the app paints it by the
+                                   hour), "backdrop", "city_lights" (the app sets day / night strength), at 40 / 25 /
+                                   12 / 6 m; "portal" = the window opening, the stencil the cards are masked to.
+                                   All extras wall = n
+  slot_<name>                      empties: each object's footprint (#109, extras slot, size, wall); the app ignores them
   agent_<i>                        live "bot" empty on the floor: the agent's frame (front = -z)
   agent_<i>_head, _hand_l|r, _hand_l|r_index|fingers|thumb, agent_0_postit_<k>
                                    live "bot": real-time lit parts with pivots (extras pivot_at); fingers bend on local x
@@ -68,13 +79,14 @@ DOOR_Z = 2.6
 PINGPONG = (2.2, 0.0)
 SOFA = (2.2, 2.6)
 GAME_TABLE = (-1.6, 2.2)
+SIDE_TABLE = (0.3, 2.6)  # a small round table in the open front middle (designer, #109): visitors' snacks and cheers later
 COUNTER = (HX - 0.32, -2.0, math.pi)  # against the right wall, its front (local +x) facing the room
 SHELF_X = 3.75
 SHELF_W, SHELF_D = 1.1, 0.34  # the bookshelf against the back wall: width, depth
 PLANTS = [  # name, x, z, scale
     ("plant_desk", 0.0, -3.22, 1.0),  # between MESH's desk and the whiteboard
     ("plant_corner", 4.15, 3.12, 1.2),
-    ("plant_sofa", 0.9, 2.75, 0.85),
+    ("plant_sofa", 0.92, 2.75, 0.85),
     ("plant_boards", 2.0, -3.25, 0.7),  # under the gap between the whiteboard and the bulletin board
 ]
 CLOCK_AT, CLOCK_S = (-HX + 0.02, 1.85, 1.6), 0.40  # wall clock face center (left wall, next to the door), size
@@ -147,64 +159,240 @@ def slot(o, w, h):
 def build_room():
     G = "room"
     floor_wood = wood()
-    wall = plastic("#3a3f4c", 0.85, 0, 0.25, "wall")
-    wall_low = plastic("#2b2f3a", 0.8, 0, 0.3, "wall_low")
     trim = plastic("#1a1c22", 0.6, 0.2, 0.1, "trim")
     carpet = plastic("#1d2a3d", 0.98, 0, 0.9, "carpet")
     rug = plastic("#5a2f45", 0.97, 0, 0.9, "rug")
+    floor = apply_all(box("floor", (2 * HX + 2 * WT, 0.12, 2 * HZ + 2 * WT), (0, -0.06, 0), floor_wood, G, bev=0.01))
+    cx0, cx1, cz0, cz1 = -HX, -HX + 4.3, -HZ, -HZ + 4.8  # the work corner carpet
+    tile(floor, axes="xz")
+    bm = bmesh.new()  # also cut along the carpet's two open edges, then drop the floor top under it
+    bm.from_mesh(floor.data)
+    for k, c in ((0, cx1), (1, -cz1)):
+        no, co = Vector((0, 0, 0)), Vector((0, 0, 0))
+        no[k], co[k] = 1.0, c
+        bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], plane_co=co, plane_no=no)
+    bm.to_mesh(floor.data)
+    bm.free()
+    drop_faces_in(floor, cx0 - 0.5, cx1, cz0 - 0.5, cz1, 0.0)
     parts = [
-        box("floor", (2 * HX + WT, 0.12, 2 * HZ + WT), (-WT / 2, -0.06, -WT / 2), floor_wood, G, bev=0.01),
+        floor,
         # work corner carpet, lounge rug
-        box("carpet", (4.3, 0.01, 4.8), (-HX + 2.15, 0.005, -HZ + 2.4), carpet, G),
+        box("carpet", (cx1 - cx0, 0.01, cz1 - cz0), ((cx0 + cx1) / 2, 0.005, (cz0 + cz1) / 2), carpet, G),
         rounded_slab("rug", 2.8, 0.01, 1.4, 0.25, (SOFA[0], 0.006, SOFA[1] - 1.05), rug, G),
     ]
-    # back wall with a wide window over the two back desks; left wall solid
-    back = box("back_wall", (2 * HX + WT, WALL_H, WT), (-WT / 2, WALL_H / 2, -HZ - WT / 2), wall, G)
-    win = box("win_cut", (2.6, 1.05, WT * 3), (WINDOW_X, 1.72, -HZ - WT / 2), wall, G)
-    back = cut(apply_all(back), apply_all(win))
-    left = box("left_wall", (WT, WALL_H, 2 * HZ), (-HX - WT / 2, WALL_H / 2, 0), wall, G)
-    parts += [back, left]
-    # lower wall band + chair rail, baseboards, wall caps
-    parts += [
-        box("back_low", (2 * HX, 0.95, 0.012), (0, 0.475, -HZ + 0.006), wall_low, G),
-        box("left_low", (0.012, 0.95, 2 * HZ), (-HX + 0.006, 0.475, 0), wall_low, G),
-        box("rail_b", (2 * HX, 0.03, 0.03), (0, 0.96, -HZ + 0.015), trim, G),
-        box("rail_l", (0.03, 0.03, 2 * HZ), (-HX + 0.015, 0.96, 0), trim, G),
-        box("base_b", (2 * HX, 0.08, 0.02), (0, 0.04, -HZ + 0.01), trim, G),
-        box("base_l", (0.02, 0.08, 2 * HZ), (-HX + 0.01, 0.04, 0), trim, G),
-        box("cap_b", (2 * HX + WT, 0.03, WT + 0.02), (-WT / 2, WALL_H + 0.015, -HZ - WT / 2), trim, G),
-        box("cap_l", (WT + 0.02, 0.03, 2 * HZ), (-HX - WT / 2, WALL_H + 0.015, 0), trim, G),
-        # floor edge trim: the cut-away faces read as a model base
-        box("edge_f", (2 * HX + WT, 0.12, 0.02), (-WT / 2, -0.06, HZ + 0.01), trim, G),
-        box("edge_r", (0.02, 0.12, 2 * HZ + WT), (HX + 0.01, -0.06, -WT / 2), trim, G),
-    ]
-    # window: frame, mullions, sill, and the night city behind it (baked emission)
-    wx, wy, ww, wh = WINDOW_X, 1.72, 2.6, 1.05
-    frame_m = plastic("#15171c", 0.4, 0.6, 0.05, "window_frame")
-    parts += [
-        box("win_top", (ww + 0.08, 0.05, 0.1), (wx, wy + wh / 2, -HZ), frame_m, G),
-        box("win_bot", (ww + 0.12, 0.05, 0.16), (wx, wy - wh / 2, -HZ + 0.03), frame_m, G),
-        box("win_l", (0.05, wh, 0.1), (wx - ww / 2, wy, -HZ), frame_m, G),
-        box("win_r", (0.05, wh, 0.1), (wx + ww / 2, wy, -HZ), frame_m, G),
-    ]
-    fp("window", parts[-4:], "wall", "n")
-    for k in (1, 2, 3):
-        parts.append(box("mullion", (0.03, wh, 0.05), (wx - ww / 2 + k * ww / 4, wy, -HZ), frame_m, G))
-    parts.append(box("transom", (ww, 0.03, 0.05), (wx, wy + 0.18, -HZ), frame_m, G))
-    sky = emitter("#16213d", 0.6, "night_sky")
-    parts.append(box("sky", (ww + 0.4, wh + 0.4, 0.02), (wx, wy, -HZ - WT - 0.35), sky, G))
-    city = plastic("#07080c", 0.9, 0, 0.1, "city")
-    lit = emitter("#ffcf8a", 2.2, "city_window")
-    lit2 = emitter("#8fd8ff", 1.8, "city_window_cool")
-    x = wx - ww / 2 - 0.15
-    while x < wx + ww / 2 + 0.15:
+    # floor edge trim on all four sides: the cut-away faces read as a model base
+    L, D = 2 * HX + 2 * WT, 2 * HZ + 2 * WT
+    for name, size, c, n_in, ax in (("edge_n", (L, 0.12, 0.02), (0, -0.06, -D / 2 - 0.01), (0, 0, 1), "x"),
+                                    ("edge_s", (L, 0.12, 0.02), (0, -0.06, D / 2 + 0.01), (0, 0, -1), "x"),
+                                    ("edge_w", (0.02, 0.12, D + 0.04), (-L / 2 - 0.01, -0.06, 0), (1, 0, 0), "z"),
+                                    ("edge_e", (0.02, 0.12, D + 0.04), (L / 2 + 0.01, -0.06, 0), (-1, 0, 0), "z")):
+        e = apply_all(box(name, size, c, trim, G))
+        drop_facing(e, n_in)  # the side pressed against the floor slab
+        parts.append(tile(e, axes=ax))
+    for n_out in ((0, 0, -1), (0, 0, 1), (-1, 0, 0), (1, 0, 0)):  # the slab's own sides: covered by the edge trims
+        drop_facing(floor, n_out)
+    # the city outside is no longer baked here (layered cards at 6–40 m: build_window_view, #111). The old baked city
+    # drew from RNG: make the same draws so everything built after it (books, leaves) stays as it was.
+    x = WINDOW_X - 1.3 - 0.15
+    while x < WINDOW_X + 1.3 + 0.15:
         w = RNG.uniform(0.18, 0.42)
         h = RNG.uniform(0.25, 0.85)
-        parts.append(box("tower", (w, h, 0.05), (x + w / 2, wy - wh / 2 - 0.05 + h / 2, -HZ - WT - 0.3), city, G))
         for _ in range(RNG.randint(2, 6)):
-            parts.append(box("lit", (0.025, 0.035, 0.01), (x + RNG.uniform(0.04, w - 0.04), wy - wh / 2 + RNG.uniform(0.0, h - 0.1),
-                                                             -HZ - WT - 0.27), RNG.choice((lit, lit, lit2)), G))
+            RNG.uniform(0.04, w - 0.04), RNG.uniform(0.0, h - 0.1), RNG.choice((0, 0, 1))
         x += w + RNG.uniform(0.02, 0.08)
+    o = join("room", parts)
+    o["room"] = [HX, HZ, WALL_H]  # #109: the app reads the room size from here (floor bounds, walls, camera)
+    return o
+
+
+def tile(o, step=2.4, axes="xz", cuts_y=()):
+    """cut a large flat part into ~step-sized tiles and split them apart, so the atlas packs small islands instead of
+    one 9 m board (UV fill went 44% -> ~70%). Seams don't show: the bake extends each island's edge (margin 16 px)."""
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
+    cut_edges = []
+    lo = [min(v.co[k] for v in bm.verts) for k in range(3)]
+    hi = [max(v.co[k] for v in bm.verts) for k in range(3)]
+    planes = []
+    for ax in axes:  # web axis -> Blender axis index (web x = X, web z = -Y)
+        k = {"x": 0, "z": 1}[ax]
+        n = max(1, round((hi[k] - lo[k]) / step))
+        planes += [(k, lo[k] + (hi[k] - lo[k]) * i / n) for i in range(1, n)]
+    planes += [(2, y) for y in cuts_y]
+    for k, c in planes:
+        no = Vector((0, 0, 0))
+        no[k] = 1.0
+        co = Vector((0, 0, 0))
+        co[k] = c
+        res = bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], plane_co=co, plane_no=no)
+        cut_edges += [e for e in res["geom_cut"] if isinstance(e, bmesh.types.BMEdge)]
+    bmesh.ops.split_edges(bm, edges=[e for e in set(cut_edges) if e.is_valid])
+    bm.to_mesh(o.data)
+    bm.free()
+    return o
+
+
+def drop_facing(o, n_web, plane=None, tol=0.95):
+    """delete faces whose normal points along n_web (web coords) — faces pressed against something and never seen.
+    plane = (web axis 'x'|'z', coordinate): only faces lying on that plane."""
+    nb = Vector((n_web[0], -n_web[2], n_web[1]))
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
+    dead = []
+    for f in bm.faces:
+        if f.normal.dot(nb) < tol:
+            continue
+        if plane:
+            c = f.calc_center_median()
+            v = c.x if plane[0] == "x" else -c.y
+            if abs(v - plane[1]) > 1e-3:
+                continue
+        dead.append(f)
+    bmesh.ops.delete(bm, geom=dead, context="FACES")
+    bm.to_mesh(o.data)
+    bm.free()
+
+
+def drop_faces_in(o, x0, x1, z0, z1, y):
+    """delete the upward faces at height y inside a web-coords rectangle (floor hidden under the carpet)"""
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
+    dead = []
+    for f in bm.faces:
+        c = f.calc_center_median()
+        if f.normal.z > 0.95 and abs(c.z - y) < 1e-3 and x0 < c.x < x1 and z0 < -c.y < z1:
+            dead.append(f)
+    bmesh.ops.delete(bm, geom=dead, context="FACES")
+    bm.to_mesh(o.data)
+    bm.free()
+
+
+# ================================================================ WALLS (#111: four walls, atlases walls_nw / walls_se)
+# Each wall is its own node (wall_n, wall_e, wall_s, wall_w; n = back -z, w = left -x) with its band, chair rail,
+# baseboard and cap, pivot at its foot (pivot_at on the floor, the wall's middle) so the app can lower the one(s) on
+# the camera side down to a 0.15 m strip. Outer faces are only kept for that strip (a skirt 0.3 m high): above it the
+# outside of a wall is never seen (the wall is lowered whenever the camera is on its side). The n wall carries the
+# window frame. Things hung on a wall carry extras wall = n|e|s|w (wall_items, the door, the clock, the window view).
+def build_wall(side):
+    G = "walls_nw" if side in "nw" else "walls_se"
+    wall = plastic("#3a3f4c", 0.85, 0, 0.25, "wall")
+    wall_low = plastic("#2b2f3a", 0.8, 0, 0.3, "wall_low")
+    trim = plastic("#1a1c22", 0.6, 0.2, 0.1, "trim")
+    along_x = side in "ns"
+    sgn = -1 if side in "nw" else 1
+    inner = sgn * (HZ if along_x else HX)  # the inside face's coordinate (z for n/s, x for e/w)
+    run = 2 * HX + 2 * WT if along_x else 2 * HZ  # n/s span the corners, e/w fit between them
+
+    def at(off, y, size_run, size_up, size_in):
+        """a box against this wall: off = distance from the inside face into the room (negative = into the wall)"""
+        c = inner - sgn * off
+        size = (size_run, size_up, size_in) if along_x else (size_in, size_up, size_run)
+        center = (0, y, c) if along_x else (c, y, 0)
+        return size, center
+
+    s, c = at(-WT / 2, WALL_H / 2, run, WALL_H, WT)
+    slab = box(f"wall_{side}_slab", s, c, wall, G)
+    if side == "n":  # the window over desks 0-1
+        cs, cc = (2.6, 1.05, WT * 3), (WINDOW_X, 1.72, inner - sgn * -WT / 2)
+        slab = cut(apply_all(slab), apply_all(box("win_cut", cs, cc, wall, G)))
+    slab = apply_all(slab)
+    # drop the outer face (the plane at inner + sgn * WT); a skirt replaces its bottom
+    bm = bmesh.new()
+    bm.from_mesh(slab.data)
+    outer = inner + sgn * WT
+    k = 1 if along_x else 0  # Blender axis of the wall normal: web z = -Blender y, web x = Blender x
+    out_b = -outer if along_x else outer
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if abs(f.calc_center_median()[k] - out_b) < 1e-4], context="FACES")
+    bm.to_mesh(slab.data)
+    bm.free()
+    # tiles along the wall (atlas packing), cut at the chair rail: below it the inside face takes the darker band
+    # colour (a material, not a box in front: the box hid the wall face behind it and spent atlas twice)
+    if not along_x:  # e / w end faces butt against the n / s walls: never seen
+        drop_facing(slab, (0, 0, -1), ("z", -HZ))
+        drop_facing(slab, (0, 0, 1), ("z", HZ))
+    tile(slab, axes="x" if along_x else "z", cuts_y=(0.95,))
+    slab.data.materials.append(wall_low)
+    in_b = -inner if along_x else inner
+    for f in slab.data.polygons:
+        c = f.center
+        if abs(c[k] - in_b) < 1e-4 and c.z < 0.95:
+            f.material_index = 1
+    p = [slab]
+    p += [box(f"wall_{side}_skirt", *at(-WT - 0.001, 0.15, run, 0.3, 0.002), wall_low, G)]
+    span = 2 * HX if along_x else 2 * HZ
+    p += [box(f"wall_{side}_rail", *at(0.015, 0.96, span, 0.03, 0.03), trim, G),
+          box(f"wall_{side}_base", *at(0.01, 0.04, span, 0.08, 0.02), trim, G),
+          box(f"wall_{side}_cap", *at(-WT / 2, WALL_H + 0.015, run, 0.03, WT + 0.02), trim, G)]
+    if side == "n":
+        wx, wy, ww, wh = WINDOW_X, 1.72, 2.6, 1.05
+        frame_m = plastic("#15171c", 0.4, 0.6, 0.05, "window_frame")
+        win = [box("win_top", (ww + 0.08, 0.05, 0.1), (wx, wy + wh / 2, -HZ), frame_m, G),
+               box("win_bot", (ww + 0.12, 0.05, 0.16), (wx, wy - wh / 2, -HZ + 0.03), frame_m, G),
+               box("win_l", (0.05, wh, 0.1), (wx - ww / 2, wy, -HZ), frame_m, G),
+               box("win_r", (0.05, wh, 0.1), (wx + ww / 2, wy, -HZ), frame_m, G)]
+        fp("window", win, "wall", "n")
+        for k2 in (1, 2, 3):
+            win.append(box("mullion", (0.03, wh, 0.05), (wx - ww / 2 + k2 * ww / 4, wy, -HZ), frame_m, G))
+        win.append(box("transom", (ww, 0.03, 0.05), (wx, wy + 0.18, -HZ), frame_m, G))
+        p += win
+    o = join(f"wall_{side}", p)
+    foot = (0, 0, inner) if along_x else (inner, 0, 0)
+    o = pivot(o, Mx(foot))
+    o["wall"] = side
+    return o
+
+
+# ================================================================ WINDOW VIEW (#111: layered cards, live, not baked)
+# Real planes behind the window so the city keeps its parallax from any orbit angle: sky 40 m, far skyline 25 m,
+# mid buildings 12 m (their lit windows a node of their own: the app sets day / night strength), a near building
+# corner 6 m. Widths cover every line of sight through the window from the orbit (polar 0.15–1.35, all around).
+# All carry extras wall = "n": when the n wall is lowered the app hides them with it. Drawn MeshBasic, unlit.
+VRNG = random.Random(111)
+
+
+def build_window_view():
+    zw = -HZ - WT  # the wall's outside
+    cx = WINDOW_X
+    out = []
+    sky = quad("window_sky", 200.0, 110.0, emitter("#16213d", 1.0, "window_sky"), "export")  # UV 0..1, v = 1 at the top
+    out.append((apply_all(place([sky], Mx((cx, 25.0, zw - 40.0)))[0]), "sky"))
+
+    def towers(name, dist, x_half, w_rng, top_rng, base, color):
+        bm = bmesh.new()
+        x = cx - x_half
+        while x < cx + x_half:
+            w, top = VRNG.uniform(*w_rng), VRNG.uniform(*top_rng)
+            v = [bm.verts.new(W(x + dx, y, zw - dist)) for dx, y in ((0, base), (w, base), (w, top), (0, top))]
+            bm.faces.new(v)
+            x += w + VRNG.uniform(0.0, w_rng[0] * 0.5)
+        return mesh_obj(name, bm, emitter(color, 1.0, name), "export")
+
+    # the office is high up: most roofs sit below eye level (1.55 m), a few towers reach above
+    out.append((towers("window_skyline", 25.0, 70.0, (2.5, 7.0), (-3.0, 5.0), -40.0, "#0d1426"), "backdrop"))
+    mid = towers("window_mid", 12.0, 30.0, (2.0, 5.0), (-5.0, 2.5), -30.0, "#07080c")
+    out.append((mid, "backdrop"))
+    # lit windows on the mid buildings: a node of their own (the app turns them up at night, down by day)
+    bm = bmesh.new()
+    vs = mid.data.vertices
+    for pl in mid.data.polygons:  # each facade: its x range and top (Blender z = web y)
+        x0, x1 = min(vs[i].co.x for i in pl.vertices), max(vs[i].co.x for i in pl.vertices)
+        top = max(vs[i].co.z for i in pl.vertices)
+        for _ in range(VRNG.randint(3, 9)):
+            x, y = VRNG.uniform(x0 + 0.3, max(x0 + 0.31, x1 - 0.75)), VRNG.uniform(top - 7.0, top - 0.8)
+            v = [bm.verts.new(W(x + dx, y + dy, zw - 11.95)) for dx, dy in ((0, 0), (0.45, 0), (0.45, 0.7), (0, 0.7))]
+            bm.faces.new(v)
+    lights = mesh_obj("window_lights", bm, emitter("#ffcf8a", 2.2, "window_lights"), "export")
+    out.append((lights, "city_lights"))
+    near = box("window_near", (3.0, 40.0, 3.0), (cx - 8.0, -6.0, zw - 6.0 - 1.5), emitter("#05060a", 1.0, "window_near"), "export")
+    out.append((apply_all(near), "backdrop"))
+    # the room has no ceiling and the camera orbits outside it, so the cards must only show THROUGH the window: this
+    # quad fills the window opening (mid-wall, facing the room); the app draws it into the stencil and the cards
+    # only where the stencil is set
+    portal = quad("window_portal", 2.6, 1.05, emitter("#000000", 0.0, "window_portal"), "export")
+    out.append((apply_all(place([portal], Mx((cx, 1.72, -HZ - WT / 2)))[0]), "portal"))
+    for o, _ in out:
+        o["wall"] = "n"
+    return out
     return join("room", parts)
 
 
@@ -672,7 +860,7 @@ def build_hits():
     hit("approval", "approval", frame(AGENTS[0]["at"]) @ Mx((TRAY[0], DESK_H + 0.08, TRAY[1])), (0.30, 0.20, 0.36))
     hit("library", "library", Mx((SHELF_X, 1.05, -HZ + 0.01 + SHELF_D / 2)), (SHELF_W + 0.03, 2.1, SHELF_D))
     # the wall clock (#91): face and hands, a little proud of the face
-    hit("clock", "clock", CLOCK_M @ Mx((0, 0, 0.015)), (CLOCK_S + 0.04, CLOCK_S + 0.04, 0.05))
+    hit("clock", "clock", CLOCK_M @ Mx((0, 0, 0.015)), (CLOCK_S + 0.04, CLOCK_S + 0.04, 0.05))["wall"] = "w"
 
 
 # ================================================================ WALL ITEMS (atlas: wall_items)
@@ -722,7 +910,8 @@ def build_wall_items():
             x += bw + 0.003
     p += library_statics(shelf_m)
     fp("shelf", p[mark:], "floor", "n")  # stands on the floor against the back wall
-    # the wall clock on the left wall above the coffee counter (#91: the timelapse entrance): face + 12 ticks baked,
+    mark2 = len(p)
+    # the wall clock on the left wall next to the door (#91: the timelapse entrance): face + 12 ticks baked,
     # hands and hub live (build_clock)
     p.append(box("clock", (0.02, CLOCK_S, CLOCK_S), CLOCK_AT, plastic("#f4f4f0", 0.4, 0, 0, "clock_face"), G))
     fp("clock", p[-1:], "wall", "w")
@@ -730,7 +919,13 @@ def build_wall_items():
     for k in range(12):
         w, ln = (0.008, 0.030) if k % 3 == 0 else (0.004, 0.020)
         p += place([box("clock_tick", (w, ln, 0.001), (0, 0.184 - ln / 2, 0.0005), tick, G)], CLOCK_M @ Mx(rz=-k * math.pi / 6))
-    return join("wall_items", p)
+    # #111: one atlas (wall_items), three nodes, so the app can lower / hide what hangs on a wall with that wall
+    boards = join("boards", p[:mark])
+    boards["wall"] = "n"
+    shelf = join("shelf", p[mark:mark2])  # stands on the floor: no wall (the designer decides if it goes with n)
+    face = join("wallclock", p[mark2:])
+    face["wall"] = "w"
+    return [boards, shelf, face]
 
 
 # ================================================================ WALL CLOCK (#91, docs/design/timelapse.md 4)
@@ -748,6 +943,8 @@ def build_clock():
         out.append(pivot(join(name, place([hand], CLOCK_M)), CLOCK_M))
     hub = cyl("clock_hub", 0.01, 0.008, (0, 0, 0.0165), plastic("#111111", 0.35, 0.6, 0, "clock_hub"), G, 20, axis="z")
     out.append(pivot(join("clock_hub", place([hub], CLOCK_M)), CLOCK_M))
+    for o in out:
+        o["wall"] = "w"
     return out
 
 
@@ -842,6 +1039,14 @@ def build_lounge():
           cyl("lamp_pole", 0.015, 1.5, (lx, 0.78, lz), metal, G, 10)]
     shade = cyl("lamp_shade", 0.2, 0.26, (lx, 1.62, lz), emitter("#ffcf8a", 2.0, "lamp_shade"), "export", 32, r2=0.13)
     fp("floor_lamp", p[-2:] + [shade], "decor")
+    # small round side table in the open front middle (#109): an empty top and a basket for now
+    sx2, sz2 = SIDE_TABLE
+    st = [cyl("side_top", 0.3, 0.03, (sx2, 0.55, sz2), plastic("#c9b89a", 0.55, 0, 0.35, "desk_top"), G, 32, bev=0.006),
+          cyl("side_col", 0.025, 0.52, (sx2, 0.27, sz2), metal, G, 12),
+          cyl("side_foot", 0.18, 0.02, (sx2, 0.01, sz2), metal, G, 24),
+          cyl("basket", 0.11, 0.08, (sx2 + 0.06, 0.605, sz2 - 0.04), plastic("#b98a4e", 0.9, 0, 0.6, "basket"), G, 16, r2=0.09)]
+    fp("side_table", st, "floor")
+    p += st
     lounge = join("lounge", p)
     return lounge, apply_all(shade), (lx, 1.55, lz)
 
@@ -944,6 +1149,7 @@ def build_door():
     fp("door", placed, "wall", "w")
     fp_box("door_clear", "clear", (x + 0.13, 0.0, DOOR_Z - 0.5), (x + 0.13 + 0.8, 0.0, DOOR_Z + 0.5))  # 0.8 m kept free in front
     door = join("door", placed)
+    drop_facing(door, (-1, 0, 0))  # its back, flat against the wall
     scr = quad("screen_door", 0.8, 1.78, screen_mat("door_glow", "#ffb347", 0.45), "export")
     screen = slot(apply_all(place(scr, M @ Mx((0, 0.02, 0.072)))[0]), 0.8, 1.78)
     return door, screen
@@ -1254,8 +1460,8 @@ def surface(name, center, w, h):
 
 def build_surfaces():
     z = -HZ + 0.02 + 0.021  # just in front of the board faces (board front at z + 0.02)
-    surface("whiteboard", (WHITEBOARD_X, 1.5, z), 1.5, 1.0)
-    surface("bulletin", (BULLETIN_X, 1.45, z), 0.8, 0.9)
+    surface("whiteboard", (WHITEBOARD_X, 1.5, z), 1.5, 1.0)["wall"] = "n"
+    surface("bulletin", (BULLETIN_X, 1.45, z), 0.8, 0.9)["wall"] = "n"
 
 
 def facing(fx, fz, tx, tz):
@@ -1326,8 +1532,11 @@ def build_lights(lamp_pos):
 # ================================================================ main
 room = build_room()
 door, door_screen = build_door()
-baked(room, "room", density=0.9)
-baked(door, "room")
+baked(room, "room")
+for side in "nwse":  # #111: four walls, two atlases
+    baked(build_wall(side), "walls_nw" if side in "nw" else "walls_se")
+baked(door, "walls_se")  # its wall is w (extras), its atlas the roomier se one
+door["wall"] = door_screen["wall"] = "w"
 live(door_screen, "screen")
 work = []
 for i, a in enumerate(AGENTS):
@@ -1339,7 +1548,10 @@ for i, a in enumerate(AGENTS):
         live(o, kind)
 for o in work:
     baked(o, "work")
-baked(build_wall_items(), "wall_items")
+for o in build_wall_items():
+    baked(o, "wall_items")
+for o, kind in build_window_view():
+    live(o, kind)
 for o in build_clock():
     live(o, "bot")
 lib = build_library()
@@ -1492,7 +1704,24 @@ if PREVIEW:
         p.matrix_world = g.matrix_world @ level @ Mx(tuple(gr["pos"]), *[float(v) for v in gr["rot"]])
         bpy.context.view_layer.update()
 
-    # 1) the room as exported (agents at their spawn spots)
+    # 1) the room as exported (agents at their spawn spots), shown as the app shows it from the default camera: the
+    #    camera-side walls (s, e) lowered, the window view only in the shots that look through the window (the app
+    #    masks it to the window opening; Cycles can't, so it is hidden elsewhere)
+    for side in "se":
+        bpy.data.objects[f"wall_{side}"].hide_render = True
+    view = [o for o in bpy.data.objects if o.name.startswith("window_")]
+    for o in view:
+        o.hide_render = True
+
+    def shoot_view(name, pos, target):
+        for o in view:
+            o.hide_render = o.name == "window_portal"
+        shoot(name, pos, target)
+        for o in view:
+            o.hide_render = True
+
+    shoot_view("window_view", (-1.0, 1.55, -1.3), (WINDOW_X, 1.75, -HZ))
+    shoot_view("window_side", (1.2, 1.45, -2.4), (WINDOW_X, 1.7, -HZ))
     for name, (pos, target) in {"overview": ((8.5, 8.0, 9.5), (-0.3, 0.6, -0.3)),
                                 "work": ((0.6, 2.3, 1.4), (-2.3, 0.8, -1.6)),
                                 "lounge": ((-1.2, 2.2, 4.4), (1.2, 0.6, 1.0)),
@@ -1628,7 +1857,7 @@ scene.render.bake.target = "IMAGE_TEXTURES"
 # when they leave (props too since #43: a lifted paddle left its shadow on the table; the binders since #67: the app
 # shows only as many as there are files)
 for n in NODES:
-    if n["obj"].name.startswith(("agent_", "shelf_r", "clock_")) or n.get("live") == "prop":
+    if n["obj"].name.startswith(("agent_", "shelf_r", "clock_", "window_")) or n.get("live") == "prop":
         n["obj"].hide_render = True
 
 atlases = {}
@@ -1642,6 +1871,15 @@ images = {}
 for name, entries in atlases.items():
     objs = [e["obj"] for e in entries]
     unwrap(objs, {e["obj"].name: e["density"] for e in entries})
+    # the texel density this atlas really gets (#108 targets: objects >= 300, floor / walls >= 200 px/m)
+    area = uv_area = 0.0
+    for o in objs:
+        uv = o.data.uv_layers["bake"].data
+        for pl in o.data.polygons:
+            pts = [uv[li].uv for li in pl.loop_indices]
+            uv_area += abs(sum(a.x * b.y - b.x * a.y for a, b in zip(pts, pts[1:] + pts[:1]))) / 2
+            area += pl.area
+    print(f"texels {name}: {SIZE * math.sqrt(uv_area / area):.0f} px/m, UV fill {uv_area * 100:.0f}%, {area:.1f} m2")
     img = bpy.data.images.new(name, SIZE, SIZE, float_buffer=True, alpha=False)
     bake_targets(objs, img)
     images[name] = img
