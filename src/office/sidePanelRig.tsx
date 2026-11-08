@@ -1,7 +1,7 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useRef } from 'react'
 import { Vector3, type PerspectiveCamera } from 'three'
-import { SIDE, easeOut, fitScale, viewOffset } from './sidePanel/model'
+import { SIDE, easeOut, fitKey, fitScale, viewOffset } from './sidePanel/model'
 import { ROOM } from './room'
 import { getSideLayout } from './sidePanel/store'
 
@@ -50,9 +50,12 @@ export function SideViewOffset() {
     })
   }, [camera, scene, size])
   const st = useRef({ cur: { x: 0, y: 0 }, from: { x: 0, y: 0 }, to: { x: 0, y: 0 }, t0: 0 })
-  // the fit (#175): how far "open" the scale is (0 closed, 1 open), eased like the offset; the scale itself follows the
-  // room's width each frame, so the viewer's own orbit / dolly is kept and the fit is applied on top of it
+  // the fit (#175): how far "open" the scale is (0 closed, 1 open), eased like the offset; the viewer's own orbit / dolly
+  // stays theirs and the held scale multiplies it
   const fit = useRef({ cur: 0, from: 0, to: 0, t0: 0 })
+  // the fit scale is measured when the panel opens (and again when its width or the screen changes), then held: measured
+  // every frame it undid the viewer's own zoom while the panel was open, the room kept its size whatever the wheel did (#190)
+  const held = useRef({ key: '', scale: 1 })
   useFrame(() => {
     const s = st.current
     const L = getSideLayout()
@@ -79,7 +82,9 @@ export function SideViewOffset() {
     }
     const kf = L.dragging || reduced() ? 1 : Math.min(1, (now - f.t0) / SIDE.ms)
     f.cur = f.from + (f.to - f.from) * easeOut(kf)
-    const target = fitScale({ w: size.width, h: size.height }, L, roomScreenWidth(camera, size.width, size.height))
+    const key = fitKey({ w: size.width, h: size.height }, L)
+    if (key !== held.current.key) held.current = { key, scale: key ? fitScale({ w: size.width, h: size.height }, L, roomScreenWidth(camera, size.width, size.height)) : 1 }
+    const target = held.current.scale
     const zoom = 1 + (target - 1) * f.cur
     if (Math.abs(camera.zoom - zoom) > 1e-4) {
       camera.zoom = zoom
