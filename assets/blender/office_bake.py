@@ -1457,12 +1457,23 @@ def omok_mat(x0, z0, top):
     dot = op("MULTIPLY", star, op("LESS_THAN", dist, 0.002))
     on_top = op("GREATER_THAN", sep.outputs["Z"], top - 0.0005)  # web y = Blender Z
     ink = op("MULTIPLY", op("MAXIMUM", op("MAXIMUM", line(u, v), line(v, u)), dot), on_top)
-    mix = nodes.new("ShaderNodeMix")
-    mix.data_type = "RGBA"
-    col_a, col_b = [s for s in mix.inputs if s.type == "RGBA" and s.name in ("A", "B")]  # the colour pair
-    col_a.default_value, col_b.default_value = rgba("#d4a463"), rgba("#3a2a1a")  # designer: a step darker than the table
-    links.new(ink, mix.inputs["Factor"])
-    links.new([s for s in mix.outputs if s.type == "RGBA"][0], b.inputs["Base Color"])
+    def mix(factor, a, b_):
+        """colour a where factor = 0, b_ where 1; a / b_ = hex or a colour socket"""
+        n = nodes.new("ShaderNodeMix")
+        n.data_type = "RGBA"
+        ca, cb = [s for s in n.inputs if s.type == "RGBA" and s.name in ("A", "B")]
+        for sock, v in ((ca, a), (cb, b_)):
+            if isinstance(v, str):
+                sock.default_value = rgba(v)
+            else:
+                links.new(v, sock)
+        links.new(factor, n.inputs["Factor"])
+        return [s for s in n.outputs if s.type == "RGBA"][0]
+
+    # designer (app cut): the top #b5844c reads as light wood once baked (x4 exposure, the lamp); the sides a step
+    # darker so the thickness reads
+    wood_c = mix(on_top, "#8f6438", "#b5844c")
+    links.new(mix(ink, wood_c, "#3a2a1a"), b.inputs["Base Color"])
     return m
 
 
@@ -1482,7 +1493,7 @@ def build_omok(gx, gz, G):
     x0, z0 = gx - span / 2, gz - span / 2  # the (0, 0) intersection: the board's -x, -z corner
     table = 0.74
     parts = [box("omok_slab", (B, top - table - 0.008, B), (gx, (top + table + 0.008) / 2, gz), omok_mat(x0, z0, top), G, bev=0.003),
-             box("omok_foot", (B - 0.008, 0.008, B - 0.008), (gx, table + 0.004, gz), plastic("#b98d55", 0.6, 0, 0.2, "omok_foot"), G)]
+             box("omok_foot", (B - 0.008, 0.008, B - 0.008), (gx, table + 0.004, gz), plastic("#8f6438", 0.6, 0, 0.2, "omok_foot"), G)]
     grid = bpy.data.objects.new("omok_grid", None)
     coll("export").objects.link(grid)
     grid.matrix_world = Mx((x0, top, z0))  # +x = columns, +z = rows
