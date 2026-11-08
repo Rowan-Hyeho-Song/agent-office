@@ -286,6 +286,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
           typed: b.typed,
           log: b.log,
           dim: b.dim,
+          down: !!meet.script.decision,
           order: b.order,
           pairWith: b.pairWith === null ? null : `agent_${b.pairWith}`,
           open: b.row && meet.script.repo && meet.script.n ? { repo: meet.script.repo, n: meet.script.n, row: b.row } : null,
