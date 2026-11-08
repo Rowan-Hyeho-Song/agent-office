@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type PointerEvent as RPointerEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type PointerEvent as RPointerEvent } from 'react'
 import { isApprovalBoxOpen } from '../office/approval/panel'
 import { isDocsOpen } from '../office/docs/panel'
 import { AGENT_INFO, type OfficeWorld } from '../office/world'
 import type { Point } from '../timeline/types'
-import { drawBar, glyph, nearest, tokens, type BarLayout } from './barDraw'
+import { drawBar, nearest, type BarLayout } from './barDraw'
 import { ALL, AGENT_NAME, LANES, LANE_NAME, SECRET_NOTE, SPEEDS, atMs, describe, dayLabel, laneOf, remainingMs, shortName, valueText, whenText, kst, type Lane } from './engine'
 import { replay, useReplay } from './store'
 import { ReplayList } from './ReplayList'
@@ -294,19 +294,3 @@ function Tip({ point: p, x, wrap }: { point: Point; x: number; wrap: HTMLDivElem
     </div>
   )
 }
-
-/** a small shape for the 2D list: the same glyph as the bar */
-export function Glyph({ p }: { p: Point }) {
-  const ref = useRef<HTMLCanvasElement>(null)
-  useEffect(() => {
-    const c = ref.current
-    if (!c) return
-    const g = c.getContext('2d')!
-    g.setTransform(2, 0, 0, 2, 0, 0)
-    g.clearRect(0, 0, 12, 12)
-    const t = tokens()
-    glyph(g, p, 6, 6, t.color[laneOf(p)], false, t)
-  }, [p])
-  return <canvas ref={ref} width={24} height={24} aria-hidden="true" />
-}
-
