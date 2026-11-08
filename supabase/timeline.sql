@@ -24,6 +24,8 @@ create table if not exists public.timeline (
   files int check (files >= 0),
   issue int,
   pr int,
+  -- approval points: true = the owner's result (✅), false = a request (🖊)
+  result boolean not null default false,
   tier text not null check (tier in ('public', 'review')),
   -- a review point is opaque: no title, no source address (key is review:<project>:<hash>), no numbers
   constraint review_is_opaque check (tier = 'public' or (secret and title = '' and key like 'review:%' and issue is null and pr is null))

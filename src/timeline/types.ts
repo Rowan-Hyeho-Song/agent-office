@@ -30,6 +30,8 @@ export interface Point {
   files: number | null
   issue: number | null
   pr: number | null
+  /** approval point only: the owner's ✅ result (drawn on the owner's lane); absent on everything else */
+  result?: true
   tier: PointTier
 }
 

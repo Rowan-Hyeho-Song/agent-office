@@ -54,6 +54,7 @@ export function toPoint(p: PointInput, cfg: PointConfig): Point | null {
     files: count(p.files),
     issue: secret ? null : num(p.issue),
     pr: secret ? null : num(p.pr),
+    ...(p.kind === 'approval' && p.result === true ? { result: true as const } : {}),
     tier: secret ? 'review' : 'public',
   }
 }
@@ -80,6 +81,7 @@ export function parsePointInput(x: unknown): PointInput | null {
   if (!(p.agent === null || p.agent === 0 || p.agent === 1 || p.agent === 2 || p.agent === 3)) return null
   if (typeof p.title !== 'string' || p.title.length > 400) return null
   if (![p.additions, p.deletions, p.files, p.issue, p.pr].every(nullable)) return null
+  if (p.result !== undefined && p.result !== true) return null
   const author = p.author as Record<string, unknown> | undefined
   if (!author || typeof author.login !== 'string' || typeof author.association !== 'string') return null
   return p as unknown as PointInput
