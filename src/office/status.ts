@@ -9,6 +9,10 @@ export interface AgentStatus {
   activity?: string
   /** ms since the epoch when this state began (a new wrap-up is a new `since`) */
   since: number
+  /** why an agent is off: no session yet, quiet for 2 h, or the session ended (real rows; absent on the fake) */
+  offReason?: 'none' | 'quiet' | 'ended'
+  /** set by duty.ts on an off agent at night: dozing at its desk, or the one awake on night duty */
+  night?: 'sleep' | 'duty'
   /** the last test / build outcome the hook reported (#44: the coder's signal light, the 3D ring light) */
   lastResult?: { activity: 'test' | 'build'; ok: boolean; at: number }
 }
@@ -59,7 +63,7 @@ export class FakeStatusSource implements StatusSource {
 
   set(agent: string, state: AgentState, activity?: string) {
     const lastResult = this.snapshot[agent]?.lastResult
-    this.snapshot = { ...this.snapshot, [agent]: { state, activity, since: Date.now(), ...(lastResult ? { lastResult } : {}) } }
+    this.snapshot = { ...this.snapshot, [agent]: { state, activity, since: Date.now(), ...(state === 'off' ? { offReason: 'ended' as const } : {}), ...(lastResult ? { lastResult } : {}) } }
     for (const l of this.listeners) l()
   }
 

@@ -43,12 +43,35 @@ describe('Director.goals by state', () => {
     expect(g.agent_2.spot).toBe(play.agent_2.spot)
   })
 
-  it('off agents go to the door and leave', () => {
+  it('off agents never leave (#110): a sleeper dozes at its desk, the night-duty agent plays solo, a bare off rests', () => {
     const d = new Director(AGENTS)
     const st = allIdle()
-    st.agent_2 = { state: 'off', since: 0 }
+    st.agent_1 = { state: 'off', since: 0, night: 'sleep' }
+    st.agent_2 = { state: 'idle', since: 0, night: 'duty' }
+    st.agent_3 = { state: 'off', since: 0 }
     const g = d.goals(0, MINUTE, st, makeArrived().fn)
-    expect(g.agent_2).toMatchObject({ spot: 'door', pose: 'leave' })
+    expect(g.agent_1).toMatchObject({ spot: 'work_1', pose: 'doze', label: '조는 중' })
+    expect(['coffee', 'books']).toContain(g.agent_2.pose)
+    expect(g.agent_2.quiet).toBe(true)
+    expect(g.agent_3).toMatchObject({ spot: 'work_3', pose: 'idle' })
+    expect(Object.values(g).some((x) => x.pose === 'leave' || x.spot === 'door')).toBe(false)
+  })
+
+  it('no state of any agent, at any minute, yields leave', () => {
+    const d = new Director(AGENTS)
+    const states: AgentStatus[] = [
+      idle(),
+      { state: 'working', since: 0 },
+      { state: 'wrapping', since: 0 },
+      { state: 'off', since: 0 },
+      { state: 'off', since: 0, night: 'sleep' },
+      { state: 'idle', since: 0, night: 'duty' },
+    ]
+    for (let m = 0; m < 60; m++)
+      for (const s of states) {
+        const g = d.goals(m * 60000, MINUTE + m, Object.fromEntries(AGENTS.map((a) => [a, s])), makeArrived().fn)
+        for (const a of AGENTS) expect(g[a].pose).not.toBe('leave')
+      }
   })
 
   it('an agent missing from the status map is treated as idle', () => {
@@ -192,7 +215,7 @@ describe('messages', () => {
     st.agent_1 = { state: 'off', since: 0 }
     d.receive(msg('agent_0', 'agent_1'))
     const g = d.goals(0, MINUTE, st, makeArrived().fn)
-    expect(g.agent_1).toMatchObject({ spot: 'door', pose: 'leave' })
+    expect(g.agent_1).toMatchObject({ spot: 'work_1', pose: 'idle' })
     expect(g.agent_0.spot).toBe(playAt(MINUTE, AGENTS, new Set(['agent_1'])).agent_0.spot)
     expect(d.pending).toEqual({ queued: 0, talks: [] })
   })

@@ -20,7 +20,7 @@ export function AgentList({ world }: { world: OfficeWorld }) {
         {world.director.agents.map((a) => {
           const s = status[a]
           const info = AGENT_INFO[a]
-          const text = !s ? '…' : s.state === 'working' ? activityLabel(s.activity) : STATE_LABELS[s.state]
+          const text = !s ? '…' : s.state === 'working' ? activityLabel(s.activity) : s.night === 'sleep' ? '조는 중' : s.night === 'duty' ? '야간 당번' : STATE_LABELS[s.state]
           return (
             <li key={a} className={`state-${s?.state ?? 'off'}`}>
               <i style={{ background: info.color }} aria-hidden="true" />
