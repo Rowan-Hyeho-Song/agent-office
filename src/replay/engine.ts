@@ -134,15 +134,16 @@ export const DAYBREAK_MS = 1000
 /** a day change after a gap this long is a "day flip"; a midnight inside a work session only turns the date */
 export const DAYBREAK_GAP_MS = 6 * 3_600_000
 
-export const stepMs = (p: Point, speed: Speed) => (p.kind === 'minutes' ? MINUTES_MS : STEP_MS) / speed
-export const daybreakMs = (speed: Speed) => DAYBREAK_MS / speed
+/** a point's length: in replay time (speed 1), or in wall time at that speed (what the viewer waits) */
+export const stepMs = (p: Point, speed: Speed = 1) => (p.kind === 'minutes' ? MINUTES_MS : STEP_MS) / speed
+export const daybreakMs = (speed: Speed = 1) => DAYBREAK_MS / speed
 export const isDaybreak = (a: Point, b: Point) => dayKey(a) !== dayKey(b) && atMs(b) - atMs(a) >= DAYBREAK_GAP_MS
 
-/** the time left from point `i` at this speed, ms; `wait` adds the expected walk holds per point (x1 only) */
+/** the time left from point `i` at this speed, ms; `wait` adds the expected holds per point (replay ms, they run faster too) */
 export function remainingMs(points: readonly Point[], i: number, speed: Speed, wait?: (k: number, first: boolean) => number): number {
   let ms = 0
   for (let k = Math.max(0, i); k < points.length; k++) {
-    ms += stepMs(points[k], speed) + (wait && speed === 1 ? wait(k, k === Math.max(0, i)) : 0)
+    ms += stepMs(points[k], speed) + (wait ? wait(k, k === Math.max(0, i)) / speed : 0)
     if (k + 1 < points.length && isDaybreak(points[k], points[k + 1])) ms += daybreakMs(speed)
   }
   return ms

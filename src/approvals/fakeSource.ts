@@ -6,7 +6,7 @@ import type { ApprovalSource, Cover, DecideResult, Role } from './source.js'
 import type { StoredApproval } from './types.js'
 import { oldestFirst } from './view.js'
 
-const REPO = 'owner/agent-office'
+const REPO = 'Rowan-Hyeho-Song/agent-office'
 const at = (h: number, m: number) => new Date(2026, 10, 8, h, m).toISOString()
 
 const row = (over: Partial<StoredApproval>): StoredApproval => ({
@@ -42,7 +42,7 @@ export const SAMPLES: StoredApproval[] = [
     requester_seat: 2,
     created_at: at(1, 55),
     content:
-      '떠 있는 두 손의 모양을 골라 주세요. 네 명 모두 손 버릇에 **검지**를 따로 씁니다.\n\n- 메모: 머리를 톡톡\n- 메시: 사각 프레임\n- 휴: 스포이트\n- 루프: 화면 가리키기\n\n자세한 비교는 [이슈](https://github.com/owner/agent-office/issues/28)에 있어요.',
+      '떠 있는 두 손의 모양을 골라 주세요. 네 명 모두 손 버릇에 **검지**를 따로 씁니다.\n\n- 메모: 머리를 톡톡\n- 메시: 사각 프레임\n- 휴: 스포이트\n- 루프: 화면 가리키기\n\n자세한 비교는 [이슈](https://github.com/Rowan-Hyeho-Song/agent-office/issues/28)에 있어요.',
     options: [
       'A 엄지·검지 장갑: 손바닥 + 엄지 + 검지 + 나머지 세 손가락 한 덩어리',
       'B 벙어리장갑: 손바닥 + 엄지',
@@ -64,7 +64,7 @@ export const SAMPLES: StoredApproval[] = [
   }),
   row({
     id: 3,
-    repo: 'owner/rowansong.dev',
+    repo: 'Rowan-Hyeho-Song/rowansong.dev',
     folder: 3,
     title: '로봇 대사가 끝날 때까지 다른 상호작용이 덮지 않게',
     kind: '문서 공개',
