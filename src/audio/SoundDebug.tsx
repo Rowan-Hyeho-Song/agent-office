@@ -17,7 +17,7 @@ type Where = 'near' | 'far' | 'left' | 'right'
 const WHERE: Record<Where, string> = { near: '가까이', far: '멀리', left: '왼쪽', right: '오른쪽' }
 const BUSES: Bus[] = ['music', 'sfx', 'voice', 'ambience']
 const PERIOD_NAMES = ['새벽', '낮', '저녁', '밤']
-const STATE_NAMES: Record<MusicState, string> = { off: '끔', work: '일(−12 dB)', break: '쉼' }
+const STATE_NAMES: Record<MusicState, string> = { off: '끔', work: '일할 때 (−12 dB)', break: '쉴 때' }
 
 /** a point relative to the listener (the camera) */
 function placeOf(w: Where): Vec | undefined {
@@ -31,7 +31,8 @@ function placeOf(w: Where): Vec | undefined {
   f.z /= n
   const r = { x: -f.z, z: f.x } // right of forward on the floor
   const at = (fwd: number, side: number) => ({ x: p.x + f.x * fwd + r.x * side, y: p.y - 0.5, z: p.z + f.z * fwd + r.z * side })
-  return w === 'near' ? at(2, 0) : w === 'far' ? at(10, 0) : w === 'left' ? at(4, -3) : at(4, 3)
+  // 가까이 = the room seen from the default view (~15 m, full level); 멀리 = twice as far; 왼쪽/오른쪽 = the room's sides
+  return w === 'near' ? at(15, 0) : w === 'far' ? at(30, 0) : w === 'left' ? at(15, -6) : at(15, 6)
 }
 
 const fmt = (v: number) => (v <= -119 ? '−∞' : v.toFixed(1))
@@ -57,6 +58,11 @@ export function SoundDebug() {
       }
     }, 250)
     return () => clearInterval(id)
+  }, [])
+
+  // debug only: lets level-check scripts drive the mix (like the desk room's window.__audio)
+  useEffect(() => {
+    ;(window as unknown as { __sound: unknown }).__sound = { audioGraph, ensureAudio, setBusLevel, getBusLevel, cue, setMusicState, startAmbience, setAmbienceOverride, meter, setSetting }
   }, [])
 
   const start = () => {
@@ -205,7 +211,8 @@ export function SoundDebug() {
       </section>
 
       <section aria-label="스피커 음악">
-        <b>스피커 음악</b>{' '}
+        <b>스피커 음악</b>
+        <p className="sd-note">아직 에이전트 상태와 이어지지 않았어요(③). 여기서 "쉴 때"를 누르면 쉬는 시간 음악, "일할 때"를 누르면 작게 깔리는 음악을 들을 수 있어요.</p>{' '}
         {(Object.keys(STATE_NAMES) as MusicState[]).map((st) => (
           <button
             type="button"

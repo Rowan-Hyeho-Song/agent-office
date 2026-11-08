@@ -30,7 +30,7 @@ export function momentaryMax(k: Float32Array, rate: number): number {
 /** render a cue at the live chain (bus level → master 1 → compressor) and measure it */
 export async function measureCue(name: CueName, agent?: string): Promise<Level> {
   const rate = 48000
-  const len = Math.ceil((CUES[name].length + 0.6) * rate)
+  const len = Math.ceil((CUES[name].length + 1.2) * rate)
   const c = new OfflineAudioContext(1, len, rate)
   const comp = c.createDynamicsCompressor()
   comp.threshold.value = -18
@@ -39,7 +39,8 @@ export async function measureCue(name: CueName, agent?: string): Promise<Level> 
   const bus = c.createGain()
   bus.gain.value = BUS_LEVEL[CUES[name].bus]
   bus.connect(comp)
-  playInto(c, bus, name, 0.01, agent)
+  // start after the compressor has settled: it opens from silence over ~0.5 s and read cues ~11 dB too quiet
+  playInto(c, bus, name, 0.6, agent)
   const out = (await c.startRendering()).getChannelData(0)
   let peak = 0
   for (const v of out) peak = Math.max(peak, Math.abs(v))
