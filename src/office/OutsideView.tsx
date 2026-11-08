@@ -67,12 +67,24 @@ function cellsOf(g: BufferGeometry): { tris: number[][] } {
   return cells
 }
 
+/** the window-light cards (#123): the 12 m buildings, and the 25 m skyline at half the lit share (designer) */
+interface LightLayer {
+  node: string
+  share: number
+  seed: number
+}
+export const LIGHT_LAYERS: readonly LightLayer[] = [
+  { node: 'window_lights', share: 1, seed: 0 },
+  { node: 'window_lights_far', share: 0.5, seed: 1009 },
+]
+
 /** light the cells chosen for this KST hour: only the lit ones are drawn (index subset), warm or cool by vertex colour */
-function paintLights(m: Mesh, look: OutsideLook) {
+function paintLights(m: Mesh, look: OutsideLook, layer: LightLayer) {
   const g = m.geometry
   const { tris } = cellsOf(g)
   const full = g.userData.fullIndex as number[]
-  const { lit, cool } = litWindows(tris.length, look.lights, Number(look.key.split(':').pop()))
+  // the far skyline lights half as many windows; its own seed offset keeps the two patterns from lining up
+  const { lit, cool } = litWindows(tris.length, look.lights * layer.share, Number(look.key.split(':').pop()) + layer.seed)
   const count = g.getAttribute('position').count
   const col = new Float32Array(count * 3)
   const warm = new Color(LIGHT_WARM).multiplyScalar(LIGHT_LEVEL)
@@ -116,7 +128,8 @@ export function Outside({ nodes, world }: { nodes: Record<string, Object3D>; wor
   useEffect(() => {
     setAll(nodes.window_sky, parts.sky, CARD_ORDER)
     for (const l of parts.layers) setAll(nodes[l.node], l.mat, CARD_ORDER)
-    setAll(nodes.window_lights, parts.lights, CARD_ORDER)
+    // every light card gets the stencil material, or it would float over the room as a plain neon plane
+    for (const l of LIGHT_LAYERS) setAll(nodes[l.node], parts.lights, CARD_ORDER)
     setAll(nodes.window_portal, parts.portal, 1)
     return () => {
       parts.tex.dispose()
@@ -141,7 +154,7 @@ export function Outside({ nodes, world }: { nodes: Record<string, Object3D>; wor
       parts.tex.needsUpdate = true
     }
     for (const l of parts.layers) l.mat.color.set(silhouette(look, l.depth))
-    for (const m of nodes.window_lights ? meshesOf(nodes.window_lights) : []) paintLights(m, look)
+    for (const l of LIGHT_LAYERS) for (const m of nodes[l.node] ? meshesOf(nodes[l.node]) : []) paintLights(m, look, l)
   })
   return null
 }
