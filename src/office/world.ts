@@ -4,6 +4,11 @@ import type { ApprovalSource } from '../approvals/source'
 import { FakeApprovalSource } from '../approvals/fakeSource'
 import { supabaseSource } from './approval/supabaseSource'
 import { openApprovalBox } from './approval/panel'
+import { openDocs } from './docs/panel'
+import { supabaseDocsSource } from './docs/supabaseSource'
+import { FakeDocsSource } from '../docs/fakeSource'
+import { LibraryStore } from '../docs/store'
+import type { Ref } from '../docs/library'
 import { Director, type Goal } from './director'
 import { LiveStatusSource } from './liveStatus'
 import type { NavGraph } from './nav'
@@ -39,6 +44,10 @@ export interface OfficeWorld {
   approvals: ApprovalSource | null
   /** set when approvals is the debug fake: window.__office.fakeApprovals.as('owner' | 'visitor'), .failNext(), .open() */
   fakeApprovals: FakeApprovalSource | null
+  /** the library (#65): documents for the current role, read by the viewer and the bookshelf; null when the office is not configured */
+  library: LibraryStore | null
+  /** set when the library is the debug fake: window.__office.docs.as('owner' | 'visitor'), .open(n, kind, row), .publish(id) */
+  docs: FakeDocsSource | null
   director: Director
   /** debug only: shifts the play clock to preview later schedules */
   timeOffsetMs: number
@@ -73,10 +82,13 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
       openApprovalBox()
     }
   }
+  const { library, docs } = createLibrary(approvals, fakeApprovals, debug && !(live && supabase), query)
   return {
     debug,
     approvals,
     fakeApprovals,
+    library,
+    docs,
     source: (live ?? fake)!,
     fake,
     live,
@@ -90,4 +102,31 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     graph: null,
     check: null,
   }
+}
+
+/** the library: Supabase, or under ?debug=1 the fake (shares the approval fake's role). ?debug=1&docs=owner|visitor opens the viewer */
+function createLibrary(approvals: ApprovalSource | null, fakeApprovals: FakeApprovalSource | null, fake: boolean, query: URLSearchParams) {
+  const docs = fake ? new FakeDocsSource() : null
+  const source = docs ?? (supabase ? supabaseDocsSource(supabase) : null)
+  if (!source || !approvals) return { library: null, docs: null }
+  const library = new LibraryStore(source, () => approvals.role())
+  const refresh = () => void library.refresh()
+  refresh()
+  approvals.subscribe(refresh)
+  source.subscribe?.(refresh)
+  // the page only ever polls, never subscribes to documents: an hour-old list is fine, a minute-old one is better
+  setInterval(() => !document.hidden && refresh(), 60_000)
+  if (docs && fakeApprovals) {
+    docs.setRole = (r) => fakeApprovals.as(r)
+    docs.openViewer = ({ n, kind, row, repo, id }) => {
+      const ref: Ref = id !== undefined ? { id } : { n, repo: repo ?? library.getSnapshot().metas?.find((m) => m.folder === n)?.repo ?? undefined, kind: kind as Ref['kind'], row }
+      openDocs(ref)
+    }
+    const as = query.get('docs')
+    if (as === 'owner' || as === 'visitor') {
+      fakeApprovals.as(as)
+      openDocs()
+    }
+  }
+  return { library, docs }
 }
