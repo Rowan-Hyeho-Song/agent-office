@@ -22,7 +22,8 @@ Node contract (the app reads glTF extras):
                                    hour), "backdrop", "city_lights" (the app sets day / night strength), at 40 / 25 /
                                    12 / 6 m; "portal" = the window opening, the stencil the cards are masked to.
                                    All extras wall = n
-  slot_<name>                      empties: each object's footprint (#109, extras slot, size, wall); the app ignores them
+  slot_<name>                      empties: each object's footprint (#109, extras slot, size, wall|against; core =
+                                   the body alone when the slot also holds its use room, #147: the walk grid)
   agent_<i>                        live "bot" empty on the floor: the agent's frame (front = -z)
   agent_<i>_head, _hand_l|r, _hand_l|r_index|fingers|thumb, agent_0_postit_<k>
                                    live "bot": real-time lit parts with pivots (extras pivot_at); fingers bend on local x
@@ -34,7 +35,8 @@ Node contract (the app reads glTF extras):
   surface_whiteboard|bulletin      empties at the board faces where the app pins cards / notes (extras w, h, normal)
   prop_*, agent_0_pen              live "prop": paddles, ball, cups, watering can, board pieces, paper plane, pen
                                    (extras prop, home, grip; the pen's home is on its head: extras home_on)
-  nav_<id>                         empties: where agents go and which way they face (navigation)
+  nav_<id>                         empties: where agents go and which way they face (navigation); nav_meet_center_*
+                                   (#147): meeting ring centers, extras r = floor kept free around it
   shelf_r<r>_b<k>, _band, _label, _secret
                                    live "bot": the library binders (#67): cover, spine band, spine label (one cell of
                                    the shared "spines" canvas: extras canvas, grid, px, cell), SECRET stamp (own pivot)
@@ -75,6 +77,10 @@ AGENTS = [  # desk frame (x, z, ry): the agent sits on local +z and faces local 
 ]
 WINDOW_X = -1.9  # the window over desks 0-1 (2.6 m wide)
 WHITEBOARD_X, BULLETIN_X = 1.1, 2.55
+# meeting centers (#147): 1.3 m in front of the whiteboard's face, and the open floor between the work corner and the
+# lounge (the old meet_a/b middle). MEET_R = 0.75 m ring + 0.25 m body
+MEET_CENTERS = (("meet_center_board", WHITEBOARD_X, -HZ + 0.02 + 1.3), ("meet_center_floor", -1.0, -0.6))
+MEET_R = 1.0
 DOOR_Z = 2.6
 PINGPONG = (2.2, 0.0)
 SOFA = (2.2, 2.6)
@@ -110,8 +116,8 @@ def counter_frame():
 FOOTPRINTS = []
 
 
-def fp(name, objs, kind, wall=None, grow=(0.0, 0.0)):
-    """record the world bounding box of objs as a slot; grow = (x, z) margins added on both sides"""
+def bounds(objs):
+    """world bounding box (web coords) of objs: (lo, hi)"""
     bpy.context.view_layer.update()
     lo, hi = [1e9] * 3, [-1e9] * 3
     for o in objs:
@@ -119,8 +125,17 @@ def fp(name, objs, kind, wall=None, grow=(0.0, 0.0)):
             v = o.matrix_world @ Vector(c)
             for k, x in enumerate((v.x, v.z, -v.y)):
                 lo[k], hi[k] = min(lo[k], x), max(hi[k], x)
+    return lo, hi
+
+
+def fp(name, objs, kind, wall=None, grow=(0.0, 0.0), core=None):
+    """record the world bounding box of objs as a slot; grow = (x, z) margins added on both sides.
+    When the slot also holds the room to use the thing (an agent at a desk: core = the desk's objects; players at the
+    table ends: grow), the body alone goes out as extras core, so the app's walk grid (#138) blocks only the body"""
+    lo, hi = bounds(objs)
+    body = bounds(core) if core else (list(lo), list(hi)) if grow != (0.0, 0.0) else None
     lo[0], hi[0], lo[2], hi[2] = lo[0] - grow[0], hi[0] + grow[0], lo[2] - grow[1], hi[2] + grow[1]
-    FOOTPRINTS.append({"name": name, "kind": kind, "wall": wall, "lo": lo, "hi": hi})
+    FOOTPRINTS.append({"name": name, "kind": kind, "wall": wall, "lo": lo, "hi": hi, "core": body})
 
 
 def fp_box(name, kind, lo, hi, wall=None):
@@ -137,6 +152,10 @@ def build_slots():
         o.matrix_world = Mx(((lo[0] + hi[0]) / 2, lo[1], (lo[2] + hi[2]) / 2))  # the footprint's center, at its base
         o["slot"] = f["kind"]
         o["size"] = [round(b - a, 3) for a, b in zip(lo, hi)]
+        if f.get("core"):  # the body alone (no use room): its base center and size, world web coords
+            clo, chi = f["core"]
+            o["core"] = {"at": [round((clo[0] + chi[0]) / 2, 3), round(clo[1], 3), round((clo[2] + chi[2]) / 2, 3)],
+                         "size": [round(b - a, 3) for a, b in zip(clo, chi)]}
         if f["wall"]:
             # a wall item belongs to its wall (it is lowered with it); a floor thing only stands against one (#115:
             # furniture that touches the floor stays when the wall is lowered), so it gets "against", not "wall"
@@ -459,7 +478,7 @@ def build_desk(i, agent):
     # no chair: agents hover at their desk. A floor pad in the agent's color marks the spot instead.
     pad = rounded_slab("pad", 0.62, 0.006, 0.5, 0.12, (0, 0.003, 0), plastic(agent["color"], 0.9, 0, 0.6, f"pad_{i}"), G)
     pad = place([pad], F @ Mx((0, 0, WORK_Z)))
-    fp(f"desk_{i}", placed + pad, "floor")  # the desk and the agent's spot in front of it
+    fp(f"desk_{i}", placed + pad, "floor", core=placed)  # the desk and the agent's spot in front of it
     desk = join(f"desk_{i}", placed)
     pad = join(f"pad_{i}", pad)
     # live parts: the screen slot and a neon strip under the desk's front edge
@@ -1867,8 +1886,8 @@ def build_agent(i, agent):
 
 # ================================================================ NAVIGATION SPOTS (empties)
 # Where agents go and which way they face there. The app links them through the hall nodes into a graph and
-# glides agents along it (no teleporting, never through furniture), and sends two agents to a "meet" pair to
-# talk face to face. Each empty: name nav_<id>, extras nav=<kind> (work, stand, sofa, stool, play, meet, door,
+# glides agents along it (no teleporting, never through furniture), and gathers a meeting on a ring around a
+# meet_center. Each empty: name nav_<id>, extras nav=<kind> (work, stand, sofa, stool, play, meet_center, door,
 # hall), ry=<facing>.
 def nav(name, x, z, ry, kind):
     o = bpy.data.objects.new(f"nav_{name}", None)
@@ -1929,11 +1948,11 @@ def build_nav():
     nav("game_a", GAME_TABLE[0] - 0.6, GAME_TABLE[1], -math.pi / 2, "stool")
     nav("game_b", GAME_TABLE[0] + 0.6, GAME_TABLE[1], math.pi / 2, "stool")
     nav("door", -HX + 0.55, DOOR_Z, math.pi / 2, "door")
-    # face-to-face talk spots (0.8 / 0.62 m apart): in the open floor, and by the whiteboard
-    nav("meet_a", -1.4, -0.6, -math.pi / 2, "meet")
-    nav("meet_b", -0.6, -0.6, math.pi / 2, "meet")
-    nav("meet_c", WHITEBOARD_X - 0.31, -1.9, -math.pi / 4, "meet")
-    nav("meet_d", WHITEBOARD_X + 0.31, -1.9, math.pi / 4, "meet")
+    # meeting centers (#147, agents.md "대형"): the app stands the people on a 0.75 m ring around one and turns them
+    # to its center. ry = the 0° direction (toward the board); r = the floor kept free of furniture around it
+    # (ring + a body), checked by check-glb --overlap
+    for name, x, z in MEET_CENTERS:
+        nav(name, x, z, 0.0, "meet_center")["r"] = MEET_R
     # hall nodes: the aisles between the zones (#109 layout; the app's nav check #17 links and tests them)
     for name, x, z in (("door", -3.3, DOOR_Z), ("west", -3.0, 1.4), ("work", -2.2, -1.5), ("mid", -1.0, -0.6),
                        ("back", 2.0, -1.7), ("east", 3.1, -1.3), ("front", 0.2, 1.3), ("lounge", 3.95, 1.6),
