@@ -49,6 +49,8 @@ Node contract (the app reads glTF extras):
   pp_table                         empty at the table top center, +x = the long side (extras size [l, w], net_h)
   nav_<id>                         empties: where agents go and which way they face (navigation); nav_meet_center_*
                                    (#147): meeting ring centers, extras r = floor kept free around it
+  soil_<plant>                     empties (#184): the soil top's centre of each world-built pot (plant_corner|desk|sofa,
+                                   vine), extras soil_of, r = the soil disc's radius: where watering lands
   shelf_r<r>_b<k>, _band, _label, _secret
                                    live "bot": the library binders (#67): cover, spine band, spine label (one cell of
                                    the shared "spines" canvas: extras canvas, grid, px, cell), SECRET stamp (own pivot)
@@ -1198,7 +1200,7 @@ def flip(o):
     return o
 
 
-def pot3(name, x, z, y0, r_top, r_bot, h, body, group, saucer=False, pebbles=4, seg=24, foot=None, chips=0):
+def pot3(name, x, z, y0, r_top, r_bot, h, body, group, saucer=False, pebbles=4, seg=24, foot=None, chips=0, soil_node=True):
     """a pot in three parts: tapered body, a 1 cm rim (a wall above the soil, inside and out, capped by a rolled
     lip), soil 1.5 cm under the rim with pebbles and bark chips; optional saucer. foot = the material of an
     unglazed foot band (the glaze stops above it: a gloss difference that reads up close, #126). Returns
@@ -1219,6 +1221,13 @@ def pot3(name, x, z, y0, r_top, r_bot, h, body, group, saucer=False, pebbles=4, 
          flip(tube(f"{name}_collar_in", r_top - 0.006, 0.015, (x, soil_y + 0.0075, z), body, group, seg)),
          torus(f"{name}_rim", r_top - 0.003, 0.0055, (x, y0 + h, z), body, group, seg=seg, rseg=4),
          cyl(f"{name}_soil", r_top - 0.006, 0.004, (x, soil_y + 0.001, z), soil, group, seg)]
+    # #184: where watering lands (world-built pots only: soil_node): an empty at the soil's centre, extras r = its radius
+    if soil_node:
+        e = bpy.data.objects.new(f"soil_{name}", None)
+        coll("export").objects.link(e)
+        e.matrix_world = Mx((x, soil_y + 0.003, z))
+        e["soil_of"], e["r"] = name, round(r_top - 0.006, 4)
+        NODES.append({"obj": e, "soil": name})
     if foot:
         o.append(add_bevel(cyl(f"{name}_foot", r_bot, fy - y0, (x, (y0 + fy) / 2, z), foot, group, seg, r2=radius(fy) - 0.001), 0.002, seg=bseg))
     for k in range(pebbles):
@@ -1333,7 +1342,7 @@ def echeveria(name, x, y, z, group):
     """HUE's desk: echeveria rosette in three tiers (8 + 6 + 4 fleshy leaves, 12 triangles a side) curling up, the
     centre lighter; small terracotta pot with pebbles"""
     PRNG.seed(f"126:{name}")  # each plant its own stream: changing one leaves the others as they are
-    pot, sy = pot3(name, x, z, y, 0.04, 0.032, 0.05, plastic("#b5654a", 0.85, 0, 0.3, "terracotta"), group, pebbles=2, seg=10,
+    pot, sy = pot3(name, x, z, y, 0.04, 0.032, 0.05, plastic("#b5654a", 0.85, 0, 0.3, "terracotta"), group, pebbles=2, seg=10, soil_node=False,
                    foot=plastic("#96523d", 0.9, 0, 0.3, "terracotta_dark"))
     fol = Foliage(f"{name}_leaves")
     for tier, (n, length, elev, r0) in enumerate(((8, 0.044, 0.25, 0.007), (6, 0.034, 0.7, 0.004), (4, 0.022, 1.15, 0.0015))):
@@ -1782,11 +1791,18 @@ def grip_at(o, side, pos, fingers, palm, M=None):
     return child_empty(o if hasattr(o, "matrix_world") else None, name, base @ grip_frame(pos, fingers, palm, side), {"grip_for": side})
 
 
+def web_z_along(d):
+    """a rotation whose web (glTF) local +z points along the web direction d. The glTF export turns Blender local
+    axes too: Blender local -Y becomes glTF local +Z (and Blender +Z becomes glTF +Y). Aligning Blender +Z instead
+    left the spout and the contact normals at right angles (#184)."""
+    return wv(d).normalized().to_track_quat("-Y", "Z").to_matrix().to_4x4()
+
+
 def contact(o, part, pos, normal, side="", M=None):
     """<name>_contact_<part>[_side]: pos and the outward normal in the prop's frame (web); o = a prop, or a name
     string for a baked thing (then M is its frame)"""
     n = wv(normal).normalized()
-    R = n.to_track_quat("Z", "Y").to_matrix().to_4x4()
+    R = web_z_along(normal)
     obj = hasattr(o, "matrix_world")
     base = o.matrix_world if obj else M
     name = (o.name if obj else o) + f"_contact_{part}" + (f"_{side}" if side else "")
@@ -1937,7 +1953,8 @@ def build_props():
     e = bpy.data.objects.new("prop_watering_can_spout", None)
     coll("export").objects.link(e)
     e.parent = can
-    e.matrix_world = can.matrix_world @ Mx((0.212, -0.06, 0.0), 0.0, math.pi / 2, a)
+    # local +z along the spout (up and out): from the direction itself (an Euler here lost the upward tilt, #184)
+    e.matrix_world = can.matrix_world @ Matrix.Translation(W(0.212, -0.06, 0.0)) @ web_z_along((math.cos(a), math.sin(a), 0.0))
     NODES.append({"obj": e, "play": "spout"})
     # omok stones in the hand (#135: the chess pieces became go stones): a = black, b = white, home on the heap in
     # its bowl, next to the sample stone. Center pivot, held in the pinch ("OK hand", agents.md 2.7): the point where
@@ -2036,15 +2053,15 @@ def build_hands():
     grip_at(o, L, (0.04, -0.205, 0), (1, 0, 0), (0, 1, 0))
     contact(o, "palm", (0, 0.007, 0), (0, 1, 0))
     contact(o, "palm", (0.04, -0.2, 0), (0, -1, 0), L)
-    # omok: the hand dips into a bowl (3 cm below the mouth's centre); the stone in hand, go style: index on top,
-    # middle under it (the app sticks it to the fingers, agents.md 2.10)
+    # omok: the hand dips into a bowl (3 cm below the mouth's centre); the stone in hand, go style: middle on top,
+    # index under it (the app sticks it to the fingers, agents.md 2.10, #192)
     for side in "bw":
         x, y, z = OMOK_BOWLS[side]
         contact(f"omok_bowl_{side}", "index", (0, 0, 0), (0, 1, 0), M=Mx((x, y - 0.002 - 0.03, z)))
     for e in "ab":
         o = O[f"prop_piece_{e}"]
-        contact(o, "index", (0, OMOK["stone_h"] / 2, 0), (0, 1, 0))
-        contact(o, "middle", (0, -OMOK["stone_h"] / 2, 0), (0, -1, 0))
+        contact(o, "middle", (0, OMOK["stone_h"] / 2, 0), (0, 1, 0))  # go style (Nihon Ki-in): the middle finger on top
+        contact(o, "index", (0, -OMOK["stone_h"] / 2, 0), (0, -1, 0))  # the index nail under the stone (designer, #192)
     # paper plane (OK pinch): index and thumb 2 cm from the tail (+z), on the top and bottom faces
     o = O["prop_plane"]
     lo, hi = [min(v.co[k] for v in o.data.vertices) for k in range(3)], [max(v.co[k] for v in o.data.vertices) for k in range(3)]
