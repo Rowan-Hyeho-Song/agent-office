@@ -22,6 +22,12 @@ Node contract (the app reads glTF extras):
   prop_*, agent_0_pen              live "prop": paddles, ball, cups, watering can, board pieces, paper plane, pen
                                    (extras prop, home, grip; the pen's home is on its head: extras home_on)
   nav_<id>                         empties: where agents go and which way they face (navigation)
+  shelf_r<r>_b<k>, _band, _label, _secret
+                                   live "bot": the library binders (#67): cover, spine band, spine label (one cell of
+                                   the shared "spines" canvas: extras canvas, grid, px, cell), SECRET stamp (own pivot)
+  screen_shelf_r<r>                live "screen": the folder name plate under each library row
+  neon_approval                    live "neon": the amber dot on MEMO's IN tray (= the approval box)
+  hit_approval, hit_library        empties: click boxes (extras hit, size [w, h, d]; center + axes = the empty)
 Seats 0..3 = MEMO amber, MESH lavender, HUE magenta, LOOP cyan (#26); their forms: docs/design/agents.md 2 (#28).
 """
 import os
@@ -51,6 +57,7 @@ PINGPONG = (1.75, 0.95)
 SOFA = (0.35, 2.15)
 GAME_TABLE = (-1.35, 1.55)
 SHELF_X = 2.85
+SHELF_W, SHELF_D = 1.1, 0.34  # the bookshelf against the back wall: width, depth
 
 
 def frame(at):
@@ -240,6 +247,10 @@ def desk_props_memo(G):
         for pz in (tz - td / 2 + 0.004, tz + td / 2 - 0.004):
             s.append(box("tray_post", (0.006, 0.15, 0.006), (px, h + 0.075, pz), grey, G))
     s.append(box("tray_lid", (tw, 0.004, 0.14), (tx, h + 0.152, tz - td / 2 + 0.07), grey, G))
+    # #67: IN doubles as the approval box. A 1.5 cm amber dot on its front lip, right corner: on while approvals wait
+    dot = cyl("neon_approval", 0.0075, 0.003, (tx + tw / 2 - 0.016, h + 0.075 + 0.01, tz + td / 2 + 0.0015),
+              emitter(AGENTS[0]["color"], 3.0, "neon_approval"), "export", 16, axis="z")
+    L.append(LIVE("neon_approval", "neon", [dot]))
     # 3 two folded planes on the lid (the third, prop_plane, is the one MEMO throws: build_props)
     for dx, ry in ((-0.065, 0.25), (0.0, -0.1)):
         pl = paper_plane("plane", 0.5, plastic(POSTIT[0], 0.85, 0, 0.2, "postit_0"), G, two_sided=True)
@@ -449,6 +460,149 @@ def place_desk_live(F, entries):
     return out
 
 
+# ================================================================ LIBRARY (#67, docs/design/docs-ui.md 2, plan.md 6.4)
+# The bookshelf's middle three shelves are the library: one shelf = one project folder, one binder = one file
+# (an issue). Each slot is live so the app shows as many binders as there are files, paints the spine band (the
+# agents' colors) and the cover (manila when SECRET), writes the issue number on the label, and drops the SECRET
+# stamp when the owner makes a file public. Rows r0..r2 = shelves 1..3 from the bottom, slots k0..k9 from the left.
+LIB_ROWS = (1, 2, 3)
+LIB_N = 10
+BINDER = (0.045, 0.30, 0.26)  # spine width, height, depth
+BINDER_GAP = 0.004
+LABEL = (0.035, 0.07)  # spine label window = one 64 x 128 px cell of the shared "spines" canvas
+SPINES = {"canvas": "spines", "grid": [LIB_N, len(LIB_ROWS)], "px": [640, 384]}
+SPINE_Z = -HZ + SHELF_D  # the spines' face, 1 cm back from the shelf's front edge
+NAVY = "#2c3340"  # binder cover (docs-ui: the dark spines read as "the documents shelf" among the colored books)
+MANILA = "#d9b877"  # --manila: the app paints a SECRET binder's cover with it
+SECRET_RED = "#b3261e"  # --secret-stamp
+LRNG = random.Random(67)
+FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out", "fonts", "Galmuri11-Bold.ttf")
+
+
+def shelf_top(s):
+    return 0.08 + s * 0.42 + 0.0125
+
+
+def binder_x(k):
+    """left edge of slot k (from the inner face of the shelf's left side)"""
+    return SHELF_X - SHELF_W / 2 + 0.015 + 0.008 + k * (BINDER[0] + BINDER_GAP)
+
+
+def rect_ring(name, w, h, t, material, group):
+    """a flat w x h rectangle outline, stroke t, facing web +z"""
+    bm = bmesh.new()
+    o = [bm.verts.new(W(x * w / 2, y * h / 2, 0)) for x, y in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+    i = [bm.verts.new(W(x * (w / 2 - t), y * (h / 2 - t), 0)) for x, y in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+    for a in range(4):
+        b = (a + 1) % 4
+        bm.faces.new((o[a], o[b], i[b], i[a]))
+    return mesh_obj(name, bm, material, group)
+
+
+_font = []
+
+
+def secret_stamp(name, material):
+    """SECRET in a double frame, built lying along web x around the origin (the caller stands it up on the spine)"""
+    L, S = 0.10, 0.032
+    parts = [rect_ring("stamp_out", L, S, 0.0022, material, "export"),
+             rect_ring("stamp_in", L - 0.0064, S - 0.0064, 0.0009, material, "export")]
+    t = text("stamp_text", "SECRET", 0.02, (0, 0, 0), material, "export", extrude=0.0)
+    if not _font and os.path.exists(FONT_PATH):
+        _font.append(bpy.data.fonts.load(FONT_PATH))
+    if _font:
+        t.data.font = _font[0]
+    else:
+        print("no Galmuri11-Bold.ttf (build-office.sh fetches it): the stamp falls back to Blender's font")
+    t = apply_all(t)
+    xs = [v.co.x for v in t.data.vertices]
+    zs = [v.co.z for v in t.data.vertices]  # Blender z = web y
+    k = min((L - 0.017) / (max(xs) - min(xs)), (S - 0.013) / (max(zs) - min(zs)))
+    t.data.transform(Matrix.Scale(k, 4) @ Matrix.Translation((-(max(xs) + min(xs)) / 2, 0, -(max(zs) + min(zs)) / 2)))
+    return join(name, parts + [t])
+
+
+def build_library():
+    """the live binders (body, band, label, stamp per slot) and the folder name plates -> [(obj, kind)]"""
+    G = "export"
+    cover = plastic(NAVY, 0.6, 0, 0.15, "binder_cover")
+    ring_m = plastic("#9aa0aa", 0.35, 0.8, 0.05, "binder_ring")
+    label_m = plastic("#efe6d2", 0.8, 0, 0.0, "binder_label")
+    ink = plastic(SECRET_RED, 0.7, 0, 0.0, "secret_stamp")
+    bands = [plastic(a["color"], 0.5, 0, 0.0, f"binder_band_{i}") for i, a in enumerate(AGENTS)]
+    w, hb, d = BINDER
+    z = SPINE_Z
+    out = []
+    for r, s in enumerate(LIB_ROWS):
+        y = shelf_top(s)
+        for k in range(LIB_N):
+            n = f"shelf_r{r}_b{k}"
+            cx = binder_x(k) + w / 2
+            # body, band and label share one pivot: the bottom right corner of the spine. The app leans a row's
+            # last binder about it (8° to the right, into the empty slots) and can parent band and label as they are.
+            P = Mx((binder_x(k) + w, y, z))
+            body = join(n, [box("cover", (w, hb, d), (cx, y + hb / 2, z - d / 2), cover, G, bev=0.004, seg=1),
+                            torus("ring", 0.009, 0.0016, (cx, y + 0.055, z + 0.0008), ring_m, G, axis="z", seg=10, rseg=3)])
+            body = pivot(body, P)
+            body["shelf"], body["slot"] = r, k
+            band = pivot(apply_all(box(f"{n}_band", (w + 0.001, 0.03, 0.002), (cx, y + 0.27, z + 0.001), bands[(k + r) % 4], G)), P)
+            lab = quad(f"{n}_label", LABEL[0], LABEL[1], label_m, G)
+            uv = lab.data.uv_layers[0]
+            for loop in uv.data:  # this slot's cell of the shared canvas: column k, row r from the top (v = 1 at the top)
+                u, v = loop.uv
+                loop.uv = ((k + u) / LIB_N, 1 - (r + 1 - v) / len(LIB_ROWS))
+            lab = pivot(apply_all(place(lab, Mx((cx, y + 0.165, z + 0.0012)))[0]), P)
+            for key, val in {**SPINES, "cell": [k, r]}.items():
+                lab[key] = val
+            # the stamp stands along the spine (reads top to bottom), tilted 6°, over the label like a real stamp
+            M = Mx((cx, y + 0.165, z + 0.0025), rz=math.radians(-84))
+            st = pivot(apply_all(place(secret_stamp(f"{n}_secret", ink), M)[0]), M)
+            out += [(body, "bot"), (band, "bot"), (lab, "bot"), (st, "bot")]
+        # the folder's name plate on the shelf's front lip, under the binders (the app writes the project name)
+        x0, x1 = binder_x(0), binder_x(LIB_N - 1) + w
+        plate = quad(f"screen_shelf_r{r}", 0.30, 0.035, screen_mat(f"shelf_plate_{r}", "#efe6d2", 0.25), G)
+        plate = slot(apply_all(place(plate, Mx(((x0 + x1) / 2, 0.08 + s * 0.42 - 0.004, -HZ + 0.01 + SHELF_D + 0.0012)))[0]), 0.30, 0.035)
+        out.append((plate, "screen"))
+    return out
+
+
+def library_statics(shelf_m):
+    """baked: per library shelf, a bookend fixed at a full row's right end and a few books lying flat beyond it"""
+    G = "wall"
+    metal = plastic("#2a2c31", 0.35, 0.8, 0.03, "bookend")
+    cols = ["#c0392b", "#d4a017", "#16a085", "#8e44ad", "#e67e22", "#ecf0f1"]  # the decorative books' bright ones
+    p = []
+    for s in LIB_ROWS:
+        y = shelf_top(s)
+        bx = binder_x(LIB_N - 1) + BINDER[0]  # its left face = a full row's right end: a leaning binder never meets it
+        p += [box("bookend", (0.003, 0.17, 0.13), (bx + 0.0015, y + 0.085, SPINE_Z - 0.1), metal, G),
+              box("bookend_foot", (0.11, 0.002, 0.13), (bx + 0.055, y + 0.001, SPINE_Z - 0.1), metal, G)]
+        yy = y + 0.002
+        for _ in range(LRNG.randint(2, 3)):
+            bw, bt, bd = LRNG.uniform(0.2, 0.26), LRNG.uniform(0.025, 0.045), LRNG.uniform(0.17, 0.21)
+            p.append(box("book", (bw, bt, bd), (bx + 0.07 + bw / 2 + LRNG.uniform(-0.01, 0.01), yy + bt / 2, SPINE_Z - 0.02 - bd / 2),
+                         plastic(LRNG.choice(cols), 0.7, 0, 0.2, "book"), G, rot_y=LRNG.uniform(-0.08, 0.08)))
+            yy += bt
+    return p
+
+
+def hit(name, kind, M, size):
+    """an invisible click box for the app: center + axes = the empty's frame, size = [w, h, d] (web, m)"""
+    o = bpy.data.objects.new(f"hit_{name}", None)
+    coll("export").objects.link(o)
+    o.matrix_world = M
+    o["hit"] = kind
+    o["size"] = [round(v, 4) for v in size]
+    NODES.append({"obj": o, "hit": kind})
+    return o
+
+
+def build_hits():
+    # the IN tray (= the approval box, #67): roomy, it is small on screen
+    hit("approval", "approval", frame(AGENTS[0]["at"]) @ Mx((TRAY[0], DESK_H + 0.08, TRAY[1])), (0.30, 0.20, 0.36))
+    hit("library", "library", Mx((SHELF_X, 1.05, -HZ + 0.01 + SHELF_D / 2)), (SHELF_W + 0.03, 2.1, SHELF_D))
+
+
 # ================================================================ WALL ITEMS (atlas: wall_items)
 def build_wall_items():
     G = "wall"
@@ -465,8 +619,8 @@ def build_wall_items():
     # bulletin board for visitor notes
     p += [box("cork_frame", (0.86, 0.96, 0.03), (1.75, 1.45, z), plastic("#5a3d26", 0.6, 0, 0.3, "cork_frame"), G, bev=0.006),
           box("cork", (0.8, 0.9, 0.02), (1.75, 1.45, z + 0.01), cork, G)]
-    # bookshelf (the library): 5 shelves of books and binders
-    sw, sh, sd = 1.1, 2.1, 0.34
+    # bookshelf (the library): 5 shelves; 0 and 4 keep the decorative books, 1..3 hold the live binders (#67, LIBRARY)
+    sw, sh, sd = SHELF_W, 2.1, SHELF_D
     shelf_m = plastic("#6b4a30", 0.6, 0, 0.4, "shelf_wood")
     sx = SHELF_X
     sz = -HZ + sd / 2 + 0.01
@@ -485,10 +639,12 @@ def build_wall_items():
                 continue
             bw = RNG.uniform(0.025, 0.06)
             bh = RNG.uniform(0.22, 0.34)
-            lean = 0.0
-            p.append(box("book", (bw, bh, RNG.uniform(0.2, 0.28)), (x + bw / 2, y0 + 0.0125 + bh / 2, sz + 0.02),
-                         plastic(RNG.choice(book_cols), 0.7, 0, 0.2, "book"), G))
-            x += bw + 0.003 + lean
+            bd = RNG.uniform(0.2, 0.28)
+            col = RNG.choice(book_cols)  # drawn even where the binders stand: the rest of the room keeps its randomness
+            if s not in LIB_ROWS:
+                p.append(box("book", (bw, bh, bd), (x + bw / 2, y0 + 0.0125 + bh / 2, sz + 0.02), plastic(col, 0.7, 0, 0.2, "book"), G))
+            x += bw + 0.003
+    p += library_statics(shelf_m)
     # a framed poster and a clock on the left wall above the coffee counter
     lx = -HX + 0.02
     p += [box("clock", (0.02, 0.32, 0.32), (lx, 1.85, 1.35), plastic("#f4f4f0", 0.4, 0, 0, "clock_face"), G),
@@ -1067,6 +1223,10 @@ for i, a in enumerate(AGENTS):
 for o in work:
     baked(o, "work")
 baked(build_wall_items(), "wall_items")
+lib = build_library()
+for o, kind in lib:
+    live(o, kind)
+print(f"library: {sum(len(p.vertices) - 2 for o, _ in lib for p in o.data.polygons)} triangles, {len(lib)} nodes")
 lounge, shade, lamp_pos = build_lounge()
 baked(lounge, "lounge")
 live(shade, "neon")
@@ -1088,6 +1248,7 @@ for i, a in enumerate(AGENTS):
                 print("   ", o.name, sum(len(p.vertices) - 2 for p in o.data.polygons))
 build_nav()
 build_surfaces()
+build_hits()
 build_lights(lamp_pos)
 
 
@@ -1209,6 +1370,31 @@ if PREVIEW:
         F = frame(a["at"])
         c, t = (F @ Mx((0, 1.85, 1.15))).to_translation(), (F @ Mx((0, 0.8, -0.08))).to_translation()
         shoot(f"desk_{i}", (c.x, c.z, -c.y), (t.x, t.z, -t.y))
+    # 1b) the library as the app will show it (#67): rows of 7 / 10 / 4 files, a short row's last binder leaning 8° into
+    #     the gap, four SECRET (manila cover + stamp); the others without the stamp. And the IN tray = approval box.
+    manila = plastic(MANILA, 0.6, 0, 0.15, "binder_manila")
+    secret = {(0, 2), (1, 5), (1, 8), (2, 1)}
+    for r, n in enumerate((7, 10, 4)):
+        for k in range(LIB_N):
+            parts = [bpy.data.objects[f"shelf_r{r}_b{k}{x}"] for x in ("", "_band", "_label", "_secret")]
+            if k >= n:
+                for o in parts:
+                    o.hide_render = True
+                continue
+            if (r, k) in secret:
+                parts[0].material_slots[0].material = manila
+            else:
+                parts[3].hide_render = True
+            if k == n - 1 and n < LIB_N:
+                P = parts[0].matrix_world.copy()
+                R = P @ Mx(rz=math.radians(-8)) @ P.inverted()
+                for o in parts:
+                    o.matrix_world = R @ o.matrix_world
+    bpy.context.view_layer.update()
+    for name, (pos, target) in {"library": ((2.0, 1.4, -0.45), (2.78, 1.05, -2.55)),
+                                "library_spines": ((2.5, 1.12, -1.75), (2.6, 1.02, -2.45)),
+                                "approval": ((-1.55, 1.25, -1.65), (-2.0, 0.85, -2.45))}.items():
+        shoot(name, pos, target)
     # 2) holding props by their #20 grip offsets on the new _grip empties (preview-only poses)
     saved = {n: bpy.data.objects[n].matrix_world.copy() for n in ("prop_paddle_a", "prop_cup_1")}
     hold(0, "r", "prop_paddle_a")
@@ -1270,9 +1456,10 @@ scene.render.bake.use_clear = True
 scene.render.bake.target = "IMAGE_TEXTURES"
 
 # agents and props move: keep them (and their glow) out of the baked light, or their shadows would stay behind
-# when they leave (props too since #43: a lifted paddle left its shadow on the table)
+# when they leave (props too since #43: a lifted paddle left its shadow on the table; the binders since #67: the app
+# shows only as many as there are files)
 for n in NODES:
-    if n["obj"].name.startswith("agent_") or n.get("live") == "prop":
+    if n["obj"].name.startswith(("agent_", "shelf_r")) or n.get("live") == "prop":
         n["obj"].hide_render = True
 
 atlases = {}
