@@ -1,5 +1,7 @@
 {
   "rewrites": [
-    { "source": "/rooms/office/app/:path*", "destination": "/:path*" }
+    { "source": "/rooms/office/app", "destination": "/index.html" },
+    { "source": "/rooms/office/app/", "destination": "/index.html" },
+    { "source": "/rooms/office/app/:path+", "destination": "/:path+" }
   ]
 }
