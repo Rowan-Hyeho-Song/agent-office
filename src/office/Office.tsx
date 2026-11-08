@@ -9,14 +9,15 @@ import { Icon } from './ApprovalIcons'
 import { meshesOf, useOffice } from './nodes'
 import type { OfficeWorld } from './world'
 
-const SECRET_STAMP = /^shelf_r\d+_b\d+_secret$/
+/** the library's binders (#67): body, spine band, label, SECRET stamp */
+const BINDER = /^shelf_r\d+_b\d+(_band|_label|_secret)?$/
 
 /** The whole office as baked (room, desks, wall, lounge) and the agents moving through it. */
 export function Office({ world }: { world: OfficeWorld }) {
   const { scene, nodes } = useOffice()
-  // the library's SECRET stamps (#67) start hidden: the docs viewer (#65) shows them only on binders that are SECRET
+  // the binders start hidden: the docs viewer (#65) shows one per filed issue and the stamp only on SECRET ones
   useEffect(() => {
-    for (const [name, node] of Object.entries(nodes)) if (SECRET_STAMP.test(name)) node.visible = false
+    for (const [name, node] of Object.entries(nodes)) if (BINDER.test(name)) node.visible = false
   }, [nodes])
   return (
     <>
