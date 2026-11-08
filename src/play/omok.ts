@@ -165,9 +165,9 @@ export function aiMove(s: OmokState, p: Personality, seed: number): number {
 // ---- a whole game on the clock ---------------------------------------------------------------------------------------
 
 /** the hand takes this long to pick a stone, carry it and place it */
-export const HAND_MS = 1200
-/** the board shows the stone once the hand reaches this progress (the 'place' part of the motion starts at 0.5) */
-export const PLACE_AT = 0.8
+export const HAND_MS = 1400
+/** the board shows the stone once the hand reaches this progress: 0.9 s of the 1.4 s place sequence (agents.md 2.10: the stone lands, the hand bounces after) */
+export const PLACE_AT = 0.9 / 1.4
 export const WIN_MS = 4000
 export const RESET_MS = 2500
 
@@ -245,6 +245,10 @@ export interface OmokView {
   line?: number[]
   /** 0..1 while the stones go back to the bowls */
   resetT01: number
+  /** ms since the win reaction began (phase 'won'), else 0 */
+  wonMs: number
+  /** the move in progress (thinking, picking, placing, withdrawing): who plays it (index into `players`), the cell, ms since its thinking began, how long it thinks */
+  move: { mover: 0 | 1; cell: number; sinceMs: number; thinkMs: number } | null
 }
 
 const place = (board: Uint8Array, moves: number[], count: number) => {
@@ -281,7 +285,7 @@ export function gameAt(seed: number, players: [string, string], tMs: number, dis
   const game = g[lo]
   const u = t - game.at
   const board = new Uint8Array(N * N)
-  const base = { game: lo, black: game.black, handT01: 0, pending: null as OmokView['pending'], resetT01: 0 }
+  const base = { game: lo, black: game.black, handT01: 0, pending: null as OmokView['pending'], resetT01: 0, wonMs: 0, move: null as OmokView['move'] }
 
   if (u >= game.tHandsDone) {
     const f = game.finalState
@@ -291,7 +295,7 @@ export function gameAt(seed: number, players: [string, string], tMs: number, dis
     if (won || !discrete) place(board, game.moves, game.moves.length)
     return {
       ...base, board, lastMove: f.lastMove, toMove: f.toMove, moveIndex: f.moveIndex,
-      phase: won ? 'won' : 'reset', resetT01: discrete ? 0 : resetT01,
+      phase: won ? 'won' : 'reset', resetT01: discrete ? 0 : resetT01, wonMs: won ? u - game.tHandsDone : 0,
       ...(w.winner ? { winner: w.winner, line: (w as { line: number[] }).line } : { draw: true }),
     }
   }
@@ -311,9 +315,11 @@ export function gameAt(seed: number, players: [string, string], tMs: number, dis
   place(board, game.moves, o + placed)
   const color: Color = (o + a) % 2 === 0 ? 1 : 2
   const phase: OmokView['phase'] = since < th ? 'thinking' : hand < 0.5 ? 'pick' : 'place'
+  const mover = (color === 1 ? game.black : 1 - game.black) as 0 | 1
   return {
     ...base, board, lastMove: o + placed > 0 ? game.moves[o + placed - 1] : -1,
     toMove: ((o + placed) % 2 === 0 ? 1 : 2) as Color, moveIndex: o + placed, phase,
+    move: discrete ? null : { mover, cell: game.moves[o + a], sinceMs: since, thinkMs: th },
     handT01: discrete ? 0 : hand, pending: !discrete && since >= th && placed === a ? { move: game.moves[o + a], color } : null,
   }
 }
