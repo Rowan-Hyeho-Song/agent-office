@@ -1283,25 +1283,26 @@ def fiddle_fig(name, x, z, group):
         mid = fork + (UP * math.cos(a * 0.6) + d * math.sin(a * 0.6)) * (length * 0.5)
         return [fork, mid, mid + (UP * math.cos(a) + d * math.sin(a)) * (length * 0.5)]
 
-    leader = [Vector((x, sy, z)), fork, Vector((x - 0.03, 1.12, z - 0.03)), Vector((x - 0.04, H, z - 0.05))]
+    leader = [Vector((x, sy, z)), Vector((x - 0.001, sy + 0.06, z)), fork, Vector((x - 0.03, 1.12, z - 0.03)), Vector((x - 0.04, H, z - 0.05))]
     ra = math.atan2(room.z, room.x)
     br1 = branch(ra - 0.55, 40, 0.62)
     br2 = branch(ra + 0.75, 34, 0.56)
     def tapered(nm, path, radii):
-        """a stem tapering along its points (radii in m): 3 cm at the trunk's foot, 2 cm at the fork (designer)"""
+        """a stem tapering along its points (radii in m; designer: the trunk 4.6 cm flaring at the soil, 4.2 cm, 3.0 cm
+        at the fork, 1.4 cm at the top; branches 2.0 -> 1.1 cm)"""
         o = rail(nm, [tuple(p) for p in path], max(radii), bark, group)
         o.data.resolution_u, o.data.bevel_resolution = 5, 2
         for bp, r in zip(o.data.splines[0].bezier_points, radii):
             bp.radius = r / max(radii)
         return o
 
-    stems = [tapered(f"{name}_trunk", leader, (0.015, 0.01, 0.008, 0.0055)),
-             tapered(f"{name}_branch", br1, (0.0068, 0.0055, 0.004)),  # 0.65 x the fork
-             tapered(f"{name}_branch", br2, (0.0065, 0.0052, 0.0038))]
+    stems = [tapered(f"{name}_trunk", leader, (0.023, 0.021, 0.015, 0.011, 0.007)),
+             tapered(f"{name}_branch", br1, (0.01, 0.0078, 0.0055)),  # 0.65 x the fork
+             tapered(f"{name}_branch", br2, (0.0098, 0.0076, 0.0055))]
     for k in range(6):  # leaf scars: fine rings a shade lighter than the bark, just proud of it
-        y = sy + 0.06 + (fork.y - sy - 0.1) * (k + PRNG.uniform(0.1, 0.6)) / 6
+        y = sy + 0.08 + (fork.y - sy - 0.12) * (k + PRNG.uniform(0.1, 0.6)) / 6
         f = (y - sy) / (fork.y - sy)
-        stems.append(torus(f"{name}_scar", 0.015 - 0.005 * f, 0.0008, (x - 0.01 * f, y, z - 0.005 * f), scar, group, seg=16, rseg=4))
+        stems.append(torus(f"{name}_scar", 0.021 - 0.006 * f, 0.0008, (x - 0.01 * f, y, z - 0.005 * f), scar, group, seg=16, rseg=4))
     fol = Foliage(f"{name}_leaves", colors=FIG_GREENS, under=(1, 1, 2, 3))
     fol.mats[0] = plastic(FIG_GREENS[0], 0.6, 0, 0.1, "fig_leaf_top")  # a little gloss (leathery)
     fol.vein = fol.mats[3]
@@ -1313,7 +1314,7 @@ def fiddle_fig(name, x, z, group):
         return path[seg].lerp(path[seg + 1], f), (path[seg + 1] - path[seg]).normalized()
 
     # (stem, leaves, where the leafy part starts along the path)
-    for path, count, u0 in ((leader[1:], 15, 0.42), (br1, 15, 0.45), (br2, 14, 0.45)):
+    for path, count, u0 in ((leader[2:], 15, 0.42), (br1, 15, 0.45), (br2, 14, 0.45)):  # the leader from the fork
         phi = PRNG.uniform(0, 6.28)
         for k in range(count):
             t = (k + PRNG.uniform(0.2, 0.8)) / count  # 0 = the lowest leaf on this stem, 1 = the tip
