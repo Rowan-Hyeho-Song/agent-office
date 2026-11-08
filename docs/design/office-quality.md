@@ -44,8 +44,8 @@
 | 사물 | 지금 | 목표(시안 스케치) | 바꿀 점 | 삼각형 예산 | 레퍼런스 |
 |---|---|---|---|---|---|
 | **코너 큰 화분** | 늘인 구 잎 + 흰 원통 | 떡갈고무나무 1.5 m | 줄기 1 + 가지 2, 바이올린꼴 잎 24–30장(20–30 cm), 숯색 무광 도자기 Ø38 cm + 받침 | 1.5–3k | 식물 구성·화분 형태: [Sketchfab · Indoor Plants](https://sketchfab.com/3d-models/indoor-plants-efe25daceaf940f5aa8519b9d77683d2)(확인함, CC BY 4.0, 189k 삼각형이라 형태만 참고) · 실물: [Léon & George · Fiddle Leaf Fig Bush](https://www.leonandgeorge.com/plants/fiddle-leaf-fig-bush-large-foundation)(검색만) |
-| **책장 옆 화분** | 같음 | 산세베리아(라우렌티) | 칼잎 9–13장, 높이 0.5–0.9 m 들쭉날쭉, 노란 테두리 + 가로 줄무늬, 크림 도자기 + 원목 테이퍼 다리 셋 | 0.8–1.5k | 실물: [Léon & George · Snake Plant Scandinavian](https://www.leonandgeorge.com/plants/snake-plant-medium-scandinavian)(검색만, 다리 달린 화분대) · 저폴리 분량: [Sketchfab · Potted Plants Pack 1K](https://sketchfab.com/3d-models/potted-plants-pack1klow-poly-e069ef7116774f7ab98305c9237f5b18)(확인함, 1.6k 삼각형, CC BY-NC라 참고만) |
-| **소파 옆 화분** | 같음 + 소파 팔걸이와 겹침(#109) | 몬스테라 0.9 m | 갈라진 하트꼴 잎 7–10장 + 잎자루, 테라코타 + 받침. 갈라진 틈은 메시 구멍 | 1.5–2.5k | [Sketchfab · Indoor Plants](https://sketchfab.com/3d-models/indoor-plants-efe25daceaf940f5aa8519b9d77683d2)(확인함, 몬스테라 포함) |
+| **메시 책상 옆 화분**(`plant_desk`, 폭 0.4 m) | 같음 | 산세베리아(라우렌티) | 칼잎 9–13장, 높이 0.5–0.9 m 들쭉날쭉, 노란 테두리 + 가로 줄무늬, 크림 도자기 + 원목 테이퍼 다리 셋 | 0.8–1.5k | 실물: [Léon & George · Snake Plant Scandinavian](https://www.leonandgeorge.com/plants/snake-plant-medium-scandinavian)(검색만, 다리 달린 화분대) · 저폴리 분량: [Sketchfab · Potted Plants Pack 1K](https://sketchfab.com/3d-models/potted-plants-pack1klow-poly-e069ef7116774f7ab98305c9237f5b18)(확인함, 1.6k 삼각형, CC BY-NC라 참고만) |
+| **소파 옆 화분**(`plant_sofa`, 지름 0.44 m) | 같음 + 소파 팔걸이와 겹침(#109에서 풀림) | 몬스테라 0.9 m, 잎을 위로 세운 어린 포기(갈라진 잎 5–7장은 정면) | 갈라진 하트꼴 잎 7–10장 + 잎자루, 테라코타 + 받침. 갈라진 틈은 메시 구멍 | 1.5–2.5k | [Sketchfab · Indoor Plants](https://sketchfab.com/3d-models/indoor-plants-efe25daceaf940f5aa8519b9d77683d2)(확인함, 몬스테라 포함) |
 | **책상 다육이(휴)** | 작은 원통 | 에케베리아 로제트 | 2단 15장, 작은 테라코타 + 자갈 | 0.3–0.6k | — (흔한 형태라 스케치로 충분) |
 | **새 소품: 덩굴** | 없음 | 스킨답서스, 책장 맨 위 | 늘어지는 덩굴 3–4줄, 잎 20–30장. 서재를 "살아 있는 방"으로. **늘어지는 길이 0.35 m 이하**: 파일철 맨 위 칸(r2, 책등 위끝 약 1.65 m)을 가리지 않는다 | 0.6–1k | — |
 | **커피 카운터** | 검은 상자 머신 + 흰 머그 | 홈 카페 구석 | 에스프레소 머신(둥근 몸통 · 그룹 헤드 · 포터필터 · 드립 트레이 · 스팀 완드 · 노브 둘, 붉은 법랑), 그라인더, 카운터 위 작은 2단 수납장의 **머그 넷 = 에이전트 색**(구운 장식. #109에서 카운터가 오른벽(e)으로 가서, 벽이 내려가도 공중에 뜨지 않게 벽 선반 대신 카운터에 서는 수납장), 하부장 문 둘 + 황동 손잡이, 원목 상판. **집는 컵(`prop_cup_0/1`)은 그대로** 둔다(에이전트가 들고 다니는 소품) | 2–3k | 머신 비례·부품: [La Marzocco · Linea Mini](https://au.lamarzoccohome.com/espresso-machines/linea-mini/)(확인함, 38 × 36 × 54 cm, 둥근 몸통, 패들) · 스타일라이즈 예: [Sketchfab · Stylized Coffee Machine](https://sketchfab.com/3d-models/stylized-hand-painted-coffee-machine-08cee37631344b07bd1e84452e1b66ba)(확인함, 12k 삼각형) |
@@ -83,6 +83,7 @@
 ## 5. 우선순위
 
 1. **식물·화분**(사용자가 짚은 것): 떡갈고무나무 · 산세베리아 · 몬스테라 · 다육이 · 덩굴. 화분 세 부분 규칙.
+   - #109 새 배치에서 바닥 화분은 셋이다(코너 · 메시 책상 옆 · 소파 옆). 화이트보드와 게시판 사이 자리(`plant_boards`)는 뺀다. 종마다 하나씩 두어 실루엣으로 갈리게 하고, 회의 자리를 넓힌다(#126).
 2. **대표 디테일이 빠진 것**: 커피 카운터(머신 · 에이전트 머그) · 탁구 네트와 다리 · 소파 다리와 등쿠션.
 3. **베벨 일괄**: 2절 규칙으로 모든 `box()` 사물의 모서리.
 4. **마감**: 스탠드 · 스툴 · 책장 몰딩 · 보드 소품 · 러그.
