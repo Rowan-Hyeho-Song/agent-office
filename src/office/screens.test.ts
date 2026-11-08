@@ -46,6 +46,12 @@ describe('screenPlan', () => {
     }
   })
 
+  it('think: 생각 중 with the ellipsis-bubble icon (designer, #98)', () => {
+    const p = screenPlan('work', 'think')
+    expect(texts(p)).toEqual(['생각 중'])
+    expect(icons(p)).toEqual(['think'])
+  })
+
   it('an unknown activity falls back to a generic word and icon', () => {
     const p = screenPlan('work', 'mystery')
     expect(texts(p)).toEqual(['작업 중'])

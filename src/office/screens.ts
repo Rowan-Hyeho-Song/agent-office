@@ -23,11 +23,12 @@ export const ICONS = {
   power: ['.....##.....', '.....##.....', '..#..##..#..', '.#...##...#.', '#....##....#', '#..........#', '#..........#', '#..........#', '.#........#.', '..#......#..', '...######...', '............'],
   arrow: ['............', '.....#......', '....##......', '...###......', '..##########', '.###########', '.###########', '..##########', '...###......', '....##......', '.....#......', '............'],
   heart: ['............', '.###...###..', '#####.#####.', '###########.', '###########.', '###########.', '.#########..', '..#######...', '...#####....', '....###.....', '.....#......', '............'],
+  think: ['............', '.##########.', '#..........#', '#..........#', '#.##.##.##.#', '#.##.##.##.#', '#..........#', '.##########.', '..##........', '..#.........', '.#..........', '............'],
   bot: ['.....##.....', '.....##.....', '.##########.', '#..........#', '#.##....##.#', '#.##....##.#', '#..........#', '#...####...#', '#..........#', '.##########.', '...#....#...', '..##....##..'],
 } as const
 export type IconName = keyof typeof ICONS
 
-/** the hook's activity names -> icon (same table as the mock's ACTIVITIES; `think` has no mock entry: the bot face) */
+/** the hook's activity names -> icon (same table as the mock's ACTIVITIES; an activity missing here shows cmd) */
 const ACTIVITY_ICON: Record<string, IconName> = {
   edit: 'edit',
   read: 'read',
@@ -38,7 +39,7 @@ const ACTIVITY_ICON: Record<string, IconName> = {
   run: 'run',
   other: 'cmd',
   delegate: 'delegate',
-  think: 'bot',
+  think: 'think',
 }
 
 /** a working agent whose hook says the session is outside the office's projects (#34) shows the private screen */
