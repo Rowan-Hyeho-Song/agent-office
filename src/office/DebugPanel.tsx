@@ -87,6 +87,20 @@ function PropsDebug({ world, now }: { world: OfficeWorld; now: number }) {
             <button onClick={() => fake.set('agent_2', 'idle')}>출근</button>
           </div>
           <div className="row">
+            이슈
+            <button onClick={() => fake.setTask('agent_3', { private: false, repo: 'agent-office', issue: 182, title: '지금 맡은 이슈 표시 — 서재·결재함 옆 패널', })}>공개(제목)</button>
+            <button onClick={() => fake.setTask('agent_1', { private: false, repo: 'agent-office', issue: 170, title: null })}>공개(제목 없음)</button>
+            <button onClick={() => fake.setTask('agent_2', { private: true, repo: null, issue: null, title: null })}>비공개</button>
+            <button onClick={() => fake.setTask('agent_0', { private: false, repo: 'rowansong.dev', issue: 12, title: '다른 저장소의 이슈' })}>다른 저장소</button>
+            <button
+              onClick={() => {
+                for (const a of ['agent_0', 'agent_1', 'agent_2', 'agent_3']) fake.setTask(a)
+              }}
+            >
+              지우기
+            </button>
+          </div>
+          <div className="row">
             루프
             <button onClick={() => fake.set('agent_3', 'working', 'test')}>테스트 실행</button>
             <button

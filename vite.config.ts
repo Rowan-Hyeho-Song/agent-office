@@ -13,6 +13,9 @@ export default defineConfig({
     chunkSizeWarningLimit: 1200,
   },
   test: {
+    // the simulation tests (omok, pingpong, formation) take 1-2 s alone but over 5 s when the machine is busy
+    // (parallel files, a dev server running): a loaded run must not fail on the 5 s default
+    testTimeout: 30_000,
     // unit tests never talk to Supabase: a local .env.local must not give them a live client (Node 20 has no
     // WebSocket, so creating one fails at import)
     env: { VITE_SUPABASE_URL: '', VITE_SUPABASE_PUBLISHABLE_KEY: '' },

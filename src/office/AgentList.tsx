@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { useReplay } from '../replay/store'
-import { activityLabel } from './status'
+import { Icon } from './ApprovalIcons'
+import { activityLabel, clip, PRIVATE_TASK_LABEL, taskNumber, taskOf, taskText } from './status'
 import { AGENT_INFO, type OfficeWorld } from './world'
 
 const STATE_LABELS = { working: '', wrapping: '카드 정리 중', idle: '휴식 중', off: '퇴근' } as const
@@ -21,10 +22,33 @@ export function AgentList({ world }: { world: OfficeWorld }) {
           const s = status[a]
           const info = AGENT_INFO[a]
           const text = !s ? '…' : s.state === 'working' ? activityLabel(s.activity) : s.night === 'sleep' ? '조는 중' : s.night === 'duty' ? '야간 당번' : STATE_LABELS[s.state]
+          const task = taskOf(s)
+          // #182: "작업 중 › #170 제목 · 파일 편집 중"; the title alone is cut (the full text stays in title / aria-label)
+          const state = s?.state === 'working' ? '작업 중' : STATE_LABELS[s?.state ?? 'off']
+          const detail = s?.state === 'working' ? activityLabel(s.activity) : ''
           return (
             <li key={a} className={`state-${s?.state ?? 'off'}`}>
               <i style={{ background: info.color }} aria-hidden="true" />
-              <b>{info.name}</b> <span>{text}</span>
+              <b>{info.name}</b>{' '}
+              {task && s ? (
+                <span className="agent-task" title={taskText(task)} aria-label={`${info.name}, ${state} ${taskText(task)}${detail ? `, ${detail}` : ''}`}>
+                  {state} ›{' '}
+                  {task.private ? (
+                    <span className="agent-task-private">
+                      <span className="agent-task-lock" aria-hidden="true"><Icon name="lock" /></span>
+                      {PRIVATE_TASK_LABEL}
+                    </span>
+                  ) : (
+                    <>
+                      <span className="agent-task-no">{taskNumber(task)}</span>
+                      {task.title && <span className="agent-task-title"> {clip(task.title, 18)}</span>}
+                    </>
+                  )}
+                  {detail && <span className="agent-task-act"> · {detail}</span>}
+                </span>
+              ) : (
+                <span>{text}</span>
+              )}
             </li>
           )
         })}
