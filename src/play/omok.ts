@@ -256,7 +256,7 @@ const place = (board: Uint8Array, moves: number[], count: number) => {
 }
 
 /**
- * The game at `tMs` (ms since the session start): games follow one another, colours swapping each game. Cheap at any
+ * The game at `tMs` (ms since the session start): games follow one another; each seat keeps its colour (the player at the first spot is black, next to the black bowl: #184). Cheap at any
  * t (games are built once per seed). `discrete` (reduced motion): the board only (stones appear, no hand, the board
  * is empty during the reset), phase kept.
  */
@@ -273,7 +273,7 @@ export function gameAt(seed: number, players: [string, string], tMs: number, dis
   while (g.length === 0 || g[g.length - 1].at + g[g.length - 1].length <= t) {
     const i = g.length
     const at = i === 0 ? 0 : g[i - 1].at + g[i - 1].length
-    g.push(buildGame(hash(`${seed}|game|${i}`), players, (i % 2) as 0 | 1, at, i === 0))
+    g.push(buildGame(hash(`${seed}|game|${i}`), players, 0, at, i === 0))
   }
   let lo = 0
   let hi = g.length - 1

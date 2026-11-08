@@ -59,8 +59,8 @@ export const GRIPS: Record<string, GripSpec> = {
   mouse: { r: { pre: all(0.2, [0.1, 0.3]), hold: curlOf([0.35, 0.35, 0.45, 0.5], [0.25, 0.6]), after: REST, contacts: ['index'] } },
   // a finger pressing a button
   button: { r: { pre: curlOf([0, 0.9, 0.92, 0.95], [0.6, 0.6]), hold: curlOf([0.05, 0.9, 0.92, 0.95], [0.6, 0.6]), after: REST, contacts: ['index'] } },
-  // the go stone, 바둑식 (agents.md 2.10): index on top, middle underneath
-  piece: { r: { pre: all(0.15, [0.1, 0.3]), hold: curlOf([0.35, 0.25, 0.85, 0.9], [0.6, 0.5]), after: REST, contacts: ['index', 'middle'] } },
+  // the go stone, the Nihon Ki-in grip (agents.md 2.10, #192): the stone on the index nail, the middle fingertip pressing it from above
+  piece: { r: { pre: all(0.15, [0.1, 0.3]), hold: curlOf([0.35, 0.1, 0.8, 0.85], [0.4, 0.6]), after: REST, contacts: ['index', 'middle'] } },
 }
 
 // ---------------------------------------------------------------------------------------------------- stages
@@ -250,8 +250,8 @@ const SKIN = 0.0003
 export function fitContact(m: FingerModel, target: Vector3, normal: Vector3, a0: number, b0 = 0, G = 14): Fit {
   const n = normal.clone().normalize()
   const goal = target.clone().addScaledVector(n, SKIN)
-  const lo: [number, number] = m.thumb ? [0, -0.6] : [0, -0.45]
-  const hi: [number, number] = m.thumb ? [1.3, 1.6] : [1, 0.45]
+  const lo: [number, number] = m.thumb ? [0, -0.6] : [0, -0.6]
+  const hi: [number, number] = m.thumb ? [1.3, 1.6] : [1, 0.6]
   const tip = new Vector3()
   const cost = (a: number, b: number) => {
     tipAt(m, a, b, tip)
@@ -423,34 +423,77 @@ export interface StoneGrip {
   /** the bend and swing of the middle finger (under the stone) and of the index finger (on top of it) */
   index: { a: number; b: number }
   middle: { a: number; b: number }
+  /** which finger presses from above */
+  top: 'index' | 'middle'
   /** tip-to-contact distances (m) and how far each stands off its face (≥ 0: not through it) */
   err: { index: number; middle: number }
   off: { index: number; middle: number }
 }
 
-/** the hand's pitch over the board while it holds a stone: its fingers point forward and this far down (designer: 30–45°) */
+/** the hand's pitch over the board while it carries a stone: its fingers point forward and this far down; sliding in, 30° (designer: 30–40°) */
 export const STONE_PITCH = (40 * Math.PI) / 180
+export const STONE_PITCH_FLAT = (30 * Math.PI) / 180
+/** palm down with the little-finger side raised by this much (pronation) */
+export const STONE_ROLL = (30 * Math.PI) / 180
+/**
+ * The go grip (agents.md 2.10): the palm down with its little-finger side raised by `roll`, the fingers pointing forward and down by
+ * `pitch`, the stone flat (horizontal), resting on the fingertip of the BOTTOM finger with the TOP finger's tip pressing it from above.
+ * Which finger is on top comes from the model's stone contacts (`top`: the finger whose contact faces up), not from here. In the hand's
+ * frame the stone's normal is the direction of "up" for such a hand; the bottom finger starts at its table value, and it and the top
+ * finger are bent and swung, as little as it takes, until the top tip stands one stone's thickness above the bottom tip along that normal.
+ */
+export function stoneGrip(models: { index: FingerModel; middle: FingerModel }, top: 'index' | 'middle', hold: { index: number; middle: number }, pitch = STONE_PITCH, roll = STONE_ROLL): StoneGrip {
+  const bottom = top === 'index' ? 'middle' : 'index'
+  const sx = models.index.sx
+  const sp = Math.sin(pitch)
+  const cp = Math.cos(pitch)
+  const sr = Math.sin(roll) * sx
+  const cr = Math.cos(roll)
+  const n = new Vector3(-cp * sr, -sp, -cp * cr)
+  const f = new Vector3(-sp * sr, cp, -sp * cr) // the forward direction along the board, in the hand's frame
+  let best: { cb: number; bb: number; fit: Fit; cost: number } | null = null
+  for (let cb = 0.05; cb <= 0.8; cb += 0.05)
+    for (let bb = -0.6; bb <= 0.601; bb += 0.075) {
+      const B = tipAt(models[bottom], cb, bb)
+      const fit = fitContact(models[top], B.clone().addScaledVector(n, STONE_H), n, hold[top], 0, 8)
+      const cost = fit.err + 0.0004 * Math.abs(cb - hold[bottom]) + 0.0004 * Math.abs(bb)
+      if (!best || cost < best.cost) best = { cb, bb, fit, cost }
+    }
+  // a local search around the coarse winner
+  const eval2 = (cb: number, bb: number) => {
+    const B = tipAt(models[bottom], cb, bb)
+    const fit = fitContact(models[top], B.clone().addScaledVector(n, STONE_H), n, hold[top], 0, 8)
+    return { cb, bb, fit, cost: fit.err + 0.0004 * Math.abs(cb - hold[bottom]) + 0.0004 * Math.abs(bb) }
+  }
+  let step = 0.04
+  for (let it = 0; it < 40 && step > 1e-3; it++) {
+    let moved = false
+    for (const [dc, db] of [[step, 0], [-step, 0], [0, step], [0, -step], [step, step], [-step, -step], [step, -step], [-step, step]] as const) {
+      const r = eval2(Math.min(1, Math.max(0, best!.cb + dc)), Math.min(0.6, Math.max(-0.6, best!.bb + db)))
+      if (r.cost < best!.cost - 1e-9) {
+        best = r
+        moved = true
+      }
+    }
+    if (!moved) step *= 0.5
+  }
+  const { cb, bb, fit } = best!
+  const B = tipAt(models[bottom], cb, bb)
+  const z = new Vector3().crossVectors(f, n)
+  const m = new Matrix4().makeBasis(f, n, z).setPosition(B.clone().addScaledVector(n, STONE_H / 2))
+  const res = { [top]: { a: fit.a, b: fit.b }, [bottom]: { a: cb, b: bb } } as { index: { a: number; b: number }; middle: { a: number; b: number } }
+  const zero = { err: 0, off: 0 }
+  return { m, ...res, top, err: { ...{ index: 0, middle: 0 }, [top]: fit.err }, off: { ...{ index: zero.off, middle: zero.off }, [top]: fit.off } }
+}
 
 /**
- * The 바둑식 hold (agents.md 2.10): the palm down and toward the body, the fingers pointing forward and down by `pitch`, the stone flat
- * (horizontal) between the index fingertip above it and the middle fingertip under it. In the hand's frame the stone's normal is the
- * direction of "up" for such a hand, (0, −sin pitch, −cos pitch); the middle finger starts at its table value, and it and the index finger
- * are bent and swung, as little as it takes, until the index tip stands one stone's thickness above the middle tip along that normal.
+ * The least pronation (from the designer's 30° up) at which this hand's go grip fits within 2.5 mm over the whole pitch range
+ * (carrying 40° … sliding in 30°). The hands differ by a few mm, and the finger on top needs more roll on some of them.
  */
-export function stoneGrip(middle: FingerModel, index: FingerModel, hold: { index: number; middle: number }, pitch = STONE_PITCH): StoneGrip {
-  const n = new Vector3(0, -Math.sin(pitch), -Math.cos(pitch))
-  const f = new Vector3(0, Math.cos(pitch), -Math.sin(pitch)) // the forward direction along the board, in the hand's frame
-  let best: { cm: number; bm: number; fit: Fit; cost: number } | null = null
-  for (let cm = 0.05; cm <= 0.8; cm += 0.05)
-    for (let bm = -0.45; bm <= 0.451; bm += 0.075) {
-      const M = tipAt(middle, cm, bm)
-      const fit = fitContact(index, M.clone().addScaledVector(n, STONE_H), n, hold.index, 0, 8)
-      const cost = fit.err + 0.002 * Math.abs(cm - hold.middle) + 0.002 * Math.abs(bm)
-      if (!best || cost < best.cost) best = { cm, bm, fit, cost }
-    }
-  const { cm, bm, fit } = best!
-  const M = tipAt(middle, cm, bm)
-  const z = new Vector3().crossVectors(f, n)
-  const m = new Matrix4().makeBasis(f, n, z).setPosition(M.clone().addScaledVector(n, STONE_H / 2))
-  return { m, index: { a: fit.a, b: fit.b }, middle: { a: cm, b: bm }, err: { index: fit.err, middle: 0 }, off: { index: fit.off, middle: 0 } }
+export function stoneRoll(models: { index: FingerModel; middle: FingerModel }, top: 'index' | 'middle', hold: { index: number; middle: number }): number {
+  for (let deg = 30; deg <= 50; deg += 2.5) {
+    const roll = (deg * Math.PI) / 180
+    if (Math.max(stoneGrip(models, top, hold, STONE_PITCH, roll).err[top], stoneGrip(models, top, hold, STONE_PITCH_FLAT, roll).err[top]) <= 0.0025) return roll
+  }
+  return (50 * Math.PI) / 180
 }

@@ -56,13 +56,23 @@ export interface Place {
   roll: number
   /** the hand's extra rise (the bounce after the stone lands), m */
   lift: number
+  /** the wrist lays flat over the intersection (0 = carrying pitch, 1 = flat), the middle finger's press on the stone (0..1), the hand's rise away after letting go (m) */
+  flat: number
+  press: number
+  rise: number
   /** the stone belongs to the hand */
   attached: boolean
   /** the stone lies on the board (from the landing) */
   landed: boolean
   /** the fingers close on the stone (0 open … 1 closed), and how far the middle finger / the rest have let go (0 held … 1 free) */
   close: number
+  freeIndex: number
   freeMiddle: number
+  /** the re-grip from the pick's thumb + index pinch into the go grip, 0 → 1 over the first 0.2 s of the arc */
+  regrip: number
+  /** the stone slides in from this far behind the intersection (toward the body), m; after the landing the hand returns toward the body by `retreat` */
+  back: number
+  retreat: number
   freeRest: number
   /** the thinking habit, for the other hand and the head */
   habit: Habit
@@ -80,7 +90,7 @@ export function placeSequence(sinceMs: number, thinkMs: number, habit: Habit): P
   const land = P + SEQ.pause + SEQ.drop + 0 // the stone lands here
   const end = land + SEQ.bounceMs + SEQ.withdraw
   const hb = HOVER_H[habit]
-  const base: Place = { stage: 'rest', w: 0, u: 0, h: 0, dx: 0, dz: 0, roll: 0, lift: 0, attached: false, landed: false, close: 0, freeMiddle: 0, freeRest: 0, habit, chin: false }
+  const base: Place = { stage: 'rest', w: 0, u: 0, h: 0, dx: 0, dz: 0, roll: 0, lift: 0, flat: 0, press: 0, rise: 0, attached: false, landed: false, close: 0, freeIndex: 0, regrip: 0, back: 0, retreat: 0, freeMiddle: 0, freeRest: 0, habit, chin: false }
   if (s < 0 || s >= end) return { ...base, landed: s >= land }
   const w = ease(s / SEQ.reach) * (s >= land ? 1 - ease((s - land - SEQ.bounceMs) / SEQ.withdraw) : 1)
   const out: Place = { ...base, w }
@@ -98,6 +108,8 @@ export function placeSequence(sinceMs: number, thinkMs: number, habit: Habit): P
   if (s < SEQ.carry) {
     const k = (s - SEQ.pick) / (SEQ.carry - SEQ.pick)
     out.stage = 'carry'
+    out.regrip = ease((s - SEQ.pick) / 200)
+    out.back = 0.02 * ease(k)
     out.u = ease(k)
     out.h = hb * ease(k) + SEQ.arc * Math.sin(Math.PI * k)
     return out
@@ -106,6 +118,9 @@ export function placeSequence(sinceMs: number, thinkMs: number, habit: Habit): P
   const settleAt = P - SEQ.settle
   if (s < P) {
     out.stage = 'think'
+    out.regrip = 1
+    out.back = 0.02 * (1 - ease((s - (P - 100)) / 150))
+    out.flat = ease((s - SEQ.carry) / 250)
     const th = s - SEQ.carry
     let h = hb
     if (s >= settleAt) h = hb + (SEQ.pauseH - hb) * ease((s - settleAt) / SEQ.settle)
@@ -125,11 +140,18 @@ export function placeSequence(sinceMs: number, thinkMs: number, habit: Habit): P
   }
   if (s < P + SEQ.pause) {
     out.stage = 'pause'
+    out.regrip = 1
+    out.back = 0.02 * (1 - ease((s - (P - 100)) / 150))
+    out.flat = 1
     out.h = SEQ.pauseH
     return out
   }
   if (s < land) {
     out.stage = 'drop'
+    out.regrip = 1
+    out.back = 0.02 * (1 - ease((s - (P - 100)) / 150))
+    out.flat = 1
+    out.press = ease((s - P - SEQ.pause) / SEQ.drop)
     out.h = SEQ.pauseH * (1 - ease((s - P - SEQ.pause) / SEQ.drop))
     return out
   }
@@ -139,8 +161,16 @@ export function placeSequence(sinceMs: number, thinkMs: number, habit: Habit): P
   out.stage = since < SEQ.bounceMs ? 'bounce' : 'withdraw'
   out.lift = SEQ.bounceM * Math.sin(Math.PI * clamp01(since / SEQ.bounceMs))
   // the middle finger is first out from under the stone, then the others
-  out.freeMiddle = ease(since / 120)
-  out.freeRest = ease((since - 40) / 260)
+  out.flat = 1
+  out.press = 1 - ease(since / 60)
+  // then the hand lifts away upward (agents.md 2.10 / the designer: release, then up and off the board)
+  out.rise = 0.07 * ease((since - SEQ.bounceMs) / SEQ.withdraw)
+  // the index finger withdraws first, then the middle one that pressed, then the rest; the hand returns on a curve up and toward the body
+  out.regrip = 1
+  out.retreat = 0.06 * ease((since - SEQ.bounceMs) / SEQ.withdraw)
+  out.freeIndex = ease(since / 100)
+  out.freeMiddle = ease((since - 50) / 180)
+  out.freeRest = ease((since - 50) / 260)
   out.close = 1
   return out
 }

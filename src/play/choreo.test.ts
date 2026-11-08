@@ -29,13 +29,14 @@ describe('omok place sequence (agents.md 2.10)', () => {
     expect(placeSequence(P + SEQ.pause + SEQ.drop - 1, T, 'circle').h).toBeLessThan(0.0005)
     expect(placeSequence(P + SEQ.pause + SEQ.drop, T, 'circle').h).toBe(0)
   })
-  it('the hand springs 0.4 cm up after the landing and the middle finger leaves first', () => {
+  it('the hand springs 0.4 cm up after the landing and the index finger leaves first', () => {
     const land = T + 900
     let lift = 0
     for (let s = land; s < land + 80; s += 2) lift = Math.max(lift, placeSequence(s, T, 'circle').lift)
     expect(lift).toBeCloseTo(0.004, 3)
     const p = placeSequence(land + 100, T, 'circle')
-    expect(p.freeMiddle).toBeGreaterThan(p.freeRest)
+    expect(p.freeIndex).toBeGreaterThan(p.freeMiddle)
+    expect(p.freeMiddle).toBeGreaterThanOrEqual(p.freeRest)
     expect(placeSequence(land + 499, T, 'circle').w).toBeLessThan(0.02)
   })
   it('habits: 메모 circles 2 cm 10 cm up, 휴 rolls ±10°, 루프 taps 1 cm twice, 메시 puts a hand to the chin', () => {

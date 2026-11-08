@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import { describe, expect, it } from 'vitest'
 import { Matrix4, Quaternion, Vector3 } from 'three'
-import { GRIPS, GRIP_S, GripClock, REST, fitContact, handFor, objectFor, stoneGrip, tipAt, type FingerModel } from './grip'
+import { GRIPS, GRIP_S, GripClock, REST, fitContact, handFor, objectFor, stoneGrip, stoneRoll, STONE_PITCH, tipAt, type FingerModel } from './grip'
 import { loadOffice, stubCanvas } from './glbLoad'
 import { buildRig, fingerModelOf } from './rig'
 
@@ -109,15 +109,18 @@ describe('contact correction on a plain finger', () => {
 })
 
 describe('the baked model and the #134 hands', () => {
-  it('the 바둑식 stone: the middle fingertip under it, the index fingertip within 3 mm of its top, for every agent', async () => {
+  it('the go-grip stone: one fingertip under it, the other within 3 mm of its top (either finger on top), for every agent', async () => {
     const { scene, nodes } = await loadOffice()
     for (let i = 0; i < 4; i++) {
       const rig = buildRig(scene, nodes, i)
       const hand = rig.hands.r
       const hold = GRIPS.piece.r!.hold
-      const g = stoneGrip(fingerModelOf(hand, 1, 'r')!, fingerModelOf(hand, 0, 'r')!, { index: hold[0], middle: hold[1] })
-      expect(g.err.index, `agent_${i} index`).toBeLessThanOrEqual(0.003)
-      expect(g.off.index).toBeGreaterThanOrEqual(-1e-4)
+      for (const top of ['index', 'middle'] as const) {
+        const models = { index: fingerModelOf(hand, 0, 'r')!, middle: fingerModelOf(hand, 1, 'r')! }
+        const g = stoneGrip(models, top, { index: hold[0], middle: hold[1] }, STONE_PITCH, stoneRoll(models, top, { index: hold[0], middle: hold[1] }))
+        expect(g.err[top], `agent_${i} ${top} on top`).toBeLessThanOrEqual(0.003)
+        expect(g.off[top]).toBeGreaterThanOrEqual(-1e-4)
+      }
     }
   })
 })

@@ -140,8 +140,8 @@ describe('PlayStage', () => {
           if (r.want?.kind !== 'piece' || !r.want.attached) continue
           const col = r.want.prefer!.endsWith('a') ? 'a' : 'b'
           const d = r.drive.r
-          // only once the hand has fully closed on the stone
-          if (!d || d.w < 0.999 || d.wc < 0.999) continue
+          // only once the hand has fully closed on the stone and re-gripped into the go grip
+          if (!d || d.w < 0.999 || d.wc < 0.999 || (w.stage.lastPlace[id]?.regrip ?? 0) < 1) continue
           w.scene.updateMatrixWorld(true)
           const ci = 'prop_piece_' + col + '_contact_index'
           const cm = 'prop_piece_' + col + '_contact_middle'
@@ -199,6 +199,40 @@ describe('PlayStage', () => {
       expect(flat, agent + ' stone flat').toBeGreaterThan(0.95)
     }
   }, 120000)
+
+  it('omok: every stone is taken from the bowl on the own side (seat → colour → bowl)', async () => {
+    const s = findSession('boardgame')
+    const w = await world()
+    const goals = seat(w.rigs, s)
+    w.scene.updateMatrixWorld(true)
+    const bowls = { b: at(w.scene, 'omok_bowl_b_contact_index'), w: at(w.scene, 'omok_bowl_w_contact_index') }
+    const was: Record<string, boolean> = {}
+    let picks = 0
+    const seen = new Set<string>()
+    for (let k = 0; k < 2500; k++) {
+      const now = s.startMs + 15_000 + k * 40
+      w.stage.update(inp(w, goals, now, k * 0.04))
+      w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
+      w.props.update(0.04)
+      for (const [i, id] of s.players.entries()) {
+        const r = w.rigs[id]
+        const att = r.want?.kind === 'piece' && !!r.want.attached && r.want.prefer !== undefined
+        if (att && !was[id]) {
+          const target = r.drive.r!.target!
+          const hand = new Vector3().setFromMatrixPosition(target)
+          const own = i === 0 ? bowls.b : bowls.w
+          const other = i === 0 ? bowls.w : bowls.b
+          expect(hand.distanceTo(own), id + ' pick ' + picks).toBeLessThan(hand.distanceTo(other))
+          expect(r.want!.prefer, id + ' stone colour').toBe(i === 0 ? 'prop_piece_a' : 'prop_piece_b')
+          seen.add(id)
+          picks++
+        }
+        was[id] = att
+      }
+    }
+    expect(picks).toBeGreaterThan(10)
+    expect(seen.size).toBe(2)
+  }, 60000)
 
   it('nobody seated: the ball waits on the table', async () => {
     const w = await world()

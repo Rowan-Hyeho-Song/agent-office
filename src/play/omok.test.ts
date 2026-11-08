@@ -198,7 +198,7 @@ describe('gameAt', () => {
     console.log(`omok median game+reaction+reset ${med} s, within 165 s: ${pct}%, second game starts in ${(second / total) * 100}%`)
     expect(pct).toBeGreaterThanOrEqual(90)
   })
-  it('a second game starts from an empty board with swapped colours, and seeking across games is deterministic', () => {
+  it('a second game starts from an empty board with the same colours (each seat keeps its colour and its bowl), and seeking across games is deterministic', () => {
     let sd = 0
     let tStart = -1
     for (; sd < 40 && tStart < 0; sd++) {
@@ -208,7 +208,7 @@ describe('gameAt', () => {
     expect(tStart).toBeGreaterThan(0)
     const v = gameAt(sd, players, tStart)
     expect(v.moveIndex).toBe(0)
-    expect(v.black).toBe(1)
+    expect(v.black).toBe(0)
     const direct = gameAt(sd, players, tStart + 20000)
     for (let t = 0; t <= tStart + 20000; t += 700) gameAt(sd, players, t)
     expect(gameAt(sd, players, tStart + 20000)).toEqual(direct)

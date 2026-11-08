@@ -25,7 +25,7 @@ import {
 } from 'three'
 import type { Goal } from './director'
 import type { GripDemo } from './debugPlay'
-import { GRIPS, GripClock, STONE_H, handFor, stoneGrip, tipAt, type Curl, type StoneGrip } from './grip'
+import { GRIPS, GripClock, STONE_H, STONE_PITCH, STONE_PITCH_FLAT, handFor, stoneGrip, stoneRoll, tipAt, type Curl, type StoneGrip } from './grip'
 import { contactNormal, fitFingers, handGripMatrix, offsetOf, resolveTarget, type GripTarget } from './gripTargets'
 import { fingerModelOf, type AgentRig, type PropBank } from './rig'
 import { meshesOf } from './nodes'
@@ -33,7 +33,7 @@ import type { StatusMap } from './status'
 import { gameAt, N, type OmokView } from '../play/omok'
 import { rallyAt, type Dims, type Rally } from '../play/pingpong'
 import { HOLD_DEFAULT, PLANTS, canPose, dropAt, landing, plantAhead, plantsFrom, solvePour, spoutOf, type Plant } from './water'
-import { ease, followWeight, habitOf, placeSequence, swingTilt, swingTravel } from '../play/choreo'
+import { type Place, ease, followWeight, habitOf, placeSequence, swingTilt, swingTravel } from '../play/choreo'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 
 const UP = new Vector3(0, 1, 0)
@@ -119,7 +119,9 @@ export class PlayStage {
   private rings: Mesh[] = []
   private line: Mesh | null = null
   private reactedGame = new Map<string, number>()
-  private stoneFrames = new Map<string, StoneGrip>()
+  /** each mover's place sequence of this frame (tests read it) */
+  readonly lastPlace: Record<string, Place> = {}
+  private stoneFrames = new Map<string, StoneGrip[]>()
 
   // water and the book
   private drops: InstancedMesh | null = null
@@ -475,13 +477,25 @@ export class PlayStage {
     return out.set(g.o.x + (cell % g.n) * g.cell, g.o.y, g.o.z + Math.floor(cell / g.n) * g.cell)
   }
 
+  /** which finger's contact on the go stone faces up (it presses from above) */
+  private stoneTop(): 'index' | 'middle' {
+    const n = this.sceneRef.getObjectByName('prop_piece_a_contact_index')
+    return n && contactNormal(this.sceneRef, n).y > 0 ? 'index' : 'middle'
+  }
+
   /** the stone's frame in the right hand when it is held 바둑식 (cached per agent) */
   private stoneFrame(rig: AgentRig) {
     let f = this.stoneFrames.get(rig.id)
     if (!f) {
       const hand = rig.parts.hands.r
       const hold = GRIPS.piece.r!.hold
-      f = stoneGrip(fingerModelOf(hand, 1, 'r')!, fingerModelOf(hand, 0, 'r')!, { index: hold[0], middle: hold[1] })
+      const models = { index: fingerModelOf(hand, 0, 'r')!, middle: fingerModelOf(hand, 1, 'r')! }
+      // the finger that presses from above is the one whose contact empty on the stone faces up (data, not code)
+      const top = this.stoneTop()
+      const roll = stoneRoll(models, top, { index: hold[0], middle: hold[1] })
+      // carrying: the hand pitched 40°; sliding in it lays flatter (30°)
+      // a fit every 2° from the carrying pitch to the flat one; the wrist is blended between neighbours so the tips stay on the stone throughout
+      f = Array.from({ length: 11 }, (_, k) => stoneGrip(models, top, { index: hold[0], middle: hold[1] }, STONE_PITCH + ((STONE_PITCH_FLAT - STONE_PITCH) * k) / 10, roll))
       this.stoneFrames.set(rig.id, f)
     }
     return f
@@ -655,6 +669,7 @@ export class PlayStage {
     if (!bowl || !this.grid) return
     const habit = habitOf(id)
     const p = placeSequence(mv.sinceMs, mv.thinkMs, habit)
+    this.lastPlace[id] = p
     if (p.stage === 'rest' && !p.landed) return
     const stone = this.props.info(rig, 'piece', `prop_piece_${wantColor === 1 ? 'a' : 'b'}`)
     // the opponent's last stone: a 10° glance while thinking; the chin hand and the 5° tilt of the defensive one
@@ -669,6 +684,8 @@ export class PlayStage {
     const target = this.cellPos(mv.cell)
     const bowlBottom = bowl.contact.clone().addScaledVector(UP, -STONE_H)
     const bottom = bowlBottom.clone().lerp(target, p.u)
+    const fwdDir = new Vector3(target.x - rig.x, 0, target.z - rig.z).normalize()
+    if (isFinite(fwdDir.x)) bottom.addScaledVector(fwdDir, -p.back * p.u)
     bottom.y += p.h
     bottom.x += p.dx
     bottom.z += p.dz
@@ -683,18 +700,29 @@ export class PlayStage {
     const stoneWorld = frame(xs, ys, zs, centre)
     if (p.roll) stoneWorld.premultiply(new Matrix4().makeTranslation(-centre.x, -centre.y, -centre.z)).premultiply(new Matrix4().makeRotationFromQuaternion(rollQ)).premultiply(new Matrix4().makeTranslation(centre.x, centre.y, centre.z))
     const sf = this.stoneFrame(rig)
-    const hand = stoneWorld.clone().multiply(new Matrix4().copy(sf.m).invert())
-    hand.elements[13] += p.lift
+    const fk = p.flat * 10
+    const f0 = Math.min(9, Math.floor(fk))
+    const fr = fk - f0
+    const hand = blend(stoneWorld.clone().multiply(new Matrix4().copy(sf[f0].m).invert()), stoneWorld.clone().multiply(new Matrix4().copy(sf[f0 + 1].m).invert()), fr)
+    hand.elements[13] += p.lift + p.rise
+    if (isFinite(fwdDir.x)) {
+      hand.elements[12] -= fwdDir.x * p.retreat
+      hand.elements[14] -= fwdDir.z * p.retreat
+    }
+    const mix = (a: number, b: number) => a + (b - a) * fr
     const side = 'r'
     const spec = GRIPS.piece.r!
     // the fingers: pre-grip → the 바둑식 grip as the stone is picked, each letting go when it should
-    const free = (k: number) => (k === 1 ? p.freeMiddle : p.freeRest)
+    const free = (k: number) => (k === 0 ? p.freeIndex : k === 1 ? p.freeMiddle : p.freeRest)
     const curl = [0, 1, 2, 3, 4, 5].map((k) => {
-      const held = k === 0 ? sf.index.a : k === 1 ? sf.middle.a : spec.hold[k]
-      const closed = spec.pre[k] + (held - spec.pre[k]) * p.close
+      const held = k === 0 ? mix(sf[f0].index.a, sf[f0 + 1].index.a) : k === 1 ? mix(sf[f0].middle.a, sf[f0 + 1].middle.a) + 0.02 * p.press : spec.hold[k]
+      // the pick is a thumb + index pinch; the arc re-grips it into the go grip
+      const pinch = [0.6, 0.25, 0.3, 0.35, 0.15, 0.7][k]
+      const grip = pinch + (held - pinch) * p.regrip
+      const closed = spec.pre[k] + (grip - spec.pre[k]) * p.close
       return closed + (spec.after[k] - closed) * free(k === 5 || k === 4 ? 2 : k)
     })
-    rig.drive[side] = { target: hand, w: p.w, curl, wc: p.w, spread: [sf.index.b * p.close * (1 - p.freeRest), sf.middle.b * p.close * (1 - p.freeMiddle), 0, 0] }
+    rig.drive[side] = { target: hand, w: p.w, curl, wc: p.w, spread: [mix(sf[f0].index.b, sf[f0 + 1].index.b) * p.close * (1 - p.freeRest), mix(sf[f0].middle.b, sf[f0 + 1].middle.b) * p.close * (1 - p.freeMiddle), 0, 0] }
     // the stone: the prop piece, in the hand until it lands; the board's own instance shows from the landing
     if (stone) {
       rig.want = { kind: 'piece', side, prefer: `prop_piece_${wantColor === 1 ? 'a' : 'b'}`, attached: p.attached }
