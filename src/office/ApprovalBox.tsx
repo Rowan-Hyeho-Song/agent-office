@@ -1,7 +1,9 @@
 import { DockSlot } from './CornerDock'
+import { SideSlot, useSidePanelOpen } from './SidePanel'
+import { setSideBack, setSideLayout, setSideRaise } from './sidePanel/store'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from 'react'
 import { renderMarkdown } from './approval/markdown'
-import { closeApprovalBox, openApprovalBox, toggleApprovalBox, useApprovalBoxOpen } from './approval/panel'
+import { openApprovalBox, toggleApprovalBox, useApprovalBoxOpen } from './approval/panel'
 import type { ApprovalSource, Cover, Role } from '../approvals/source'
 import type { StoredApproval } from '../approvals/types'
 import { KIND_LABEL, answersFor, decidedText, fmtDate, fmtDay, kindOf, noteHint, shortRepo, type Kind } from '../approvals/view'
@@ -39,7 +41,7 @@ function Box({ src }: { src: ApprovalSource }) {
   const [live, setLive] = useState('')
   const [thud, setThud] = useState(false)
   const back = useRef<(() => void) | null>(null) // set by the owner view while one item is open
-  const panel = useRef<HTMLElement>(null)
+  const shown = useSidePanelOpen()
 
   const refresh = useCallback(() => void src.count().then(setCount, () => {}), [src])
   useEffect(() => {
@@ -56,26 +58,21 @@ function Box({ src }: { src: ApprovalSource }) {
     if (role === 'owner') openApprovalBox()
   }, [role])
 
-  // focus goes into the panel when it opens and back to where it was when it closes
+  // focus and the close button belong to the side panel (SidePanel.tsx); here: a fresh count when it opens, and the count for its tab
   useEffect(() => {
-    if (!open) return
-    const from = document.activeElement as HTMLElement | null
-    panel.current?.focus()
-    refresh()
-    return () => from?.focus?.()
+    if (open) refresh()
   }, [open, refresh])
+  useEffect(() => setSideLayout({ count }), [count])
 
-  // Esc: back to the list, and from the list close the panel
+  // Esc: back to the list first (the panel's Esc calls this, then closes the panel itself)
   useEffect(() => {
-    if (!open) return
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented) return
-      if (back.current) back.current()
-      else closeApprovalBox()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [open])
+    setSideBack('approval', () => {
+      if (!back.current) return false
+      back.current()
+      return true
+    })
+    return () => setSideBack('approval', null)
+  }, [])
 
   return (
     <>
@@ -90,7 +87,7 @@ function Box({ src }: { src: ApprovalSource }) {
       <div className="sr-only" role="status" aria-live="polite">
         {live}
       </div>
-      {!open && (
+      {!shown && (
         <DockSlot slot="approval">
           <button
             type="button"
@@ -102,30 +99,26 @@ function Box({ src }: { src: ApprovalSource }) {
           >
             <Icon name="inbox" />
             <span className="dock-label">결재함{count !== null && ` · 대기 ${count}`}</span>
+            {/* the count on the icon when the label is hidden (under 360px; the name and count are in aria-label) */}
+            {!!count && (
+              <b className="dock-badge" aria-hidden="true">
+                {count}
+              </b>
+            )}
           </button>
         </DockSlot>
       )}
-      {open && (
-        <section id="approval-box" ref={panel} tabIndex={-1} className="approval-box" aria-label="결재함">
-          <div className="approval-tab">
-            <Icon name="inbox" />
-            {role === 'owner' ? '결재함 · OWNER' : '결재함'}
-          </div>
+      <SideSlot tab="approval">
+        <div id="approval-box" className="approval-box" role="tabpanel" aria-labelledby="side-tab-approval">
           <div className={`approval-body${thud ? ' thud' : ''}`}>
-            <div className="approval-head">
-              <h2>결재함</h2>
-              <button type="button" className="approval-close" aria-label="결재함 닫기 Esc" onClick={closeApprovalBox}>
-                Esc
-              </button>
-            </div>
             {role === 'owner' ? (
               <OwnerView src={src} announce={setLive} setThud={setThud} onChange={refresh} back={back} />
             ) : (
               <VisitorView src={src} role={role} count={count} />
             )}
           </div>
-        </section>
-      )}
+        </div>
+      </SideSlot>
     </>
   )
 }
@@ -224,6 +217,11 @@ function OwnerView({
   useEffect(() => void load(), [load])
 
   const toList = useCallback(() => setCur(null), [])
+  // one approval open: the phone sheet goes tall
+  useEffect(() => {
+    setSideRaise('approval', !!cur)
+    return () => void setSideRaise('approval', false)
+  }, [cur])
   useEffect(() => {
     back.current = cur ? toList : null
     return () => {
