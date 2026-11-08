@@ -97,6 +97,8 @@ export class PlayStage {
   private fits = new Map<string, { curl: number[]; spread: number[] } | null>()
   private lastHand = new Map<string, Matrix4>()
   private forced = new Set<Object3D>()
+  /** the object pose the last grip() call placed the hand from (the partner hand of a two-handed hold follows it) */
+  private lastObjPose = new Matrix4()
   private arrivedAt = new Map<string, number>()
   /** what each hand carries: when its activity ends the hand puts the prop back where it came from, then lets go (no prop moves on its own) */
   private carry = new Map<string, { rig: AgentRig; side: 'l' | 'r'; kind: string; objName: string; prefer?: string; held: Matrix4; seen: boolean; putStart: number | null; extra: ((pose: Matrix4) => void) | null }>()
@@ -273,6 +275,7 @@ export class PlayStage {
     let pose = home
     if (out.attached && held) pose = blend(home, held, ease((inp.t - (clock.attachedAt ?? inp.t)) / Math.max(LIFT_S, rig.gestureMin)))
     else if (out.attached && !tgt.obj) pose = held ?? home
+    this.lastObjPose = pose
     const seat = Number(rig.id.split('_')[1])
     const target = handFor(pose, tgt.pg, handGripMatrix(hand)).multiply(offsetOf(tgt.key, seat))
     const lastKey = `${key}:${objName}`
@@ -802,12 +805,10 @@ export class PlayStage {
         const gl = this.props.info(rig, 'watering_can')
         void gl
         // the left hand carries the can's belly (grip_l), following it
-        if (attached) {
-          const tl = this.target(can.node.name, 'watering_can', 'l')
-          if (tl) {
-            this.leftHand(rig, 'watering_can', tl, held, can.node.name, inp)
-            this.setExtra(rig, 'r', can.node.name, (m) => this.leftHand(rig, 'watering_can', tl, m, can.node.name, inp))
-          }
+        const tl = this.target(can.node.name, 'watering_can', 'l')
+        if (tl) {
+          this.leftHand(rig, 'watering_can', tl, this.lastObjPose)
+          if (attached) this.setExtra(rig, 'r', can.node.name, (m) => this.leftHand(rig, 'watering_can', tl, m))
         }
         this.pouring = { on: attached && tilt > 0.5 && !inp.reduced, rig, held, soilY: plant.soilY }
       }
@@ -823,12 +824,10 @@ export class PlayStage {
         const bob = inp.reduced ? 0 : Math.sin(t * 1.3 + seat) * 0.004
         const held = new Matrix4().compose(local(-0.02, 1.0 + bob, -0.32), q, ONE)
         const attached = this.grip(rig, 'l', 'book', book.node.name, true, held, inp)
-        if (attached) {
-          const tr = this.target(book.node.name, 'book', 'r')
-          if (tr) {
-            this.rightHand(rig, 'book', tr, held, inp)
-            this.setExtra(rig, 'l', book.node.name, (m) => this.rightHand(rig, 'book', tr, m, inp))
-          }
+        const tr = this.target(book.node.name, 'book', 'r')
+        if (tr) {
+          this.rightHand(rig, 'book', tr, this.lastObjPose)
+          if (attached) this.setExtra(rig, 'l', book.node.name, (m) => this.rightHand(rig, 'book', tr, m))
         }
         this.reading = { rig, openAt: (this.clocks.get(`${rig.id}:l`)?.attachedAt ?? t), turnAt: u }
       }
@@ -877,24 +876,23 @@ export class PlayStage {
   private plants: Plant[] = PLANTS
   private reading: { rig: AgentRig; openAt: number; turnAt: number } | null = null
 
-  /** the left hand's part of a two-handed hold, placed from the object's pose with its own grip empty */
-  private leftHand(rig: AgentRig, kind: string, tgt: GripTarget, objPose: Matrix4, objName: string, inp: StageIn) {
-    void objName
-    const spec = GRIPS[kind].l!
-    const hand = rig.parts.hands.l
-    const target = handFor(objPose, tgt.pg, handGripMatrix(hand))
-    rig.drive.l = { target, w: 1, curl: spec.hold, wc: 1, spread: null }
-    void inp
-  }
-  private rightHand(rig: AgentRig, kind: string, tgt: GripTarget, objPose: Matrix4, inp: StageIn) {
-    const spec = GRIPS[kind].r!
-    const hand = rig.parts.hands.r
+  /** the other hand of a two-handed hold: it goes to the object with the first hand's stages (reach, pre-grip, close, hold, let go) */
+  private partner(rig: AgentRig, kind: string, side: 'l' | 'r', tgt: GripTarget, objPose: Matrix4, primary: 'l' | 'r') {
+    const out = this.clock(rig.id + ':' + primary).current
+    if (out.stage === 'rest') return
+    const spec = GRIPS[kind][side]!
+    const hand = rig.parts.hands[side]
     const seat = Number(rig.id.split('_')[1])
     const target = handFor(objPose, tgt.pg, handGripMatrix(hand)).multiply(offsetOf(tgt.key, seat))
-    const fit = this.holdFit(rig, 'r', tgt)
-    rig.drive.r = { target, w: 1, curl: fit.curl, wc: 1, spread: fit.spread }
-    void spec
-    void inp
+    const fit = tgt.contacts.length ? this.holdFit(rig, side, tgt) : { curl: [...spec.hold], spread: [0, 0, 0, 0] }
+    const curl = [0, 1, 2, 3, 4, 5].map((k) => spec.pre[k] * out.mix[0] + fit.curl[k] * out.mix[1] + spec.after[k] * out.mix[2])
+    rig.drive[side] = { target, w: out.wHand, curl, wc: out.wCurl, spread: fit.spread.map((x) => x * out.mix[1]) }
+  }
+  private leftHand(rig: AgentRig, kind: string, tgt: GripTarget, objPose: Matrix4) {
+    this.partner(rig, kind, 'l', tgt, objPose, 'r')
+  }
+  private rightHand(rig: AgentRig, kind: string, tgt: GripTarget, objPose: Matrix4) {
+    this.partner(rig, kind, 'r', tgt, objPose, 'l')
   }
 
   /** the coffee machine's button: the index fingertip on its contact point, pressed 0.1 s */

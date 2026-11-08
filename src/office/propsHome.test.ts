@@ -9,11 +9,14 @@ import { PlayStage } from './playStage'
 import { AgentRig, PropBank, buildRig } from './rig'
 import { SPOTS } from './navSpots.fixture'
 import { PLAYS } from './play'
+import { GRIPS } from './grip'
 import type { Goal } from './director'
 import { WATERED, standOf } from './water'
 
 stubCanvas()
 const LOG = process.env.FIT_LOG
+const FINGER_NAMES = ['index', 'middle', 'ring', 'little', 'thumb'] as const
+const PALM = new Set(['watering_can', 'stamp'])
 const IDS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
 
 interface Scene {
@@ -54,7 +57,7 @@ async function world() {
 
 describe('props stay home unless a hand has them', () => {
   for (const sc of SCENES) {
-    it(sc.name + ': pick up, use 12 s, put back, walk away — 0 frames with a loose prop away from home; the grasp happens at the prop', async () => {
+    it(sc.name + ': pick up, use 12 s, put back, walk away — 0 frames with a loose prop away from home; the hand goes to the prop: at the grasp its fingertips are on the contacts (fingertip props) or its grip is on the prop grip (palm props), and the prop does not jump', async () => {
       const w = await world()
       const home = new Map<string, { pos: Vector3; quat: Quaternion }>()
       const propNodes = Object.values(w.nodes).filter((n) => n.userData.prop && !n.userData.home_on)
@@ -73,6 +76,10 @@ describe('props stay home unless a hand has them', () => {
       let worst = 0
       let grasp: number | null = null
       let graspAt = -1
+      const tips: string[] = []
+      let worstTip = 0
+      let jump = 0
+      let prev: Vector3 | null = null
       let was = false
       let heldFrames = 0
       const dt = 0.02
@@ -88,16 +95,33 @@ describe('props stay home unless a hand has them', () => {
         const attached = !!rig.want?.attached
         if (attached) heldFrames++
         if (attached && !was) {
-          // the grasp instant: how far the hand's grip frame is from the prop's grip frame
           const prop = w.nodes[rig.want!.prefer ?? ''] ?? propNodes.find((n) => n.userData.prop === sc.kind)!
           const side = rig.want!.side
+          // 3: the prop does not jump to the hand
+          jump = prev ? prop.position.distanceTo(prev) : 0
+          // 2: the grips (palm props)
           const pg = w.scene.getObjectByName(prop.name + '_grip_' + side)
           const hg = rig.parts.hands[side].grip
           if (pg && hg) {
             grasp = hg.getWorldPosition(new Vector3()).distanceTo(pg.getWorldPosition(new Vector3()))
             graspAt = t
           }
+          // 1: every contact finger's pad point against its contact (fingertip props), both hands of a two-handed hold
+          for (const hs of ['l', 'r'] as const) {
+            for (const [fi, finger] of FINGER_NAMES.entries()) {
+              const cn = w.scene.getObjectByName(prop.name + '_contact_' + finger + (hs === 'l' ? '_l' : '')) ?? (hs === 'r' ? null : null)
+              if (!cn || !GRIPS[sc.kind]?.[hs]?.contacts.includes(finger)) continue
+              const h = rig.parts.hands[hs]
+              const j = finger === 'thumb' ? h.thumb[1]!.node : h.fingers[fi][2]!.node
+              const tipv = finger === 'thumb' ? h.thumbTip! : h.tips[fi]!
+              j.updateWorldMatrix(true, false)
+              const d = tipv.clone().applyMatrix4(j.matrixWorld).distanceTo(cn.getWorldPosition(new Vector3()))
+              worstTip = Math.max(worstTip, d)
+              tips.push(hs + '.' + finger + ' ' + (d * 1000).toFixed(2))
+            }
+          }
         }
+        if (!attached) prev = propNodes.find((n) => n.userData.prop === sc.kind)?.position.clone() ?? prev
         was = attached
         for (const n of propNodes) {
           const holding = rig.want && rig.want.attached && (rig.want.prefer === n.name || (rig.want.kind === n.userData.prop && !rig.want.prefer))
@@ -108,12 +132,18 @@ describe('props stay home unless a hand has them', () => {
           if (d > 0.01) loose++
         }
       }
-      if (LOG) appendFileSync(LOG, 'props home ' + sc.name + ': held ' + heldFrames + ' frames, loose-away-from-home frames ' + loose + ', worst ' + (worst * 1000).toFixed(1) + ' mm, grip-to-grip at grasp ' + (grasp === null ? 'n/a' : (grasp * 1000).toFixed(1) + ' mm at ' + graspAt.toFixed(2) + ' s') + '\n')
+      if (LOG) appendFileSync(LOG, 'props home ' + sc.name + ': held ' + heldFrames + ' frames, loose-away-from-home frames ' + loose + ', worst ' + (worst * 1000).toFixed(1) + ' mm, grip-to-grip at grasp ' + (grasp === null ? 'n/a' : (grasp * 1000).toFixed(1) + ' mm at ' + graspAt.toFixed(2) + ' s') + ', fingertip pads to contacts [' + tips.join(', ') + '] mm, prop jump at grasp ' + (jump * 1000).toFixed(2) + ' mm\n')
       expect(heldFrames, 'the prop was held').toBeGreaterThan(50)
       expect(loose, 'frames where a prop not in a hand was away from its home').toBe(0)
       // the hand reaches the prop: its grip frame is within 2 cm of the prop's grip for the palm grips, and within the solved fingertip offset otherwise
       expect(grasp).not.toBeNull()
-      expect(grasp!).toBeLessThan(0.07)
+      expect(grasp!, 'sanity: the hand is at the prop').toBeLessThan(0.07)
+      expect(jump, sc.name + ' the prop does not jump to the hand').toBeLessThanOrEqual(0.005)
+      if (PALM.has(sc.kind)) expect(grasp!, sc.name + ' hand grip on the prop grip').toBeLessThan(0.02)
+      else {
+        expect(tips.length, sc.name + ' contact fingers measured').toBeGreaterThan(0)
+        expect(worstTip, sc.name + ' fingertip pads on their contacts').toBeLessThanOrEqual(0.003)
+      }
     }, 60000)
   }
 })
