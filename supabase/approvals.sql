@@ -53,7 +53,16 @@ create table if not exists public.approvals (
   updated_at timestamptz not null
 );
 
-create index if not exists approvals_pending on public.approvals (status, created_at);
+-- #104: the index was once named approvals_pending, which clashes with the view of that name below
+-- (drop index if exists errors once the name is the view, so only drop it while it is still an index)
+do $$
+begin
+  if exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+             where n.nspname = 'public' and c.relname = 'approvals_pending' and c.relkind = 'i') then
+    drop index public.approvals_pending;
+  end if;
+end $$;
+create index if not exists approvals_status_created on public.approvals (status, created_at);
 create index if not exists approvals_seat on public.approvals (requester_seat, decided_at);
 
 alter table public.approvals enable row level security;

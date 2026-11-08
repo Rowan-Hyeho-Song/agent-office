@@ -5,7 +5,7 @@
 //
 // Only approvals pass through here. Claude Code's tool-permission prompts never do (plan.md 6.5).
 
-import type { Decision, StoredApproval } from './types'
+import type { Decision, StoredApproval } from './types.js'
 
 export interface ApproveDeps {
   /** the GitHub user id of whoever owns this Supabase access token, or null (invalid / not a GitHub sign-in) */

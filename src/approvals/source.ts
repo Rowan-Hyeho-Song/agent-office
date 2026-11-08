@@ -2,7 +2,7 @@
 // fake that exists only under ?debug=1 (fakeSource.ts), so the box can be developed and screenshotted without a
 // backend. The page only hides things; the lock is the server's owner check and the table's RLS (#25).
 
-import type { StoredApproval } from './types'
+import type { StoredApproval } from './types.js'
 
 /** visitor = not signed in; other = signed in with an account that isn't the owner's */
 export type Role = 'visitor' | 'owner' | 'other'

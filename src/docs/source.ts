@@ -2,8 +2,8 @@
 // and a fake that exists only under ?debug=1 (fakeSource.ts). The page never filters: the source hands over only what
 // this role may see (the server's docs_cover view and the table's RLS; the fake mirrors them with coverOf / ownerMeta).
 
-import type { Role } from '../approvals/source'
-import type { DocBody, DocMeta } from './library'
+import type { Role } from '../approvals/source.js'
+import type { DocBody, DocMeta } from './library.js'
 
 export interface DocsSource {
   /** every document as this role sees it: SECRET without title, `private` without project and number */
