@@ -67,7 +67,6 @@ export const TRAFFIC = {
     nodDeg: 5,
     handForwardM: 0.15,
     handSweepM: 0.12,
-    handThumb: 0.15,
     /** the same pair meeting again within this skips the hand gesture */
     repeatS: 30,
     passHeadDeg: 10,
