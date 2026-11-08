@@ -178,7 +178,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
     const rect = state.gl.domElement.getBoundingClientRect()
     const anchors: Record<string, Anchor> = {}
     const tags: TagItem[] = []
-    const status = world.source.getSnapshot()
+    // the replay shows the past: no live night / duty state (sleepers' z, status tags) reaches the bubble layer
+    const status = replaying ? {} : world.source.getSnapshot()
     for (const id in rigs) {
       const rig = rigs[id]
       head.set(rig.group.position.x, rig.parts.head.position.y + 0.3, rig.group.position.z).project(state.camera)
