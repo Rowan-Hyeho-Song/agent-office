@@ -219,7 +219,9 @@ export class TrafficPlanner {
         const pass = (k: string) => k === 'hall' || k === 'meet_center'
         if (pass(a.kind) || pass(b.kind)) continue
         const d = dist(a, b)
-        if (d < 2 * TRAFFIC.bodyR) {
+        // designed neighbours: closer than two bodies (the sofa seats) or than the resting clearance 2R + planGap (coffee /
+        // shelf, 0.63 m: without this one standing at either kept the other unreachable, agents waited beside forever)
+        if (d < 2 * TRAFFIC.bodyR + TRAFFIC.planGap) {
           this.exemptPairs.push([ids[i], ids[j]])
           this.exempt.set(this.idx.get(ids[i])! * KEY + this.idx.get(ids[j])!, d)
           this.exempt.set(this.idx.get(ids[j])! * KEY + this.idx.get(ids[i])!, d)
@@ -588,7 +590,12 @@ export class TrafficPlanner {
       const oa = o.at[i]
       if (oa >= 0) {
         const e = this.exempt.get(ctx.goalIdx * KEY + oa)
-        if (e !== undefined && Math.hypot(x - ctx.gx, z - ctx.gz) < 0.75) return e - (gap > 0.05 ? 0.2 : 0.05)
+        if (e !== undefined && Math.hypot(x - ctx.gx, z - ctx.gz) < 0.75) {
+          // a pair at least two bodies apart gives up the extra gap and the grid's rounding (the search tests cell centres, up
+          // to half a cell diagonal, 0.11 m, from the spot; the agent stands on the spot itself, e apart)
+          if (e >= 2 * TRAFFIC.bodyR) return Math.min(2 * TRAFFIC.bodyR + gap, e - 0.12)
+          return e - (gap > 0.05 ? 0.2 : 0.05)
+        }
       }
     }
     return 2 * TRAFFIC.bodyR + gap
