@@ -3,10 +3,10 @@
 // It answers like the server does (coverOf / ownerMeta for lists, RLS-like rules for bodies), so what it hides here is
 // hidden by the same rules. Driven from window.__office.docs.
 
-import type { Role } from '../approvals/source'
-import { coverOf, ownerMeta, type CoverSource, type DocBody, type DocMeta } from './library'
-import type { DocsSource } from './source'
-import type { ApprovalRequest, ApprovalResult, Minutes, Speaker } from './types'
+import type { Role } from '../approvals/source.js'
+import { coverOf, ownerMeta, type CoverSource, type DocBody, type DocMeta } from './library.js'
+import type { DocsSource } from './source.js'
+import type { ApprovalRequest, ApprovalResult, Minutes, Speaker } from './types.js'
 
 type Row = CoverSource & { body: string; data: Record<string, unknown>; source_url: string }
 

@@ -1,9 +1,9 @@
 // Filing 🖊 requests and ✅ results that arrive with /api/docs (#25). Only the owner's comments count (#38):
 // a stranger's ✅ must never close a request or reach an agent through the approval hook.
 
-import { redact } from '../docs/filter'
-import { parseApprovalRequest, parseApprovalResult } from '../docs/parse'
-import type { ApprovalInput, ApprovalRow, Decision } from './types'
+import { redact } from '../docs/filter.js'
+import { parseApprovalRequest, parseApprovalResult } from '../docs/parse.js'
+import type { ApprovalInput, ApprovalRow, Decision } from './types.js'
 
 export interface ApprovalStore {
   upsertApprovals(rows: ApprovalRow[]): Promise<void>

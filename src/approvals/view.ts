@@ -1,8 +1,8 @@
 // What the approval box shows, as pure functions (the component only draws it): kinds, the answers each kind
 // takes (same rules as the server's readChoice), the opinion rule and the dates.
 
-import { PUBLISH_RESULTS } from './approve'
-import type { StoredApproval } from './types'
+import { PUBLISH_RESULTS } from './approve.js'
+import type { StoredApproval } from './types.js'
 
 export type Kind = 'decision' | 'publish' | 'review'
 export const KIND_LABEL: Record<Kind, string> = { decision: '결정 요청', publish: '문서 공개', review: '산출물 확인' }
