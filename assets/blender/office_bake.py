@@ -1269,7 +1269,7 @@ def fiddle_fig(name, x, z, group):
     pot, sy = pot3(name, x, z, 0.02, 0.19, 0.15, 0.36, plastic("#33363d", 0.25, 0, 0.05, "pot_charcoal_glaze"), group,
                    saucer=True, pebbles=5, chips=8, foot=plastic("#8e8478", 0.9, 0, 0.3, "pot_bisque_dark"))
     bark = plastic("#6b5e52", 0.85, 0, 0.5, "fig_bark")
-    scar = plastic("#8d8072", 0.85, 0, 0.4, "fig_scar")
+    scar = plastic("#776a5d", 0.85, 0, 0.4, "fig_scar")  # the bark +10% (designer: not a white tape)
     bud_m = plastic("#a7b97a", 0.7, 0, 0.3, "fig_bud")
     stalk = plastic("#5d8a4f", 0.7, 0, 0.2, "fig_petiole")
     H = 1.5
@@ -1287,12 +1287,21 @@ def fiddle_fig(name, x, z, group):
     ra = math.atan2(room.z, room.x)
     br1 = branch(ra - 0.55, 40, 0.62)
     br2 = branch(ra + 0.75, 34, 0.56)
-    stems = [lowrail(f"{name}_trunk", [tuple(p) for p in leader], 0.018, bark, group),
-             lowrail(f"{name}_branch", [tuple(p) for p in br1], 0.011, bark, group),
-             lowrail(f"{name}_branch", [tuple(p) for p in br2], 0.011, bark, group)]
-    for k in range(6):  # leaf scars: pale rings round the bare trunk
+    def tapered(nm, path, radii):
+        """a stem tapering along its points (radii in m): 3 cm at the trunk's foot, 2 cm at the fork (designer)"""
+        o = rail(nm, [tuple(p) for p in path], max(radii), bark, group)
+        o.data.resolution_u, o.data.bevel_resolution = 5, 2
+        for bp, r in zip(o.data.splines[0].bezier_points, radii):
+            bp.radius = r / max(radii)
+        return o
+
+    stems = [tapered(f"{name}_trunk", leader, (0.015, 0.01, 0.008, 0.0055)),
+             tapered(f"{name}_branch", br1, (0.0068, 0.0055, 0.004)),  # 0.65 x the fork
+             tapered(f"{name}_branch", br2, (0.0065, 0.0052, 0.0038))]
+    for k in range(6):  # leaf scars: fine rings a shade lighter than the bark, just proud of it
         y = sy + 0.06 + (fork.y - sy - 0.1) * (k + PRNG.uniform(0.1, 0.6)) / 6
-        stems.append(torus(f"{name}_scar", 0.0185, 0.0016, (x - 0.01 * (y - sy) / (fork.y - sy), y, z), scar, group, seg=14, rseg=4))
+        f = (y - sy) / (fork.y - sy)
+        stems.append(torus(f"{name}_scar", 0.015 - 0.005 * f, 0.0008, (x - 0.01 * f, y, z - 0.005 * f), scar, group, seg=16, rseg=4))
     fol = Foliage(f"{name}_leaves", colors=FIG_GREENS, under=(1, 1, 2, 3))
     fol.mats[0] = plastic(FIG_GREENS[0], 0.6, 0, 0.1, "fig_leaf_top")  # a little gloss (leathery)
     fol.vein = fol.mats[3]
