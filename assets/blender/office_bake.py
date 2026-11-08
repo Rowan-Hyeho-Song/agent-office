@@ -1613,8 +1613,20 @@ def build_play_lives():
     tx, tz = PINGPONG
     th = 0.76
     M = Mx((tx + 0.25, th + 0.02, tz - 0.1))
-    ball = [sphere("ball", 0.02, (0, 0, 0), plastic("#f7f7f2", 0.8, 0, 0, "ball"), G, seg=32, rings=16),
-            torus("ball_seam", 0.02025, 0.0004, (0, 0, 0), plastic("#dcdcd4", 0.8, 0, 0, "ball_seam"), G, seg=32, rseg=4)]  # the seam
+    # the seam: a flush colour band on the ball (a ring standing proud read as Saturn and flickered, designer)
+    ball = sphere("ball", 0.02, (0, 0, 0), plastic("#f7f7f2", 0.8, 0, 0, "ball"), G, seg=32, rings=16)
+    ball.data.materials.append(plastic("#dcdcd4", 0.8, 0, 0, "ball_seam"))
+    bm = bmesh.new()
+    bm.from_mesh(ball.data)
+    for z in (0.0005, -0.0005):  # web y = Blender z: cut two rings 1 mm apart round the equator
+        g = bm.verts[:] + bm.edges[:] + bm.faces[:]
+        bmesh.ops.bisect_plane(bm, geom=g, plane_co=(0, 0, z), plane_no=(0, 0, 1))
+    for f in bm.faces:
+        if abs(f.calc_center_median().z) < 0.0005:
+            f.material_index = 1
+    bm.to_mesh(ball.data)
+    bm.free()
+    ball = [ball]
     out.append((pivot(join("pp_ball", place(ball, M)), M), "bot"))
     t = bpy.data.objects.new("pp_table", None)
     coll("export").objects.link(t)
@@ -2918,6 +2930,20 @@ if PREVIEW:
             palm = (curl - curl.project(fingers)).normalized()
             print(f"hand axes, {side} grip frame (web): fingers", [round(fingers.x, 3), round(fingers.z, 3), round(-fingers.y, 3)],
                   "palm", [round(palm.x, 3), round(palm.z, 3), round(-palm.y, 3)])
+            # #178: the same in the palm node's own frame and in the agent's frame (web axes), at rest
+            curl_w = tip(f"{n}_f2_3") - straight
+            pose(1, side)
+            bpy.context.view_layer.update()
+            fw = (straight - palm_at).normalized()
+            pw = (curl_w - curl_w.project(fw)).normalized()
+            tw = (bpy.data.objects[f"{n}_t_1"].matrix_world.to_translation() - palm_at).normalized()
+            for frame_name, Fm in (("palm node", bpy.data.objects[n].matrix_world), ("agent", bpy.data.objects["agent_1"].matrix_world)):
+                Fi = Fm.inverted().to_3x3().normalized()
+
+                def wv3(v):
+                    q = (Fi @ v).normalized()
+                    return [round(q.x, 3), round(q.z, 3), round(-q.y, 3)]
+                print(f"hand axes, {side} {frame_name} frame (web): fingers", wv3(fw), "palm", wv3(pw), "thumb", wv3(tw))
             pose(1, side, *PINCH)
             bpy.context.view_layer.update()
         hold(1, "l", "prop_piece_a")
