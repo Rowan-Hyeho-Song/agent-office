@@ -7,6 +7,8 @@ import { ApprovalBox } from './office/ApprovalBox'
 import { DebugPanel } from './office/DebugPanel'
 import { DocsViewer } from './office/DocsViewer'
 import { Office } from './office/Office'
+import { useCameraBusy } from './room/Door'
+import { RoomUi } from './room/RoomUi'
 import { createWorld } from './office/world'
 
 /** the diorama's center and the default isometric-ish view from the front right */
@@ -28,6 +30,7 @@ export function App() {
     // debug only: lets screenshot scripts read the nav check and drive the fake source
     if (world.debug) (window as unknown as { __office: typeof world }).__office = world
   }, [world])
+  const busy = useCameraBusy()
   return (
     <>
       <Canvas
@@ -47,6 +50,9 @@ export function App() {
             <Vignette offset={0.3} darkness={0.6} />
           </EffectComposer>
         </Suspense>
+        {/* not mounted while the door animation owns the camera: nothing can clamp the door pose, and the controls
+            start from the finished home pose */}
+        {!busy && (
         <OrbitControls
           target={close ? (close.slice(3) as [number, number, number]) : top ? [0, 0, 0] : TARGET}
           enablePan={false}
@@ -58,6 +64,7 @@ export function App() {
           minAzimuthAngle={top || close ? -Infinity : -0.15}
           maxAzimuthAngle={top || close ? Infinity : 1.45}
         />
+        )}
       </Canvas>
       <p className="hud">
         <b>AGENT OFFICE</b> · 드래그해서 돌려 보기
@@ -65,6 +72,7 @@ export function App() {
       <AgentList world={world} />
       <ApprovalBox world={world} />
       <DocsViewer world={world} />
+      <RoomUi />
       {world.debug && <DebugPanel world={world} />}
     </>
   )

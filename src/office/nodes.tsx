@@ -16,6 +16,7 @@ import {
 } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
+import { assetUrl } from '../room/base'
 import type { NavKind, NavSpot } from './nav'
 
 // The office from assets/blender/office_bake.py: one glb + four baked atlases (same contract as the
@@ -25,9 +26,9 @@ import type { NavKind, NavSpot } from './nav'
 //                    screen / face / neon / door: emitters the app drives
 //   nav:   "<kind>"  empties: where agents go and which way they face (navigation graph: nav.ts)
 
-export const MODEL_URL = '/models/office.glb'
+export const MODEL_URL = assetUrl('models/office.glb')
 export const ATLASES = ['room', 'work', 'wall_items', 'lounge'] as const
-const ATLAS_URLS = ATLASES.map((a) => `/models/${a}.webp`)
+const ATLAS_URLS = ATLASES.map((a) => assetUrl(`models/${a}.webp`))
 
 /** runtime glow per live kind (the bake used its own strengths for the light the emitters cast) */
 export const GLOW: Record<string, number> = { screen: 1.1, face: 1.4, neon: 2.6, door: 1.0 }
