@@ -370,20 +370,38 @@ def build_window_view():
         return mesh_obj(name, bm, emitter(color, 1.0, name), "export")
 
     # the office is high up: most roofs sit below eye level (1.55 m), a few towers reach above
-    out.append((towers("window_skyline", 25.0, 70.0, (2.5, 7.0), (-3.0, 5.0), -40.0, "#0d1426"), "backdrop"))
-    mid = towers("window_mid", 12.0, 30.0, (2.0, 5.0), (-5.0, 2.5), -30.0, "#07080c")
+    sky_line = towers("window_skyline", 25.0, 70.0, (2.5, 7.0), (-3.0, 5.0), -40.0, "#0d1426")
+    out.append((sky_line, "backdrop"))
+    mid = towers("window_mid", 12.0, 30.0, (2.0, 5.0), (-2.0, 4.0), -30.0, "#07080c")
     out.append((mid, "backdrop"))
-    # lit windows on the mid buildings: a node of their own (the app turns them up at night, down by day)
-    bm = bmesh.new()
-    vs = mid.data.vertices
-    for pl in mid.data.polygons:  # each facade: its x range and top (Blender z = web y)
-        x0, x1 = min(vs[i].co.x for i in pl.vertices), max(vs[i].co.x for i in pl.vertices)
-        top = max(vs[i].co.z for i in pl.vertices)
-        for _ in range(VRNG.randint(3, 9)):
-            x, y = VRNG.uniform(x0 + 0.3, max(x0 + 0.31, x1 - 0.75)), VRNG.uniform(top - 7.0, top - 0.8)
-            v = [bm.verts.new(W(x + dx, y + dy, zw - 11.95)) for dx, dy in ((0, 0), (0.45, 0), (0.45, 0.7), (0, 0.7))]
-            bm.faces.new(v)
-    lights = mesh_obj("window_lights", bm, emitter("#ffcf8a", 2.2, "window_lights"), "export")
+
+    def window_cells(name, facades, dist, cell, step, y_low, x_half, color, keep):
+        """lit-window cells on each facade: a grid (step) of cell-sized quads from y_low up to just under the roof,
+        within x_half of the window; one quad per cell, the app picks which ones are on (#122). Seen through the
+        window from inside, the band that shows is roughly y -0.6..6.7 m at 12 m and -2.6..11.6 m at 25 m."""
+        bm = bmesh.new()
+        vs = facades.data.vertices
+        for pl in facades.data.polygons:  # each facade: its x range and top (Blender z = web y)
+            x0, x1 = min(vs[i].co.x for i in pl.vertices), max(vs[i].co.x for i in pl.vertices)
+            top = max(vs[i].co.z for i in pl.vertices)
+            if x1 < cx - x_half or x0 > cx + x_half:
+                continue
+            y = y_low
+            while y + cell[1] < top - 0.4:
+                x = x0 + 0.3
+                while x + cell[0] < x1 - 0.3:
+                    if VRNG.random() < keep:  # not every bay is a window: the grid reads less regular
+                        v = [bm.verts.new(W(x + dx, y + dy, zw - dist + 0.05)) for dx, dy in ((0, 0), (cell[0], 0), (cell[0], cell[1]), (0, cell[1]))]
+                        bm.faces.new(v)
+                    x += step[0]
+                y += step[1]
+        return mesh_obj(name, bm, emitter(color, 2.2, name), "export")
+
+    # lit windows: nodes of their own (the app lights some of the cells by the hour, #122)
+    lights = window_cells("window_lights", mid, 12.0, (0.45, 0.7), (1.0, 1.3), -6.0, 30.0, "#ffcf8a", 0.75)
+    # 25 m: dots (#123: "half the 12 m rate, small as points"; the app lights half the share it lights at 12 m)
+    far = window_cells("window_lights_far", sky_line, 25.0, (0.25, 0.35), (0.6, 0.8), -6.0, 25.0, "#ffd9a0", 0.7)
+    out.append((far, "city_lights"))
     out.append((lights, "city_lights"))
     near = box("window_near", (3.0, 40.0, 3.0), (cx - 8.0, -6.0, zw - 6.0 - 1.5), emitter("#05060a", 1.0, "window_near"), "export")
     out.append((apply_all(near), "backdrop"))
