@@ -34,7 +34,7 @@ export const STANDS: Record<string, { x: number; z: number }> = {
   plant_sofa: { x: 1.13, z: 2.35 }, // 0.45 m, between the side table and the sofa's front
   plant_desk: { x: 0.0, z: -2.7 }, // 0.50 m, in front of the stand
   succulent: { x: -3.84, z: -1.21 }, // 0.50 m, at HUE's desk side
-  vine: { x: 0, z: 0 }, // placed when the model has its soil empty
+  vine: { x: 4.0, z: -2.86 }, // 0.50 m in front of the shelf; the vine's soil is at 2.2 m, so the can is raised to it (not on the schedule)
 }
 export const standOf = (p: Plant) => STANDS[p.name]
 /** the plants the schedule waters (the floor plants; the desk succulent is left to its owner) */
@@ -115,17 +115,26 @@ export function solvePour(plant: Plant, x: number, z: number, heading: number, s
     const l = landing(tip, dir, plant.soilY)
     return { tip, at: l ? l.at : new Vector3(1e3, 0, 1e3), err: l ? l.at.distanceTo(goal) : 1e3 }
   }
-  let hold: Hold = { ...HOLD_DEFAULT }
-  let best = eval_(hold)
+  // the can's height too: a plant on a high shelf (the vine, soil at 2.2 m) is reached by raising it; low plants keep it near the chest
+  const cost = (h: Hold) => {
+    const r = eval_(h)
+    // the stream lands on the middle, and the spout itself is over the soil too (not beside the pot)
+    const tipOff = Math.hypot(r.tip.x - plant.x, r.tip.z - plant.z)
+    return { r, c: r.err + 0.01 * Math.abs(h.y - HOLD_DEFAULT.y) + 2 * Math.max(0, tipOff - 0.6 * plant.r) }
+  }
+  let hold: Hold = { ...HOLD_DEFAULT, y: Math.max(HOLD_DEFAULT.y, plant.soilY + 0.45) }
+  let cur = cost(hold)
+  let best = cur.r
   let step = 0.2
-  for (let it = 0; it < 200 && step > 1e-5; it++) {
+  for (let it = 0; it < 300 && step > 1e-5; it++) {
     let moved = false
-    for (const [df, dl] of [[step, 0], [-step, 0], [0, step], [0, -step], [step, step], [-step, -step], [step, -step], [-step, step]] as const) {
-      const h = { ...hold, fwd: Math.min(0.9, Math.max(0.15, hold.fwd + df)), lat: Math.min(0.4, Math.max(-0.15, hold.lat + dl)) }
-      const r = eval_(h)
-      if (r.err < best.err - 1e-9) {
+    for (const [df, dl, dy] of [[step, 0, 0], [-step, 0, 0], [0, step, 0], [0, -step, 0], [0, 0, step], [0, 0, -step], [step, step, 0], [-step, -step, 0], [step, -step, 0], [-step, step, 0]] as const) {
+      const h = { fwd: Math.min(0.9, Math.max(0.15, hold.fwd + df)), lat: Math.min(0.4, Math.max(-0.15, hold.lat + dl)), y: Math.min(2.5, Math.max(0.8, hold.y + dy)) }
+      const r = cost(h)
+      if (r.c < cur.c - 1e-9) {
         hold = h
-        best = r
+        cur = r
+        best = r.r
         moved = true
       }
     }

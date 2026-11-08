@@ -28,7 +28,7 @@ const AXES = new WeakMap<object, 'y' | 'z'>()
 
 /**
  * Which local axis of a contact node is its outward normal. Blender aims +z; the glTF export maps that to the node's +y (the first #172
- * bake), and the re-bake that fixes it makes the node's +z the normal. Read it from the go stone's top contact, which must face up, so
+ * bake), and the re-bake that fixes it makes the node's +z the normal. Read it from the go stone's index contact, which faces straight up or down on its local axis, so
  * both bakes work.
  */
 export function contactAxis(scene: Object3D): 'y' | 'z' {
@@ -36,7 +36,7 @@ export function contactAxis(scene: Object3D): 'y' | 'z' {
   if (!a) {
     const n = scene.getObjectByName('prop_piece_a_contact_index')
     scene.updateMatrixWorld(true)
-    a = n && new Vector3(0, 0, 1).transformDirection(n.matrixWorld).y > 0.9 ? 'z' : 'y'
+    a = n && Math.abs(new Vector3(0, 0, 1).transformDirection(n.matrixWorld).y) > 0.9 ? 'z' : 'y'
     AXES.set(scene, a)
   }
   return a

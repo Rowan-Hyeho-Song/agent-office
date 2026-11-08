@@ -37,6 +37,7 @@ describe('watering lands on the soil (#184)', () => {
       expect(d, p.name + ' inside the soil circle').toBeLessThan(p.r)
       expect(l.at.y).toBeCloseTo(p.soilY, 4)
       expect(tip.y, p.name + ' spout above the soil').toBeGreaterThan(p.soilY)
+      expect(Math.hypot(tip.x - p.x, tip.z - p.z), p.name + ' spout tip over the soil circle').toBeLessThan(p.r)
       expect(pour.hold.fwd, p.name + ' within an arm\'s reach').toBeLessThan(0.9)
     }
   })
@@ -121,4 +122,4 @@ describe('where the watering agent stands (#184)', () => {
 })
 
 const PLANTS_FOR_STANDS = (scene: Parameters<typeof plantsFrom>[0]) => plantsFrom(scene).filter((p) => p.name in STANDS_KEYS)
-const STANDS_KEYS: Record<string, true> = { plant_corner: true, plant_sofa: true, plant_desk: true, succulent: true }
+const STANDS_KEYS: Record<string, true> = { plant_corner: true, plant_sofa: true, plant_desk: true, succulent: true, vine: true }

@@ -356,7 +356,7 @@ export function solveContacts(contacts: ContactIn[], keepNear = 0.02): Solved {
     }
     const moved = Math.hypot(v[0], v[1], v[2])
     // a little pull toward the designer's grip frame, so a hand that already reaches stays where it is
-    return { cost: cost + (keepNear > 0 ? (moved / keepNear) ** 2 * 1e-6 : 0) + 2e-5 * (v[3] ** 2 + v[4] ** 2 + v[5] ** 2), worst, fits, moved }
+    return { cost: cost + (keepNear > 0 ? (moved / keepNear) ** 2 * 1e-6 : 0) + 4e-6 * (v[3] ** 2 + v[4] ** 2 + v[5] ** 2), worst, fits, moved }
   }
   let best: { v: number[]; r: ReturnType<typeof trial> } | null = null
   const starts: number[][] = [[0, 0, 0, 0, 0, 0]]

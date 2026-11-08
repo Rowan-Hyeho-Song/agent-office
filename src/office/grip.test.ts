@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { Matrix4, Quaternion, Vector3 } from 'three'
 import { GRIPS, GRIP_S, GripClock, REST, fitContact, handFor, objectFor, stoneGrip, stoneRoll, STONE_PITCH, tipAt, type FingerModel } from './grip'
 import { loadOffice, stubCanvas } from './glbLoad'
+import { contactAxis } from './gripTargets'
 import { buildRig, fingerModelOf } from './rig'
 
 stubCanvas()
@@ -122,5 +123,24 @@ describe('the baked model and the #134 hands', () => {
         expect(g.off[top]).toBeGreaterThanOrEqual(-1e-4)
       }
     }
+  })
+})
+
+describe('the re-baked contact axes (#172 909aa69)', () => {
+  it('a contact\'s outward normal is its local +z: the stone\'s middle contact faces up, the index contact down; paddle thumb up; cup ring out; the spout aims out and up', async () => {
+    const { scene } = await loadOffice()
+    scene.updateMatrixWorld(true)
+    const z = (name: string) => new Vector3(0, 0, 1).transformDirection(scene.getObjectByName(name)!.matrixWorld)
+    expect(contactAxis(scene)).toBe('z')
+    const cases: [string, number[]][] = [
+      ['prop_piece_a_contact_middle', [0, 1, 0]], // the middle fingertip presses the top face
+      ['prop_piece_a_contact_index', [0, -1, 0]], // the stone rests on the index nail: the bottom face
+      ['prop_paddle_a_contact_thumb', [0, 1, 0]],
+      ['prop_cup_0_contact_ring', [-1, 0, 0]],
+    ]
+    for (const [name, want] of cases) z(name).toArray().forEach((v, i) => expect(v, name).toBeCloseTo(want[i], 2))
+    const spout = new Vector3(0, 0, 1).transformDirection(scene.getObjectByName('prop_watering_can_spout')!.matrixWorld)
+    expect(spout.y, 'the spout aims up').toBeGreaterThan(0.5)
+    expect(spout.x, 'and out').toBeCloseTo(0.654, 2)
   })
 })

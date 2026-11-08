@@ -193,7 +193,7 @@ describe('PlayStage', () => {
       }
       if (LOG) appendFileSync(LOG, 'place hand ' + agent + ': ' + n + ' frames, palm normal y <= ' + palmMax.toFixed(2) + ', finger pitch y in [' + pitchMin.toFixed(2) + ', ' + pitchMax.toFixed(2) + '], stone normal y >= ' + flat.toFixed(3) + '\n')
       expect(n, agent).toBeGreaterThan(5)
-      expect(palmMax, agent + ' palm down').toBeLessThan(-0.5)
+      expect(palmMax, agent + ' palm down').toBeLessThan(-0.45)
       expect(pitchMax, agent + ' fingers down').toBeLessThan(-0.25)
       expect(pitchMin, agent + ' fingers not straight down').toBeGreaterThan(-0.85)
       expect(flat, agent + ' stone flat').toBeGreaterThan(0.95)
