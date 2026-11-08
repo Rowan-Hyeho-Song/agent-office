@@ -1,7 +1,7 @@
 // Navigation graph over the glb's nav_* empties (office_bake.py build_nav): agents glide from spot to spot
 // along these edges only, so they never teleport and never cross furniture. Pure: no three.js.
 
-export type NavKind = 'work' | 'stand' | 'sofa' | 'stool' | 'play' | 'meet' | 'door' | 'hall'
+export type NavKind = 'work' | 'stand' | 'sofa' | 'stool' | 'play' | 'meet' | 'meet_center' | 'door' | 'hall'
 
 /** one nav_<id> empty: floor position (web meters, y = 0) and the way an agent faces there */
 export interface NavSpot {
@@ -29,7 +29,6 @@ export const EDGES: [string, string][] = [
   ['work_3', 'hall_west'],
   ['desk_side_0', 'hall_work'],
   ['desk_side_1', 'hall_mid'],
-  ['desk_side_1', 'meet_c'],
   ['desk_side_2', 'hall_work'],
   ['desk_side_3', 'hall_work'],
   ['desk_side_3', 'hall_west'],
@@ -42,20 +41,16 @@ export const EDGES: [string, string][] = [
   ['hall_door', 'door'],
   ['hall_game', 'hall_front'],
   ['hall_game', 'hall_mid'],
-  // middle: talk spots, whiteboard
-  ['hall_mid', 'meet_a'],
-  ['hall_mid', 'meet_b'],
-  ['meet_a', 'meet_b'],
-  ['hall_mid', 'meet_c'],
-  ['meet_c', 'meet_d'],
-  ['meet_c', 'whiteboard'],
-  ['meet_d', 'whiteboard'],
+  // middle: the two talk circles (#147; their seats hang off the centre, meetSeats), whiteboard
+  ['hall_mid', 'meet_center_floor'],
+  ['hall_mid', 'meet_center_board'],
+  ['meet_center_board', 'whiteboard'],
+  ['meet_center_board', 'hall_back'],
   ['hall_mid', 'whiteboard'],
   ['hall_mid', 'hall_back'],
   ['hall_mid', 'hall_front'],
   ['hall_mid', 'pingpong_a'],
   // back right: bulletin, shelf, coffee
-  ['hall_back', 'meet_d'],
   ['hall_back', 'whiteboard'],
   ['hall_back', 'bulletin'],
   ['hall_back', 'shelf'],
@@ -99,7 +94,35 @@ export function patchSpots(spots: NavSpot[], spec: string): NavSpot[] {
   return [...byId.values()]
 }
 
+/** how far from a meet_center its seats stand (inside the furniture-free circle of r 1.0 m, #147) */
+export const MEET_SEAT_R = 0.5
+/** a seat closer than this to another destination is left out (two bodies of R 0.3 m) */
+const SEAT_CLEAR = 0.6
+/** seat order around a centre, in floor angle (x = cos, z = sin): left, right (two face each other), front (+z), back */
+const SEAT_ANGLES = [Math.PI, 0, Math.PI / 2, -Math.PI / 2]
+
+/**
+ * The seats of a talk circle: meet_center_<name> → meet_<name>_0.. (a minimal stand-in for the old meet_a..d until
+ * #141 lays out the real formation). The first two face each other across the centre (±90° from the board line), a
+ * third and fourth close the circle; every seat faces the centre. A seat that would stand on another destination is skipped.
+ */
+export function meetSeats(center: NavSpot, others: NavSpot[]): NavSpot[] {
+  const name = center.id.replace(/^meet_center_/, '')
+  const out: NavSpot[] = []
+  for (const a of SEAT_ANGLES) {
+    const p = { x: center.x + Math.cos(a) * MEET_SEAT_R, z: center.z + Math.sin(a) * MEET_SEAT_R }
+    // only destinations count (an aisle point like hall_mid, which shares the floor centre, is never stood on)
+    if (others.some((o) => o.kind !== 'meet_center' && o.kind !== 'hall' && dist(o, p) < SEAT_CLEAR)) continue
+    out.push({ id: `meet_${name}_${out.length}`, ...p, ry: facing(p, center), kind: 'meet' })
+  }
+  return out
+}
+
 export function buildGraph(spots: NavSpot[], edges: [string, string][] = EDGES): NavGraph {
+  // every talk circle brings its seats, each joined to the centre
+  const seats = spots.filter((s) => s.kind === 'meet_center').flatMap((c) => meetSeats(c, spots).map((s) => ({ s, c: c.id })))
+  spots = [...spots, ...seats.map(({ s }) => s)]
+  edges = [...edges, ...seats.map(({ s, c }): [string, string] => [s.id, c])]
   const byId: Record<string, NavSpot> = {}
   for (const s of spots) byId[s.id] = s
   const adj: Record<string, string[]> = {}

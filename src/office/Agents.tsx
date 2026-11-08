@@ -6,10 +6,11 @@ import { openDocs } from './docs/panel'
 import { seatName } from './meeting'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BufferGeometry, Color, Float32BufferAttribute, Group, InstancedMesh, Line, LineBasicMaterial, LineSegments, Matrix4, MeshBasicMaterial, PlaneGeometry, Vector3, type Mesh } from 'three'
+import { BufferGeometry, CanvasTexture, Color, Float32BufferAttribute, Group, Line, LineBasicMaterial, LineLoop, LineSegments, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace, Vector3 } from 'three'
 import { buildGraph, DESK_SIDES, dist, pathLength, patchSpots, shortestPath, type NavGraph } from './nav'
-import { buildGrid } from './grid'
-import { TrafficPlanner } from './traffic'
+import { buildGrid, cellAt, centre } from './grid'
+import { TrafficPlanner, type Request } from './traffic'
+import { demoRequest } from './trafficDemo'
 import { checkNav, edgeKey } from './navcheck'
 import { rasterFootprint } from './floorMask'
 import { meshesOf, useOffice } from './nodes'
@@ -156,6 +157,20 @@ export function Agents({ world }: { world: OfficeWorld }) {
     world.meeting.apply(now, (a) => rigs[a].arrived, goals, door ? { x: door.x, z: door.z } : undefined)
     // ?debug=1: window.__office.forceSpots = { agent_0: 'whiteboard', ... } sends agents to spots (head-on tests, screenshots)
     if (world.debug && world.forceSpots) for (const id in world.forceSpots) if (goals[id]) goals[id] = { ...goals[id], spot: world.forceSpots[id], pose: 'idle', label: 'debug' }
+    // ?debug=1: window.__office.trafficDemo('narrow' | 'wide') stands agent_0 and agent_1 at the two ends, then swaps them
+    const demo = world.debug ? world.demo : null
+    const fresh = !!demo && demo.at === null
+    if (demo && fresh) demo.at = sim.current
+    const demoReq: Record<string, Request> = {}
+    if (demo)
+      for (const id in goals) {
+        const r = demoRequest(demo, id, sim.current)
+        if (!r?.req.slot) continue
+        const { x, z, ry } = r.req.slot
+        demoReq[id] = r.req
+        goals[id] = { ...goals[id], spot: r.req.spot, pose: 'idle', label: 'demo', face: { x: x - Math.sin(ry), z: z - Math.cos(ry) } }
+        if (fresh) planner.place(id, r.req, sim.current, Number(id.split('_')[1]))
+      }
     world.goals = goals
     const desk = scene
       ? deskProps({
@@ -173,7 +188,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
     for (const id in rigs) {
       rigs[id].pace = scene ? REPLAY_PACE : 1
       rigs[id].traffic = goals[id].pose !== 'leave'
-      if (rigs[id].traffic) planner.request(id, { spot: goals[id].spot, pace: rigs[id].pace, avoid: goals[id].quiet ? DESK_SIDES : undefined }, sim.current, Number(id.split('_')[1]))
+      if (rigs[id].traffic) planner.request(id, demoReq[id] ?? { spot: goals[id].spot, pace: rigs[id].pace, avoid: goals[id].quiet ? DESK_SIDES : undefined }, sim.current, Number(id.split('_')[1]))
       rigs[id].setGoal(goals[id], graph)
     }
     planner.update(sim.current)
@@ -300,28 +315,64 @@ function NavDebug({ world, graph, meshes, planner }: { world: OfficeWorld; graph
     [world.rigs],
   )
 
-  // the walkable grid (#138): blocked cells red, carved docks amber; shown with the debug panel's checkbox
+  // the walkable grid (#138, designer): blocked cells a grey hatch at 25 %, so the floor and the routes stay readable;
+  // each agent's current cell a white outline. Shown with the debug panel's checkbox (and by trafficDemo).
   const gridView = useMemo(() => {
     const g = planner.grid
-    const cells: number[] = []
-    for (let c = 0; c < g.blocked.length; c++) if (g.blocked[c] || g.dock[c]) cells.push(c)
-    const geo = new PlaneGeometry(g.cell * 0.92, g.cell * 0.92).rotateX(-Math.PI / 2)
-    const mesh = new InstancedMesh(geo, new MeshBasicMaterial({ transparent: true, opacity: 0.35, depthTest: false }), cells.length)
-    const m = new Matrix4()
-    const col = new Color()
-    cells.forEach((c, i) => {
-      m.makeTranslation(g.minX + ((c % g.w) + 0.5) * g.cell, 0.02, g.minZ + (Math.floor(c / g.w) + 0.5) * g.cell)
-      mesh.setMatrixAt(i, m)
-      mesh.setColorAt(i, col.set(g.dock[c] && !g.blocked[c] ? '#ffb020' : g.raw[c] ? '#ff2020' : '#ff8080'))
-    })
-    mesh.renderOrder = 1
+    const px = 8
+    const canvas = document.createElement('canvas')
+    canvas.width = g.w * px
+    canvas.height = g.h * px
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.beginPath()
+      for (let c = 0; c < g.blocked.length; c++) if (g.blocked[c]) ctx.rect((c % g.w) * px, Math.floor(c / g.w) * px, px, px)
+      ctx.clip()
+      ctx.strokeStyle = '#9a9a9a'
+      ctx.lineWidth = 1.5
+      for (let k = -canvas.height; k < canvas.width; k += 6) {
+        ctx.moveTo(k, 0)
+        ctx.lineTo(k + canvas.height, canvas.height)
+      }
+      ctx.stroke()
+    }
+    const tex = new CanvasTexture(canvas)
+    tex.colorSpace = SRGBColorSpace
+    const W = g.w * g.cell
+    const H = g.h * g.cell
+    const hatch = new Mesh(new PlaneGeometry(W, H).rotateX(-Math.PI / 2), new MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.25, depthTest: false, depthWrite: false, toneMapped: false }))
+    hatch.position.set(g.minX + W / 2, 0.02, g.minZ + H / 2)
+    hatch.renderOrder = 1
     const group = new Group()
-    group.add(mesh)
-    return group
-  }, [planner])
+    group.add(hatch)
+    const h = g.cell / 2
+    const here = Object.fromEntries(
+      Object.keys(world.rigs).map((id) => {
+        const geo = new BufferGeometry().setFromPoints([new Vector3(-h, 0, -h), new Vector3(h, 0, -h), new Vector3(h, 0, h), new Vector3(-h, 0, h)])
+        const loop = new LineLoop(geo, new LineBasicMaterial({ color: '#ffffff', depthTest: false, transparent: true }))
+        loop.renderOrder = 3
+        group.add(loop)
+        return [id, loop]
+      }),
+    )
+    return { group, here }
+  }, [planner, world.rigs])
 
   useFrame(() => {
-    gridView.visible = world.showGrid
+    gridView.group.visible = world.showGrid
+    // the old spot graph is no longer the road: hide its edges while the grid is shown
+    edges.visible = !world.showGrid
+    if (world.showGrid)
+      for (const id in gridView.here) {
+        const r = world.rigs[id]
+        const c = cellAt(planner.grid, r.x, r.z)
+        const loop = gridView.here[id]
+        loop.visible = c >= 0 && r.visible
+        if (c >= 0) {
+          const p = centre(planner.grid, c)
+          loop.position.set(p.x, 0.04, p.z)
+        }
+      }
     for (const { id, line } of routes) {
       const pts = planner.has(id) ? planner.routePoints(id, world.simTime).slice(0, MAX_ROUTE) : world.rigs[id].route(graph).slice(0, MAX_ROUTE)
       const attr = line.geometry.getAttribute('position') as Float32BufferAttribute
@@ -335,7 +386,7 @@ function NavDebug({ world, graph, meshes, planner }: { world: OfficeWorld; graph
   return (
     <>
       <primitive object={edges} renderOrder={1} />
-      <primitive object={gridView} />
+      <primitive object={gridView.group} />
       {routes.map(({ id, line }) => (
         <primitive key={id} object={line} />
       ))}

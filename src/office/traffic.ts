@@ -216,7 +216,9 @@ export class TrafficPlanner {
       for (let j = i + 1; j < ids.length; j++) {
         const a = this.spots[ids[i]]
         const b = this.spots[ids[j]]
-        if (a.kind === 'hall' || b.kind === 'hall') continue
+        // only destinations: aisle points and talk-circle centres are never stood on
+        const pass = (k: string) => k === 'hall' || k === 'meet_center'
+        if (pass(a.kind) || pass(b.kind)) continue
         const d = dist(a, b)
         if (d < 2 * TRAFFIC.bodyR) {
           this.exemptPairs.push([ids[i], ids[j]])

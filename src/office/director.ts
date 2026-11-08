@@ -25,9 +25,10 @@ export interface Goal {
 const TALK_MS = 6000
 const GATHER_MS = 30000
 const POST_MS = 4000
+/** the two talk circles (#147): the floor one by the rug, the board one before the whiteboard; seats 0 and 1 face each other */
 const MEET_PAIRS: [string, string][] = [
-  ['meet_a', 'meet_b'],
-  ['meet_c', 'meet_d'],
+  ['meet_floor_0', 'meet_floor_1'],
+  ['meet_board_0', 'meet_board_1'],
 ]
 // placeholder lines until the bubble design and real message text exist (#2, #4, designer)
 export const BUBBLE_ASK = '잠깐 이것 좀 봐 줄래?'
