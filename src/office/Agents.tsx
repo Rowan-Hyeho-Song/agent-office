@@ -168,6 +168,12 @@ export function Agents({ world }: { world: OfficeWorld }) {
       if (tag) tags.push({ id, seat: Number(id.split('_')[1]), ...tag })
     }
     l.update([...byId.values()], tags, anchors, { w: window.innerWidth, h: window.innerHeight, narrow: narrow.matches })
+    l.updateZ(
+      Object.keys(rigs).filter((id) => status[id]?.night === 'sleep' && rigs[id].arrived === world.goals[id]?.spot && world.goals[id]?.pose === 'doze').map((id) => ({ id, seat: Number(id.split('_')[1]) })),
+      anchors,
+      state.clock.elapsedTime,
+      reduced,
+    )
   }
 
   return (

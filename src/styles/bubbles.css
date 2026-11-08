@@ -97,6 +97,14 @@
 .ot-chip span { overflow: hidden; text-overflow: ellipsis; }
 .ot[data-kind='private'] .ot-chip { color: var(--color-lock); background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--agent) 12%, transparent) 0 4px, transparent 4px 8px), var(--color-surface-alpha); }
 .ot[data-kind='private'] .ot-chip svg { color: var(--color-lock); }
+/* 조는 중: 머리 위로 떠오르는 z (꼬리표와 별개, 오른쪽 위로 살짝 비켜서) */
+.oz .oz-z {
+  position: absolute; left: 14px; bottom: 6px;
+  font-family: var(--font-pixel); font-size: 12px; line-height: 1;
+  color: color-mix(in srgb, var(--agent-ink) var(--alpha), transparent);
+  animation: oz-rise var(--life) linear both;
+}
+@keyframes oz-rise { from { opacity: 1; translate: 0 0; } to { opacity: 0; translate: 0 calc(var(--rise) * -1); } }
 @media (max-width: 640px) {
   .ot-chip { padding: 0 var(--space-1); }
   .ot-chip span { display: none; } /* 좁은 화면: 아이콘만 */

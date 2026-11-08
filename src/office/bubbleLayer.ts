@@ -9,6 +9,8 @@ import { iconSvg } from './bubbleIcons'
 const TAB = ['MEMO', 'MESH', 'HUE', 'LOOP']
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
+import { DOZE } from './doze'
+
 export interface Anchor {
   x: number
   y: number
@@ -60,6 +62,8 @@ export class BubbleLayer {
   private bubbles = new Map<string, Live>()
   private tags = new Map<string, { el: HTMLElement; label: string; style: string }>()
   private logged = new Set<string>()
+  /** the floating "z" of each dozing agent (#110): a holder at the head with the live z elements inside */
+  private zs = new Map<string, { el: HTMLElement; next: number }>()
 
   constructor(private onOpen: (t: OpenTarget) => void) {
     this.root = document.createElement('div')
@@ -80,6 +84,54 @@ export class BubbleLayer {
     this.root.remove()
     this.bubbles.clear()
     this.tags.clear()
+    this.zs.clear()
+  }
+
+  /**
+   * A "z" floats up from each dozing agent every DOZE.z.everyS, at most DOZE.z.max alive (#110). `t` is seconds.
+   * Reduced motion: none at all (the tag's icon says it).
+   */
+  updateZ(sleepers: { id: string; seat: number }[], anchors: Record<string, Anchor>, t: number, reduced: boolean) {
+    const want = new Set(reduced ? [] : sleepers.map((s) => s.id))
+    for (const [id, z] of this.zs) {
+      if (!want.has(id)) {
+        z.el.remove()
+        this.zs.delete(id)
+      }
+    }
+    for (const s of sleepers) {
+      if (!want.has(s.id)) continue
+      let z = this.zs.get(s.id)
+      if (!z) {
+        const el = document.createElement('div')
+        el.className = 'ot oz'
+        el.dataset.agent = String(s.seat)
+        el.setAttribute('aria-hidden', 'true')
+        this.root.append(el)
+        // staggered by seat so four sleepers don't puff in unison
+        z = { el, next: t + (s.seat * DOZE.z.everyS) / 4 }
+        this.zs.set(s.id, z)
+      }
+      const a = anchors[s.id]
+      z.el.style.display = a?.visible ? '' : 'none'
+      if (a) {
+        z.el.style.setProperty('--x', `${Math.round(a.x)}px`)
+        z.el.style.setProperty('--y', `${Math.round(a.y)}px`)
+      }
+      if (t >= z.next && a?.visible) {
+        z.next = t + DOZE.z.everyS
+        if (z.el.childElementCount < DOZE.z.max) {
+          const p = document.createElement('span')
+          p.className = 'oz-z'
+          p.textContent = 'z'
+          p.style.setProperty('--rise', `${DOZE.z.risePx}px`)
+          p.style.setProperty('--life', `${DOZE.z.lifeS}s`)
+          p.style.setProperty('--alpha', `${DOZE.z.alpha * 100}%`)
+          p.addEventListener('animationend', () => p.remove())
+          z.el.append(p)
+        }
+      }
+    }
   }
 
   /** put a finished sentence in the screen-reader log (once per key; the DOM keeps the latest 20) */
