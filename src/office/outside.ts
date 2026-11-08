@@ -14,10 +14,10 @@ interface Period {
 
 /** day 07-17, evening 17-20, night 20-05, dawn 05-07 (sorted by `from`; night wraps midnight) */
 export const PERIODS: readonly Period[] = [
-  { from: 5 * 60, top: '#2a3358', bottom: '#8a8fb0', lights: 0.06 }, // dawn
+  { from: 5 * 60, top: '#2a3358', bottom: '#8a8fb0', lights: 0.08 }, // dawn
   { from: 7 * 60, top: '#7f93ab', bottom: '#a9b8c9', lights: 0 }, // day
-  { from: 17 * 60, top: '#3b3f6b', bottom: '#c98a6b', lights: 0.14 }, // evening
-  { from: 20 * 60, top: '#0d1430', bottom: '#1d2650', lights: 0.2 }, // night
+  { from: 17 * 60, top: '#3b3f6b', bottom: '#c98a6b', lights: 0.22 }, // evening
+  { from: 20 * 60, top: '#0d1430', bottom: '#1d2650', lights: 0.32 }, // night
 ]
 
 /** the colours blend over this many minutes from the start of a period */
