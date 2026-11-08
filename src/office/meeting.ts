@@ -7,7 +7,7 @@
 // The text of a document that is not approved is masked even where the viewer can read it.
 
 import { whoOf, type Conversation, type DocMeta } from '../docs/library'
-import { firstSentence, holdMs, logLine, maskText, typeMs, typedCount } from './bubbles'
+import { firstSentence, lineChars, holdMs, logLine, maskText, typeMs, typedCount } from './bubbles'
 
 export const ROLE = ['기획', '3D', '디자인', '코더']
 /** `메모(기획)`: the name the screen-reader log uses */
@@ -21,7 +21,7 @@ export interface ScriptLine {
   /** the agents it is said to (the planner's mock "to" cell); the owner is not an agent */
   to: number[]
   toOwner: boolean
-  /** what shows: the sentence cut to 40 characters, or blocks, or the lock's words */
+  /** what shows: the sentence cut to 36 characters, or blocks, or the lock's words */
   text: string
   /** the original sentence, '' when masked or private (never leaves the viewer's own data) */
   full: string
@@ -133,14 +133,14 @@ function inventedLines(meta: DocMeta, isPrivate: boolean): Omit<ScriptLine, 'sta
   })
 }
 
-/** the real lines of a readable document: each 협의 기록 row = one line (first sentence, 40 characters) */
+/** the real lines of a readable document: each 협의 기록 row = one line (first sentence, 36 characters) */
 function realLines(convs: Conversation[], mask: boolean): Omit<ScriptLine, 'startMs' | 'typeMs' | 'holdMs'>[] {
   const out: Omit<ScriptLine, 'startMs' | 'typeMs' | 'holdMs'>[] = []
   for (const c of convs) {
     for (const u of c.lines) {
       const from = u.owner ? 'owner' : seatOf(u.from)
       if (from === null) continue // a name that is not one of the four: nobody to stand there
-      const shown = firstSentence(u.text)
+      const shown = firstSentence(u.text, lineChars())
       if (!shown) continue
       out.push({
         key: u.key,
@@ -188,7 +188,7 @@ export function buildScript(meta: DocMeta, convs: Conversation[] | null, opts: B
     seats: all,
     lines,
     linesMs,
-    decision: decision ? (masked ? maskText(firstSentence(decision)) : firstSentence(decision)) : null,
+    decision: decision ? (masked ? maskText(firstSentence(decision, lineChars())) : firstSentence(decision, lineChars())) : null,
     followUps: followUp ? (owners.length ? owners : typeof lastSpeaker === 'number' ? [lastSpeaker] : []) : [],
     masked,
     reduced: !!opts.reduced,
