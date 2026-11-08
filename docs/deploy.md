@@ -25,7 +25,7 @@ SQL Editor에서 **이 순서로** 한 번씩 실행합니다. 모두 다시 실
 - [ ] `supabase/approvals.sql`: `office_owner`, `is_owner()`, `approvals`, `approvals_pending` 뷰, 주인의 문서 읽기 정책, Realtime (#25)
 - [ ] 주인 등록(한 줄): `insert into public.office_owner (github_id) values ('<내 GitHub 숫자 ID>') on conflict do nothing;`
 - [ ] Authentication → Providers → GitHub 켜기(0단계 OAuth 앱의 Client ID·Secret)
-- [ ] Authentication → URL Configuration → Redirect URLs에 `<사무실 주소>/**` 추가(나중에 `https://rowansong.dev/rooms/office**`도)
+- [ ] Authentication → URL Configuration → Redirect URLs에 `<사무실 주소>/**` 추가과 책상 방 프록시 주소 `https://rowansong-dev.vercel.app/rooms/office/app/**`(도메인을 붙이면 `https://rowansong.dev/rooms/office/app/**`도)
 
 확인: Table Editor에 표가 생기고 `agents`에 4줄, `agent_status`에 4줄(`off`)이 있으면 됩니다.
 

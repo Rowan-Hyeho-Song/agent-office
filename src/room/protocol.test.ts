@@ -13,7 +13,7 @@ const ev = (over: Partial<{ source: unknown; origin: string; data: unknown }> = 
 describe('allowedOrigins', () => {
   it('is its own origin + the env list, defaulting to the production desk', () => {
     expect(allowed).toEqual(['http://localhost:5186', 'http://localhost:5187'])
-    expect(allowedOrigins('http://a.test', undefined)).toEqual(['http://a.test', 'https://rowansong.dev'])
+    expect(allowedOrigins('http://a.test', undefined)).toEqual(['http://a.test', 'https://rowansong-dev.vercel.app', 'https://rowansong.dev'])
     expect(allowedOrigins('http://a.test', ' , nonsense, https://x.test/path ')).toEqual(['http://a.test', 'https://x.test'])
   })
 })

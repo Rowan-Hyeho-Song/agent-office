@@ -9,7 +9,10 @@ export type OfficeMessage = { type: 'ready'; room: 'office' } | { type: 'exit'; 
 /** desk -> office */
 export type DeskMessageType = 'entered' | 'leaving'
 
-export const DEFAULT_PARENT_ORIGINS = 'https://rowansong.dev'
+/** the desk site's origins: its deployment today, and the custom domain once it's attached (either may embed the office) */
+export const DEFAULT_PARENT_ORIGINS = 'https://rowansong-dev.vercel.app,https://rowansong.dev'
+/** where the standalone "← 책상으로" goes: the desk site that is live now */
+export const DEFAULT_DESK_URL = 'https://rowansong-dev.vercel.app/'
 
 const originOf = (url: string) => {
   try {
