@@ -10,7 +10,8 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "a11y": "node scripts/a11y.mjs",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "api:check": "node scripts/api-check.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

@@ -1,9 +1,9 @@
 // /api/timeline, minus the database (#81, plan.md 6.7): check the Action's token and payload, then turn each
 // collected point into a stored one: author check, tier, title filter. Pure apart from the store, so it's unit tested.
 
-import { sameToken } from '../docs/ingest'
-import { parsePointInput, toPoint, type PointConfig } from './points'
-import type { Point, PointInput } from './types'
+import { sameToken } from '../docs/ingest.js'
+import { parsePointInput, toPoint, type PointConfig } from './points.js'
+import type { Point, PointInput } from './types.js'
 
 export interface TimelineStore {
   /** insert or update by key: a point sent twice stays one */

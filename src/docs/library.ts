@@ -2,7 +2,7 @@
 // is allowed to see of a document (the same rules as supabase/docs.sql docs_cover), the folders and files, the
 // minutes as a conversation, the stable address of a minutes row and the bookshelf's binders. The components only draw.
 
-import type { ApprovalRequest, ApprovalResult, DocKind, Grade, Minutes, Speaker } from './types'
+import type { ApprovalRequest, ApprovalResult, DocKind, Grade, Minutes, Speaker } from './types.js'
 
 /** a document as the viewer lists it: no body (read on demand). Redacted for who is asking, see coverOf / ownerMeta */
 export interface DocMeta {

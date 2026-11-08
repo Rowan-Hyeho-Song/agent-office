@@ -2,10 +2,10 @@
 // stored document: filter (paths, emails, keys, banned words), grade, parse the structure, summarize.
 // Pure apart from the store, so it's unit tested.
 
-import { ingestApprovals, type ApprovalStore } from '../approvals/ingest'
-import { gradeFor, redact } from './filter'
-import { agentsIn, parseApprovalRequest, parseApprovalResult, parseMinutes, section, summarize } from './parse'
-import { DOC_KINDS, type DocInput, type DocRow, type Speaker } from './types'
+import { ingestApprovals, type ApprovalStore } from '../approvals/ingest.js'
+import { gradeFor, redact } from './filter.js'
+import { agentsIn, parseApprovalRequest, parseApprovalResult, parseMinutes, section, summarize } from './parse.js'
+import { DOC_KINDS, type DocInput, type DocRow, type Speaker } from './types.js'
 
 export interface DocStore extends ApprovalStore {
   upsert(rows: DocRow[]): Promise<void>

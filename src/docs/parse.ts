@@ -1,5 +1,5 @@
 // Parsers for the agents' structured GitHub comments (plan.md 6.2, 6.5). Pure functions: markdown in, structure out.
-import type { ApprovalRequest, ApprovalResult, Minutes, MinutesRow, Speaker } from './types'
+import type { ApprovalRequest, ApprovalResult, Minutes, MinutesRow, Speaker } from './types.js'
 
 type Seat = 0 | 1 | 2 | 3
 
