@@ -1429,8 +1429,13 @@ def omok_mat(x0, z0, top):
     """light wood with the 15 x 15 grid drawn in the shader (world position): 1.2 mm lines, the border 2 mm, five
     star points 4 mm. Only on the top face (y >= top - 0.5 mm). Baked into the atlas like any colour."""
     m, nodes, links, b = new_mat("omok_board")
-    b.inputs["Roughness"].default_value = 0.55
-    bump(nodes, links, b, 900, 0.12, 0.0002)
+    # matte (designer, app cut): COMBINED baking reads a facing-up surface along its normal, so a glossy top baked
+    # the overhead panel into a white sheen (#fee399 in the app)
+    b.inputs["Roughness"].default_value = 0.92
+    for k in ("Specular IOR Level", "Specular"):
+        if k in b.inputs:
+            b.inputs[k].default_value = 0.15
+    bump(nodes, links, b, 900, 0.06, 0.0002)
     geo = nodes.new("ShaderNodeNewGeometry")
     sep = nodes.new("ShaderNodeSeparateXYZ")
     links.new(geo.outputs["Position"], sep.inputs["Vector"])
@@ -1471,7 +1476,7 @@ def omok_mat(x0, z0, top):
     star = op("MAXIMUM", corner, op("MULTIPLY", is_(ru, 7), is_(rv, 7)))
     du, dv = op("SUBTRACT", u, ru), op("SUBTRACT", v, rv)
     dist = op("MULTIPLY", op("SQRT", op("ADD", op("MULTIPLY", du, du), op("MULTIPLY", dv, dv))), pitch)
-    dot = op("MULTIPLY", star, op("LESS_THAN", dist, 0.002))
+    dot = op("MULTIPLY", star, op("LESS_THAN", dist, 0.0026))  # star points: a clear dot, twice a line and more
     on_top = op("GREATER_THAN", sep.outputs["Z"], top - 0.0005)  # web y = Blender Z
     ink = op("MULTIPLY", op("MAXIMUM", op("MAXIMUM", line(u, v), line(v, u)), dot), on_top)
     def mix(factor, a, b_):
@@ -1493,13 +1498,13 @@ def omok_mat(x0, z0, top):
     # #156 (desk-room standard): a faint grain across the board, bands along z (the halves' long grain)
     wave = nodes.new("ShaderNodeTexWave")
     wave.wave_type, wave.bands_direction = "BANDS", "X"
-    wave.inputs["Scale"].default_value = 18.0
-    wave.inputs["Distortion"].default_value = 6.0
-    wave.inputs["Detail"].default_value = 3.0
+    wave.inputs["Scale"].default_value = 60.0  # straight, fine grain (a real board), within 8% lightness
+    wave.inputs["Distortion"].default_value = 0.6
+    wave.inputs["Detail"].default_value = 1.0
     links.new(geo.outputs["Position"], wave.inputs["Vector"])
-    grain = op("MULTIPLY", op("POWER", wave.outputs["Fac"], 3.0), 0.35)
-    wood_c = mix(grain, wood_c, "#7d5329")
-    links.new(mix(ink, wood_c, "#3a2a1a"), b.inputs["Base Color"])
+    grain = op("POWER", wave.outputs["Fac"], 2.0)
+    wood_c = mix(op("MULTIPLY", grain, on_top), wood_c, "#a77a46")
+    links.new(mix(ink, wood_c, "#2a1d12"), b.inputs["Base Color"])  # ink lines (designer: #2a1d12)
     return m
 
 
@@ -1607,7 +1612,9 @@ def build_play_lives():
     tx, tz = PINGPONG
     th = 0.76
     M = Mx((tx + 0.25, th + 0.02, tz - 0.1))
-    out.append((pivot(join("pp_ball", place([sphere("ball", 0.02, (0, 0, 0), plastic("#f7f7f2", 0.8, 0, 0, "ball"), G, seg=14, rings=10)], M)), M), "bot"))
+    ball = [sphere("ball", 0.02, (0, 0, 0), plastic("#f7f7f2", 0.8, 0, 0, "ball"), G, seg=32, rings=16),
+            torus("ball_seam", 0.0201, 0.0004, (0, 0, 0), plastic("#dcdcd4", 0.8, 0, 0, "ball_seam"), G, seg=32, rseg=4)]  # the seam
+    out.append((pivot(join("pp_ball", place(ball, M)), M), "bot"))
     t = bpy.data.objects.new("pp_table", None)
     coll("export").objects.link(t)
     t.matrix_world = Mx((tx, th, tz))  # +x = the long side
@@ -1801,7 +1808,9 @@ def build_book(G):
     along y; the lower half (_r) under y = 0, the upper half (_l) above. Home: lying on the side table"""
     W_, H_, T = 0.15, 0.22, 0.025
     cover = plastic("#2f6f9f", 0.6, 0, 0.3, "book_cover")  # a decorative-book blue from the shelf
-    paper = plastic("#efe9df", 0.9, 0, 0.1, "book_paper")
+    paper = plastic("#efe8d8", 0.9, 0, 0.1, "book_paper")
+    leaf = plastic("#d9d2c2", 0.9, 0, 0.0, "book_leaf")  # the paper lines on the page block's three faces
+    groove = plastic("#285f88", 0.7, 0, 0.3, "book_groove")  # the cover blue, 15% darker
     ink = plastic("#9a948a", 0.9, 0, 0.0, "book_ink")
     band = plastic("#a83232", 0.8, 0, 0.3, "book_band")
     gilt = plastic("#c9a465", 0.35, 0.9, 0.1, "book_gilt")
@@ -1812,14 +1821,21 @@ def build_book(G):
         """sgn = +1: the upper half (cover on top), -1: the lower one"""
         c = T / 2 - 0.001
         objs = [box("cover", (W_, 0.002, H_), (W_ / 2, sgn * c, 0), cover, G, bev=0.0008, seg=1),
-                box("pages", (W_ - 0.006, T / 2 - 0.002, H_ - 0.01), (W_ / 2 - 0.001, sgn * (T / 4 - 0.001), 0), paper, G)]
+                # the page block: the fore-edge hollows a little toward the book's middle (two steps)
+                box("pages", (W_ - 0.0075, 0.004, H_ - 0.01), (W_ / 2 - 0.00175, sgn * 0.002, 0), paper, G),
+                box("pages", (W_ - 0.006, T / 2 - 0.006, H_ - 0.01), (W_ / 2 - 0.001, sgn * (0.004 + (T / 2 - 0.006) / 2), 0), paper, G)]
+        for k in range(4):  # paper lines: thin darker strips on the fore-edge, the head and the tail
+            y = sgn * (0.0015 + k * 0.0022)
+            objs += [box("leaf", (0.0003, 0.0003, H_ - 0.012), (W_ - (0.0054 if abs(y) < 0.004 else 0.0039), y, 0), leaf, G),
+                     box("leaf", (W_ - 0.008, 0.0003, 0.0003), (W_ / 2 - 0.001, y, H_ / 2 - 0.0048), leaf, G),
+                     box("leaf", (W_ - 0.008, 0.0003, 0.0003), (W_ / 2 - 0.001, y, -(H_ / 2 - 0.0048)), leaf, G)]
         # #156 (real hardcovers): a red headband at each end of the page block by the spine
         for sz in (-1, 1):
             objs.append(box("headband", (0.004, T / 2 - 0.003, 0.002), (0.0025, sgn * (T / 4 - 0.0005), sz * (H_ / 2 - 0.006)), band, G, bev=0.0005, seg=1))
         if sgn > 0:  # the spine's upper half turns with this half (a whole spine would stand up between open pages)
             objs.append(box("spine", (0.003, T / 2, H_), (-0.0015, T / 4, 0), cover, G, bev=0.001, seg=2))
             # the front cover: a gilt rule by the spine and a cream title label
-            objs += [box("gilt", (0.003, 0.0004, H_ - 0.012), (0.012, c + 0.0012, 0), gilt, G),
+            objs += [box("groove", (0.0015, 0.0002, H_ - 0.012), (0.012, c + 0.0011, 0), groove, G),  # a shallow hinge groove
                      box("label", (0.075, 0.0004, 0.034), (W_ / 2 + 0.008, c + 0.0012, -0.045), paper, G, bev=0.0002, seg=1),
                      box("label_ink", (0.05, 0.0002, 0.004), (W_ / 2 + 0.008, c + 0.0015, -0.049), ink, G),
                      box("label_ink", (0.032, 0.0002, 0.003), (W_ / 2 + 0.008, c + 0.0015, -0.039), ink, G)]
@@ -1849,23 +1865,36 @@ def build_props():
     red, black = plastic("#d43a33", 0.7, 0, 0.3, "paddle_red"), plastic("#1d1f24", 0.7, 0, 0.3, "paddle_black")
     ply, gilt = plastic("#8a5a35", 0.6, 0, 0.3, "paddle_ply"), plastic("#c9a465", 0.35, 0.9, 0.1, "paddle_badge")
 
+    rim_m = plastic("#8a6a2a", 0.4, 0.8, 0.1, "paddle_badge_rim")
+
+    def squash(o, k):
+        """flatten the handle across the blade (web z): an oval section. A y-axis cylinder: web z = Blender local -y"""
+        o.data.transform(Matrix.Diagonal((1.0, k, 1.0, 1.0)))
+        return o
+
+    def oval_plate(name, r, depth, at, m):
+        o = cyl(name, r, depth, at, m, G, 20, axis="z")
+        o.data.transform(Matrix.Diagonal((1.4, 1.0, 1.0, 1.0)))
+        return o
+
     def oval(name, r, depth, z, m):
         o = cyl(name, r, depth, (0, 0.17, z), m, G, 32, axis="z")
         o.data.transform(Matrix.Diagonal((1.0, 0.16 / 0.15, 1.0, 1.0)))  # local y = web y after the axis turn
         return o
 
     for end, bx, bz, rz in (("a", tx - 0.6, tz + 0.25, -math.pi / 2), ("b", tx + 0.62, tz - 0.25, math.pi / 2)):
-        objs = [box("grip", (0.026, 0.09, 0.02), (0, 0.055, 0), wood_h, G, bev=0.004, seg=2),
-                box("grip_end", (0.032, 0.014, 0.022), (0, 0.007, 0), wood_h, G, bev=0.004, seg=2),
+        objs = [squash(cyl("grip", 0.016, 0.1, (0, 0.05, 0), wood_h, G, 28, r2=0.013), 0.8),  # round, 3.2 -> 2.6 cm
+                squash(cyl("ply", 0.0162, 0.096, (0, 0.05, 0), ply, G, 28, r2=0.0132), 0.1),  # its sides: a dark ply line
                 oval("blade", 0.075, 0.004, 0.0, wood_h),
                 oval("rubber_red", 0.074, 0.001, 0.0025, red),
                 oval("rubber_black", 0.074, 0.001, -0.0025, black),
                 # #156 (real paddles): a rounded throat where the handle flares into the blade, a darker centre
                 # ply showing along the handle's sides, a small brass badge on each face
-                cyl("throat", 0.02, 0.006, (0, 0.093, 0), wood_h, G, 24, axis="z", bev=0.0015),
-                box("ply", (0.0265, 0.08, 0.004), (0, 0.055, 0), ply, G),
-                cyl("badge", 0.0055, 0.0008, (0, 0.06, 0.0103), gilt, G, 16, axis="z"),
-                cyl("badge", 0.0055, 0.0008, (0, 0.06, -0.0103), gilt, G, 16, axis="z")]
+                # the throat sits inside the rubber faces (it z-fought them: a sawtooth edge in the app)
+                cyl("throat", 0.02, 0.0044, (0, 0.093, 0), wood_h, G, 28, axis="z", bev=0.001)]
+        for sz in (1, -1):  # a flat oval badge with a darker rim, on each face of the handle
+            objs += [oval_plate("badge_rim", 0.0068, 0.0004, (0, 0.06, sz * 0.0112), rim_m),
+                     oval_plate("badge", 0.0056, 0.0006, (0, 0.06, sz * 0.0115), gilt)]
         hx = bx + (-0.17 if end == "a" else 0.17)  # handle end sits 0.17 m behind the blade center
         out.append(prop(f"prop_paddle_{end}", "paddle", objs, (hx, th + 0.003, bz), (-math.pi / 2, 0.0, rz),
                         grip_pos=(0, -0.02, 0), grip_rot=(math.pi, 0, 0)))
