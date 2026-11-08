@@ -82,6 +82,8 @@ export function ReplayDriver({ world }: { world: OfficeWorld }) {
       }),
     ]
     replay.hold = () => world.meeting.busy
+    // debug only: window.__replay.open({ project, t }) / .seek(i) / .points / .scene() for screenshot scripts
+    if (world.debug) (window as unknown as { __replay: typeof replay }).__replay = replay
     setClockClick(() => void replay.open({ project: 'all' }))
     return () => {
       off.forEach((o) => o())

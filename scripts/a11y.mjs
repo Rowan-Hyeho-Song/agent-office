@@ -58,6 +58,14 @@ const STATES = [
     },
   },
   { name: '주인 · 목록 (390px)', url: '/?debug=1&approvals=owner', viewport: { width: 390, height: 844 } },
+  // the timelapse (#82): the office replay with its bar, the 2D list, the phone's bar
+  { name: '타임랩스 · 사무실', url: '/?debug=1&replay=all&t=2026-11-08T01:00:00Z', act: (p) => p.waitForSelector('.replay-slider') },
+  { name: '타임랩스 · 목록', url: '/?debug=1&replay=all&t=2026-11-08T01:00:00Z', act: (p) => p.evaluate(() => window.__replay.setMode('list')) },
+  { name: '타임랩스 · 휴대폰 막대', url: '/?debug=1&replay=all&t=2026-11-08T01:00:00Z', viewport: { width: 390, height: 844 }, act: async (p) => {
+      // a phone opens the 2D list by default; "사무실에서 보기" brings the bar
+      await p.getByText('▶ 사무실에서 보기').click()
+      await p.waitForSelector('.replay-slider')
+    } },
 ]
 
 const browser = await chromium.launch({ channel: 'chrome' })

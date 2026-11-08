@@ -27,7 +27,7 @@ export function IssueReplayButton({ repo, n }: { repo: string; n: number }) {
         void replay.open({ issue: { repo, n, lo: found.lo, hi: found.hi } })
       }}
     >
-      <span aria-hidden="true">⏪</span> 이 일의 이력 재생 <small>{span} · {found.count}개 점</small>
+      <span aria-hidden="true">◀◀</span> 이 일의 이력 재생 <small>{span} · {found.count}개 점</small>
     </button>
   )
 }

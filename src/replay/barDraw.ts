@@ -157,7 +157,8 @@ export function drawBar(ctx: CanvasRenderingContext2D, v: BarView): BarLayout {
   ctx.font = '11px Galmuri11, monospace'
   ctx.textBaseline = 'top'
   let prev: string | null = null
-  let lastLabel = -1e9
+  // the first day's label is drawn at the left edge below, so the next one needs room after it
+  let lastLabel = 8
   points.forEach((p, k) => {
     const key = dayKey(p)
     if (key === prev) return
