@@ -49,10 +49,13 @@ export function App() {
         gl={{ antialias: true, stencil: true }}
       >
         <Suspense fallback={null}>
-          {/* real-time light for the agents only (everything else is baked): cool fill from the window side,
-              a warm key from the lounge lamp, and the work-corner panel overhead */}
-          <hemisphereLight args={['#9fb4ff', '#2a1e1a', 0.9]} />
-          <directionalLight position={[-2, 4.5, 2]} intensity={1.6} color="#e8ecff" />
+          {/* real-time light for the agents and live props only (everything else is baked): a neutral-warm fill and key,
+              so their whites read like the baked room and the desk room (#173: the cool fill made them violet-grey, a mug
+              measured #878ca2). The key is soft and the ground bounce light, so the tops do not burn out: from above a mug's
+              brightest face is #f4eee2 and its bright 20% #d6d0c4 (designer: at most #f4efe6, at least #d0ccc4). A warm key
+              from the lounge lamp, and the work-corner panel overhead */}
+          <hemisphereLight args={['#fffaf3', '#c2b6a6', 1.82]} />
+          <directionalLight position={[-2, 4.5, 2]} intensity={1.3} color="#fff8ef" />
           <pointLight position={[...LAMP_POS]} intensity={3} distance={5} decay={1.6} color="#ffcf8a" />
           <Office world={world} />
           <EffectComposer multisampling={0} stencilBuffer>
