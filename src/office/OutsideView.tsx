@@ -1,8 +1,8 @@
 import { useFrame } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
-import { AlwaysStencilFunc, CanvasTexture, Color, EqualStencilFunc, MeshBasicMaterial, ReplaceStencilOp, SRGBColorSpace, type Material, type Mesh, type Object3D } from 'three'
+import { AlwaysStencilFunc, BufferAttribute, CanvasTexture, Color, EqualStencilFunc, MeshBasicMaterial, ReplaceStencilOp, SRGBColorSpace, type BufferGeometry, type Material, type Mesh, type Object3D } from 'three'
 import { meshesOf } from './nodes'
-import { outsideAt, silhouette, type OutsideLook } from './outside'
+import { LIGHT_COOL, LIGHT_LEVEL, LIGHT_WARM, litWindows, outsideAt, silhouette, type OutsideLook } from './outside'
 import { kstMinutes } from './kst'
 import { officeNow, type OfficeWorld } from './world'
 
@@ -35,6 +35,64 @@ function setAll(node: Object3D | undefined, mat: Material, order: number) {
   }
 }
 
+/** the window cells of the lights card (connected quads; the card has no UVs), found once per geometry */
+function cellsOf(g: BufferGeometry): { tris: number[][] } {
+  const cached = g.userData.cells as { tris: number[][] } | undefined
+  if (cached) return cached
+  const p = g.getAttribute('position')
+  const ix = g.index
+  const n = (ix ? ix.count : p.count) / 3
+  const key = (i: number) => `${Math.round(p.getX(i) * 2000)},${Math.round(p.getY(i) * 2000)},${Math.round(p.getZ(i) * 2000)}`
+  const parent = new Map<string, string>()
+  const find = (k: string): string => {
+    while (parent.get(k) !== k) {
+      parent.set(k, parent.get(parent.get(k)!)!)
+      k = parent.get(k)!
+    }
+    return k
+  }
+  const ids: string[][] = []
+  for (let t = 0; t < n; t++) {
+    const k = [0, 1, 2].map((j) => key(ix ? ix.getX(t * 3 + j) : t * 3 + j))
+    for (const x of k) if (!parent.has(x)) parent.set(x, x)
+    parent.set(find(k[0]), find(k[1]))
+    parent.set(find(k[1]), find(k[2]))
+    ids.push(k)
+  }
+  const by = new Map<string, number[]>()
+  ids.forEach((k, t) => by.set(find(k[0]), [...(by.get(find(k[0])) ?? []), t]))
+  const cells = { tris: [...by.values()] }
+  g.userData.cells = cells
+  g.userData.fullIndex = ix ? Array.from(ix.array) : Array.from({ length: p.count }, (_, i) => i)
+  return cells
+}
+
+/** light the cells chosen for this KST hour: only the lit ones are drawn (index subset), warm or cool by vertex colour */
+function paintLights(m: Mesh, look: OutsideLook) {
+  const g = m.geometry
+  const { tris } = cellsOf(g)
+  const full = g.userData.fullIndex as number[]
+  const { lit, cool } = litWindows(tris.length, look.lights, Number(look.key.split(':').pop()))
+  const count = g.getAttribute('position').count
+  const col = new Float32Array(count * 3)
+  const warm = new Color(LIGHT_WARM).multiplyScalar(LIGHT_LEVEL)
+  const cold = new Color(LIGHT_COOL).multiplyScalar(LIGHT_LEVEL)
+  const index: number[] = []
+  tris.forEach((ts, c) => {
+    if (!lit[c]) return
+    const color = cool[c] ? cold : warm
+    for (const t of ts)
+      for (let j = 0; j < 3; j++) {
+        const v = full[t * 3 + j]
+        index.push(v)
+        col.set([color.r, color.g, color.b], v * 3)
+      }
+  })
+  g.setAttribute('color', new BufferAttribute(col, 3))
+  g.setIndex(index)
+  m.visible = index.length > 0
+}
+
 export function Outside({ nodes, world }: { nodes: Record<string, Object3D>; world: OfficeWorld }) {
   const parts = useMemo(() => {
     const canvas = document.createElement('canvas')
@@ -45,7 +103,8 @@ export function Outside({ nodes, world }: { nodes: Record<string, Object3D>; wor
     tex.colorSpace = SRGBColorSpace
     const sky = stencilMat(new MeshBasicMaterial({ map: tex }))
     const layers = LAYERS.map((l) => ({ ...l, mat: stencilMat(new MeshBasicMaterial()) }))
-    const lights = stencilMat(new MeshBasicMaterial({ color: '#ffcf8a', transparent: true, depthWrite: false }))
+    // always opaque: how many windows are lit changes, not how bright (outside.ts litWindows)
+    const lights = stencilMat(new MeshBasicMaterial({ vertexColors: true }))
     const portal = new MeshBasicMaterial({ colorWrite: false, depthWrite: false })
     portal.stencilWrite = true
     portal.stencilRef = 1
@@ -81,10 +140,8 @@ export function Outside({ nodes, world }: { nodes: Record<string, Object3D>; wor
       ctx.fillRect(0, 0, parts.canvas.width, parts.canvas.height)
       parts.tex.needsUpdate = true
     }
-    for (const l of parts.layers) l.mat.color.set(new Color(silhouette(look, l.depth)))
-    parts.lights.opacity = look.lights
-    parts.lights.visible = look.lights > 0
-    for (const m of nodes.window_lights ? meshesOf(nodes.window_lights) : []) m.visible = look.lights > 0
+    for (const l of parts.layers) l.mat.color.set(silhouette(look, l.depth))
+    for (const m of nodes.window_lights ? meshesOf(nodes.window_lights) : []) paintLights(m, look)
   })
   return null
 }
