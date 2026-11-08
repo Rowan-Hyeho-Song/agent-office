@@ -1,3 +1,5 @@
+import { WATERED, WATER_STAND } from './water'
+
 // Deterministic play: who does what during free time, from the clock alone. Every visitor computes the same
 // scene for the same minute, so the office looks shared without a server. Pure: no three.js, no Date.
 
@@ -12,6 +14,8 @@ interface PlayDef {
   weight: number
   /** a point to face instead of the spot's own direction (the plant being watered) */
   face?: { x: number; z: number }
+  /** where to stand instead of the spot's own place (watering: close enough that the stream reaches the soil, #184) */
+  stand?: { x: number; z: number }
 }
 
 export const PLAYS: PlayDef[] = [
@@ -19,8 +23,8 @@ export const PLAYS: PlayDef[] = [
   { kind: 'boardgame', label: '보드게임', spots: ['game_a', 'game_b'], pair: true, weight: 3 },
   { kind: 'coffee', label: '커피', spots: ['coffee'], weight: 2 },
   { kind: 'sofa', label: '소파에서 낮잠', spots: ['sofa_0', 'sofa_1', 'sofa_2'], weight: 2 },
-  // the big planter in the lounge corner (office_bake.py: (3.15, 2.35)), watered from the lounge aisle
-  { kind: 'water', label: '화분 물 주기', spots: ['hall_lounge'], weight: 1, face: { x: 3.15, z: 2.35 } },
+  // the fiddle-leaf fig in the lounge corner (office_bake.py PLANTS: (4.22, 3.18)), watered from 0.8 m in front of it (water.ts)
+  { kind: 'water', label: '화분 물 주기', spots: ['hall_lounge'], weight: 1, face: { x: WATERED.x, z: WATERED.z }, stand: WATER_STAND },
   { kind: 'books', label: '책 고르기', spots: ['shelf'], weight: 1 },
 ]
 
@@ -46,6 +50,7 @@ export interface PlayAssignment {
   /** the other player of a pair activity */
   partner?: string
   face?: { x: number; z: number }
+  stand?: { x: number; z: number }
 }
 
 /** small fast PRNG (mulberry32): same seed, same sequence, in every browser */
@@ -115,7 +120,7 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
 
   const assign = (agent: string, p: PlayDef, spot: string, partner?: string) => {
     used.add(spot)
-    out[agent] = { kind: p.kind, label: p.label, spot, ...(partner ? { partner } : {}), ...(p.face ? { face: p.face } : {}) }
+    out[agent] = { kind: p.kind, label: p.label, spot, ...(partner ? { partner } : {}), ...(p.face ? { face: p.face } : {}), ...(p.stand ? { stand: p.stand } : {}) }
   }
 
   const solos = PLAYS.filter((p) => !p.pair)

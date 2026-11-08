@@ -31,6 +31,7 @@ import { meshesOf } from './nodes'
 import type { StatusMap } from './status'
 import { gameAt, N, type OmokView } from '../play/omok'
 import { rallyAt, type Dims, type Rally } from '../play/pingpong'
+import { HOLD_DEFAULT, PLANTS, canPose, dropAt, landing, plantAhead, plantsFrom, solvePour, spoutOf, type Plant } from './water'
 import { ease, followWeight, habitOf, placeSequence, swingTilt, swingTravel } from '../play/choreo'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 
@@ -181,6 +182,12 @@ export class PlayStage {
     }
     // water for the can, and the book's two halves
     this.spout = nodes.prop_watering_can_spout
+    this.plants = plantsFrom(scene)
+    const canNode = nodes.prop_watering_can
+    if (canNode && this.spout) {
+      canNode.updateWorldMatrix(true, true)
+      this.spoutLocal = new Matrix4().copy(canNode.matrixWorld).invert().multiply(this.spout.matrixWorld)
+    }
     const drops = new InstancedMesh(new SphereGeometry(0.003, 6, 5), new MeshBasicMaterial({ color: '#9bd8ff' }), 28)
     drops.count = 0
     drops.frustumCulled = false
@@ -252,7 +259,9 @@ export class PlayStage {
     }
     const hand = rig.parts.hands[side]
     const info = tgt.obj ? this.props.info(rig, kind, prefer ?? objName) : null
-    const home = tgt.obj ? this.props.homeWorld(tgt.obj) : new Matrix4()
+    let home = tgt.obj ? this.props.homeWorld(tgt.obj) : new Matrix4()
+    // a prop that rests out of reach (the can, the book) is not walked to: the hand takes it where it is held
+    if (tgt.obj && held && new Vector3().setFromMatrixPosition(home).distanceTo(new Vector3(rig.x, 1, rig.z)) > 1.3) home = held
     let pose = home
     if (out.attached && held) pose = blend(home, held, ease((inp.t - (clock.attachedAt ?? inp.t)) / Math.max(LIFT_S, rig.gestureMin)))
     else if (out.attached && !tgt.obj) pose = held ?? home
@@ -704,8 +713,10 @@ export class PlayStage {
         // 0.6 s to tip 30°, held 1.5 s, back in 0.6 s, a rest, every 7 s
         const c = u % 7
         const tilt = c < 0.6 ? ease(c / 0.6) : c < 2.1 ? 1 : c < 2.7 ? 1 - ease((c - 2.1) / 0.6) : 0
-        const q = yaw(heading).multiply(new Quaternion().setFromAxisAngle(UP, Math.PI / 2)).multiply(new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), -30 * DEG * tilt))
-        const held = new Matrix4().compose(local(0.2, 1.02, -0.36), q, ONE)
+        // the can is held where the stream from its spout lands on the soil of the plant in front (water.ts)
+        const plant = plantAhead(rig.x, rig.z, heading, 1.6, this.plants) ?? this.plants[0]
+        const pour = this.spoutLocal ? solvePour(plant, rig.x, rig.z, heading, this.spoutLocal) : null
+        const held = canPose(rig.x, rig.z, heading, pour?.hold ?? HOLD_DEFAULT, tilt)
         const attached = this.grip(rig, 'r', 'watering_can', can.node.name, true, held, inp)
         const gl = this.props.info(rig, 'watering_can')
         void gl
@@ -714,7 +725,7 @@ export class PlayStage {
           const tl = this.target(can.node.name, 'watering_can', 'l')
           if (tl) this.leftHand(rig, 'watering_can', tl, held, can.node.name, inp)
         }
-        this.pouring = { on: attached && tilt > 0.5 && !inp.reduced, rig }
+        this.pouring = { on: attached && tilt > 0.5 && !inp.reduced, rig, held, soilY: plant.soilY }
       }
       return
     }
@@ -767,7 +778,10 @@ export class PlayStage {
     }
   }
 
-  private pouring: { on: boolean; rig: AgentRig } | null = null
+  private pouring: { on: boolean; rig: AgentRig; held: Matrix4; soilY: number } | null = null
+  /** the spout node in the can's frame (water.ts: +z = the water's direction) */
+  private spoutLocal: Matrix4 | null = null
+  private plants: Plant[] = PLANTS
   private reading: { rig: AgentRig; openAt: number; turnAt: number } | null = null
 
   /** the left hand's part of a two-handed hold, placed from the object's pose with its own grip empty */
@@ -842,20 +856,20 @@ export class PlayStage {
     const p = this.pouring
     this.pouring = null
     if (!dr) return
-    if (!p?.on || !this.spout) {
+    if (!p?.on || !this.spoutLocal) {
       dr.count = 0
       return
     }
-    this.spout.updateWorldMatrix(true, false)
-    const o = this.spout.getWorldPosition(new Vector3())
-    const dir = new Vector3(0, 0, 1).transformDirection(this.spout.matrixWorld)
+    // drops leave the spout (placed from the can's pose of this frame) and are gone where they reach the soil
+    const { tip, dir } = spoutOf(p.held, this.spoutLocal!)
+    const hit = landing(tip, dir, p.soilY)
     const m = new Matrix4()
-    const life = 0.7
+    const pos = new Vector3()
+    const life = hit ? hit.tau : 0.4
     let n = 0
     for (let i = 0; i < 28; i++) {
-      const tau = (((inp.t + i / 28 * life) % life) + life) % life
-      const pos = o.clone().addScaledVector(dir, 0.5 * tau)
-      pos.y -= 0.5 * 9.81 * tau * tau
+      const tau = (((inp.t + (i / 28) * life) % life) + life) % life
+      dropAt(tip, dir, tau, pos)
       m.makeTranslation(pos.x, pos.y, pos.z)
       dr.setMatrixAt(n++, m)
     }

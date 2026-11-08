@@ -120,6 +120,8 @@ export interface OfficeWorld {
   traffic: TrafficPlanner | null
   showGrid: boolean
   forceSpots: Record<string, string> | null
+  /** ?debug=1: window.__office.forceGoal = { agent_0: { spot, pose: 'water', slot, face } } overrides parts of a goal (close-ups of a pose at a place) */
+  forceGoal: Record<string, Partial<Goal>> | null
   /** the planner's clock, s (accumulated frame time) */
   simTime: number
   /** ?debug=1 only: the traffic demo running (trafficDemo.ts) */
@@ -195,6 +197,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     traffic: null,
     showGrid: false,
     forceSpots: null,
+    forceGoal: null,
     simTime: 0,
     demo: null,
     trafficDemo: (kind) => {

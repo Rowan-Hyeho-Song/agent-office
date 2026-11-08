@@ -1,0 +1,161 @@
+// Watering (#184): the stream has to land on the plant's soil, not the floor. Pure maths: the plants' soil (centre, height, radius),
+// where the can is held for a plant, and where the stream from the spout lands. The soil numbers come from office_bake.py's pot3():
+// soil top = pot base + pot height − 1.5 cm + 3 mm, radius = pot top radius − 6 mm.
+
+import { Matrix4, Quaternion, Vector3, type Object3D } from 'three'
+
+export interface Plant {
+  name: string
+  /** soil centre (x, z), soil surface height, soil circle radius, m */
+  x: number
+  z: number
+  soilY: number
+  r: number
+}
+
+/** the four plants of the office (office_bake.py PLANTS and the desk succulent) */
+export const PLANTS: Plant[] = [
+  { name: 'plant_corner', x: 4.22, z: 3.18, soilY: 0.02 + 0.36 - 0.015 + 0.003, r: 0.19 - 0.006 }, // fiddle-leaf fig
+  { name: 'plant_sofa', x: 0.925, z: 2.75, soilY: 0.02 + 0.26 - 0.015 + 0.003, r: 0.14 - 0.006 }, // monstera
+  { name: 'plant_desk', x: 0.0, z: -3.2, soilY: 0.28 + 0.22 - 0.015 + 0.003, r: 0.12 - 0.006 }, // sansevieria on its stand
+  { name: 'succulent', x: -4.32, z: -1.36, soilY: 0.74 + 0.05 - 0.015 + 0.003, r: 0.04 - 0.006 }, // 휴's desk
+]
+
+/** the plant the schedule waters (play.ts) and where its watering agent stands, 0.78 m from the soil centre on the room side */
+export const WATERED = PLANTS[0]
+export const WATER_STAND = { x: 4.0, z: 2.45 }
+/** a floor point 0.75 m from a plant toward the middle of the room: where a test stands an agent for each plant */
+export function standFor(p: Plant, dist = 0.75): { x: number; z: number } {
+  const len = Math.hypot(p.x, p.z) || 1
+  return { x: p.x - (p.x / len) * dist, z: p.z - (p.z / len) * dist }
+}
+/** heading (rad, rig convention: it faces its −z) that looks from (x, z) at (tx, tz) */
+export const headingTo = (x: number, z: number, tx: number, tz: number) => Math.atan2(-(tx - x), -(tz - z))
+
+/** the stream leaves the spout along its +z at this speed, then falls (m/s, m/s²) */
+export const STREAM_V = 0.5
+export const G = 9.81
+/** the can tips this far when pouring (grips.md: 30°) */
+export const POUR_TILT = (30 * Math.PI) / 180
+
+const UP = new Vector3(0, 1, 0)
+const AXIS_Y = new Vector3(0, 1, 0)
+const AXIS_Z = new Vector3(0, 0, 1)
+
+export interface Hold {
+  /** how far in front of the body (m, along the heading) and sideways to the right the can's origin is, and how high */
+  fwd: number
+  lat: number
+  y: number
+}
+export const HOLD_DEFAULT: Hold = { fwd: 0.36, lat: 0.2, y: 1.02 }
+
+/** the can's world pose for a body at (x, z) facing `heading`, held at `hold`, tipped by `tilt` (0 … 1 of POUR_TILT) */
+export function canPose(x: number, z: number, heading: number, hold: Hold, tilt: number, out = new Matrix4()): Matrix4 {
+  const body = new Quaternion().setFromAxisAngle(AXIS_Y, heading)
+  const right = new Vector3(1, 0, 0).applyQuaternion(body)
+  const fwd = new Vector3(0, 0, -1).applyQuaternion(body)
+  const pos = new Vector3(x, hold.y, z).addScaledVector(right, hold.lat).addScaledVector(fwd, hold.fwd)
+  // the spout (+x of the can) points forward, then tips down about the can's own z
+  const q = body.clone().multiply(new Quaternion().setFromAxisAngle(AXIS_Y, Math.PI / 2)).multiply(new Quaternion().setFromAxisAngle(AXIS_Z, -POUR_TILT * tilt))
+  return out.compose(pos, q, new Vector3(1, 1, 1))
+}
+
+/** the spout's tip and the water's direction in the world for a can pose (`spoutLocal`: the spout node in the can's frame, +z = water) */
+export function spoutOf(can: Matrix4, spoutLocal: Matrix4) {
+  const m = new Matrix4().multiplyMatrices(can, spoutLocal)
+  return { tip: new Vector3().setFromMatrixPosition(m), dir: new Vector3(0, 0, 1).transformDirection(m) }
+}
+
+/** a drop `tau` seconds after leaving the spout */
+export function dropAt(tip: Vector3, dir: Vector3, tau: number, out = new Vector3()) {
+  out.copy(tip).addScaledVector(dir, STREAM_V * tau)
+  out.y -= 0.5 * G * tau * tau
+  return out
+}
+
+/** where the stream meets the height `y`: the time since the spout and the point, or null if it never gets down to it */
+export function landing(tip: Vector3, dir: Vector3, y: number): { tau: number; at: Vector3 } | null {
+  // tip.y + v·dir.y·τ − g/2·τ² = y
+  const a = -0.5 * G
+  const b = STREAM_V * dir.y
+  const c = tip.y - y
+  const disc = b * b - 4 * a * c
+  if (disc < 0) return null
+  const tau = (-b - Math.sqrt(disc)) / (2 * a)
+  return tau > 0 ? { tau, at: dropAt(tip, dir, tau) } : null
+}
+
+export interface Pour {
+  hold: Hold
+  /** where the stream lands on the soil plane, and its distance from the soil centre, m */
+  at: Vector3
+  err: number
+  tip: Vector3
+}
+
+/**
+ * Where to hold the can so the stream lands on the middle of `plant`'s soil: the can's forward and sideways offset from the body,
+ * found by a small search (the spout's place in the can comes from the model). The body stands at (x, z) facing `heading`.
+ */
+export function solvePour(plant: Plant, x: number, z: number, heading: number, spoutLocal: Matrix4): Pour {
+  const goal = new Vector3(plant.x, plant.soilY, plant.z)
+  const eval_ = (hold: Hold) => {
+    const { tip, dir } = spoutOf(canPose(x, z, heading, hold, 1), spoutLocal)
+    const l = landing(tip, dir, plant.soilY)
+    return { tip, at: l ? l.at : new Vector3(1e3, 0, 1e3), err: l ? l.at.distanceTo(goal) : 1e3 }
+  }
+  let hold: Hold = { ...HOLD_DEFAULT }
+  let best = eval_(hold)
+  let step = 0.2
+  for (let it = 0; it < 200 && step > 1e-5; it++) {
+    let moved = false
+    for (const [df, dl] of [[step, 0], [-step, 0], [0, step], [0, -step], [step, step], [-step, -step], [step, -step], [-step, step]] as const) {
+      const h = { ...hold, fwd: Math.min(0.9, Math.max(0.15, hold.fwd + df)), lat: Math.min(0.4, Math.max(-0.15, hold.lat + dl)) }
+      const r = eval_(h)
+      if (r.err < best.err - 1e-9) {
+        hold = h
+        best = r
+        moved = true
+      }
+    }
+    if (!moved) step *= 0.5
+  }
+  return { hold, at: best.at, err: best.err, tip: best.tip }
+}
+
+/** the plant in front of a body (the nearest one within `reach` m, roughly ahead), or null */
+export function plantAhead(x: number, z: number, heading: number, reach = 1.6, plants: Plant[] = PLANTS): Plant | null {
+  const fx = -Math.sin(heading)
+  const fz = -Math.cos(heading)
+  let best: Plant | null = null
+  let bd = reach
+  for (const p of plants) {
+    const dx = p.x - x
+    const dz = p.z - z
+    const d = Math.hypot(dx, dz)
+    if (d < bd && (dx * fx + dz * fz) / (d || 1) > 0.5) {
+      best = p
+      bd = d
+    }
+  }
+  return best
+}
+void UP
+
+/**
+ * The soil of each plant from the model's empties (`soil_<plant>`: at the middle of the soil top, extras r = the soil circle's radius),
+ * or the estimate above where the model has none. A model with soil empties waters exactly the plants that have one.
+ */
+export function plantsFrom(scene: { getObjectByName(n: string): Object3D | undefined }): Plant[] {
+  const out: Plant[] = []
+  const names = [...PLANTS.map((p) => p.name), 'vine']
+  for (const name of names) {
+    const o = scene.getObjectByName('soil_' + name)
+    if (!o) continue
+    const w = o.getWorldPosition(new Vector3())
+    const est = PLANTS.find((p) => p.name === name)
+    out.push({ name, x: w.x, z: w.z, soilY: w.y, r: (o.userData.r as number | undefined) ?? est?.r ?? 0.06 })
+  }
+  return out.length ? out : PLANTS
+}

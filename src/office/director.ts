@@ -177,7 +177,7 @@ export class Director {
       }
       const p = play[a]
       out[a] = p
-        ? { spot: p.spot, pose: p.kind, face: p.face, label: p.label }
+        ? { spot: p.spot, pose: p.kind, face: p.face, ...(p.stand ? { slot: { x: p.stand.x, z: p.stand.z, ry: Math.atan2(-((p.face?.x ?? p.stand.x) - p.stand.x), -((p.face?.z ?? p.stand.z - 1) - p.stand.z)) } } : {}), label: p.label }
         : { spot: `work_${desk}`, pose: 'idle', label: '자리에서 쉬는 중' }
     }
     return out
