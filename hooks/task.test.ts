@@ -116,3 +116,67 @@ describe('office-hook sends repo / issue only when declared, inside the projects
     ])
   }, 30_000)
 })
+
+describe('office-hook: a server from before #182 (400 to the task fields) still gets the signal', () => {
+  it('400 with a task → once more without it; 200 → no second try; a 400 without a task → no second try', async () => {
+    const { spawn } = await import('node:child_process')
+    const { createServer } = await import('node:http')
+    const { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join, resolve } = await import('node:path')
+    const bodies: Record<string, unknown>[] = []
+    let mode: 'old' | 'new' | 'bad' = 'old'
+    const server = createServer((req, res) => {
+      let body = ''
+      req.on('data', (c) => (body += c))
+      req.on('end', () => {
+        const b = JSON.parse(body) as Record<string, unknown>
+        bodies.push(b)
+        // old: rejects extra fields (like production before #182); new: accepts; bad: always 400
+        const status = mode === 'bad' ? 400 : mode === 'old' && 'repo' in b ? 400 : 200
+        res.writeHead(status, { 'content-type': 'application/json' }).end('{}')
+      })
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    const port = (server.address() as { port: number }).port
+    const home = mkdtempSync(join(tmpdir(), 'office-hook-fallback-'))
+    writeFileSync(join(home, 'hook.json'), JSON.stringify({ endpoint: `http://127.0.0.1:${port}/api/events`, token: 't', projects: ['**/agent-office*'], log: true }))
+    const inside = resolve('.')
+    const run = (activityTool: string, extraEnv: Record<string, string> = {}) =>
+      new Promise<void>((done) => {
+        const env = { ...process.env, AGENT_OFFICE_HOME: home, AGENT_OFFICE_SEAT: '3' }
+        delete env.AGENT_OFFICE_CONFIG
+        delete env.AGENT_OFFICE_TASK
+        Object.assign(env, extraEnv)
+        const p = spawn(process.execPath, [resolve('hooks/office-hook.mjs')], { env, stdio: ['pipe', 'ignore', 'ignore'] })
+        p.on('exit', () => done())
+        p.stdin.end(JSON.stringify({ session_id: `s-${Math.random()}`, hook_event_name: 'PreToolUse', tool_name: activityTool, tool_input: {}, cwd: inside }))
+      })
+    try {
+      // an old server, a declared issue: the task goes first, is refused, then the plain signal
+      await run('Edit', { AGENT_OFFICE_TASK: 'agent-office#170' })
+      const old = bodies.splice(0)
+      // a new server: one request with the task
+      mode = 'new'
+      await run('Edit', { AGENT_OFFICE_TASK: 'agent-office#170' })
+      const fresh = bodies.splice(0)
+      // a 400 with no task on it (a bad signal): no second try
+      mode = 'bad'
+      await run('Edit')
+      const bad = bodies.splice(0)
+      expect(old).toEqual([
+        { seat: 3, kind: 'activity', activity: 'edit', repo: 'agent-office', issue: 170 },
+        { seat: 3, kind: 'activity', activity: 'edit' },
+      ])
+      expect(fresh).toEqual([{ seat: 3, kind: 'activity', activity: 'edit', repo: 'agent-office', issue: 170 }])
+      expect(bad).toEqual([{ seat: 3, kind: 'activity', activity: 'edit' }])
+      // the log says only that the task was dropped and the status: no repo, number, path or title
+      const log = existsSync(join(home, 'hook.log')) ? readFileSync(join(home, 'hook.log'), 'utf8') : ''
+      expect(log).toMatch(/task dropped → 400/)
+      expect(log).not.toMatch(/agent-office|170|#/)
+    } finally {
+      server.close()
+      rmSync(home, { recursive: true, force: true })
+    }
+  }, 30_000)
+})

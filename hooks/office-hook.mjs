@@ -77,12 +77,21 @@ async function main() {
   const same = signal.kind === 'activity' && saved.kind === 'activity' && saved.activity === signal.activity && (saved.task ?? '') === taskKey
   if (same && saved.seat === seat && now - (saved.sentAt ?? 0) < keepalive) return log(`skip: same ${signal.activity}`)
 
-  const res = await fetch(config.endpoint, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${config.token}` },
-    body: JSON.stringify({ seat, ...signal, ...(task ?? {}) }),
-    signal: AbortSignal.timeout(4000),
-  })
+  const send = (withTask) =>
+    fetch(config.endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${config.token}` },
+      body: JSON.stringify({ seat, ...signal, ...(withTask && task ? task : {}) }),
+      signal: AbortSignal.timeout(4000),
+    })
+  let res = await send(true)
+  // a server from before #182 answers 400 to the extra fields: say it again once without them, so declaring an issue
+  // before that deploy never silences the agent. Only then (a 400 with a task on it); the saved task key stays as it is,
+  // so the keepalive keeps comparing the same thing
+  if (res.status === 400 && task) {
+    log(`task dropped → ${res.status}`)
+    res = await send(false)
+  }
   const detail = signal.activity ? `/${signal.activity}` : 'to' in signal ? ` to seat ${signal.to}` : ''
   log(`${signal.kind}${detail}${'ok' in signal ? (signal.ok ? ' pass' : ' fail') : ''} → ${res.status}`)
   if (res.ok) writeFileSync(file, JSON.stringify({ seat, kind: signal.kind, activity: signal.activity, task: taskKey, sentAt: now }))
