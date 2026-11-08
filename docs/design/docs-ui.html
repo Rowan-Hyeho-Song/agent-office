@@ -278,7 +278,7 @@ body.embed .frame { border: 0; min-height: 100vh; }
   <div class="rules hide-embed">
     <div class="rule"><b>목록 → 한 건 → 결재</b>목록 카드 = 종류 배지 · 제목 · 요청 에이전트 · 파일철. 한 건 = 내용(제한된 마크다운, 표는 가로 스크롤) → 선택지(추천 꼬리표, 추천 이유는 접힘) → 의견 → 결재. 오래된 것부터.</div>
     <div class="rule"><b>종류는 모양으로</b>결정 요청 = 갈림길 아이콘·테두리 배지, 문서 공개 = 문서 아이콘·채운 배지, 산출물 확인 = 도장 아이콘·사선 배지. 색은 같은 호박: 에이전트 색과 섞이지 않게.</div>
-    <div class="rule"><b>반려는 이유가 있어야</b>반려·“계속 SECRET”을 고르면 의견 칸이 필수로 바뀌고(빨간 *), 비어 있으면 결재 버튼이 꺼진다. 서버도 400으로 막는다(#25).</div>
+    <div class="rule"><b>반려는 이유가 있어야</b>반려·“고쳐서 공개”·“계속 SECRET”을 고르면 의견 칸이 필수로 바뀌고(빨간 *, 고른 것마다 안내가 다름), 비어 있으면 결재 버튼이 꺼진다. 서버도 400으로 막는다(#25).</div>
     <div class="rule"><b>결재 = 쾅</b>메모의 결재 도장이 0.4초 만에 찍히고 판이 2px 눌린다. “#이슈에 ✅ 댓글을 남겼어요” 뒤 1.2초에 다음 건. 움직임 줄이기면 도장이 찍힌 채 바로 나타난다.</div>
   </div>
 
@@ -403,6 +403,11 @@ function md(src) {
 const badge = (k) => `<span class="approval-badge" data-kind="${k}">${svgIcon(k)}${KIND[k]}</span>`
 const who = (seat) => `<span class="who">${AGENT[seat][1]} · ${AGENT[seat][2]}</span>`
 const isReject = (r, i) => (r.kind === 'review' && i === 1) || (r.kind === 'publish' && i === 2)
+/** the opinion label's hint when the chosen option needs one (same rule as the server's needsOpinion, #25 · #64), else null */
+const noteHint = (r, i) => i == null ? null
+  : (r.kind === 'decision' && i === r.options.length) || (r.kind === 'review' && i === 1) ? '* 반려에는 이유가 필요해요'
+  : r.kind === 'publish' && i === 1 ? '* 무엇을 고칠지 적어 주세요'
+  : r.kind === 'publish' && i === 2 ? '* 공개하지 않는 이유를 적어 주세요' : null
 
 function listView(pending, done, tab) {
   const items = tab === 'pending' ? pending : done
@@ -422,9 +427,9 @@ let groupN = 0
 function detailView(r, st = {}) {
   const g = `opt-${r.id}-${++groupN}` // 같은 건이 페이지에 두 번 그려져도 라디오 그룹이 섞이지 않게
   const sel = st.selected ?? null
-  const reject = sel != null && isReject(r, sel)
+  const hint = noteHint(r, sel)
   const noteEmpty = !(st.note ?? '').trim()
-  const canSubmit = sel != null && !(reject && noteEmpty) && !st.stamped
+  const canSubmit = sel != null && !(hint && noteEmpty) && !st.stamped
   return `<div class="approval-scroll"><div class="approval-detail" data-seat="${r.seat}">
       <button class="approval-back" type="button" data-back>← 목록</button>
       <div>${badge(r.kind)}</div>
@@ -437,8 +442,8 @@ function detailView(r, st = {}) {
         ${r.kind === 'decision' ? `<label class="approval-option" data-reject><input type="radio" name="${g}" value="${r.options.length}" ${sel === r.options.length ? 'checked' : ''}><span class="num">✕</span><span class="lbl">반려 (의견으로 다시 요청)</span></label>` : ''}
       </fieldset>
       <details class="approval-reason"><summary>추천 이유</summary><div>${md(r.reason)}</div></details>
-      <div class="approval-note"><label for="note-${r.id}">의견 ${reject || (r.kind === 'decision' && sel === r.options.length) ? '<b>* 반려에는 이유가 필요해요</b>' : '(선택)'}</label>
-        <textarea id="note-${r.id}" ${st.stamped ? 'disabled' : ''} aria-invalid="${(reject || (r.kind === 'decision' && sel === r.options.length)) && noteEmpty && st.tried ? 'true' : 'false'}">${st.note ?? ''}</textarea></div>
+      <div class="approval-note"><label for="note-${r.id}">의견 ${hint ? `<b>${hint}</b>` : '(선택)'}</label>
+        <textarea id="note-${r.id}" ${st.stamped ? 'disabled' : ''} aria-invalid="${hint && noteEmpty && st.tried ? 'true' : 'false'}">${st.note ?? ''}</textarea></div>
       ${st.error ? `<div class="approval-error" role="alert">결재를 보내지 못했어요. 고른 것은 그대로 있어요. <button class="btn-ghost" type="button">다시 보내기</button></div>` : ''}
       ${st.stamped ? `<div class="approval-done">${svgIcon('check')}<span>${r.repo} #${r.issue}에 ✅ 결재 댓글을 남겼어요. ${AGENT[r.seat][0]}에게 알림이 갑니다.</span></div>` : ''}
     </div></div>
@@ -477,9 +482,9 @@ function openItem(id) {
   draw(); document.querySelector(`#proto #t-${id}`)?.setAttribute('tabindex', '-1'); document.querySelector(`#proto #t-${id}`)?.focus()
 }
 function submit() {
-  const r = S.cur, rejectSel = S.sel != null && (isReject(r, S.sel) || (r.kind === 'decision' && S.sel === r.options.length))
+  const r = S.cur, rejectSel = S.sel != null && r.kind !== 'publish' && (isReject(r, S.sel) || (r.kind === 'decision' && S.sel === r.options.length))
   S.tried = true
-  if (S.sel == null || (rejectSel && !S.note.trim())) { draw(); return }
+  if (S.sel == null || (noteHint(r, S.sel) && !S.note.trim())) { draw(); return }
   S.stamped = true
   const result = rejectSel ? '반려' : r.kind === 'decision' ? `선택지 ${S.sel + 1}` : r.options[S.sel]
   draw()
@@ -503,7 +508,7 @@ document.addEventListener('change', (e) => {
   if (e.target.closest('#proto') && e.target.type === 'radio') { S.sel = +e.target.value; const note = S.note; draw(); document.querySelector(`#proto input[value="${S.sel}"]`)?.focus(); S.note = note }
 })
 document.addEventListener('input', (e) => {
-  if (e.target.closest('#proto') && e.target.tagName === 'TEXTAREA') { S.note = e.target.value; const btn = document.querySelector('#proto [data-submit]'); const r = S.cur; const rej = S.sel != null && (isReject(r, S.sel) || (r.kind === 'decision' && S.sel === r.options.length)); btn.disabled = S.sel == null || (rej && !S.note.trim()) }
+  if (e.target.closest('#proto') && e.target.tagName === 'TEXTAREA') { S.note = e.target.value; const btn = document.querySelector('#proto [data-submit]'); const r = S.cur; btn.disabled = S.sel == null || (noteHint(r, S.sel) && !S.note.trim()) }
 })
 document.addEventListener('keydown', (e) => {
   if (!document.getElementById('proto').contains(document.activeElement) && document.activeElement !== document.body) return
