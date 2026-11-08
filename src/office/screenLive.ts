@@ -326,7 +326,7 @@ export class ScreenLive {
       }
     }
     if (task && !bandOnly) {
-      // #182: the one-line header strip at the very top: number chip (agent colour at 20%) + the title, cut with an ellipsis
+      // #182: the one-line header strip at the very top: number chip (agent colour at 40%, designer) + the title, cut with an ellipsis
       g.font = pixel(16)
       g.textBaseline = 'middle'
       const y = 12
@@ -338,9 +338,9 @@ export class ScreenLive {
       } else {
         const num = taskNumber(task)
         const w = g.measureText(num).width
-        // the agent colour may be any CSS notation (it comes from --agent-n): 20% through globalAlpha, not a hex parse
+        // the agent colour may be any CSS notation (it comes from --agent-n): 40% through globalAlpha, not a hex parse
         g.save()
-        g.globalAlpha = 0.2
+        g.globalAlpha = 0.4
         g.fillStyle = col
         g.beginPath()
         if (g.roundRect) g.roundRect(x - 6, y - 10, w + 12, 20, 6)
