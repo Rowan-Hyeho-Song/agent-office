@@ -17,7 +17,7 @@ describe('parseSetting', () => {
   })
   it('clamps', () => {
     expect(clampVolume(0.3)).toBe(0.3)
-    expect(clampVolume(Infinity)).toBe(0.8)
+    expect(clampVolume(Infinity)).toBe(1)
   })
 })
 

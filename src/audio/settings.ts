@@ -9,7 +9,7 @@ export const STORAGE_KEY = 'rowansong.audio'
 export const HINT_KEY = 'agent-office.sound-hint'
 
 /** standalone first visit: off until the visitor turns it on (결재 1) */
-export const DEFAULT_SETTING: SoundSetting = { muted: true, volume: 0.8 }
+export const DEFAULT_SETTING: SoundSetting = { muted: true, volume: 1 } // volume 1 = the desk room's own level
 
 export const clampVolume = (v: number) => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : DEFAULT_SETTING.volume)
 
