@@ -21,6 +21,7 @@
     "api",
     "src/signal",
     "src/docs",
+    "src/timeline",
     "src/approvals",
     "src/server"
   ],
