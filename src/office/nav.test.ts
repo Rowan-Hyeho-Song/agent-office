@@ -166,3 +166,28 @@ describe('patchSpots (?debug=1&nav=)', () => {
     expect(patchSpots(base, '')).toBe(base)
   })
 })
+
+describe('blocked spots (#110)', () => {
+  const g = buildGraph(SPOTS)
+  const sides = new Set(['desk_side_0', 'desk_side_1', 'desk_side_2', 'desk_side_3'])
+
+  it('a quiet route never walks through a desk side', () => {
+    for (const a of SPOTS) {
+      for (const b of SPOTS) {
+        if (sides.has(a.id) || sides.has(b.id)) continue
+        const p = shortestPath(g, a.id, b.id, sides)
+        expect(p, a.id + ' to ' + b.id).not.toBeNull()
+        for (const id of p!) expect(sides.has(id)).toBe(false)
+      }
+    }
+  })
+
+  it('the night shift keeps clear of the desks on its coffee and shelf trips', () => {
+    for (const from of ['work_0', 'work_1', 'work_2', 'work_3', 'coffee', 'shelf']) {
+      for (const to of ['coffee', 'shelf']) {
+        const p = shortestPath(g, from, to, sides)!
+        expect(p.some((id) => sides.has(id))).toBe(false)
+      }
+    }
+  })
+})

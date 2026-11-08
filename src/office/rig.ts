@@ -19,7 +19,8 @@ import {
   type Mesh,
 } from 'three'
 import type { Goal } from './director'
-import { dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
+import { DOZE } from './doze'
+import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
 import { GLOW } from './nodes'
 import type { AgentStatus } from './status'
 
@@ -252,7 +253,7 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
 
 // ------------------------------------------------------------------ the face screen (#28, simple first)
 
-type FaceMood = 'open' | 'blink' | 'happy' | 'sleep' | 'fail'
+type FaceMood = 'open' | 'blink' | 'happy' | 'sleep' | 'fail' | 'doze'
 
 /** the head's screen: two eyes in the agent's color on a dark glass; drawn only when the mood changes */
 class FaceScreen {
@@ -279,16 +280,18 @@ class FaceScreen {
     g.fillStyle = '#05080b'
     g.fillRect(0, 0, 300, 180)
     g.strokeStyle = g.fillStyle = mood === 'fail' ? '#ff5a5f' : this.color
+    g.globalAlpha = mood === 'doze' ? DOZE.faceBrightness : 1
     g.lineWidth = 14
     g.lineCap = 'round'
     for (const x of [100, 200]) {
       g.beginPath()
       if (mood === 'open') g.roundRect(x - 16, 60, 32, 60, 12)
       if (mood === 'open') g.fill()
-      else if (mood === 'blink' || mood === 'sleep') (g.moveTo(x - 20, 95), g.lineTo(x + 20, 95), g.stroke())
+      else if (mood === 'blink' || mood === 'sleep' || mood === 'doze') (g.moveTo(x - 20, 95), g.lineTo(x + 20, 95), g.stroke())
       else if (mood === 'happy') (g.moveTo(x - 22, 102), g.lineTo(x, 80), g.lineTo(x + 22, 102), g.stroke())
       else (g.moveTo(x - 18, 72), g.lineTo(x + 18, 108), g.moveTo(x + 18, 72), g.lineTo(x - 18, 108), g.stroke())
     }
+    g.globalAlpha = 1
     this.texture.needsUpdate = true
   }
 }
@@ -467,6 +470,8 @@ export class AgentRig {
   private lift = 0
   private seat = 0
   private surface = 0
+  /** 0 → 1 while dozing (#110): lowers the head, dims the beam */
+  private dozing = 0
   private look = { pitch: 0, yaw: 0, roll: 0 }
   private curls: Record<'l' | 'r', Required<HandShape>> = { l: { ...REST_CURL, iz: 0, tz: 0 }, r: { ...REST_CURL, iz: 0, tz: 0 } }
   private spin = { orbit: 0, ring: 0 }
@@ -537,9 +542,10 @@ export class AgentRig {
     const goal = this.goal!
     const target = goal.spot
     let route: string[] | null
+    const avoid = goal.quiet ? DESK_SIDES : undefined
     if (this.at === EXIT) route = [EXIT, ...(shortestPath(g, 'door', target) ?? ['door'])]
-    else if (this.at) route = shortestPath(g, this.at, target)
-    else route = routeFromEdge(g, this, this.from!, this.path[0], target) ?? [this.path[0]]
+    else if (this.at) route = shortestPath(g, this.at, target, avoid) ?? shortestPath(g, this.at, target)
+    else route = (avoid && routeFromEdge(g, this, this.from!, this.path[0], target, avoid)) || routeFromEdge(g, this, this.from!, this.path[0], target) || [this.path[0]]
     if (!route) return
     if (this.at && route[0] === this.at) route = route.slice(1)
     if (goal.pose === 'leave') route.push(EXIT)
@@ -641,7 +647,11 @@ export class AgentRig {
     this.surface = this.snap ? surfaceTarget : damp(this.surface, surfaceTarget, 6, dt)
     this.snap = false
     const motion = reduced ? 0.2 : 1
-    const bob = Math.sin(t * 2.1 + this.phase) * 0.015 * motion
+    const doze = resting && goal.pose === 'doze'
+    this.dozing = damp(this.dozing, doze ? 1 : 0, 3, dt)
+    // dozing breathes slowly (none with reduced motion) instead of the usual bob
+    const dozeBob = -DOZE.lowerM + (reduced ? 0 : Math.sin(((t + this.phase) / DOZE.bobPeriodS) * Math.PI * 2) * DOZE.bobM)
+    const bob = MathUtils.lerp(Math.sin(t * 2.1 + this.phase) * 0.015 * motion, dozeBob, this.dozing)
 
     const { root, head, beam } = this.parts
     root.visible = !this.hidden
@@ -666,6 +676,10 @@ export class AgentRig {
       const top = BEAM_H + dy
       beam.position.y = top
       beam.scale.y = Math.max(0.02, (top - this.surface) / BEAM_H)
+      beam.traverse((o) => {
+        const m = (o as Mesh).isMesh ? ((o as Mesh).material as MeshBasicMaterial) : null
+        if (m?.transparent) m.opacity = BEAM.opacity * (1 - this.dozing * (1 - DOZE.beamShare))
+      })
     }
     // the pool of light on the floor: fainter and wider the higher the head floats (#54)
     const pool = this.parts.floor
@@ -719,6 +733,8 @@ export class AgentRig {
         return { pitch: -0.35, yaw: s(0.5) * 0.15, roll: 0 }
       case 'sofa':
         return { pitch: -0.22, yaw: 0, roll: 0.28 }
+      case 'doze':
+        return { pitch: -DOZE.tiltRad, yaw: 0, roll: 0 }
       case 'water':
         return { pitch: -0.3, yaw: 0, roll: 0 }
       case 'books':
@@ -776,6 +792,9 @@ export class AgentRig {
         return side === 'l'
           ? at(-0.1, 1.02 + sit + Math.max(0, s(0.8)) * 0.08, -0.22 - Math.max(0, s(0.8)) * 0.06, NONE, HOLD_CURL)
           : at(rest.x, rest.y, rest.z)
+      case 'doze':
+        // both palms flat on the desk either side of the keyboard
+        return at(sx * DOZE.hands.x, SURFACE.work + DOZE.hands.aboveDeskM, DOZE.hands.z, down, REST_CURL)
       case 'sofa':
         return at(sx * 0.22, 0.62, -0.08, down, { index: 0.6, fingers: 0.7, thumb: 0.3 })
       case 'water':
@@ -886,6 +905,7 @@ export class AgentRig {
   private updateFace(t: number, pose: string, status: AgentStatus | undefined, reduced: boolean) {
     if (!this.face) return
     if (pose === 'sofa') return this.face.draw('sleep')
+    if (pose === 'doze') return this.face.draw('doze')
     if (this.id === 'agent_3' && status?.lastResult && !(status.state === 'working' && (status.activity === 'test' || status.activity === 'build'))) {
       const fresh = Date.now() - status.lastResult.at < 8_000
       if (!status.lastResult.ok) return this.face.draw('fail')

@@ -159,6 +159,7 @@ export function DebugPanel({ world }: { world: OfficeWorld }) {
   const nextChange = (blockOf(minute) + 1) * BLOCK_MINUTES * 60000 - now
   const shift = (min: number) => {
     world.timeOffsetMs = min === 0 ? 0 : world.timeOffsetMs + min * 60000
+    world.duty.refresh()
     tick()
   }
 

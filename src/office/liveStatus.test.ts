@@ -54,7 +54,7 @@ describe('effective', () => {
   it('any state quiet > 2 h is off, since = updated + OFF_AFTER', () => {
     for (const state of ['working', 'wrapping', 'idle'] as const) {
       const r = row({ state, quietMs: OFF_AFTER + 1 })
-      expect(effective(r, NOW)).toEqual({ state: 'off', since: Date.parse(r.updated_at) + OFF_AFTER })
+      expect(effective(r, NOW)).toEqual({ state: 'off', since: Date.parse(r.updated_at) + OFF_AFTER, offReason: 'quiet' })
     }
   })
 
@@ -64,7 +64,7 @@ describe('effective', () => {
 
   it('off stays off with its own since', () => {
     const r = row({ state: 'off', activity: null, quietMs: MIN })
-    expect(effective(r, NOW)).toEqual({ state: 'off', since: Date.parse(r.since) })
+    expect(effective(r, NOW)).toEqual({ state: 'off', since: Date.parse(r.since), offReason: 'ended' })
   })
 
   it('an idle row without activity has no activity key', () => {
@@ -78,13 +78,13 @@ describe('toStatusMap', () => {
   const agents = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
 
   it('agents without rows are off', () => {
-    expect(toStatusMap([], agents, NOW)).toEqual(Object.fromEntries(agents.map((a) => [a, { state: 'off', since: 0 }])))
+    expect(toStatusMap([], agents, NOW)).toEqual(Object.fromEntries(agents.map((a) => [a, { state: 'off', since: 0, offReason: 'none' }])))
   })
 
   it('maps rows to agent_<seat>', () => {
     const m = toStatusMap([row({ seat: 2, quietMs: MIN })], agents, NOW)
     expect(m.agent_2.state).toBe('working')
-    expect(m.agent_0).toEqual({ state: 'off', since: 0 })
+    expect(m.agent_0).toEqual({ state: 'off', since: 0, offReason: 'none' })
   })
 
   it('ignores rows for unknown seats', () => {
