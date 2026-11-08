@@ -1494,7 +1494,8 @@ def omok_mat(x0, z0, top):
 
     # designer (app cut): the top #b5844c reads as light wood once baked (x4 exposure, the lamp); the sides a step
     # darker so the thickness reads
-    wood_c = mix(on_top, "#8f6438", "#b5844c")
+    # the top bakes ~1.5x the sides under the overhead panel: #8d683d reads about #d4a463 in the app (measured, #172)
+    wood_c = mix(on_top, "#8f6438", "#8d683d")
     # #156 (desk-room standard): a faint grain across the board, bands along z (the halves' long grain)
     wave = nodes.new("ShaderNodeTexWave")
     wave.wave_type, wave.bands_direction = "BANDS", "X"
@@ -1503,7 +1504,7 @@ def omok_mat(x0, z0, top):
     wave.inputs["Detail"].default_value = 1.0
     links.new(geo.outputs["Position"], wave.inputs["Vector"])
     grain = op("POWER", wave.outputs["Fac"], 2.0)
-    wood_c = mix(op("MULTIPLY", grain, on_top), wood_c, "#a77a46")
+    wood_c = mix(op("MULTIPLY", grain, on_top), wood_c, "#83613a")  # grain: 7% darker
     links.new(mix(ink, wood_c, "#2a1d12"), b.inputs["Base Color"])  # ink lines (designer: #2a1d12)
     return m
 
@@ -1613,7 +1614,7 @@ def build_play_lives():
     th = 0.76
     M = Mx((tx + 0.25, th + 0.02, tz - 0.1))
     ball = [sphere("ball", 0.02, (0, 0, 0), plastic("#f7f7f2", 0.8, 0, 0, "ball"), G, seg=32, rings=16),
-            torus("ball_seam", 0.0201, 0.0004, (0, 0, 0), plastic("#dcdcd4", 0.8, 0, 0, "ball_seam"), G, seg=32, rseg=4)]  # the seam
+            torus("ball_seam", 0.02025, 0.0004, (0, 0, 0), plastic("#dcdcd4", 0.8, 0, 0, "ball_seam"), G, seg=32, rseg=4)]  # the seam
     out.append((pivot(join("pp_ball", place(ball, M)), M), "bot"))
     t = bpy.data.objects.new("pp_table", None)
     coll("export").objects.link(t)
