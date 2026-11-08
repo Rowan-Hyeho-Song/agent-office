@@ -98,63 +98,143 @@ body,
 .agent-list .state-off { opacity: 0.55; }
 .agent-list-error { margin: 4px 0 0; color: #a39d90; }
 
-/* approval box (#25), 2D first; styled with the design tokens later */
+/* approval box (#25, #64): the #45 design (docs/design/docs-ui.html), values from src/styles/tokens.css */
+[data-seat='0'] { --agent: var(--agent-0); --agent-ink: var(--agent-0-ink); }
+[data-seat='1'] { --agent: var(--agent-1); --agent-ink: var(--agent-1-ink); }
+[data-seat='2'] { --agent: var(--agent-2); --agent-ink: var(--agent-2-ink); }
+[data-seat='3'] { --agent: var(--agent-3); --agent-ink: var(--agent-3-ink); }
+[data-seat='x'] { --agent: var(--agent-x); --agent-ink: var(--agent-x-ink); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.approval-box :focus-visible, .approval-launcher:focus-visible, .owner-tag button:focus-visible, .door-key:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+/* ═════════ 결재함 패널 ═════════ */
 .approval-box {
-  position: fixed;
-  right: 16px;
-  bottom: 14px;
-  max-width: min(380px, calc(100% - 32px));
-  font-size: 12px;
-  color: #c9c3b6;
-  text-align: right;
+  position: fixed; z-index: 30; top: var(--space-4); right: var(--space-4); bottom: var(--space-8);
+  width: min(var(--approval-panel-w), calc(100% - 2 * var(--space-4)));
+  display: flex; flex-direction: column;
+  filter: drop-shadow(0 0 1px var(--color-halo)) drop-shadow(0 12px 24px var(--color-halo));
 }
-.approval-count { margin: 0; }
-.approval-count b { color: #f3ead8; }
-.approval-box button {
-  font: inherit;
-  color: #f3ead8;
-  background: #1a2030;
-  border: 1px solid #2f3a50;
-  border-radius: 4px;
-  padding: 2px 8px;
-  cursor: pointer;
-}
-.approval-signin { margin-top: 6px; }
-.approval-note { margin: 6px 0 0; color: #a39d90; }
-.approval-list {
-  margin-top: 8px;
-  max-height: 60vh;
-  overflow: auto;
-  padding: 10px 12px;
-  text-align: left;
-  border: 1px solid #2a3140;
-  border-radius: 8px;
-  background: rgba(10, 13, 19, 0.94);
-}
-.approval-list header { display: flex; justify-content: space-between; color: #ffb347; font-weight: 600; }
-.approval-item { margin-top: 10px; padding-top: 10px; border-top: 1px solid #262d36; }
-.approval-item h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: #f3ead8; }
-.approval-item h3 a { color: #4df3ff; }
-.approval-item p { margin: 4px 0; line-height: 1.5; }
-.approval-item fieldset { margin: 6px 0; padding: 4px 8px; border: 1px solid #262d36; border-radius: 4px; }
-.approval-item label { display: block; margin: 2px 0; }
-.approval-item em { color: #ffb347; font-style: normal; }
-.approval-reason { color: #a39d90; }
-.approval-item textarea {
-  width: 100%;
-  box-sizing: border-box;
-  min-height: 48px;
-  margin-top: 4px;
-  font: inherit;
-  color: #f3ead8;
-  background: #0b0e13;
-  border: 1px solid #2f3a50;
-  border-radius: 4px;
-}
-.approval-actions { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
-.approval-actions a { margin-left: auto; color: #4df3ff; }
+.approval-tab { align-self: flex-start; display: flex; gap: var(--space-2); align-items: center; height: 22px; padding: 0 var(--space-3) 0 var(--space-2);
+  font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: 22px; background: var(--approval-accent); color: var(--color-ink);
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%); }
+.approval-tab svg { width: 12px; height: 12px; }
+.approval-body { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--color-surface-alpha); border: 1px solid color-mix(in srgb, var(--approval-accent) 45%, transparent); border-top: 2px solid var(--approval-accent);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%); }
+.approval-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-3) var(--space-4) 0; }
+.approval-head h2, .approval-head h3 { font-size: var(--font-size-2); line-height: 30px; margin: 0; color: var(--color-text); letter-spacing: 0; }
+.approval-close { font-family: var(--font-pixel); font-size: var(--font-size-1); background: none; border: 1px solid var(--color-line); color: var(--color-text-muted); padding: 2px var(--space-2); cursor: pointer; }
+.approval-tabs { display: flex; gap: var(--space-1); padding: var(--space-3) var(--space-4) 0; border-bottom: 1px solid var(--color-line); }
+.approval-tabs button { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1); background: none; border: 0; border-bottom: 2px solid transparent; color: var(--color-text-muted); padding: var(--space-1) var(--space-2) var(--space-2); cursor: pointer; }
+.approval-tabs button[aria-selected='true'] { color: var(--color-text); border-bottom-color: var(--approval-accent); }
+.approval-tabs b { font-weight: 400; color: var(--approval-accent); }
+.approval-scroll { flex: 1; min-height: 0; overflow: auto; padding: var(--space-3) var(--space-4) var(--space-4); }
+
+/* 목록 */
+.approval-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.approval-item { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  background: var(--surface-raised); border: 1px solid var(--color-line); border-left: var(--bubble-stripe) solid var(--agent); padding: var(--space-2) var(--space-3); }
+.approval-item:hover { border-color: color-mix(in srgb, var(--approval-accent) 60%, var(--color-line)); border-left-color: var(--agent); }
+.approval-item .row1 { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); }
+.approval-item .t { display: block; margin: var(--space-1) 0; font-size: 15px; line-height: 1.45; color: var(--color-text); }
+.approval-item .meta { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.approval-item .meta .who { color: var(--agent-ink); }
+.approval-date { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.approval-result { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--approval-accent); }
+
+/* 종류 배지: 같은 호박, 모양으로 구분 */
+.approval-badge { display: inline-flex; align-items: center; gap: var(--space-1); height: 20px; padding: 0 var(--space-2) 0 var(--space-1); font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: 20px; color: var(--approval-accent); border: 1px solid var(--approval-accent); }
+.approval-badge svg { width: 12px; height: 12px; }
+.approval-badge[data-kind='publish'] { background: var(--approval-accent); color: var(--color-ink); }
+.approval-badge[data-kind='review'] { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--approval-accent) 28%, transparent) 0 3px, transparent 3px 6px); }
+
+/* 한 건 */
+.approval-detail { position: relative; }
+.approval-back { font-family: var(--font-pixel); font-size: var(--font-size-1); background: none; border: 0; color: var(--color-text-muted); padding: 0; cursor: pointer; margin-bottom: var(--space-2); }
+.approval-back:hover { color: var(--color-text); }
+.approval-title { font-family: var(--font-text); font-size: 17px; font-weight: 600; line-height: 1.45; margin: var(--space-2) 0 var(--space-1); color: var(--color-text); letter-spacing: 0; }
+.approval-meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.approval-meta .who { color: var(--agent-ink); }
+.approval-meta a { color: var(--color-cyan); }
+.approval-content { margin: var(--space-3) 0; padding: var(--space-3); background: var(--surface-raised); border-left: var(--bubble-stripe) solid var(--agent); font-size: 14px; line-height: 1.65; }
+.approval-content p { margin: 0 0 var(--space-2); }
+.approval-content p:last-child { margin: 0; }
+.approval-content code { font-family: var(--font-pixel); font-size: var(--font-size-1); background: var(--color-surface); padding: 0 var(--space-1); }
+.md-table { overflow-x: auto; margin: var(--space-2) 0; }
+.md-table table { border-collapse: collapse; font-size: 13px; min-width: 100%; }
+.md-table th, .md-table td { border-bottom: 1px solid var(--color-line); padding: var(--space-1) var(--space-2); text-align: left; white-space: nowrap; }
+.md-table th { font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); color: var(--color-text-muted); }
+fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.approval-options legend { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); margin-bottom: var(--space-2); padding: 0; }
+.approval-option { position: relative; display: flex; gap: var(--space-3); align-items: flex-start; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-line); background: var(--surface-raised); cursor: pointer; }
+.approval-option input { appearance: none; flex: none; width: 16px; height: 16px; margin: 3px 0 0; border: 2px solid var(--color-text-muted); background: transparent; }
+.approval-option input:checked { border-color: var(--approval-accent); background: radial-gradient(var(--approval-accent) 0 3px, transparent 4px); }
+.approval-option:has(input:checked) { border-color: var(--approval-accent); }
+.approval-option:has(input:focus-visible) { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+.approval-option .num { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.approval-option .lbl { flex: 1; font-size: 14px; line-height: 1.5; }
+.approval-rec { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: 18px; padding: 0 var(--space-1); background: var(--approval-accent); color: var(--color-ink); flex: none; }
+.approval-option[data-reject] .lbl { color: var(--color-text-muted); }
+.approval-option.stamped { padding-right: 96px; border-color: var(--stamp-red); }
+.approval-option.stamped .approval-rec { display: none; }
+.approval-reason { margin: var(--space-2) 0 0; font-size: 13px; color: var(--color-text-muted); }
+.approval-reason summary { font-family: var(--font-pixel); font-size: var(--font-size-1); cursor: pointer; color: var(--color-text-muted); }
+.approval-reason div { padding: var(--space-2) 0 0 var(--space-3); border-left: 1px solid var(--color-line); margin-top: var(--space-1); }
+.approval-note { display: grid; gap: var(--space-1); margin-top: var(--space-3); }
+.approval-note label { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.approval-note label b { font-weight: 400; color: var(--stamp-red); }
+.approval-note textarea { font: inherit; font-size: 14px; color: var(--color-text); background: var(--surface-raised); border: 1px solid var(--color-line); padding: var(--space-2); min-height: 64px; resize: vertical; }
+.approval-note textarea[aria-invalid='true'] { border-color: var(--stamp-red); }
+.approval-note .err { font-size: 13px; color: var(--stamp-red); }
+.approval-actions { display: flex; gap: var(--space-2); justify-content: flex-end; align-items: center; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--color-line); background: var(--color-surface); }
+.approval-actions .hint { flex: 1; font-size: 12px; color: var(--color-text-muted); }
+.btn-primary { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1); padding: var(--space-2) var(--space-4); background: var(--approval-accent); color: var(--color-ink); border: 0; cursor: pointer;
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%); }
+.btn-primary:disabled { background: var(--color-line); color: var(--color-text-muted); cursor: not-allowed; }
+.btn-ghost { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1); padding: var(--space-2) var(--space-3); background: none; color: var(--color-text-muted); border: 1px solid var(--color-line); cursor: pointer; }
+
+/* 결재 도장 */
+.approval-stamp { position: absolute; top: 50%; right: 6px; margin-top: -44px; width: 88px; height: 88px; z-index: 1; pointer-events: none; color: var(--stamp-red);
+  transform: rotate(-12deg); opacity: 0.92; animation: stamp-in calc(var(--approval-stamp-ms) * 1ms) cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+.approval-stamp svg { width: 100%; height: 100%; }
+@keyframes stamp-in { 0% { transform: rotate(-12deg) scale(1.9); opacity: 0; } 70% { transform: rotate(-12deg) scale(0.94); opacity: 1; } 100% { transform: rotate(-12deg) scale(1); opacity: 0.92; } }
+.approval-body.thud { animation: thud calc(var(--approval-stamp-ms) * 1ms) ease-out; }
+@keyframes thud { 60% { translate: 0 2px; } }
+.approval-done { display: flex; gap: var(--space-2); align-items: center; padding: var(--space-2) var(--space-3); margin-top: var(--space-3); background: color-mix(in srgb, var(--approval-accent) 14%, var(--surface-raised)); border: 1px solid var(--approval-accent); font-size: 14px; }
+.approval-done svg { width: 12px; height: 12px; color: var(--approval-accent); flex: none; }
+.approval-error { display: flex; gap: var(--space-2); align-items: center; padding: var(--space-2) var(--space-3); margin-top: var(--space-3); border: 1px solid var(--stamp-red); font-size: 14px; }
+.approval-empty { text-align: center; padding: var(--space-8) var(--space-4); color: var(--color-text-muted); }
+.approval-empty svg { width: 48px; height: 48px; color: var(--approval-accent); opacity: 0.6; }
+
+/* 방문자 */
+.approval-count { padding: var(--space-4); text-align: center; }
+.approval-count b { display: block; font-family: var(--font-pixel); font-weight: 400; font-size: 48px; line-height: 52px; color: var(--approval-accent); }
+.approval-count span { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.secret-list { list-style: none; margin: 0; padding: 0 var(--space-4) var(--space-4); display: grid; gap: var(--space-2); }
+.secret-cover { position: relative; display: flex; gap: var(--space-3); align-items: center; padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4); background: var(--manila); color: var(--manila-ink); clip-path: polygon(0 6px, 22% 6px, 26% 0, 100% 0, 100% 100%, 0 100%); }
+.secret-cover::before { content: ''; position: absolute; left: 0; top: 6px; bottom: 0; width: 4px; background: var(--agent); }
+.secret-cover .k { font-family: var(--font-pixel); font-size: var(--font-size-1); }
+.secret-cover .k svg { width: 12px; height: 12px; vertical-align: -1px; }
+.secret-cover .d { font-family: var(--font-pixel); font-size: var(--font-size-1); opacity: 0.8; }
+.secret-cover .bar { flex: 1; height: 10px; background: var(--secret-ink); }
+.secret-stamp { font-family: var(--font-pixel); font-weight: 700; font-size: 24px; line-height: 28px; color: var(--secret-stamp); border: 3px double var(--secret-stamp); padding: 0 var(--space-1); transform: rotate(-8deg); }
+.approval-signin { text-align: center; padding: 0 var(--space-4) var(--space-4); font-size: 13px; color: var(--color-text-muted); }
+
+/* 로그인 입구·OWNER 꼬리표 */
+.owner-tag { display: inline-flex; gap: var(--space-2); align-items: center; height: 22px; padding: 0 var(--space-2); font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-ink); background: var(--approval-accent); }
+.owner-tag button { font: inherit; background: none; border: 0; border-left: 1px solid color-mix(in srgb, var(--color-ink) 40%, transparent); padding-left: var(--space-2); color: var(--color-ink); cursor: pointer; }
+
 .props-debug { margin-top: 10px; padding-top: 8px; border-top: 1px solid #2a3140; }
 .props-debug table { width: 100%; border-collapse: collapse; margin-top: 4px; }
 .props-debug td { padding: 1px 4px; color: #c9d4e5; }
 .props-debug td:first-child { color: #9aa3b2; width: 3em; }
 .props-debug td:last-child { color: #f3ead8; }
+
+/* approval box (#64): launcher, owner tag, door key dot, decided cards, narrow screens */
+.approval-launcher { position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 20; border: 0; cursor: pointer; }
+.owner-tag { position: fixed; left: 16px; bottom: 44px; z-index: 20; }
+.approval-item.static { cursor: default; }
+.approval-item.static:hover { border-color: var(--color-line); }
+.door-key { pointer-events: auto; transform: translate(-50%, -50%); width: 20px; height: 20px; display: grid; place-items: center; background: none; border: 0; padding: 0; color: var(--door-phosphor-dim); opacity: 0.25; cursor: pointer; }
+.door-key svg { width: 12px; height: 12px; }
+.door-key:hover, .door-key:focus-visible { opacity: 1; color: var(--door-hover); }
+.approval-stamp text { font-family: var(--font-pixel); }
+@media (max-width: 640px) { .approval-box { top: 0; right: 0; bottom: 0; width: 100%; } }

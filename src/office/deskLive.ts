@@ -30,6 +30,8 @@ export class DeskLive {
   private turntable: Object3D | undefined
   private ring: (k: number) => void
   private tablet: (k: number) => void
+  /** neon_approval: the amber dot on the IN tray, lit while something waits for the owner (when the model has it) */
+  private approvalDot: (k: number) => void
   private lamp: (k: number) => void
   private signal: Record<'g' | 'y' | 'r', (k: number) => void>
   private duck: Object3D | undefined
@@ -44,6 +46,7 @@ export class DeskLive {
     this.turntable = n('desk_1_turntable')
     this.ring = emitter(n('desk_1_ringlight'))
     this.tablet = emitter(n('desk_2_tablet'))
+    this.approvalDot = emitter(n('neon_approval'))
     this.lamp = emitter(n('desk_2_lamp'))
     this.signal = { g: emitter(n('desk_3_signal_g')), y: emitter(n('desk_3_signal_y')), r: emitter(n('desk_3_signal_r')) }
     this.duck = n('desk_3_duck_look')
@@ -101,6 +104,7 @@ export class DeskLive {
     this.trays[0]?.set(p.inbox, p.inboxMore)
     this.trays[1]?.set(p.outbox, p.outboxMore)
     this.drawCalendar(p)
+    this.approvalDot(p.inbox > 0 ? 1 : OFF)
     // the hourglass turns over every few seconds while the planner waits for an approval, else stays upright
     if (this.hourglass) {
       if (p.hourglass && t >= this.flip.nextAt) {

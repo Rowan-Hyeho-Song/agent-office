@@ -62,7 +62,7 @@ export function App() {
         <b>AGENT OFFICE</b> · 드래그해서 돌려 보기
       </p>
       <AgentList world={world} />
-      <ApprovalBox />
+      <ApprovalBox world={world} />
       {world.debug && <DebugPanel world={world} />}
     </>
   )
