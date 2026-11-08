@@ -102,6 +102,12 @@ function Box({ src }: { src: ApprovalSource }) {
           >
             <Icon name="inbox" />
             <span className="dock-label">결재함{count !== null && ` · 대기 ${count}`}</span>
+            {/* the count on the icon when the label is hidden (under 360px; the name and count are in aria-label) */}
+            {!!count && (
+              <b className="dock-badge" aria-hidden="true">
+                {count}
+              </b>
+            )}
           </button>
         </DockSlot>
       )}
