@@ -92,7 +92,7 @@ SHELF_W, SHELF_D = 1.1, 0.34  # the bookshelf against the back wall: width, dept
 PLANTS = [  # name, species, x, z (#126: one species each, office-quality.md 3; plant_boards left out, designer)
     ("plant_desk", "sansevieria", 0.0, -3.2),  # between MESH's desk and the whiteboard: tall and narrow
     ("plant_corner", "fiddle_fig", 4.22, 3.18),  # its canopy (0.6 m) clears the floor lamp by 0.1 m
-    ("plant_sofa", "monstera", 0.91, 2.75),  # between the side table and the sofa: 0.44 m wide (#156: leaves all round, short toward ±x)
+    ("plant_sofa", "monstera", 0.925, 2.75),  # between the side table and the sofa: 0.44 m wide (#156: leaves all round, short toward ±x)
 ]
 CLOCK_AT, CLOCK_S = (-HX + 0.02, 1.85, 1.6), 0.40  # wall clock face center (left wall, next to the door), size
 CLOCK_M = Mx((CLOCK_AT[0] + 0.01, CLOCK_AT[1], CLOCK_AT[2]), ry=math.pi / 2)  # the face front: local +z = web +x
@@ -1296,111 +1296,200 @@ def sansevieria(name, x, z, group):
     return pot + legs + [fol.obj(group)]
 
 
-def monstera_leaf(fol, attach, out, tilt, size, mi, splits=0, holes=False, fold=12.0, droop=20.0):
-    """a monstera leaf (#156, office-quality.md 0.4, real-plant photos): it leaves the petiole's knee at attach and
-    runs outward (out, horizontal) with the blade tilted `tilt` degrees below the horizontal, so its face looks up and
-    out. A heart: the base lobes round back past the knee. V-folded along the midrib (fold degrees each side); the tip
-    quarter droops (droop degrees). `splits` cuts per side, of uneven depth (50–85% of the half width), widening to
-    the edge; `holes`: one row of holes beside the midrib. The cuts taper to nothing at their root, so each surface is
-    one connected piece: one UV island a side."""
-    out = Vector((out.x, 0.0, out.z)).normalized()
-    side = UP.cross(out).normalized()  # across the leaf
-    a = math.radians(max(15.0, tilt - 10.0))  # the droop adds the rest: the blade as a whole sits at about tilt
-    d0 = (out * math.cos(a) - UP * math.sin(a)).normalized()  # along the midrib
-    nrm0 = side.cross(d0).normalized()  # the face (up and out)
-    if nrm0.y < 0:
-        side, nrm0 = -side, -nrm0
-    # the midrib as a curve: straight, then the tip quarter bending toward the back of the leaf (drooping)
-    T = 12
-    ts = [i / T for i in range(T + 1)]
-    centers, frames, p = [], [], attach.copy()
-    for i, t in enumerate(ts):
-        k = max(0.0, (t - 0.72) / 0.28)
-        ang = math.radians(droop) * k * k
-        dirn = (d0 * math.cos(ang) - nrm0 * math.sin(ang)).normalized()
-        if i:
-            p = p + dirn * size / T
-        centers.append(p.copy())
-        frames.append((dirn, side.cross(dirn).normalized() if side.cross(dirn).dot(nrm0) > 0 else dirn.cross(side).normalized()))
+MONSTERA_GREENS = ("#3f6e41", "#5a8a55", "#9ccc6e", "#7aa56a")  # top, underside, young leaf / shoot (lime), veins
 
-    def half_w(t):
-        return size * 0.5 * math.sin(math.pi * min(1.0, 0.1 + 0.9 * t)) ** 0.7
 
-    fv = math.tan(math.radians(fold))
+def heart_r(th):
+    """the monstera outline (#156, designer's sketch): radius from (0.42, 0) in leaf units (length 1) at angle th
+    (0 = the tip, pi = the petiole notch). A heart, length : width about 1.15, base lobes rounding back past the
+    notch, which dips in where the petiole joins."""
+    pts = [(0, 0.58), (30, 0.565), (60, 0.51), (90, 0.45), (120, 0.455), (145, 0.475), (162, 0.445), (172, 0.4),
+           (177, 0.37), (180, 0.4)]
+    d = math.degrees(th)
+    for (a0, r0), (a1, r1) in zip(pts, pts[1:]):
+        if d <= a1:
+            f = (d - a0) / (a1 - a0)
+            f = f * f * (3 - 2 * f)
+            return r0 + (r1 - r0) * f
+    return pts[-1][1]
 
-    lobe_of = {}  # side -> station -> (start, end) of its lobe, for the rounded lobe edges
 
-    def pt(i, u, sgn):
-        """the point at station i, u = 0 (midrib) .. 1 (edge) on side sgn"""
-        t = ts[i]
-        c, (dirn, n) = centers[i], frames[i]
-        w = half_w(t) * u
-        a0, a1 = lobe_of.get(sgn, {}).get(i, (None, None))
-        if a0 is not None and u > 0.5:  # each lobe bulges: its edge is round between two cuts, a finger tip
-            f = math.sin(math.pi * (i - a0) / max(1, a1 - a0))
-            w *= 1.0 - 0.14 * (1.0 - f) * (u - 0.5) / 0.5
-        back = dirn * (size * 0.24 * (1 - t) ** 3 * u)  # the heart's base lobes reach back past the knee
-        return c + side * (sgn * w) - back + n * (w * fv)
-
-    pts, faces = [], []
-    index = {}
-
-    def v(i, u, sgn, key=None):
-        key = key or (i, round(u, 4), sgn)
-        if key not in index:
-            index[key] = len(pts)
-            pts.append(pt(i, u, sgn))
-        return index[key]
-
+def leaf_outline(splits, holes, rng):
+    """2D outline of one leaf in leaf units: u along the midrib (0 = the petiole notch, 1 = the tip), v across.
+    Returns (outer loop, hole loops, vein polylines). Each side gets `splits` cuts: narrow gaps (2.5% of the leaf
+    width, rounded inner end) from the edge toward the midrib along the side-vein direction, 50–85% deep; the lobe
+    corners at a cut's mouth are rounded. holes: a row of long ellipses (3:1) beside the midrib, along the veins."""
+    C = Vector((0.42, 0.0))
+    W = 2 * heart_r(math.pi / 2)
+    gap = 0.025 * W
+    sides = {}
+    veins = [[Vector((0.02, 0.0)), Vector((0.96, 0.0))]]  # the midrib
+    hole_loops = []
     for sgn in (1, -1):
-        # lobe boundaries (station indices) for this side: uneven, the base lobe and the tip lobe whole
-        if splits:
-            cuts = sorted(set(min(T - 2, max(2, round(T * (0.12 + 0.76 * (j + PRNG.uniform(0.25, 0.75)) / splits)))) for j in range(splits)))
-        else:
-            cuts = []
-        depth = {c: PRNG.uniform(0.5, 0.85) for c in cuts}
-        bounds = [0] + cuts + [T]
-        lobe_of[sgn] = {i: (b0, b1) for b0, b1 in zip(bounds, bounds[1:]) for i in range(b0, b1 + 1)} if cuts else {}
-        us = [0.0, 0.16, 0.3, 0.5, 0.7, 1.0]
-        for i in range(T):
-            for j in range(len(us) - 1):
-                u0, u1 = us[j], us[j + 1]
-                # a hole: the band beside the midrib, inside a lobe, away from the cuts (big leaves)
-                if holes and j == 1 and 3 <= i <= T - 4 and i % 3 == 0:
+        ths = sorted(math.radians(18 + 128 * (j + rng.uniform(0.3, 0.7)) / splits) for j in range(splits)) if splits else []
+        depth = [rng.uniform(0.5, 0.85) for _ in ths]
+
+        def edge(th):
+            r = heart_r(th)
+            for tk in ths:  # round each lobe's corner at a cut's mouth
+                dd = abs(th - tk)
+                if dd < 0.16:
+                    r *= 1 - 0.07 * (1 - dd / 0.16) ** 2
+            return C + Vector((math.cos(th), sgn * math.sin(th) * 0.94)) * r  # length : width about 1.15
+
+        loop = []
+        steps = 72
+        cut_at = {}
+        for k in range(steps + 1):  # base notch (pi) to the tip (0)
+            th = math.pi * (1 - k / steps)
+            nxt = [i for i, tk in enumerate(ths) if abs(th - tk) < math.pi / steps / 2]
+            if nxt:
+                cut_at[nxt[0]] = len(loop)
+            loop.append(edge(th))
+        # insert the cuts, from the tip end back so indices hold
+        for i in sorted(cut_at, key=lambda i: -cut_at[i]):
+            j = cut_at[i]
+            E = edge(ths[i])
+            M = Vector((max(0.05, E.x - abs(E.y) * 0.75), 0.0))  # where its side vein leaves the midrib
+            ax = (M - E).normalized()
+            nrm = Vector((-ax.y, ax.x))
+            inner = E + (M - E) * depth[i]
+            # drop the edge samples inside the gap's mouth
+            mouth = [k for k in range(max(0, j - 2), min(len(loop), j + 3)) if (loop[k] - E).length < gap * 0.9]
+            lo, hi = (min(mouth), max(mouth)) if mouth else (j, j)
+            before = loop[lo - 1] if lo > 0 else loop[0]
+            # down the side the outline comes from (slightly wider at the edge), round the inner end, back up
+            s0 = 1.0 if (E + nrm * gap - before).length < (E - nrm * gap - before).length else -1.0
+            cut = []
+            for f in (0.0, 0.5, 1.0):
+                p = E.lerp(inner, f)
+                cut.append(p + nrm * (gap * (0.6 - 0.15 * f) * s0))
+            for a in range(1, 6):
+                ang = math.pi * a / 6
+                cut.append(inner + ax * (gap * 0.45 * math.sin(ang)) + nrm * (s0 * gap * 0.45 * math.cos(ang)))
+            for f in (1.0, 0.5, 0.0):
+                p = E.lerp(inner, f)
+                cut.append(p - nrm * (gap * (0.6 - 0.15 * f) * s0))
+            loop[lo:hi + 1] = cut
+        sides[sgn] = loop
+        # side veins: one per lobe, from the midrib to near the lobe's tip (the lobe's middle angle)
+        bounds = [math.pi * 0.97] + sorted(ths, reverse=True) + [0.12]
+        for a0, a1 in zip(bounds, bounds[1:]):
+            th = (a0 + a1) / 2
+            E = edge(th)
+            M = Vector((max(0.04, E.x - abs(E.y) * 0.75), 0.0))
+            veins.append([M, M.lerp(E, 0.86)])
+        if holes and ths:
+            for a0, a1 in zip(bounds[1:-1], bounds[2:]):  # between two cuts, by the midrib, along the vein
+                th = (a0 + a1) / 2
+                E = edge(th)
+                M = Vector((max(0.04, E.x - abs(E.y) * 0.75), 0.0))
+                ax = (E - M).normalized()
+                c = M + ax * 0.13
+                if c.x < 0.12 or c.x > 0.8:
                     continue
-                q = [v(i, u0, sgn), v(i, u1, sgn), v(i + 1, u1, sgn), v(i + 1, u0, sgn)]
-                # a cut runs in along station line i+1 (between faces i and i+1): beyond its depth the two sides part
-                cut = cuts and (i + 1) in depth and u1 > depth[i + 1] + 1e-6
-                cut_prev = cuts and i in depth and u1 > depth[i] + 1e-6
-                if cut:  # this face's far edge: its own vertices, pulled back toward station i (the cut opens)
-                    for slot, uu in ((2, u1), (3, u0)):
-                        if uu > depth[i + 1] + 1e-6:
-                            g = 0.16 * (uu - depth[i + 1]) / (1 - depth[i + 1])
-                            pts.append(pts[v(i + 1, uu, sgn)].lerp(pts[v(i, uu, sgn)], g))
-                            q[slot] = len(pts) - 1
-                if cut_prev:  # this face's near edge: pulled forward toward station i+1
-                    for slot, uu in ((0, u0), (1, u1)):
-                        if uu > depth[i] + 1e-6:
-                            g = 0.16 * (uu - depth[i]) / (1 - depth[i])
-                            pts.append(pts[v(i, uu, sgn)].lerp(pts[v(i + 1, uu, sgn)], g))
-                            q[slot] = len(pts) - 1
-                faces.append(tuple(q) if sgn < 0 else tuple(reversed(q)))
-    fol.surface(pts, faces, [mi] * len(faces), nrm0)
+                nrm = Vector((-ax.y, ax.x))
+                a, b = 0.045, 0.014  # 3:1
+                hole_loops.append([c + ax * (a * math.cos(2 * math.pi * k / 12)) + nrm * (b * math.sin(2 * math.pi * k / 12)) for k in range(12)])
+    outer = sides[1] + list(reversed(sides[-1]))[1:-1]
+    return outer, hole_loops, veins
+
+
+def orient(pts, ids, up):
+    """a face winding that faces up (Foliage wants the front counter-clockwise)"""
+    a, b, c = pts[ids[0]], pts[ids[1]], pts[ids[2]]
+    return tuple(ids) if (b - a).cross(c - a).dot(up) >= 0 else tuple(reversed(ids))
+
+
+def monstera_leaf(fol, attach, out, tilt, size, mi, splits=0, holes=False, fold=12.0, droop=20.0, rng=None):
+    """a monstera leaf (#156): the 2D outline (leaf_outline), filled and subdivided, laid on a curved blade. It leaves
+    the petiole's knee at attach and runs outward (out, horizontal), tilted `tilt` degrees below the horizontal so
+    its face looks up and out; V-folded along the midrib (fold °) and gently rounded across; the tip third droops in
+    a curve (droop °). Smooth normals. Light veins (midrib + one per lobe) as strips just over the face."""
+    rng = rng or PRNG
+    out = Vector((out.x, 0.0, out.z)).normalized()
+    side = UP.cross(out).normalized()
+    a = math.radians(max(15.0, tilt - 8.0))
+    d0 = (out * math.cos(a) - UP * math.sin(a)).normalized()
+    n0 = side.cross(d0).normalized()
+    if n0.y < 0:
+        side, n0 = -side, -n0
+    # the midrib: straight, then the tip third bending back (droop), sampled finely
+    N = 40
+    cs, ds, ns = [attach.copy()], [d0], [n0]
+    for k in range(1, N + 1):
+        u = k / N
+        f = max(0.0, (u - 0.6) / 0.4)
+        ang = math.radians(droop) * f * f
+        d = (d0 * math.cos(ang) - n0 * math.sin(ang)).normalized()
+        cs.append(cs[-1] + d * size / N)
+        ds.append(d)
+        ns.append(side.cross(d).normalized())
+    tf = math.tan(math.radians(fold))
+
+    def P(u, v, lift=0.0):
+        """leaf units -> world: along the midrib curve, across, up off the face"""
+        if u <= 0:
+            c, d, n = cs[0] + ds[0] * (u * size), ds[0], ns[0]
+        else:
+            x = min(u, 1.0) * N
+            k = min(int(x), N - 1)
+            f = x - k
+            c, d, n = cs[k].lerp(cs[k + 1], f), ds[k].lerp(ds[k + 1], f).normalized(), ns[k].lerp(ns[k + 1], f).normalized()
+        w = abs(v)
+        h = w * tf - 0.55 * w * w  # V at the midrib, rounding down toward the edge
+        return c + side * (v * size) + n * (h * size + lift)
+
+    outer, hole_loops, veins = leaf_outline(splits, holes, rng)
+    # fill the outline in 2D, then add interior points so the blade can curve
+    bm = bmesh.new()
+    edges = []
+    for loop in [outer] + hole_loops:
+        vs = [bm.verts.new((p.x, p.y, 0.0)) for p in loop]
+        edges += [bm.edges.new((vs[i], vs[(i + 1) % len(vs)])) for i in range(len(vs))]
+    bmesh.ops.triangle_fill(bm, use_beauty=True, use_dissolve=False, edges=edges)
+    long = [e for e in bm.edges if e.calc_length() > 0.07 and not e.is_boundary]
+    if long:
+        bmesh.ops.subdivide_edges(bm, edges=long, cuts=1, use_grid_fill=False)
+        bmesh.ops.triangulate(bm, faces=bm.faces[:])
+    bmesh.ops.beautify_fill(bm, faces=bm.faces[:], edges=[e for e in bm.edges if not e.is_boundary])
+    bm.verts.index_update()
+    pts = [P(v.co.x, v.co.y) for v in bm.verts]
+    faces = [orient(pts, [v.index for v in f.verts], n0) for f in bm.faces]
+    bm.free()
+    fol.surface(pts, faces, [mi] * len(faces), n0)
+    # veins: thin light strips 0.4 mm over the face
+    vm = fol.mat(fol.vein) if hasattr(fol, "vein") else mi
+    for k, (A, B) in enumerate(veins):
+        w0, w1 = (0.009, 0.003) if k == 0 else (0.005, 0.0015)
+        segs = 8 if k == 0 else 4
+        vp, vf = [], []
+        for s in range(segs + 1):
+            q = A.lerp(B, s / segs)
+            t = (B - A).normalized()
+            nn = Vector((-t.y, t.x)) * ((w0 + (w1 - w0) * s / segs) / 2)
+            vp += [P(q.x + nn.x, q.y + nn.y, 0.0006), P(q.x - nn.x, q.y - nn.y, 0.0006)]  # 0.6 mm up: no z-fighting
+        for s in range(segs):
+            i = 2 * s
+            vf.append(orient(vp, [i, i + 2, i + 3, i + 1], n0))
+        fol.surface(vp, vf, [vm] * len(vf), n0)
 
 
 def monstera(name, x, z, group):
     """by the sofa: a monstera 0.9 m in terracotta (a darker water-stained foot band, pebbles, bark chips) on a
-    saucer. #156 (designer, office-quality.md 0.4, real-plant photos): petioles rise straight from the soil and arc
-    outward 25–40° in their top third (0.35–0.6 m, each its own, tapering); at the knee the blade tips back, 30–55°
-    below the horizontal, so the leaves look up and out, spread all round (only 2–3 face the camera). Leaves:
-    3 large (0.3 m, 5–7 cuts a side, a row of holes), 3 medium, 2 young ones (0.15 m, whole) and a rolled new shoot."""
+    saucer. #156 (designer, office-quality.md 0.4, the leaf sketch on #156): petioles rise straight from the soil and
+    arc outward 25–40° in their top third (0.3–0.58 m, each its own, tapering) to a thicker knee; there the blade
+    tips back, 30–55° below the horizontal, so the leaves look up and out, spread all round (2 face the camera).
+    Heart-shaped leaves cut by narrow gaps into broad round-tipped lobes, a row of long holes by the midrib on the
+    big ones, light veins. 3 large (0.3 m), 3 medium, 2 young (0.15 m, whole, lime) and a rolled new shoot."""
     PRNG.seed(f"156:{name}")  # each plant its own stream: changing one leaves the others as they are
     pot, sy = pot3(name, x, z, 0.02, 0.14, 0.11, 0.26, plastic("#b5654a", 0.85, 0, 0.3, "terracotta"), group, saucer=True,
                    pebbles=4, chips=6, foot=plastic("#96523d", 0.9, 0, 0.3, "terracotta_dark"))
-    stem_m = plastic(GREENS[1], 0.7, 0, 0.2, "petiole")
+    stem_m = plastic("#5b8a4c", 0.7, 0, 0.2, "petiole_monstera")
     side, cam = camera_side(x, z)
     cam_a = math.atan2(cam.z, cam.x)
-    fol = Foliage(f"{name}_leaves")
+    fol = Foliage(f"{name}_leaves", colors=MONSTERA_GREENS, under=(1, 1, 2, 3))
+    fol.vein = fol.mats[3]
     stems = []
     # (azimuth from the camera direction °, petiole length m, arc °, blade tilt °, size m, cuts, holes)
     LEAVES = [(-15, 0.52, 32, 38, 0.3, 6, True), (20, 0.44, 28, 45, 0.29, 7, True), (150, 0.58, 36, 34, 0.3, 5, True),
@@ -1409,25 +1498,32 @@ def monstera(name, x, z, group):
     for az, length, arc, tilt, size, cuts, holes in LEAVES:
         a = cam_a + math.radians(az + PRNG.uniform(-8, 8))
         out = Vector((math.cos(a), 0.0, math.sin(a)))
-        # x is tight between the side table and the sofa: leaves toward ±x reach less (they rise steeper instead)
         f = abs(out.z)  # 1 = along the gap (z), 0 = toward the sofa / the side table (x)
-        reach = 0.25 + 0.75 * f
+        reach = 0.18 + 0.82 * f
         base = Vector((x, sy, z)) + out * 0.02 + side * PRNG.uniform(-0.015, 0.015)
-        straight = base + UP * (length * 0.62)
         arc_r = math.radians(arc)
-        pts = [base, base + UP * (length * 0.32), straight]
+        pts = [base, base + UP * (length * 0.32), base + UP * (length * 0.62)]
         for k in (1, 2, 3):  # the top third arcs outward
             ak = arc_r * k / 3
             pts.append(pts[-1] + (UP * math.cos(ak) + out * math.sin(ak) * reach) * (length * 0.38 / 3))
-        stems.append(lowrail(f"{name}_petiole", [tuple(q) for q in pts], 0.0065 * (size / 0.3) ** 0.5, stem_m, group))
-        monstera_leaf(fol, pts[-1], out, tilt + (1 - f) * 18, size * (0.7 + 0.3 * f), 0 if size > 0.25 else (1 if size > 0.2 else 2), splits=cuts, holes=holes,
-                      fold=PRNG.uniform(10, 15), droop=PRNG.uniform(15, 25))
-    # the new shoot: a rolled leaf, pale, standing up out of the middle on its own short petiole
+        r = 0.0075 * (size / 0.3) ** 0.5
+        stem = rail(f"{name}_petiole", [tuple(q) for q in pts], r, stem_m, group)
+        stem.data.resolution_u, stem.data.bevel_resolution = 6, 2
+        for bp, rr in zip(stem.data.splines[0].bezier_points, (1.2, 1.05, 0.95, 0.85, 0.8, 1.15)):  # tapering, a thicker knee
+            bp.radius = rr
+        stems.append(stem)
+        young = size < 0.2
+        monstera_leaf(fol, pts[-1], out, tilt + (1 - f) * 18, size * (0.62 + 0.38 * f), 2 if young else 0, splits=cuts,
+                      holes=holes, fold=PRNG.uniform(10, 15), droop=PRNG.uniform(15, 25))
+    # the new shoot: a rolled leaf, lime, standing up out of the middle on its own short petiole
     tip = Vector((x, sy + 0.32, z)) + cam * 0.01
     stems.append(lowrail(f"{name}_petiole", [(x, sy, z), (x, sy + 0.18, z), tuple(tip)], 0.005, stem_m, group))
     stems.append(segment(f"{name}_shoot", tuple(tip), tuple(tip + (UP + cam * 0.15).normalized() * 0.11), 0.012,
-                         plastic(GREENS[2], 0.8, 0, 0.2, "shoot"), group, verts=8, r2=0.002))
-    return pot + stems + [fol.obj(group)]
+                         plastic(MONSTERA_GREENS[2], 0.8, 0, 0.2, "shoot"), group, verts=10, r2=0.002))
+    leaves = fol.obj(group)
+    for p in leaves.data.polygons:  # smooth shading across the curved blade (designer)
+        p.use_smooth = True
+    return pot + stems + [leaves]
 
 
 def echeveria(name, x, y, z, group):
@@ -2423,7 +2519,7 @@ if PREVIEW:
         "q_plant_corner": ((2.7, 1.6, 1.9), (4.22, 0.95, 3.18)),
         "q_plant_desk": ((0.95, 1.35, -1.85), (0.0, 0.75, -3.2)),
         "q_plant_sofa": ((2.05, 1.35, 3.74), (0.925, 0.6, 2.75)),
-        "q_monstera_top": ((1.25, 1.75, 3.45), (0.91, 0.6, 2.75)),  # #156: from above and in front
+        "q_monstera_top": ((1.25, 1.75, 3.45), (0.925, 0.6, 2.75)),  # #156: from above and in front
         "q_monstera_low": ((0.6, 0.85, 3.45), (0.925, 0.6, 2.75)),
         "q_vine": ((3.25, 2.25, -1.95), (4.0, 1.95, -3.2)),
         "q_succulent": ((-3.55, 1.15, -0.9), (-4.32, 0.8, -1.36)),
