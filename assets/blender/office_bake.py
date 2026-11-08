@@ -2011,7 +2011,7 @@ def build_lounge():
     c += [box("counter", (0.6, 0.9, 0.7), (0, 0.45, 0), plastic("#2b2f3a", 0.6, 0, 0.2, "counter"), G, bev=0.01),
           box("counter_top", (0.64, 0.04, 0.74), (0, 0.92, 0), plastic("#e8e4dc", 0.3, 0, 0.3, "counter_top"), G, bev=0.006),
           box("machine", (0.28, 0.36, 0.3), (0, 1.12, -0.12), plastic("#1b1d22", 0.35, 0.6, 0.05, "machine"), G, bev=0.02),
-          box("spout", (0.06, 0.05, 0.08), (0.12, 1.02, -0.12), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G),
+          box("spout", (0.06, 0.05, 0.08), (0.12, 1.07, -0.12), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G),  # #156: 5 mm over the 9.5 cm mug
           # #164: the brew button the index presses (coffee_button_contact_index), a chrome ring round it
           cyl("coffee_btn", 0.011, 0.006, (COFFEE_BUTTON[0] - 0.003, COFFEE_BUTTON[1], COFFEE_BUTTON[2]), plastic("#2a2d33", 0.5, 0, 0.1, "coffee_btn"), G, 20, axis="x", bev=0.0015),
           torus("coffee_btn_ring", 0.0125, 0.0015, (0.1405, COFFEE_BUTTON[1], COFFEE_BUTTON[2]), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G, axis="x", seg=20, rseg=6)]
@@ -2184,6 +2184,115 @@ def build_book(G):
                 grip_pos=(0, -0.04, 0), grip_rot=(-math.pi / 2, 0, 0))
 
 
+MUG_H, MUG_R = 0.095, 0.041
+
+
+def mug_home(C, bx, bz):
+    at = (C @ Mx((bx + 0.072, 0.94 + MUG_H / 2, bz))).to_translation()
+    return (at.x, at.z, -at.y), (0.0, COUNTER[2], 0.0)
+
+
+def mug_parts(k, G):
+    """a mug in the cup frame (origin on the handle side, body centre x -0.072, y 0 = half height)"""
+    cx, h2, R = -0.072, MUG_H / 2, MUG_R
+    glaze = plastic(("#efe8dc", "#3a3d42")[k], 0.3, 0, 0.05, f"mug_glaze_{k}")
+    inner = plastic("#efe8dc", 0.3, 0, 0.05, "mug_glaze_0")  # ivory inside (both)
+    foot = plastic("#d6cbb9", 0.85, 0, 0.3, "mug_foot")
+    coffee = plastic("#3d2416", 0.25, 0, 0.0, "coffee")
+    crema = plastic("#7a4d2e", 0.4, 0, 0.0, "crema")
+    y0 = -h2
+    lip_in = R - 0.0045
+    # one closed profile (foot ring 2 mm in, the outer wall a little narrower at the foot, a rounded lip, the inner
+    # wall, the cavity's floor under the coffee): the normals come out right; materials go on by where a face sits
+    prof = [(0.0, y0 + 0.002), (R - 0.0075, y0 + 0.002), (R - 0.0055, y0), (R - 0.0028, y0), (R - 0.002, y0 + 0.004),
+            (R - 0.0012, y0 + 0.03), (R, h2 - 0.004), (R - 0.0005, h2 - 0.001), (R - 0.0022, h2),
+            (lip_in + 0.0006, h2 - 0.0008), (lip_in, h2 - 0.003), (lip_in, h2 - 0.02), (0.0, h2 - 0.02)]
+    body = lathe("mug_body", prof, (cx, 0, 0), glaze, G, 40)
+    me = body.data
+    me.materials.append(inner)
+    me.materials.append(foot)
+    for f in me.polygons:
+        c = f.center  # Blender local: z = web y, (x, y) radial
+        r = (c.x * c.x + c.y * c.y) ** 0.5
+        if c.z < y0 + 0.0045 - 1e-4:
+            f.material_index = 2  # the unglazed foot
+        elif r < lip_in + 0.0007 and c.z > h2 - 0.0205:
+            f.material_index = 1  # inside: ivory (for the charcoal mug; the ivory one is the same colour)
+    parts = [body]
+    cy = h2 - 0.012  # the coffee 1.2 cm under the lip, a 3 mm crema ring round its edge (closed discs)
+    parts += [cyl("crema", lip_in - 0.0002, 0.0008, (cx, cy, 0), crema, G, 40),
+              cyl("coffee", lip_in - 0.003, 0.0008, (cx, cy + 0.0004, 0), coffee, G, 40)]
+    if k == 0:  # a gold band 3 mm under the lip (a closed ring)
+        parts.append(lathe("mug_band", [(R - 0.001, h2 - 0.007), (R + 0.0003, h2 - 0.007), (R + 0.0003, h2 - 0.004),
+                                        (R - 0.001, h2 - 0.004), (R - 0.001, h2 - 0.007)], (cx, 0, 0),
+                           plastic("#c9a46a", 0.3, 0.8, 0.05, "mug_gold"), G, 40))
+    # the C handle: from 1.5 cm under the lip to 2 cm over the foot, 6.8 cm outside; its section 0.9 across the loop,
+    # 1.4 along z; the opening ~3.8 cm high (2 robot fingers + 4 mm) and ~3.4 cm deep
+    xs = cx + R - 0.002
+    pts = [(xs, h2 - 0.015, 0), (xs + 0.03, h2 - 0.012, 0), (xs + 0.043, h2 - 0.03, 0), (xs + 0.043, y0 + 0.032, 0),
+           (xs + 0.028, y0 + 0.018, 0), (xs, y0 + 0.02, 0)]
+    hd = rail("mug_handle", pts, 0.0045, glaze, G)
+    hd.data.resolution_u, hd.data.bevel_resolution = 6, 2
+    hd.scale = (1.0, 0.007 / 0.0045, 1.0)  # Blender y = web -z: 1.4 cm across
+    parts.append(hd)
+    return parts
+
+
+CAN_Y_BOTTOM = -0.235  # the can's bottom under its origin (the handle's top run)
+
+
+def can_parts(G):
+    """the watering can in its frame: origin = the middle of the handle's top run, +x = toward the spout. Returns
+    (objects, the rose's centre, the water's direction) in that frame"""
+    paint = plastic("#5f7f62", 0.75, 0.1, 0.15, "can_paint")
+    band = plastic("#4b6650", 0.75, 0.1, 0.15, "can_band")
+    brass = plastic("#b08d57", 0.35, 0.85, 0.05, "can_brass")
+    dark = plastic("#1d2420", 0.9, 0, 0.0, "can_dark")
+    xb, yb = 0.035, CAN_Y_BOTTOM  # the body's axis and bottom
+    H, R0, R1 = 0.16, 0.075, 0.07  # 15 x 11 cm oval (x : z), 16 cm high, 1 cm narrower at the top
+    yt = yb + H
+    prof = [(0.0, 0.0), (R0 - 0.004, 0.0), (R0, 0.004), (R0 - 0.0008, 0.06), (R1, H - 0.008), (R1 - 0.006, H), (0.0, H)]
+    body = lathe("can_body", prof, (xb, yb, 0), paint, G, 40)
+    body.data.transform(Matrix.Diagonal((1.0, 0.11 / 0.15, 1.0, 1.0)))  # oval: Blender y = web -z
+    rim = lathe("can_band", [(R0 - 0.002, 0.0), (R0 + 0.0006, 0.0), (R0 + 0.0006, 0.01), (R0 - 0.002, 0.01), (R0 - 0.002, 0.0)],
+                (xb, yb, 0), band, G, 40)
+    rim.data.transform(Matrix.Diagonal((1.0, 0.11 / 0.15, 1.0, 1.0)))
+    seam = box("can_seam", (0.0012, H - 0.02, 0.0012), (xb, yb + H / 2, -(0.055 + 0.0004)), band, G)  # a side seam
+    # the filling hole: top back third, 6 cm, with a rolled lip and the dark inside
+    ox = xb - 0.04
+    hole = [torus("can_mouth", 0.03, 0.003, (ox, yt + 0.002, 0), paint, G, seg=28, rseg=6),
+            cyl("can_mouth_in", 0.0285, 0.002, (ox, yt + 0.0005, 0), dark, G, 24)]
+    # the handle: one arch from low on the back (4 cm up) up and over to the top's front third; Ø1.6 cm; a 10 cm
+    # level run on top (the grip, at the origin); room under it for four fingers
+    hp = [(xb - 0.069, yb + 0.04, 0), (xb - 0.1, yb + 0.1, 0), (xb - 0.09, -0.012, 0), (-0.05, 0.0, 0), (0.0, 0.0, 0),
+          (0.05, 0.0, 0), (xb + 0.04, -0.025, 0), (xb + 0.035, yt + 0.002, 0)]
+    handle = rail("can_handle", hp, 0.008, paint, G)
+    handle.data.resolution_u, handle.data.bevel_resolution = 5, 2
+    # the spout: from 2.5 cm over the bottom at the front, 38° up, 28 cm, Ø1.8 -> 1.0 cm; its tip 2 cm over the top
+    a = math.radians(38)
+    d = Vector((math.cos(a), math.sin(a), 0.0))
+    s0 = Vector((xb + R0 - 0.006, yb + 0.025, 0.0))
+    s1 = s0 + d * 0.28
+    spout = segment("can_spout", tuple(s0), tuple(s1), 0.009, paint, G, verts=16, r2=0.005)
+    # the rose: a brass disc 3.6 cm across on a short cone, turned 10° down from the spout; 19 holes
+    a2 = math.radians(38 - 10)
+    d2 = Vector((math.cos(a2), math.sin(a2), 0.0))
+    neck = segment("can_rose_neck", tuple(s1 - d * 0.004), tuple(s1 + d2 * 0.016), 0.0055, brass, G, verts=16, r2=0.016)
+    rc = s1 + d2 * 0.019
+    face = lathe("can_rose", [(0.0, -0.004), (0.016, -0.004), (0.018, -0.003), (0.018, 0.0), (0.0, 0.0)], (0, 0, 0), brass, G, 32)
+    face.matrix_world = Matrix.Translation(W(*rc)) @ wv(d2).to_track_quat("Z", "Y").to_matrix().to_4x4()  # geometry: lathe axis -> d2
+    holes = []
+    for k in range(19):  # 1 + 6 + 12 in rings
+        ring, j = (0, 0) if k == 0 else ((1, k - 1) if k < 7 else (2, k - 7))
+        rr = (0.0, 0.0065, 0.0125)[ring]
+        ang = 2 * math.pi * j / (1, 6, 12)[ring]
+        hdisc = cyl("can_hole", 0.0011, 0.0004, (0, 0, 0), dark, G, 8)
+        hdisc.matrix_world = face.matrix_world @ Matrix.Translation((rr * math.cos(ang), rr * math.sin(ang), 0.0003))
+        holes.append(hdisc)
+    objs = [body, rim, seam, handle, spout, neck, face] + hole + holes
+    return objs, tuple(rc + d2 * 0.002), tuple(d2)
+
+
 def build_props():
     G = "prop"
     out = []
@@ -2231,25 +2340,17 @@ def build_props():
         out.append(prop(f"prop_paddle_{end}", "paddle", objs, (hx, th + 0.003, bz), (-math.pi / 2, 0.0, rz),
                         grip_pos=(0, -0.02, 0), grip_rot=(math.pi, 0, 0)))
     # the ball is pp_ball now (build_play_lives): the app moves it, PropBank must not pick it up
-    # cups: origin at the handle (on local +x), body hanging beside it. Home on the counter, handle toward the room
+    # mugs (#156, designer: a 350 ml stoneware mug): origin at the handle side (local +x), the body centred at x -0.072.
+    # 8.2 cm across, 9.5 cm high, 4.5 mm wall with a rounded lip (the inner wall shows), coffee 1.2 cm under the lip
+    # with a crema ring, an unglazed foot ring, a C handle (1.4 x 0.9 cm section) whose opening fits two robot fingers.
+    # _0 ivory with a gold band, _1 charcoal with an ivory inside. Home on the counter, handle toward the room
     C = counter_frame()
     for k, (bx, bz) in enumerate(((0.14, -0.12), (0.19, 0.07))):  # counter frame: under the spout, and beside it
-        # 1.25x the baked mugs so a cup still reads in a robot hand
-        objs = [cyl("cup", 0.045, 0.105, (-0.072, 0, 0), plastic("#f4f4f0", 0.4, 0, 0, "cup"), G, 20),
-                torus("cup_handle", 0.027, 0.0075, (-0.027, 0.0, 0), plastic("#f4f4f0", 0.4, 0, 0, "cup"), G, axis="z", half=True, seg=16, rseg=6)]
-        at = (C @ Mx((bx + 0.072, 0.94 + 0.0525, bz))).to_translation()
-        out.append(prop(f"prop_cup_{k}", "cup", objs, (at.x, at.z, -at.y), (0.0, COUNTER[2], 0.0)))
-    # watering can: origin at the top of its carry handle; body, spout and rose below. Home on the floor by the
-    # front-right plant
-    green = plastic("#3fa36b", 0.45, 0.2, 0.1, "can")
-    objs = [cyl("can_body", 0.08, 0.14, (0, -0.13, 0), green, G, 28, bev=0.006),
-            cyl("can_lid", 0.05, 0.012, (0, -0.054, 0), green, G, 20),
-            box("can_post", (0.012, 0.06, 0.016), (-0.045, -0.03, 0), green, G),
-            box("can_post", (0.012, 0.06, 0.016), (0.045, -0.03, 0), green, G),
-            box("can_bar", (0.1, 0.014, 0.018), (0, 0, 0), green, G, bev=0.004, seg=2),
-            segment("can_spout", (0.07, -0.17, 0), (0.2, -0.07, 0), 0.012, green, G, r2=0.009),
-            cyl("can_rose", 0.022, 0.014, (0.205, -0.065, 0), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G, 16)]
-    can = prop("prop_watering_can", "watering_can", objs, (3.75, 0.2, 3.3), (0.0, 0.6, 0.0))
+        out.append(prop(f"prop_cup_{k}", "cup", mug_parts(k, G), *mug_home(C, bx, bz)))
+    # watering can (#156, designer: an indoor 1.5 L metal can): origin at the middle of the handle's top run (the grip),
+    # the oval body below, the long spout from low on the front, a brass rose. Home on the floor by the corner plant
+    objs, rose_at, rose_dir = can_parts(G)
+    can = prop("prop_watering_can", "watering_can", objs, (3.75, -CAN_Y_BOTTOM, 3.3), (0.0, 2.6, 0.0))  # spout to the room (it met the fig's saucer)
     out.append(can)
     # the spout's end (#135): where the water starts, local +z = along the spout (the app tilts the can to pour)
     a = math.atan2(0.10, 0.13)
@@ -2257,7 +2358,7 @@ def build_props():
     coll("export").objects.link(e)
     e.parent = can
     # local +z along the spout (up and out): from the direction itself (an Euler here lost the upward tilt, #184)
-    e.matrix_world = can.matrix_world @ Matrix.Translation(W(0.212, -0.06, 0.0)) @ web_z_along((math.cos(a), math.sin(a), 0.0))
+    e.matrix_world = can.matrix_world @ Matrix.Translation(W(*rose_at)) @ web_z_along(rose_dir)  # the rose's centre, the water's way
     NODES.append({"obj": e, "play": "spout"})
     # omok stones in the hand (#135: the chess pieces became go stones): a = black, b = white, home on the heap in
     # its bowl, next to the sample stone. Center pivot, held in the pinch ("OK hand", agents.md 2.7): the point where
@@ -2328,15 +2429,16 @@ def build_hands():
     O = bpy.data.objects
     R, L = "r", "l"
     # mug (right hand; its mirror for the left): grip 1.5 cm out from the handle's outer middle, fingers through the
-    # loop, palm toward the body. Cup frame: handle loop in x-y around (-0.027, 0), body centre at x -0.072
+    # loop, palm toward the body (#156: the new mug, handle loop out to x = -0.031 + 0.043 + 0.0045)
+    hx = -0.072 + MUG_R - 0.002
     for k in range(2):
         o = O[f"prop_cup_{k}"]
         for side, fz in ((R, -1.0), (L, 1.0)):
-            grip_at(o, side, (0.0225, 0, 0), (0, 0, fz), (-1, 0, 0))
+            grip_at(o, side, (hx + 0.043 + 0.0045 + 0.015, 0, 0), (0, 0, fz), (-1, 0, 0))
         for side in ("", L):
-            contact(o, "index", (-0.027, 0.0195, 0), (0, -1, 0), side)  # inside the loop, at its top
-            contact(o, "thumb", (-0.027, 0.0345, 0), (0, 1, 0), side)  # on top of the handle
-            contact(o, "ring", (-0.027, -0.04, 0), (1, 0, 0), side)  # the body's lower third, handle side
+            contact(o, "index", (hx + 0.018, MUG_H / 2 - 0.0125 - 0.0045, 0), (0, -1, 0), side)  # inside the loop, at its top
+            contact(o, "thumb", (hx + 0.018, MUG_H / 2 - 0.0125 + 0.0045, 0), (0, 1, 0), side)  # on top of the handle
+            contact(o, "ring", (-0.072 + MUG_R - 0.0012, -MUG_H / 2 + 0.03, 0), (1, 0, 0), side)  # the body's lower third
     # paddles (right hand, shakehand): grip mid-handle, fingers wrapping front (red, +z) to back, palm to the axis
     for e in "ab":
         o = O[f"prop_paddle_{e}"]
@@ -2350,12 +2452,13 @@ def build_hands():
     grip_at(o, R, (0.075, -0.0125, 0), (-1, 0, 0), (0, 1, 0))
     contact(o, "thumb", (-0.075, 0, 0), (0, 1, 0), L)["state"] = "open"  # on the left page once open (check-glb skips it)
     contact(o, "index", (0.14, 0, -0.1), (0, 1, 0))
-    # watering can (both): right fist round the top bar (palm down on it), left palm under the body's spout third
+    # watering can (both): right fist round the handle's top run (palm down on it, fingers wrapping), left palm up
+    # under the body's front (#156: the new can; its bottom at CAN_Y_BOTTOM)
     o = O["prop_watering_can"]
     grip_at(o, R, (0, 0, 0), (0, 0, 1), (0, -1, 0))
-    grip_at(o, L, (0.04, -0.205, 0), (1, 0, 0), (0, 1, 0))
-    contact(o, "palm", (0, 0.007, 0), (0, 1, 0))
-    contact(o, "palm", (0.04, -0.2, 0), (0, -1, 0), L)
+    grip_at(o, L, (0.08, CAN_Y_BOTTOM - 0.012, 0), (1, 0, 0), (0, 1, 0))
+    contact(o, "palm", (0, 0.008, 0), (0, 1, 0))
+    contact(o, "palm", (0.08, CAN_Y_BOTTOM, 0), (0, -1, 0), L)
     # omok: the hand dips into a bowl (3 cm below the mouth's centre); the stone in hand, go style: middle on top,
     # index under it (the app sticks it to the fingers, agents.md 2.10, #192)
     for side in "bw":
@@ -3134,6 +3237,8 @@ if PREVIEW:
         "q_door": ((-1.35, 1.45, 1.15), (-3.4, 1.1, 2.12)),
         "q_window": ((-1.2, 1.5, -0.55), (-1.8, 1.7, -2.75)),
         "q_rug": ((0.55, 2.7, -0.45), (0.55, 0.0, 1.5)),
+        "q_mug": ((3.62, 1.28, -1.62), (4.0, 0.96, -1.93)),  # #156: from above at a slant, the inside and the coffee
+        "q_can": ((3.25, 0.62, 2.75), (3.78, 0.12, 3.3)),
         "q_omok": ((-1.6, 1.3, 2.62), (-1.6, 0.77, 2.2)),  # #135
         "q_omok_side": ((-0.75, 1.15, 2.75), (-1.6, 0.76, 2.2)),
         "q_paddles": ((1.55, 1.3, 0.95), (1.75, 0.76, 0.0)),
