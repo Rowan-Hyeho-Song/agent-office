@@ -62,6 +62,17 @@ describe('placement', () => {
     expect(out.a.stack).toBe(0)
     expect(out.b.stack).toBeGreaterThan(0)
   })
+  it('a stacked bubble that would pass the safe line by more than the gap opens down instead (#107)', () => {
+    // the first sits just under the safe line; stacking the second above it would put it far past the line
+    const first = item({ id: 'a', order: 1, y: 220 })
+    const second = item({ id: 'b', order: 2, x: 520, y: 225, h: 120 })
+    const out = placeBubbles([first, second], view)
+    expect(out.a.dir).toBe('up')
+    expect(out.b.dir).toBe('down')
+    expect(out.b.stack).toBe(0)
+    // a small overshoot (within the gap) is allowed and stays up
+    expect(cardRect(first, out.a).top).toBeGreaterThanOrEqual(BUBBLE.safeTop - BUBBLE.gap)
+  })
   it('stacks three close speakers in steps, 8px apart, so no card covers another', () => {
     // the replay case: three agents side by side, same height, cards 220-250px wide
     const three = [
