@@ -413,3 +413,19 @@ fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap
   .secret-doc .big-stamp { font-size: 28px; line-height: 32px; top: 44px; right: 16px; }
   .doc-filehead { padding-right: 56px; }
 }
+
+/* first-visit camera hint (#111) */
+.cam-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  translate: -50% 0;
+  margin: 0;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: rgba(10, 13, 19, 0.88);
+  color: #e8e6e1;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+}

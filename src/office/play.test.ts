@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BLOCK_MINUTES, PLAYS, blockOf, playAt } from './play'
+import { BLOCK_MINUTES, NIGHT_PLAYS, PLAYS, blockOf, playAt, soloAt } from './play'
 
 const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
 const ALL_SPOTS = new Set(PLAYS.flatMap((p) => p.spots))
@@ -153,5 +153,16 @@ describe('likes (#28)', () => {
   })
   it('likes are the same for every visitor (same minute, same answer)', () => {
     expect(playAt(12345, agents)).toEqual(playAt(12345, [...agents].reverse()))
+  })
+})
+
+describe('soloAt (night duty, #110)', () => {
+  it('is quiet and alone, and stable per minute block', () => {
+    for (let m = 0; m < 300; m += BLOCK_MINUTES) {
+      const p = soloAt(m, 'agent_2')
+      expect(NIGHT_PLAYS).toContain(p.kind)
+      expect(p.partner).toBeUndefined()
+      expect(soloAt(m + 1, 'agent_2')).toEqual(p)
+    }
   })
 })

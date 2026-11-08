@@ -2,6 +2,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { Box3, CanvasTexture, MeshBasicMaterial, Raycaster, SRGBColorSpace, Vector2, Vector3, type PerspectiveCamera } from 'three'
 import { meshesOf, type OfficeNodes } from '../office/nodes'
+import { hitAllowed } from '../office/walls'
 import { DOOR_FX } from './doorFx'
 import { DOOR_H, DOOR_W, drawDoor, hoverTick } from './doorScreen'
 import { getDoorMessage } from './doorMessage'
@@ -105,7 +106,7 @@ export function Door({ nodes }: { nodes: OfficeNodes }) {
       const r = el.getBoundingClientRect()
       ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1)
       ray.setFromCamera(ndc, camera)
-      return ray.intersectObjects(meshesOf(door), false).length > 0
+      return ray.intersectObjects(meshesOf(door), false).some(hitAllowed)
     }
     let down: [number, number] | null = null
     const onDown = (e: PointerEvent) => (down = [e.clientX, e.clientY])

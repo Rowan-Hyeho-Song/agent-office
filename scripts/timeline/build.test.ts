@@ -245,3 +245,24 @@ describe('twin of the TypeScript side', () => {
     for (const r of collect(data({ repo: REV }))) expect(finalize(r, cfg)).toEqual(toPoint(r as never, cfg))
   })
 })
+
+describe('approval result (#82)', () => {
+  const input = (result?: true) => ({
+    key: `${URL(PUB)}/issues/1#issuecomment-3`, project: PUB, at: '2026-11-08T12:00:00Z', kind: 'approval' as const, agent: 3 as const, title: '결재: x',
+    additions: null, deletions: null, files: null, issue: 1, pr: null, author: { login: 'Rowan-Hyeho-Song', association: 'OWNER' }, ...(result ? { result } : {}),
+  })
+  it('keeps result on an approval point, in the node build and the server filter alike', () => {
+    expect(finalize(input(true), cfg)?.result).toBe(true)
+    expect(toPoint(input(true), cfg)).toEqual(finalize(input(true), cfg))
+    expect('result' in finalize(input(), cfg)!).toBe(false)
+    expect(toPoint(input(), cfg)).toEqual(finalize(input(), cfg))
+  })
+  it('never lets result ride on another kind', () => {
+    expect(finalize({ ...input(true), kind: 'work' }, cfg)?.result).toBeUndefined()
+    expect(toPoint({ ...input(true), kind: 'work' }, cfg)?.result).toBeUndefined()
+  })
+  it('the backfill marks the owner result comments', () => {
+    const points = collect(data() as never)
+    expect(points.filter((p) => p.kind === 'approval').map((p) => p.result === true)).toEqual([false, true])
+  })
+})

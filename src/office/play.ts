@@ -150,3 +150,14 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
   }
   return out
 }
+
+/** what the night-duty agent may do: quiet and alone (no pair games, no sofa nap, no ping-pong) */
+export const NIGHT_PLAYS: PlayKind[] = ['coffee', 'books']
+
+/** the night-duty agent's solo activity at this minute: same block length as the day schedule, same for every visitor */
+export function soloAt(minute: number, agent: string): PlayAssignment {
+  const rand = rng(hash(`${blockOf(minute)}|solo|${agent}`))
+  const choices = PLAYS.filter((p) => NIGHT_PLAYS.includes(p.kind))
+  const p = choices[Math.floor(rand() * choices.length)]
+  return { kind: p.kind, label: p.label, spot: p.spots[0], ...(p.face ? { face: p.face } : {}) }
+}

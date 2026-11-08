@@ -10,6 +10,8 @@ const MAX_PINNED = 3
 export class BoardStore {
   private base: BoardState = emptyBoard()
   private pinned: BoardDecision[] = []
+  /** the timelapse's board (#82): shown instead of the live data until released */
+  private locked: BoardState | null = null
   private state: BoardState = this.base
   private sig = boardSignature(this.state)
   private listeners = new Set<() => void>()
@@ -26,6 +28,11 @@ export class BoardStore {
     this.base = next
     this.apply()
   }
+  /** show this board (the replay's) instead of the live one; null = back to the live data */
+  lock(next: BoardState | null) {
+    this.locked = next
+    this.apply()
+  }
   /** a meeting's decision: the planner pins a note (it fades in like any new one) */
   pin(d: BoardDecision) {
     this.pinned = [d, ...this.pinned.filter((p) => p.key !== d.key)].slice(0, MAX_PINNED)
@@ -33,7 +40,12 @@ export class BoardStore {
   }
 
   private apply() {
+    if (this.locked) return this.show(this.locked)
     const next = this.pinned.length ? { ...this.base, decisions: [...this.pinned, ...this.base.decisions.filter((x) => !this.pinned.some((p) => p.key === x.key))].sort((a, b) => b.at.localeCompare(a.at)) } : this.base
+    this.show(next)
+  }
+
+  private show(next: BoardState) {
     const sig = boardSignature(next)
     if (sig === this.sig) return
     this.state = next
