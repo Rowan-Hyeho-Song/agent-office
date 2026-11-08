@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs'
 import { Quaternion, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import { REST_PALM, palmDown } from './rig'
@@ -7,16 +6,19 @@ import { REST_PALM, palmDown } from './rig'
 // fingers bend toward it, +y is along the fingers). This reads the baked rest pose from the model itself, so a re-bake
 // that turns the hands, or a sign flip in the app's "palm down", fails here instead of on screen.
 type GltfNode = { name: string; rotation?: number[] }
-function nodes(): Record<string, GltfNode> {
+// node:fs through a path the app's type check does not follow (the app tsconfig has no Node types)
+const fsModule = 'node:fs'
+async function nodes(): Promise<Record<string, GltfNode>> {
+  const { readFileSync } = (await import(/* @vite-ignore */ fsModule)) as { readFileSync: (p: URL) => Uint8Array }
   const buf = readFileSync(new URL('../../public/models/office.glb', import.meta.url))
-  const len = buf.readUInt32LE(12)
-  const json = JSON.parse(buf.subarray(20, 20 + len).toString('utf8')) as { nodes: GltfNode[] }
+  const len = new DataView(buf.buffer, buf.byteOffset, buf.byteLength).getUint32(12, true)
+  const json = JSON.parse(new TextDecoder().decode(buf.subarray(20, 20 + len))) as { nodes: GltfNode[] }
   return Object.fromEntries(json.nodes.map((n) => [n.name, n]))
 }
 const q = (n: GltfNode | undefined) => new Quaternion(...((n?.rotation ?? [0, 0, 0, 1]) as [number, number, number, number]))
 
-describe('hand frame (#178)', () => {
-  const all = nodes()
+describe('hand frame (#178)', async () => {
+  const all = await nodes()
   for (const i of [0, 1, 2, 3])
     for (const side of ['l', 'r'] as const) {
       const hand = all[`agent_${i}_hand_${side}`]
