@@ -113,7 +113,8 @@ node .claude/skills/office-bake/check-glb.mjs --want hit_library,neon_approval -
   - `--prune-attributes false`: glb에 텍스처가 없어 UV가 "안 쓰임"으로 지워지는 것을 막는다.
   - `--flatten false --prune false`: `nav_*`, `hit_*` 같은 빈 노드를 지키는 것이다.
 - **`export_apply=True`가 맞다.** 외부 글은 Array 모디파이어 때문에 False를 권하지만, 우리는 Array가 없고 solidify·bevel을 적용해 내보내야 한다.
-- **WebP는 내려받는 크기만 줄이고 GPU 메모리는 줄이지 않는다.** 2048 아틀라스 하나가 밉맵까지 약 21 MB, 넷이면 약 85 MB다. GPU 메모리를 줄이는 길은 크기 축소나 KTX2(#83에서 따로 다룸)다.
+- **WebP는 내려받는 크기만 줄이고 GPU 메모리는 줄이지 않는다.** 2048 아틀라스 하나가 밉맵까지 약 21 MB다. #109부터 여섯 장(room · walls_nw · walls_se · work · wall_items · lounge)이라 약 127 MB다. GPU 메모리를 줄이는 길은 크기 축소나 KTX2(#83에서 따로 다룸)다.
+- 아틀라스를 더하면 `build-office.sh`의 webp 복사 목록과 앱 `src/office/nodes.tsx`의 `ATLASES`를 같이 고친다(코더).
 - 들여다보기: `pnpm dlx @gltf-transform/cli@4 inspect public/models/office.glb`
 
 ## 7. 크기와 예산
@@ -151,3 +152,50 @@ node .claude/skills/office-bake/check-glb.mjs --want hit_library,neon_approval -
 | #67 | 누르는 대상을 `prop`으로 하면 PropBank가 집어 감 | `hit_*` 빈 노드 |
 | 병합 | squash 병합 뒤 dev를 합치면 같은 내용으로 충돌 | dev 쪽이 내 커밋과 같은지 확인한 뒤 `git checkout --ours` |
 | 병합 | 다른 PR이 의존성을 더함 | `pnpm install --frozen-lockfile` |
+| #109 | 카운터가 출입문 몸체를 10 cm 파고들고 화분이 소파 팔걸이를 뚫는 등 16쌍이 닿거나 겹침 | 사물마다 `fp()`로 바닥 자리를 남기고 `--overlap`으로 검사(10절) |
+| #109 | `place()`를 같은 부품에 두 번 부르면 변환이 두 번 곱해짐 | `placed = place(...)` 한 번 받아 `fp`와 `join`에 같이 넘긴다 |
+| #109 | extras 이름 `slot`이 #67 파일철의 `slot`(권 번호)과 겹침 | 바닥 자리는 이름 `slot_*`로 거른다 |
+
+## 10. 배치 규칙 (#109)
+
+사물끼리 닿지 않고 에이전트가 지나갈 틈을 지키는 규칙이다. 숫자는 `check-glb.mjs`의 `NEED`/`WALL_GAP`과 같다.
+
+**바닥 자리(slot).**
+- 사물을 만들 때 부품을 합치기 **전에** `fp(name, objs, kind, wall=None, grow=(x, z))`로 월드 바운딩 박스를 남긴다. 물건이 아닌 비울 자리는 `fp_box`로 남긴다.
+- glb에는 빈 노드 `slot_<name>`(extras `slot` = 종류, `size [w, h, d]`, `wall`)로 나간다.
+- 모델 개선(#108)의 새 모델은 이 자리 안에 들어가야 한다.
+
+| 종류 | 무엇 | 자리에 넣는 것 |
+|---|---|---|
+| `floor` | 바닥에 서는 가구 | 쓰는 공간까지. 책상은 앞의 에이전트 자리(패드), 탁구대는 양 끝 선수 자리(`grow` 0.55 m), 게임 테이블은 스툴까지 |
+| `decor` | 화분, 스탠드 | 잎·갓까지 |
+| `wall` | 벽에 붙는 것(창, 보드, 시계, 출입문) | `wall` n·e·s·w(n = 뒤 −z, w = 왼쪽 −x). 벽에 붙어 서는 가구(책장, 카운터)는 `floor`에 `against`로 적는다. 바닥에 닿으면 가구라 벽이 내려가도 남는다(#115), 그래서 `wall`이 아니다 |
+| `clear` | 비워 둘 바닥 | 출입문 앞 0.8 m |
+| `room` | 벽 안쪽 | `build_slots`가 자동으로 넣는다 |
+
+**최소 간격.**
+
+| 쌍 | 최소 | 이유 |
+|---|---|---|
+| floor · floor | 0.6 m | 에이전트 몸 폭(±0.22 m)이 지나가고 남음 |
+| decor · floor, decor · decor | 0.1 m | 닿지 않게(화분은 가구 옆에 붙어도 됨) |
+| clear · 바닥의 모든 것 | 0(겹치지 않음) | 출입 동선 |
+| 같은 벽의 wall · wall | 0.1 m(벽을 따라, 높이 포함) | 액자끼리 붙지 않게 |
+| wall · 바닥의 것 | 0(3D로 겹치지 않음) | 시계 아래 카운터는 되지만, 몸체를 파고들면 안 됨 |
+| 바닥의 모든 것 · 벽 안쪽 | 벽에 붙는 것(0)까지만 | 벽 밖으로 나가지 않게 |
+
+- 홀 동선 폭 0.8 m 이상은 앱의 동선 검사(#17)가 홀 노드 사이 경로로 확인한다.
+- 바운딩 박스 검사라 보수적이다. 모니터 위 끝과 창턱처럼 실제로는 안 닿는 것도 걸린다. 걸리면 규칙을 고치지 말고 자리를 옮긴다.
+
+**검사 순서.**
+
+```bash
+cd assets/blender
+"$BLENDER" --background --factory-startup --python office_bake.py -- "$PWD/out/audit" --no-bake   # 굽지 않고 glb만(약 30초)
+cd ../.. && node .claude/skills/office-bake/check-glb.mjs assets/blender/out/audit/office.glb --overlap
+node .claude/skills/office-bake/plan.mjs assets/blender/out/audit/office.glb plan.svg          # 위에서 본 배치도
+```
+
+- `--overlap`은 최소 + 0.3 m보다 가까운 쌍을 표로 찍고, 하나라도 모자라면 종료 코드 1로 끝난다.
+- `plan.mjs`는 바닥 자리(종류별 색, 반투명이라 겹치면 진해짐), 벽 사물, nav 자리와 방향을 그린다. 아래·오른쪽이 기본 카메라 쪽이다.
+- 아틀라스 텍셀 밀도는 `--stats`로 본다(사물 ≥ 300, 바닥·벽 ≥ 200 px/m, office-quality.md 4절).
