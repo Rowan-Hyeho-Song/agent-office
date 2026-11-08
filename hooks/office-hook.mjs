@@ -57,6 +57,9 @@ async function main() {
     if (signal.kind === 'activity') signal = { kind: 'activity', activity: 'private' }
   }
   if (seat === null) return log('skip: no seat') // a session that isn't one of the four agents: say nothing
+  // remember the seat as soon as the title gives it, whether or not the send below works: a failed send (the endpoint
+  // down, #162) must not leave the next events of the session with no seat. What was last sent is saved only on success.
+  if (saved.seat !== seat) writeFileSync(file, JSON.stringify({ ...saved, seat }))
   // a message to itself (or to its own role) is just a tool call
   if (signal.kind === 'handoff' && signal.to === seat) signal = { kind: 'activity', activity: 'other' }
 
