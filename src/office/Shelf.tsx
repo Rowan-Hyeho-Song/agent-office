@@ -7,7 +7,10 @@ import { hitBox, useCanvasPick } from './pick'
 import { ShelfRig } from './shelfRig'
 import type { OfficeWorld } from './world'
 
-const EMPTY = { subscribe: () => () => {}, getSnapshot: () => ({ layout: shelfLayout([]) }) }
+// one snapshot object for good: useSyncExternalStore loops forever if getSnapshot returns a new object each call
+// (an office without a library = no Supabase and not ?debug=1, i.e. the plain page)
+const EMPTY_SNAPSHOT = { layout: shelfLayout([]) }
+export const EMPTY_LIBRARY = { subscribe: () => () => {}, getSnapshot: () => EMPTY_SNAPSHOT }
 
 /**
  * The bookshelf as the library's door (#65): one binder per filed issue (stamp only on SECRET ones), the folder names
@@ -18,7 +21,7 @@ export function Shelf({ world, scene, nodes }: { world: OfficeWorld; scene: Obje
   const lib = world.library
   // once per loaded scene: React StrictMode builds this twice, and a second pass would clone the clones
   const rig = useMemo(() => (scene.userData.shelfRig ??= new ShelfRig(nodes)) as ShelfRig, [scene, nodes])
-  const src = lib ?? EMPTY
+  const src = lib ?? EMPTY_LIBRARY
   const { layout } = useSyncExternalStore(src.subscribe, src.getSnapshot)
   useEffect(() => {
     rig.apply(layout)
