@@ -20,6 +20,8 @@ export const SIDE = {
   phoneMaxScreen: 640,
   half: 0.55,
   full: 0.92,
+  /** the room keeps this much air in the left area when it is scaled to fit (designer, #175) */
+  fitMargin: 48,
 } as const
 
 /** --ease-out of tokens.css */
@@ -61,6 +63,16 @@ export function viewOffset(screen: Size, s: SideShape): { x: number; y: number }
   if (!s.open) return { x: 0, y: 0 }
   if (isPhone(screen.w)) return { x: 0, y: Math.round((screen.h * SIDE.half) / 2) }
   return { x: s.width / 2, y: 0 }
+}
+
+/**
+ * How much the picture shrinks while the panel is open (#175, docs-ui.md 4 "맞추기"): only re-centring left the room
+ * (about 1150px wide at 1280) wider than the 800px left area, the door and the bookshelf under the panel. Scale =
+ * min(1, (left area - 48) / the room's width on screen with the panel closed). 1 when closed and on phones.
+ */
+export function fitScale(screen: Size, s: SideShape, roomScreenW: number): number {
+  if (!s.open || isPhone(screen.w) || !(roomScreenW > 0)) return 1
+  return Math.min(1, (leftArea(screen, s).w - SIDE.fitMargin) / roomScreenW)
 }
 
 /** the area that is still 3D (clicks, WASD, bubbles); the panel / sheet covers the rest */

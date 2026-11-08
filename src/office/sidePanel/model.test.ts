@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SIDE, bezier, clampWidth, defaultWidth, easeOut, isPhone, leftArea, maxWidth, panelWidth, snapSheet, stepWidth, viewOffset, widthAt } from './model'
+import { SIDE, bezier, clampWidth, defaultWidth, easeOut, fitScale, isPhone, leftArea, maxWidth, panelWidth, snapSheet, stepWidth, viewOffset, widthAt } from './model'
 
 describe('side panel width', () => {
   it('starts at 480 on a desktop screen', () => {
@@ -72,5 +72,19 @@ describe('sheet snap and curve', () => {
     expect(easeOut(1)).toBe(1)
     expect(easeOut(0.5)).toBeGreaterThan(0.5)
     expect(bezier(0, 0, 1, 1, 0.3)).toBeCloseTo(0.3, 2)
+  })
+})
+
+describe('fit scale (#175)', () => {
+  const open = { open: true, width: 480, sheet: 'half' as const }
+  it('shrinks the room into the left area with a 48px margin, never grows it', () => {
+    // 1280 wide, the room 1150px on screen when closed: (800 - 48) / 1150
+    expect(fitScale({ w: 1280, h: 800 }, open, 1150)).toBeCloseTo(752 / 1150)
+    expect(fitScale({ w: 1280, h: 800 }, open, 500)).toBe(1)
+  })
+  it('is 1 when closed, on phones, or before the room is measured', () => {
+    expect(fitScale({ w: 1280, h: 800 }, { ...open, open: false }, 1150)).toBe(1)
+    expect(fitScale({ w: 390, h: 844 }, open, 1150)).toBe(1)
+    expect(fitScale({ w: 1280, h: 800 }, open, 0)).toBe(1)
   })
 })
