@@ -45,6 +45,7 @@ header.top { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: e
   position: absolute; top: var(--space-4); right: var(--space-4); bottom: var(--space-8);
   width: min(var(--approval-panel-w), calc(100% - 2 * var(--space-4)));
   display: flex; flex-direction: column;
+  color-scheme: dark; scrollbar-color: var(--bubble-dim-line) transparent; scrollbar-width: thin;
   filter: drop-shadow(0 0 1px var(--color-halo)) drop-shadow(0 12px 24px var(--color-halo));
 }
 .frame.inline .approval-box { position: relative; inset: auto; margin: var(--space-4) var(--space-4) var(--space-8) auto; height: 520px; }
@@ -79,7 +80,7 @@ header.top { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: e
 .approval-badge { display: inline-flex; align-items: center; gap: var(--space-1); height: 20px; padding: 0 var(--space-2) 0 var(--space-1); font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: 20px; color: var(--approval-accent); border: 1px solid var(--approval-accent); }
 .approval-badge svg { width: 12px; height: 12px; }
 .approval-badge[data-kind='publish'] { background: var(--approval-accent); color: var(--color-ink); }
-.approval-badge[data-kind='review'] { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--approval-accent) 28%, transparent) 0 3px, transparent 3px 6px); }
+.approval-badge[data-kind='review'] { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--approval-accent) 16%, transparent) 0 3px, transparent 3px 7px); }
 
 /* 한 건 */
 .approval-detail { position: relative; }
