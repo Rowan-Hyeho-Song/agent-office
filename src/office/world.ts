@@ -27,6 +27,8 @@ import type { TrafficPlanner } from './traffic'
 import type { DemoKind, DemoState } from './trafficDemo'
 import type { PaperPlanes } from './plane'
 import type { AgentRig } from './rig'
+import { makePlayTools, type GripDemo } from './debugPlay'
+import type { PlaySession } from '../play/session'
 import { FakePropsFeed, LivePropsFeed, type PropsFeed } from './propsFeed'
 import { FakeStatusSource, type StatusSource } from './status'
 import type { ScreenForce } from './screenLive'
@@ -120,6 +122,15 @@ export interface OfficeWorld {
   traffic: TrafficPlanner | null
   showGrid: boolean
   forceSpots: Record<string, string> | null
+  /** ?debug=1: window.__office.forceGoal = { agent_0: { spot, pose: 'water', slot, face } } overrides parts of a goal (close-ups of a pose at a place) */
+  forceGoal: Record<string, Partial<Goal>> | null
+  /** ?debug=1: pair games started by play.force (debugPlay.ts), used instead of the schedule's while set */
+  forcedSessions: PlaySession[]
+  /** ?debug=1: the grip demo in progress (debugPlay.ts) */
+  gripDemo: GripDemo | null
+  /** ?debug=1: window.__office.play.force(agent, kind) / .clear(); window.__office.grip.demo(agent, prop) / .stop() (see debugPlay.ts) */
+  play: ReturnType<typeof makePlayTools>['play'] | null
+  grip: ReturnType<typeof makePlayTools>['grip'] | null
   /** the planner's clock, s (accumulated frame time) */
   simTime: number
   /** ?debug=1 only: the traffic demo running (trafficDemo.ts) */
@@ -195,6 +206,11 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     traffic: null,
     showGrid: false,
     forceSpots: null,
+    forceGoal: null,
+    forcedSessions: [],
+    gripDemo: null,
+    play: null,
+    grip: null,
     simTime: 0,
     demo: null,
     trafficDemo: (kind) => {
@@ -204,6 +220,11 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     },
   }
   holder.w = world
+  if (debug) {
+    const tools = makePlayTools(world)
+    world.play = tools.play
+    world.grip = tools.grip
+  }
   if (debug) setKst(world, query.get('kst') ?? '')
   if (library) {
     // the hourly idle replay is off under ?debug=1 unless &replay is in the address, so screenshots stay still

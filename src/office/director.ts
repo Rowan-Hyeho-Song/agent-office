@@ -61,6 +61,10 @@ interface Talk {
   until: number
 }
 
+/** a play assignment's own standing place (watering, reading: next to the thing used), as a goal slot facing what it faces */
+export const standSlot = (p: { stand?: { x: number; z: number }; face?: { x: number; z: number } }) =>
+  p.stand ? { slot: { x: p.stand.x, z: p.stand.z, ry: Math.atan2(-((p.face?.x ?? p.stand.x) - p.stand.x), -((p.face?.z ?? p.stand.z - 1) - p.stand.z)) } } : {}
+
 export const deskOf = (agent: string) => Number(agent.split('_')[1])
 
 export class Director {
@@ -150,7 +154,7 @@ export class Director {
       // (a source that skipped duty.ts) = resting at the desk. 'leave' stays in the rig but is never chosen.
       if (s.night === 'duty' && s.state === 'idle') {
         const p = soloAt(minute, a)
-        out[a] = { spot: p.spot, pose: p.kind, face: p.face, quiet: true, label: `야간 당번 · ${p.label}` }
+        out[a] = { spot: p.spot, pose: p.kind, face: p.face, ...standSlot(p), quiet: true, label: `야간 당번 · ${p.label}` }
         continue
       }
       if (s.state === 'off') {
@@ -177,7 +181,7 @@ export class Director {
       }
       const p = play[a]
       out[a] = p
-        ? { spot: p.spot, pose: p.kind, face: p.face, label: p.label }
+        ? { spot: p.spot, pose: p.kind, face: p.face, ...standSlot(p), label: p.label }
         : { spot: `work_${desk}`, pose: 'idle', label: '자리에서 쉬는 중' }
     }
     return out

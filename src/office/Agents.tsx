@@ -21,6 +21,7 @@ import { PaperPlanes } from './plane'
 import { ScreenLive } from './screenLive'
 import { deskProps } from './props'
 import { AgentRig, PropBank, buildRig } from './rig'
+import { PlayStage } from './playStage'
 import { replay } from '../replay/store'
 import { atMs } from '../replay/engine'
 import { boardDistance, REPLAY_PACE } from '../replay/walk'
@@ -85,6 +86,10 @@ export function Agents({ world }: { world: OfficeWorld }) {
   )
   // the props agents pick up while playing (#20, #27); once per loaded scene
   const props = useMemo(() => (scene.userData.props ??= new PropBank(scene, nodes)) as PropBank, [scene, nodes])
+  // what the hands do with things: play in 3D, grips (#135, #164); once per loaded scene
+  const playStage = useMemo(() => (scene.userData.playStage ??= new PlayStage(scene, nodes, props)) as PlayStage, [scene, nodes, props])
+  const tagEl = useRef<HTMLDivElement | null>(null)
+  const tagAt = useRef<[number, number, number]>([0, 0, 0])
   // the LIVE desk props (#44): what each desk shows about its agent
   const desks = useMemo(() => new DeskLive(nodes), [nodes])
   // the work monitors (#75); ?debug=1&screens=off leaves them blank (the frame-cost baseline)
@@ -200,6 +205,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
     const status = scene ? scene.status : world.source.getSnapshot()
     // ?debug=1: window.__office.forceSpots = { agent_0: 'whiteboard', ... } sends agents to spots (head-on tests, screenshots)
     if (world.debug && world.forceSpots) for (const id in world.forceSpots) if (goals[id]) goals[id] = { ...goals[id], spot: world.forceSpots[id], pose: 'idle', label: 'debug' }
+    if (world.debug && world.forceGoal) for (const id in world.forceGoal) if (goals[id]) goals[id] = { ...goals[id], ...world.forceGoal[id], label: 'debug' }
     // ?debug=1: window.__office.trafficDemo('narrow' | 'wide') stands agent_0 and agent_1 at the two ends, then swaps them
     const demo = world.debug ? world.demo : null
     const fresh = !!demo && demo.at === null
@@ -274,8 +280,30 @@ export function Agents({ world }: { world: OfficeWorld }) {
       for (const id in rigs) rigs[id].track = rigs[id].traffic && planner.has(id) ? planner.sample(id, sim.current) : null
       for (const id in rigs) rigs[id].update(dt, t, graph, rigs, reduced, status[id])
     }
-    // the planner picks up its stamp the moment the owner decides something
-    if (desk.stamp && rigs.agent_0?.visible) rigs.agent_0.want = { kind: 'stamp', side: 'r' }
+    // the hands: play from the office clock (nothing of it in the timelapse), grips on everything that is held or touched
+    playStage.update({
+      now,
+      t: st ? st.now / 1000 : t,
+      dt: Math.min(dt, 0.1),
+      reduced,
+      replaying: !!st,
+      rigs,
+      goals,
+      status,
+      tablet: desk.tablet,
+      stamp: desk.stamp,
+      colors: AGENT_COLORS,
+      forcedSessions: world.debug ? world.forcedSessions : undefined,
+      gripDemo: world.debug ? world.gripDemo : null,
+    })
+    const tag = playStage.tag
+    if (tagEl.current) {
+      tagEl.current.style.opacity = tag ? '1' : '0'
+      if (tag) {
+        tagEl.current.textContent = tag.text
+        tagAt.current = [tag.at.x, tag.at.y, tag.at.z]
+      }
+    }
     props.hold(new Map(Object.values(rigs).map((r) => [r, r.want])))
     planes.update(state.clock.elapsedTime, graph, rigs, reduced)
     props.update(Math.min(dt, 0.1))
@@ -361,6 +389,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
   return (
     <>
       {world.debug && <NavDebug world={world} graph={graph} meshes={furniture} planner={planner} />}
+      <TagLabel el={tagEl} at={tagAt} />
     </>
   )
 }
@@ -493,5 +522,18 @@ function NavDebug({ world, graph, meshes, planner }: { world: OfficeWorld; graph
         </Html>
       ))}
     </>
+  )
+}
+
+/** the score over the net for 2 s after a point (play.md 1: the agents' rally; no scoreboard in the room) */
+function TagLabel({ el, at }: { el: { current: HTMLDivElement | null }; at: { current: [number, number, number] } }) {
+  const group = useRef<Group>(null)
+  useFrame(() => group.current?.position.set(...at.current))
+  return (
+    <group ref={group}>
+      <Html center zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
+        <div ref={el} className="play-tag" aria-hidden="true" style={{ opacity: 0, transition: 'opacity 0.2s', fontFamily: 'var(--font-pixel, monospace)', fontSize: 13, color: '#f3ead8', background: 'rgba(14,16,22,0.8)', padding: '2px 8px', border: '1px solid #f3ead8' }} />
+      </Html>
+    </group>
   )
 }
