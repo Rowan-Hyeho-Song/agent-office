@@ -191,12 +191,12 @@ interface Game {
 interface Run { games: Game[] }
 const cache = new Map<string, Run>()
 
-function buildGame(seed: number, players: [string, string], black: 0 | 1, at: number): Game {
+function buildGame(seed: number, players: [string, string], black: 0 | 1, at: number, first: boolean): Game {
   const roles: [string, string] = black === 0 ? players : [players[1], players[0]] // [black, white]
   let s = newGame()
   const moves: number[] = []
-  // seeded opening: 6-10 stones by AI self-play (with the personalities), shown from the start, never already won
-  const openN = 6 + (hash(`${seed}|open`) % 5)
+  // seeded opening of the block's first game: 6-10 stones by AI self-play (with the personalities), shown from the start, never already won
+  const openN = first ? 6 + (hash(`${seed}|open`) % 5) : 0 // later games in the block start from an empty board
   while (s.moveIndex < openN && s.result === 'playing') {
     const mv = aiMove(s, personalityOf(roles[s.toMove === 1 ? 0 : 1]), hash(`${seed}|open`))
     moves.push(mv)
@@ -269,7 +269,7 @@ export function gameAt(seed: number, players: [string, string], tMs: number, dis
   while (g.length === 0 || g[g.length - 1].at + g[g.length - 1].length <= t) {
     const i = g.length
     const at = i === 0 ? 0 : g[i - 1].at + g[i - 1].length
-    g.push(buildGame(hash(`${seed}|game|${i}`), players, (i % 2) as 0 | 1, at))
+    g.push(buildGame(hash(`${seed}|game|${i}`), players, (i % 2) as 0 | 1, at, i === 0))
   }
   let lo = 0
   let hi = g.length - 1

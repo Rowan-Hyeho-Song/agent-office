@@ -173,6 +173,7 @@ describe('gameAt', () => {
   it('block timing: >= 90% of sessions reach a result and the reset within 165 s', () => {
     const lens: number[] = []
     let within = 0
+    let second = 0
     const total = 200
     for (let sd = 0; sd < total; sd++) {
       const pl: [string, string] = [`agent_${sd % 4}`, `agent_${(sd + 1 + ((sd >> 2) % 3)) % 4}`]
@@ -180,7 +181,10 @@ describe('gameAt', () => {
       let t0 = 0
       for (let t = 0; t <= 400000; t += 500) {
         const v = gameAt(sd * 7 + 1, pl, t)
-        if (v.game > 0) break
+        if (v.game > 0) {
+          if (t <= 165000) second++
+          break
+        }
         if (v.phase === 'reset' && (v.resetT01 ?? 0) >= 0.999) end = t
         if (v.phase === 'won' && t0 === 0) t0 = t
       }
@@ -191,13 +195,28 @@ describe('gameAt', () => {
     lens.sort((a, b) => a - b)
     const med = lens[total >> 1] / 1000
     const pct = (within / total) * 100
-    console.log(`omok median game+reaction+reset ${med} s, within 165 s: ${pct}%`)
+    console.log(`omok median game+reaction+reset ${med} s, within 165 s: ${pct}%, second game starts in ${(second / total) * 100}%`)
     expect(pct).toBeGreaterThanOrEqual(90)
+  })
+  it('a second game starts from an empty board with swapped colours, and seeking across games is deterministic', () => {
+    let sd = 0
+    let tStart = -1
+    for (; sd < 40 && tStart < 0; sd++) {
+      for (let t = 0; t <= 165000; t += 500) if (gameAt(sd, players, t).game === 1) { tStart = t; break }
+    }
+    sd--
+    expect(tStart).toBeGreaterThan(0)
+    const v = gameAt(sd, players, tStart)
+    expect(v.moveIndex).toBe(0)
+    expect(v.black).toBe(1)
+    const direct = gameAt(sd, players, tStart + 20000)
+    for (let t = 0; t <= tStart + 20000; t += 700) gameAt(sd, players, t)
+    expect(gameAt(sd, players, tStart + 20000)).toEqual(direct)
   })
   it('the opening is on the board at t=0, legal and undecided', () => {
     for (let sd = 0; sd < 50; sd++) {
       const v = gameAt(sd, players, 0)
-      expect(v.moveIndex).toBeGreaterThanOrEqual(5)
+      expect(v.moveIndex).toBeGreaterThanOrEqual(6)
       expect(v.moveIndex).toBeLessThanOrEqual(10)
       expect(v.phase).toBe('thinking')
     }
