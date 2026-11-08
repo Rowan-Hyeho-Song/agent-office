@@ -1230,41 +1230,114 @@ def camera_side(x, z):
     return UP.cross(c).normalized(), c
 
 
+FIG_GREENS = ("#2f5a2e", "#5d8a4f", "#7fae55", "#a9c48a")  # top (leathery, a little gloss), underside, young top leaves (lime), veins
+
+
+def fig_outline(rng):
+    """a fiddle (violin) leaf in leaf units (#156, office-quality.md 0.5): narrow rounded base, a waist in the lower 40%,
+    the upper two thirds broad and round, a blunt tip; length : width about 1.4; the edge in a gentle wave (3–5 mm on
+    a 28 cm leaf). Midrib + 7 pairs of side veins curving up to the edge."""
+    def half(u):
+        w = 0.06 + 0.16 * math.sin(math.pi * min(1.0, u / 0.3) / 2) ** 0.8  # the base rounding out
+        w -= 0.05 * math.exp(-((u - 0.36) / 0.11) ** 2)  # the waist
+        w += 0.13 * math.exp(-((u - 0.72) / 0.19) ** 2)  # the broad top
+        w *= min(1.0, (1.0 - u) / 0.12) ** 0.55  # the blunt rounded tip
+        return max(0.0, w)
+    ph = rng.uniform(0, 6.28)
+    n = 28
+    us = [0.02 + 0.98 * k / n for k in range(n + 1)]
+    right = [Vector((u, half(u) * (1 + 0.04 * math.sin(u * 31 + ph)))) for u in us]
+    left = [Vector((u, -half(u) * (1 + 0.04 * math.sin(u * 29 + ph + 1.7)))) for u in us]
+    outer = [Vector((0.0, 0.0))] + right[:-1] + [Vector((1.0, 0.0))] + list(reversed(left[:-1]))
+    veins = [[Vector((0.02, 0.0)), Vector((0.95, 0.0))]]
+    for k in range(7):
+        u0 = 0.12 + 0.105 * k
+        for sgn in (1, -1):
+            u1 = min(0.95, u0 + 0.13)
+            veins.append([Vector((u0, 0.0)), Vector((u1, sgn * half(u1) * 0.8))])
+    return outer, [], veins
+
+
 def fiddle_fig(name, x, z, group):
-    """corner: fiddle-leaf fig 1.5 m; glazed charcoal pot (38 cm) with an unglazed foot band on a saucer, pebbles and
-    bark chips; trunk + two branches; 44 violin leaves 20–30 cm with a pale midrib, each on its own short petiole,
-    pointing into the room more than at the corner walls (#126, upper end of office-quality.md 3)"""
-    PRNG.seed(f"126:{name}")  # each plant its own stream: changing one leaves the others as they are
+    """corner: fiddle-leaf fig 1.5 m in a glazed charcoal pot (38 cm) with an unglazed foot band on a saucer, pebbles
+    and bark chips. #156 (user + designer, office-quality.md 0.5): a grey-brown trunk bare to 45% with leaf-scar
+    rings, splitting at about half height into three (the leader + two branches 30–45° out); on each stem's upper
+    half the leaves alternate in a spiral (137.5°): young lime leaves near upright at the top, the big leaves (25–30
+    cm) 30–60° up in the middle, the lower ones level or a little down; a pointed terminal bud on every tip. Violin
+    leaves on 2–4 cm petioles, cupped up, the tip dipping. Leaves toward the corner walls short and steep."""
+    PRNG.seed(f"156:{name}")  # each plant its own stream: changing one leaves the others as they are
     pot, sy = pot3(name, x, z, 0.02, 0.19, 0.15, 0.36, plastic("#33363d", 0.25, 0, 0.05, "pot_charcoal_glaze"), group,
                    saucer=True, pebbles=5, chips=8, foot=plastic("#8e8478", 0.9, 0, 0.3, "pot_bisque_dark"))
-    bark = plastic("#5a4632", 0.85, 0, 0.5, "bark")
-    trunk = [Vector((x, sy, z)), Vector((x - 0.02, 0.75, z - 0.01)), Vector((x - 0.05, 1.15, z - 0.03)), Vector((x - 0.04, 1.45, z - 0.05))]
-    br1 = [trunk[1] + Vector((0, 0.08, 0)), Vector((x - 0.14, 1.02, z - 0.06)), Vector((x - 0.21, 1.22, z - 0.1))]
-    br2 = [trunk[2], Vector((x + 0.02, 1.25, z - 0.14)), Vector((x + 0.01, 1.4, z - 0.2))]
-    stems = [lowrail(f"{name}_trunk", [tuple(p) for p in trunk], 0.018, bark, group),
+    bark = plastic("#6b5e52", 0.85, 0, 0.5, "fig_bark")
+    scar = plastic("#8d8072", 0.85, 0, 0.4, "fig_scar")
+    bud_m = plastic("#a7b97a", 0.7, 0, 0.3, "fig_bud")
+    stalk = plastic("#5d8a4f", 0.7, 0, 0.2, "fig_petiole")
+    H = 1.5
+    fork = Vector((x - 0.01, 0.74, z - 0.005))  # about half height
+    room = Vector((-0.3, 0.0, -1.0)).normalized()  # into the room, away from the corner walls and the floor lamp (−x)
+    walls = Vector((1.0, 0.0, 1.0)).normalized()  # toward the two walls (+x, +z)
+
+    def branch(az, spread, length):
+        d = Vector((math.cos(az), 0.0, math.sin(az)))
+        a = math.radians(spread)
+        mid = fork + (UP * math.cos(a * 0.6) + d * math.sin(a * 0.6)) * (length * 0.5)
+        return [fork, mid, mid + (UP * math.cos(a) + d * math.sin(a)) * (length * 0.5)]
+
+    leader = [Vector((x, sy, z)), fork, Vector((x - 0.03, 1.12, z - 0.03)), Vector((x - 0.04, H, z - 0.05))]
+    ra = math.atan2(room.z, room.x)
+    br1 = branch(ra - 0.55, 40, 0.62)
+    br2 = branch(ra + 0.75, 34, 0.56)
+    stems = [lowrail(f"{name}_trunk", [tuple(p) for p in leader], 0.018, bark, group),
              lowrail(f"{name}_branch", [tuple(p) for p in br1], 0.011, bark, group),
              lowrail(f"{name}_branch", [tuple(p) for p in br2], 0.011, bark, group)]
-    stalk = plastic(GREENS[1], 0.7, 0, 0.2, "fig_petiole")
-    fol = Foliage(f"{name}_leaves")
-    room = Vector((-0.55, 0.0, -1.0)).normalized()  # from the corner toward the room, a little away from the floor lamp (−x)
-    for path, count in ((trunk[1:], 20), (br1[1:], 12), (br2[1:], 12)):
+    for k in range(6):  # leaf scars: pale rings round the bare trunk
+        y = sy + 0.06 + (fork.y - sy - 0.1) * (k + PRNG.uniform(0.1, 0.6)) / 6
+        stems.append(torus(f"{name}_scar", 0.0185, 0.0016, (x - 0.01 * (y - sy) / (fork.y - sy), y, z), scar, group, seg=14, rseg=4))
+    fol = Foliage(f"{name}_leaves", colors=FIG_GREENS, under=(1, 1, 2, 3))
+    fol.mats[0] = plastic(FIG_GREENS[0], 0.6, 0, 0.1, "fig_leaf_top")  # a little gloss (leathery)
+    fol.vein = fol.mats[3]
+    golden = math.radians(137.5)
+
+    def at_path(path, u):
+        seg = min(int(u * (len(path) - 1)), len(path) - 2)
+        f = u * (len(path) - 1) - seg
+        return path[seg].lerp(path[seg + 1], f), (path[seg + 1] - path[seg]).normalized()
+
+    # (stem, leaves, where the leafy part starts along the path)
+    for path, count, u0 in ((leader[1:], 15, 0.42), (br1, 15, 0.45), (br2, 14, 0.45)):
+        phi = PRNG.uniform(0, 6.28)
         for k in range(count):
-            u = 0.15 + 0.85 * (k + PRNG.uniform(0.2, 0.8)) / count  # the upper part of each stem: bare low down
-            seg = min(int(u * (len(path) - 1)), len(path) - 2)
-            f = u * (len(path) - 1) - seg
-            at = path[seg].lerp(path[seg + 1], f)
-            yaw = PRNG.uniform(-1.6, 1.6)  # around the room direction: few leaves point into the corner
-            out = Vector((room.x * math.cos(yaw) - room.z * math.sin(yaw), 0.0, room.x * math.sin(yaw) + room.z * math.cos(yaw)))
-            elev = PRNG.uniform(0.45, 1.05)  # held up and out, as the fig does
-            d = (out * math.cos(elev) + UP * math.sin(elev)).normalized()
-            side = UP.cross(out).normalized()
-            roll = PRNG.uniform(-1.0, 1.0)  # turned about the midrib so the leaves face every way, not all flat
-            side = side * math.cos(roll) + d.cross(side) * math.sin(roll)
-            base = at + (out * 0.75 + UP * 0.65).normalized() * 0.035  # a 3.5 cm petiole from the stem
+            t = (k + PRNG.uniform(0.2, 0.8)) / count  # 0 = the lowest leaf on this stem, 1 = the tip
+            at, along = at_path(path, u0 + (0.97 - u0) * t)
+            phi += golden
+            out = Vector((math.cos(phi), 0.0, math.sin(phi)))
+            out = (out + room * 0.5).normalized()
+            wall = max(0.0, out.dot(walls))  # 1 = straight at the corner
+            if t > 0.76:  # top: young leaves, lime, near upright
+                size, up = PRNG.uniform(0.12, 0.18), PRNG.uniform(60, 88)
+                mi = 2
+            elif t > 0.33:  # middle: the big leaves, 30–60° up
+                size, up = PRNG.uniform(0.25, 0.3), PRNG.uniform(30, 60)
+                mi = 0
+            else:  # lower: level to 15° down
+                size, up = PRNG.uniform(0.22, 0.28), PRNG.uniform(-15, 5)
+                mi = 0
+            size *= (1.0 - 0.35 * wall) * (1.0 - 0.3 * max(0.0, out.x))  # toward the walls (the e wall is the nearer): shorter
+            up = up + (90 - up) * 0.5 * wall  # and steeper
+            plen = PRNG.uniform(0.02, 0.04)
+            pa = math.radians(PRNG.uniform(40, 60))  # the petiole leaves the stem at 40–60°
+            base = at + (along * math.cos(pa) + out * math.sin(pa)) * plen
             stems.append(petiole(f"{name}_petiole", at, base, stalk, group))
-            ribbed(fol, base, d, side, PRNG.uniform(0.21, 0.29), [(0.33, 0.28), (0.72, 0.34)],
-                   fold=0.15, droop=PRNG.uniform(0.1, 0.3), mi=fol.green())
-    return pot + stems + [fol.obj(group)]
+            laid_leaf(fol, base, out, -up, size, mi, fig_outline(PRNG), fold=PRNG.uniform(10, 15), droop=PRNG.uniform(8, 16),
+                      curve=0.3, sub=0.12, veins_w=((0.006, 0.002, 4), (0.003, 0.001, 2)))
+    for path in (leader, br1, br2):  # the terminal bud: a pointed sheath (stipule) on every tip
+        tip = path[-1]
+        d = (path[-1] - path[-2]).normalized()
+        stems.append(segment(f"{name}_bud", tuple(tip), tuple(tip + d * PRNG.uniform(0.03, 0.04)), 0.006, bud_m, group, verts=8, r2=0.0008))
+    leaves = fol.obj(group)
+    for p in leaves.data.polygons:
+        p.use_smooth = True
+    return pot + stems + [leaves]
 
 
 def sansevieria(name, x, z, group):
@@ -1402,14 +1475,20 @@ def orient(pts, ids, up):
 
 
 def monstera_leaf(fol, attach, out, tilt, size, mi, splits=0, holes=False, fold=12.0, droop=20.0, rng=None):
-    """a monstera leaf (#156): the 2D outline (leaf_outline), filled and subdivided, laid on a curved blade. It leaves
-    the petiole's knee at attach and runs outward (out, horizontal), tilted `tilt` degrees below the horizontal so
-    its face looks up and out; V-folded along the midrib (fold °) and gently rounded across; the tip third droops in
-    a curve (droop °). Smooth normals. Light veins (midrib + one per lobe) as strips just over the face."""
-    rng = rng or PRNG
+    """a monstera leaf (#156): its 2D outline (leaf_outline) laid on a curved blade (laid_leaf); tilt = the blade's
+    angle below the horizontal (the droop adds the last 8°)"""
+    laid_leaf(fol, attach, out, max(15.0, tilt - 8.0), size, mi, leaf_outline(splits, holes, rng or PRNG), fold, droop)
+
+
+def laid_leaf(fol, attach, out, tilt, size, mi, outline, fold=12.0, droop=20.0, curve=0.55, sub=0.07, veins_w=((0.009, 0.003, 8), (0.005, 0.0015, 4))):
+    """a leaf from a 2D outline (outer loop, hole loops, vein polylines; leaf units: u along the midrib from the
+    petiole 0 .. tip 1, v across), filled and subdivided, laid on a curved blade (#156). It leaves the petiole at
+    attach and runs outward (out, horizontal), `tilt` degrees below the horizontal (negative: above); V-folded along
+    the midrib (fold °) and rounded across (curve); the tip third droops in a curve (droop °). Smooth normals. Light
+    veins as strips just over the face: veins_w = (start width, end width, segments) for the midrib, then the rest."""
     out = Vector((out.x, 0.0, out.z)).normalized()
     side = UP.cross(out).normalized()
-    a = math.radians(max(15.0, tilt - 8.0))
+    a = math.radians(tilt)
     d0 = (out * math.cos(a) - UP * math.sin(a)).normalized()
     n0 = side.cross(d0).normalized()
     if n0.y < 0:
@@ -1437,10 +1516,10 @@ def monstera_leaf(fol, attach, out, tilt, size, mi, splits=0, holes=False, fold=
             f = x - k
             c, d, n = cs[k].lerp(cs[k + 1], f), ds[k].lerp(ds[k + 1], f).normalized(), ns[k].lerp(ns[k + 1], f).normalized()
         w = abs(v)
-        h = w * tf - 0.55 * w * w  # V at the midrib, rounding down toward the edge
+        h = w * tf - curve * w * w  # V at the midrib, rounding down toward the edge
         return c + side * (v * size) + n * (h * size + lift)
 
-    outer, hole_loops, veins = leaf_outline(splits, holes, rng)
+    outer, hole_loops, veins = outline
     # fill the outline in 2D, then add interior points so the blade can curve
     bm = bmesh.new()
     edges = []
@@ -1448,7 +1527,7 @@ def monstera_leaf(fol, attach, out, tilt, size, mi, splits=0, holes=False, fold=
         vs = [bm.verts.new((p.x, p.y, 0.0)) for p in loop]
         edges += [bm.edges.new((vs[i], vs[(i + 1) % len(vs)])) for i in range(len(vs))]
     bmesh.ops.triangle_fill(bm, use_beauty=True, use_dissolve=False, edges=edges)
-    long = [e for e in bm.edges if e.calc_length() > 0.07 and not e.is_boundary]
+    long = [e for e in bm.edges if e.calc_length() > sub and not e.is_boundary]
     if long:
         bmesh.ops.subdivide_edges(bm, edges=long, cuts=1, use_grid_fill=False)
         bmesh.ops.triangulate(bm, faces=bm.faces[:])
@@ -1461,8 +1540,7 @@ def monstera_leaf(fol, attach, out, tilt, size, mi, splits=0, holes=False, fold=
     # veins: thin light strips 0.4 mm over the face
     vm = fol.mat(fol.vein) if hasattr(fol, "vein") else mi
     for k, (A, B) in enumerate(veins):
-        w0, w1 = (0.009, 0.003) if k == 0 else (0.005, 0.0015)
-        segs = 8 if k == 0 else 4
+        w0, w1, segs = veins_w[0] if k == 0 else veins_w[1]
         vp, vf = [], []
         for s in range(segs + 1):
             q = A.lerp(B, s / segs)
@@ -2524,6 +2602,8 @@ if PREVIEW:
         # #126: the plants where #109 put them
         # (seen along the default camera, as the visitor does: the monstera faces it)
         "q_plant_corner": ((2.7, 1.6, 1.9), (4.22, 0.95, 3.18)),
+        "q_fig_front": ((3.2, 1.25, 1.95), (4.15, 1.05, 3.05)),  # #156: level with the canopy
+        "q_fig_high": ((2.75, 2.7, 1.55), (4.12, 1.1, 3.05)),  # #156: from above, as the default camera
         "q_plant_desk": ((0.95, 1.35, -1.85), (0.0, 0.75, -3.2)),
         "q_plant_sofa": ((2.05, 1.35, 3.74), (0.925, 0.6, 2.75)),
         "q_monstera_top": ((1.25, 1.75, 3.45), (0.905, 0.6, 2.75)),  # #156: from above and in front
