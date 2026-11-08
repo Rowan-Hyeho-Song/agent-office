@@ -92,7 +92,7 @@ SHELF_W, SHELF_D = 1.1, 0.34  # the bookshelf against the back wall: width, dept
 PLANTS = [  # name, species, x, z (#126: one species each, office-quality.md 3; plant_boards left out, designer)
     ("plant_desk", "sansevieria", 0.0, -3.2),  # between MESH's desk and the whiteboard: tall and narrow
     ("plant_corner", "fiddle_fig", 4.22, 3.18),  # its canopy (0.6 m) clears the floor lamp by 0.1 m
-    ("plant_sofa", "monstera", 0.925, 2.75),  # between the side table and the sofa: 0.44 m wide, leaves face the camera
+    ("plant_sofa", "monstera", 0.91, 2.75),  # between the side table and the sofa: 0.44 m wide (#156: leaves all round, short toward ±x)
 ]
 CLOCK_AT, CLOCK_S = (-HX + 0.02, 1.85, 1.6), 0.40  # wall clock face center (left wall, next to the door), size
 CLOCK_M = Mx((CLOCK_AT[0] + 0.01, CLOCK_AT[1], CLOCK_AT[2]), ry=math.pi / 2)  # the face front: local +z = web +x
@@ -1296,25 +1296,137 @@ def sansevieria(name, x, z, group):
     return pot + legs + [fol.obj(group)]
 
 
+def monstera_leaf(fol, attach, out, tilt, size, mi, splits=0, holes=False, fold=12.0, droop=20.0):
+    """a monstera leaf (#156, office-quality.md 0.4, real-plant photos): it leaves the petiole's knee at attach and
+    runs outward (out, horizontal) with the blade tilted `tilt` degrees below the horizontal, so its face looks up and
+    out. A heart: the base lobes round back past the knee. V-folded along the midrib (fold degrees each side); the tip
+    quarter droops (droop degrees). `splits` cuts per side, of uneven depth (50–85% of the half width), widening to
+    the edge; `holes`: one row of holes beside the midrib. The cuts taper to nothing at their root, so each surface is
+    one connected piece: one UV island a side."""
+    out = Vector((out.x, 0.0, out.z)).normalized()
+    side = UP.cross(out).normalized()  # across the leaf
+    a = math.radians(max(15.0, tilt - 10.0))  # the droop adds the rest: the blade as a whole sits at about tilt
+    d0 = (out * math.cos(a) - UP * math.sin(a)).normalized()  # along the midrib
+    nrm0 = side.cross(d0).normalized()  # the face (up and out)
+    if nrm0.y < 0:
+        side, nrm0 = -side, -nrm0
+    # the midrib as a curve: straight, then the tip quarter bending toward the back of the leaf (drooping)
+    T = 12
+    ts = [i / T for i in range(T + 1)]
+    centers, frames, p = [], [], attach.copy()
+    for i, t in enumerate(ts):
+        k = max(0.0, (t - 0.72) / 0.28)
+        ang = math.radians(droop) * k * k
+        dirn = (d0 * math.cos(ang) - nrm0 * math.sin(ang)).normalized()
+        if i:
+            p = p + dirn * size / T
+        centers.append(p.copy())
+        frames.append((dirn, side.cross(dirn).normalized() if side.cross(dirn).dot(nrm0) > 0 else dirn.cross(side).normalized()))
+
+    def half_w(t):
+        return size * 0.5 * math.sin(math.pi * min(1.0, 0.1 + 0.9 * t)) ** 0.7
+
+    fv = math.tan(math.radians(fold))
+
+    lobe_of = {}  # side -> station -> (start, end) of its lobe, for the rounded lobe edges
+
+    def pt(i, u, sgn):
+        """the point at station i, u = 0 (midrib) .. 1 (edge) on side sgn"""
+        t = ts[i]
+        c, (dirn, n) = centers[i], frames[i]
+        w = half_w(t) * u
+        a0, a1 = lobe_of.get(sgn, {}).get(i, (None, None))
+        if a0 is not None and u > 0.5:  # each lobe bulges: its edge is round between two cuts, a finger tip
+            f = math.sin(math.pi * (i - a0) / max(1, a1 - a0))
+            w *= 1.0 - 0.14 * (1.0 - f) * (u - 0.5) / 0.5
+        back = dirn * (size * 0.24 * (1 - t) ** 3 * u)  # the heart's base lobes reach back past the knee
+        return c + side * (sgn * w) - back + n * (w * fv)
+
+    pts, faces = [], []
+    index = {}
+
+    def v(i, u, sgn, key=None):
+        key = key or (i, round(u, 4), sgn)
+        if key not in index:
+            index[key] = len(pts)
+            pts.append(pt(i, u, sgn))
+        return index[key]
+
+    for sgn in (1, -1):
+        # lobe boundaries (station indices) for this side: uneven, the base lobe and the tip lobe whole
+        if splits:
+            cuts = sorted(set(min(T - 2, max(2, round(T * (0.12 + 0.76 * (j + PRNG.uniform(0.25, 0.75)) / splits)))) for j in range(splits)))
+        else:
+            cuts = []
+        depth = {c: PRNG.uniform(0.5, 0.85) for c in cuts}
+        bounds = [0] + cuts + [T]
+        lobe_of[sgn] = {i: (b0, b1) for b0, b1 in zip(bounds, bounds[1:]) for i in range(b0, b1 + 1)} if cuts else {}
+        us = [0.0, 0.16, 0.3, 0.5, 0.7, 1.0]
+        for i in range(T):
+            for j in range(len(us) - 1):
+                u0, u1 = us[j], us[j + 1]
+                # a hole: the band beside the midrib, inside a lobe, away from the cuts (big leaves)
+                if holes and j == 1 and 3 <= i <= T - 4 and i % 3 == 0:
+                    continue
+                q = [v(i, u0, sgn), v(i, u1, sgn), v(i + 1, u1, sgn), v(i + 1, u0, sgn)]
+                # a cut runs in along station line i+1 (between faces i and i+1): beyond its depth the two sides part
+                cut = cuts and (i + 1) in depth and u1 > depth[i + 1] + 1e-6
+                cut_prev = cuts and i in depth and u1 > depth[i] + 1e-6
+                if cut:  # this face's far edge: its own vertices, pulled back toward station i (the cut opens)
+                    for slot, uu in ((2, u1), (3, u0)):
+                        if uu > depth[i + 1] + 1e-6:
+                            g = 0.16 * (uu - depth[i + 1]) / (1 - depth[i + 1])
+                            pts.append(pts[v(i + 1, uu, sgn)].lerp(pts[v(i, uu, sgn)], g))
+                            q[slot] = len(pts) - 1
+                if cut_prev:  # this face's near edge: pulled forward toward station i+1
+                    for slot, uu in ((0, u0), (1, u1)):
+                        if uu > depth[i] + 1e-6:
+                            g = 0.16 * (uu - depth[i]) / (1 - depth[i])
+                            pts.append(pts[v(i, uu, sgn)].lerp(pts[v(i + 1, uu, sgn)], g))
+                            q[slot] = len(pts) - 1
+                faces.append(tuple(q) if sgn < 0 else tuple(reversed(q)))
+    fol.surface(pts, faces, [mi] * len(faces), nrm0)
+
+
 def monstera(name, x, z, group):
-    """by the sofa: a young monstera 0.9 m in terracotta (a darker water-stained foot band, pebbles, bark chips) on a
-    saucer; 7 split-heart leaves on long petioles, each petiole running from the soil into its leaf's base notch,
-    all facing the default camera, spread along z (the gap is narrow in x); undersides one green lighter"""
-    PRNG.seed(f"126:{name}")  # each plant its own stream: changing one leaves the others as they are
+    """by the sofa: a monstera 0.9 m in terracotta (a darker water-stained foot band, pebbles, bark chips) on a
+    saucer. #156 (designer, office-quality.md 0.4, real-plant photos): petioles rise straight from the soil and arc
+    outward 25–40° in their top third (0.35–0.6 m, each its own, tapering); at the knee the blade tips back, 30–55°
+    below the horizontal, so the leaves look up and out, spread all round (only 2–3 face the camera). Leaves:
+    3 large (0.3 m, 5–7 cuts a side, a row of holes), 3 medium, 2 young ones (0.15 m, whole) and a rolled new shoot."""
+    PRNG.seed(f"156:{name}")  # each plant its own stream: changing one leaves the others as they are
     pot, sy = pot3(name, x, z, 0.02, 0.14, 0.11, 0.26, plastic("#b5654a", 0.85, 0, 0.3, "terracotta"), group, saucer=True,
                    pebbles=4, chips=6, foot=plastic("#96523d", 0.9, 0, 0.3, "terracotta_dark"))
     stem_m = plastic(GREENS[1], 0.7, 0, 0.2, "petiole")
     side, cam = camera_side(x, z)
+    cam_a = math.atan2(cam.z, cam.x)
     fol = Foliage(f"{name}_leaves")
     stems = []
-    for k, (dz, h, tilt) in enumerate(((-0.22, 0.62, 0.35), (-0.08, 0.84, 0.15), (0.06, 0.7, 0.25), (0.2, 0.88, 0.1),
-                                       (0.3, 0.55, 0.45), (-0.3, 0.5, 0.5), (0.12, 0.98, 0.05))):
-        attach = Vector((x + PRNG.uniform(-0.04, 0.04), h, z + dz))
-        mid = Vector((x, sy + (h - sy) * 0.55, z + dz * 0.4))
-        stems.append(lowrail(f"{name}_petiole", [(x + PRNG.uniform(-0.02, 0.02), sy, z + PRNG.uniform(-0.02, 0.02)), tuple(mid), tuple(attach)],
-                             0.006, stem_m, group))
-        d = (UP * math.cos(tilt) + cam * math.sin(tilt) * 0.6 + Vector((0, 0, dz)) * 0.8).normalized()  # up, a bit out
-        split_heart(fol, attach, d, side, PRNG.uniform(0.24, 0.3), fol.green())
+    # (azimuth from the camera direction °, petiole length m, arc °, blade tilt °, size m, cuts, holes)
+    LEAVES = [(-15, 0.52, 32, 38, 0.3, 6, True), (20, 0.44, 28, 45, 0.29, 7, True), (150, 0.58, 36, 34, 0.3, 5, True),
+              (75, 0.4, 38, 50, 0.22, 5, False), (-95, 0.47, 30, 42, 0.23, 6, False), (-150, 0.36, 40, 52, 0.21, 5, False),
+              (110, 0.3, 26, 30, 0.15, 0, False), (-55, 0.33, 30, 35, 0.15, 0, False)]
+    for az, length, arc, tilt, size, cuts, holes in LEAVES:
+        a = cam_a + math.radians(az + PRNG.uniform(-8, 8))
+        out = Vector((math.cos(a), 0.0, math.sin(a)))
+        # x is tight between the side table and the sofa: leaves toward ±x reach less (they rise steeper instead)
+        f = abs(out.z)  # 1 = along the gap (z), 0 = toward the sofa / the side table (x)
+        reach = 0.25 + 0.75 * f
+        base = Vector((x, sy, z)) + out * 0.02 + side * PRNG.uniform(-0.015, 0.015)
+        straight = base + UP * (length * 0.62)
+        arc_r = math.radians(arc)
+        pts = [base, base + UP * (length * 0.32), straight]
+        for k in (1, 2, 3):  # the top third arcs outward
+            ak = arc_r * k / 3
+            pts.append(pts[-1] + (UP * math.cos(ak) + out * math.sin(ak) * reach) * (length * 0.38 / 3))
+        stems.append(lowrail(f"{name}_petiole", [tuple(q) for q in pts], 0.0065 * (size / 0.3) ** 0.5, stem_m, group))
+        monstera_leaf(fol, pts[-1], out, tilt + (1 - f) * 18, size * (0.7 + 0.3 * f), 0 if size > 0.25 else (1 if size > 0.2 else 2), splits=cuts, holes=holes,
+                      fold=PRNG.uniform(10, 15), droop=PRNG.uniform(15, 25))
+    # the new shoot: a rolled leaf, pale, standing up out of the middle on its own short petiole
+    tip = Vector((x, sy + 0.32, z)) + cam * 0.01
+    stems.append(lowrail(f"{name}_petiole", [(x, sy, z), (x, sy + 0.18, z), tuple(tip)], 0.005, stem_m, group))
+    stems.append(segment(f"{name}_shoot", tuple(tip), tuple(tip + (UP + cam * 0.15).normalized() * 0.11), 0.012,
+                         plastic(GREENS[2], 0.8, 0, 0.2, "shoot"), group, verts=8, r2=0.002))
     return pot + stems + [fol.obj(group)]
 
 
@@ -2102,8 +2214,8 @@ for o, kind in lib:
 print(f"library: {sum(len(p.vertices) - 2 for o, _ in lib for p in o.data.polygons)} triangles, {len(lib)} nodes")
 lounge, shade, lamp_pos = build_lounge()
 baked(lounge, "lounge")
-for o in PLANT_NODES:  # #126: leaves are near flat colour; half the texel density saves the atlas (office-quality.md 4)
-    baked(o, "lounge", density=0.5)
+for o in PLANT_NODES:  # #156: full texel density (half density left dark blotches on the leaves, office-quality.md 0)
+    baked(o, "lounge")
 live(shade, "neon")
 for o in build_props():
     live(o, "prop")
@@ -2311,6 +2423,8 @@ if PREVIEW:
         "q_plant_corner": ((2.7, 1.6, 1.9), (4.22, 0.95, 3.18)),
         "q_plant_desk": ((0.95, 1.35, -1.85), (0.0, 0.75, -3.2)),
         "q_plant_sofa": ((2.05, 1.35, 3.74), (0.925, 0.6, 2.75)),
+        "q_monstera_top": ((1.25, 1.75, 3.45), (0.91, 0.6, 2.75)),  # #156: from above and in front
+        "q_monstera_low": ((0.6, 0.85, 3.45), (0.925, 0.6, 2.75)),
         "q_vine": ((3.25, 2.25, -1.95), (4.0, 1.95, -3.2)),
         "q_succulent": ((-3.55, 1.15, -0.9), (-4.32, 0.8, -1.36)),
         "q_sofa": ((-0.75, 1.35, 0.85), (0.35, 0.4, 2.15)),
