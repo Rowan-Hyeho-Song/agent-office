@@ -1,5 +1,5 @@
 import { Html } from '@react-three/drei'
-import { useFrame } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BufferGeometry, Color, Float32BufferAttribute, Line, LineBasicMaterial, LineSegments, type Group, type Mesh } from 'three'
 import { buildGraph, patchSpots, type NavGraph } from './nav'
@@ -7,6 +7,7 @@ import { checkNav, edgeKey } from './navcheck'
 import { meshesOf, useOffice } from './nodes'
 import { DeskLive } from './deskLive'
 import { PaperPlanes } from './plane'
+import { ScreenLive } from './screenLive'
 import { deskProps } from './props'
 import { AgentRig, PropBank, buildRig } from './rig'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
@@ -55,6 +56,14 @@ export function Agents({ world }: { world: OfficeWorld }) {
   const props = useMemo(() => (scene.userData.props ??= new PropBank(scene, nodes)) as PropBank, [scene, nodes])
   // the LIVE desk props (#44): what each desk shows about its agent
   const desks = useMemo(() => new DeskLive(nodes), [nodes])
+  // the work monitors (#75); ?debug=1&screens=off leaves them blank (the frame-cost baseline)
+  const maxAniso = useThree((s) => s.gl.capabilities.getMaxAnisotropy())
+  const screens = useMemo(
+    () => (world.debug && new URLSearchParams(location.search).get('screens') === 'off' ? null : new ScreenLive(nodes, maxAniso)),
+    [world, nodes, maxAniso],
+  )
+  world.screens.counters = () => ({ uploads: screens?.uploads ?? 0, fullDraws: screens?.fullDraws ?? 0, stripDraws: screens?.stripDraws ?? 0, ms: screens?.ms ?? 0 })
+  world.screens.centers = () => screens?.monitors.map((m) => m.sphere.center.toArray()) ?? []
   // handoffs between agents fly as a paper plane (#51)
   const planes = useMemo(() => (scene.userData.planes ??= new PaperPlanes(props, nodes)) as PaperPlanes, [scene, props, nodes])
   world.planes = planes
@@ -88,6 +97,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
     planes.update(state.clock.elapsedTime, graph, rigs, reduced)
     props.update(Math.min(dt, 0.1))
     desks.update(desk, t, Math.min(dt, 0.1), reduced)
+    screens?.update({ t, now, status, reduced, camera: state.camera, forced: world.debug ? world.screens.force : undefined })
   })
 
   return (
