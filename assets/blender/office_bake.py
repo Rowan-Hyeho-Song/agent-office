@@ -1937,7 +1937,8 @@ def build_props():
     e = bpy.data.objects.new("prop_watering_can_spout", None)
     coll("export").objects.link(e)
     e.parent = can
-    e.matrix_world = can.matrix_world @ Mx((0.212, -0.06, 0.0), 0.0, math.pi / 2, a)
+    # local +z along the spout (up and out): from the direction itself (an Euler here lost the upward tilt, #184)
+    e.matrix_world = can.matrix_world @ Matrix.Translation(W(0.212, -0.06, 0.0)) @ wv((math.cos(a), math.sin(a), 0.0)).to_track_quat("Z", "Y").to_matrix().to_4x4()
     NODES.append({"obj": e, "play": "spout"})
     # omok stones in the hand (#135: the chess pieces became go stones): a = black, b = white, home on the heap in
     # its bowl, next to the sample stone. Center pivot, held in the pinch ("OK hand", agents.md 2.7): the point where
