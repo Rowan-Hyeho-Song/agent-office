@@ -4,7 +4,7 @@ import { CanvasTexture, Color, Group, Mesh, MeshBasicMaterial, PlaneGeometry, SR
 import { boardColors, drawBoard, font } from '../board/draw'
 import { BH, BW, FS_L, FS_S, layoutBoard, type BoardLayout, type CardLayout, type Measure } from '../board/layout'
 import type { BoardState } from '../board/state'
-import { openDocs } from './docs/panel'
+import { getDocsPanel, openDocs } from './docs/panel'
 import { useCanvasPick } from './pick'
 import type { OfficeWorld } from './world'
 
@@ -41,6 +41,10 @@ export function Whiteboard({ world, scene }: { world: OfficeWorld; scene: Object
     void Promise.all([document.fonts?.load(font(FS_L, true)), document.fonts?.load(font(FS_S))]).then(() => alive && rig?.show(store.getSnapshot(), true))
     return () => void (alive = false)
   }, [rig, store])
+  useEffect(() => {
+    // debug: lets a screenshot script read which file a click asked for
+    if (world.debug) (window as unknown as { __docsPanel: typeof getDocsPanel }).__docsPanel = getDocsPanel
+  }, [world])
   useFrame((_, dt) => rig?.tick(dt))
   useCanvasPick(
     () => rig?.targets ?? [],

@@ -41,3 +41,6 @@ export function openFromHash(): boolean {
   if (ref) openDocs(ref)
   return !!ref
 }
+
+/** the current panel state (debug and tests read what a click asked for) */
+export const getDocsPanel = () => state
