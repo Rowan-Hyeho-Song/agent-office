@@ -175,6 +175,11 @@ export function placeBubbles(items: PlaceInput[], view: PlaceView): Record<strin
       }
       if (!moved) break
     }
+    // stacked past the safe line by more than the stacking gap (designer, #107): hang it below the head instead
+    if (p.dir === 'up' && cardRect(cur, p).top < top - BUBBLE.gap) {
+      p.dir = 'down'
+      p.stack = 0
+    }
   }
   return out
 }
