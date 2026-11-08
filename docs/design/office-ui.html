@@ -353,7 +353,7 @@ body.embed[data-embed='mobile'] .stage { grid-template-columns: 1fr; }
   <div class="rules">
     <div class="rule"><b>문 너머 = 책상 방 단말기</b>문 화면은 책상 방 단말기 OS의 호박색 형광·이중선 프레임·반전 제목 표시줄(<code>DESK.LNK</code>)을 그대로 입었다. “이 문은 저쪽으로 간다”를 색으로 말한다.</div>
     <div class="rule"><b>hover = 네온</b>책상 방 규칙(“네온이 보이면 누를 수 있다”)대로 테두리·화살표·안내가 청록으로 바뀌고 화살표가 왼쪽으로 한 칸씩 밀린다. 커서는 pointer.</div>
-    <div class="rule"><b>누른 직후 = 브라운관 꺼짐</b>한 번 번쩍(호박색 60%) → 세로로 접혀 가로선 → 점. 책상 방 START가 접히는 동작과 같은 말. 0.45초 뒤 퇴장 애니메이션에 넘긴다. 번쩍임은 한 번뿐(초당 3회 기준 아래).</div>
+    <div class="rule"><b>누른 직후 = 문으로 들어감</b>한 번 번쩍(호박색 60%, 80ms)하고 화면은 켜진 채. 그동안 오피스 카메라가 이 화면으로 파고들고(0.7초), 책상 방이 CRT 되감기를 이어받는다(rowansong.dev #6). 처음 안의 세로 접힘은 뺐다. 번쩍임은 한 번뿐(초당 3회 기준 아래).</div>
   </div>
   <div class="doors" id="door-cards"></div>
   <p class="note">평소 카드에 마우스를 올리면 hover, 누르면 누른 직후 상태를 그 자리에서 볼 수 있다. 큰 그림은 1/4 크기, 작은 그림은 기본 카메라 거리(약 12 m, 1/8)에서 보이는 크기.</p>
@@ -746,7 +746,6 @@ function buildMonitors() {
 
 /* ═════════════ 3. 출입문 캔버스 ═════════════ */
 const DW = 820, DH = 1823
-const doorBuf = document.createElement('canvas'); doorBuf.width = DW; doorBuf.height = DH
 function drawDoorContent(ctx, hover, t, reduced) {
   const bg = T('--door-bg'), ph = T('--door-phosphor'), dim = T('--door-phosphor-dim'), hv = T('--door-hover'), ink = T('--color-ink')
   const fsS = N('--door-fs-s'), fsL = N('--door-fs-l'), ic = N('--door-icon')
@@ -792,29 +791,17 @@ function drawDoor(ctx, state, t, reduced) {
   if (p < 0.18) { // 한 번 번쩍
     drawDoorContent(ctx, true, 0, false)
     ctx.fillStyle = alpha(ph, 0.6 * (1 - p / 0.18)); ctx.fillRect(0, 0, DW, DH)
-  } else if (p < 0.75) { // 세로로 접힘
-    drawDoorContent(doorBuf.getContext('2d'), true, 0, false)
-    const k = (p - 0.18) / 0.57, sy = Math.max(0.004, 1 - k * k)
-    const h = DH * sy
-    ctx.drawImage(doorBuf, 0, (DH - h) / 2, DW, h)
-    ctx.fillStyle = alpha(ph, 0.35 * k); ctx.fillRect(0, (DH - h) / 2, DW, h)
-  } else if (p < 1) { // 가로선 → 점
-    const k = (p - 0.75) / 0.25, w = Math.max(10, DW * (1 - k))
-    ctx.shadowColor = ph; ctx.shadowBlur = 24; ctx.fillStyle = ph
-    ctx.fillRect((DW - w) / 2, DH / 2 - 4, w, 8); ctx.shadowBlur = 0
-  } else if (p < 1.6) {
-    const k = (p - 1) / 0.6
-    ctx.fillStyle = alpha(ph, 1 - k); ctx.fillRect(DW / 2 - 5, DH / 2 - 5, 10, 10)
+  } else { // 켜진 채로 둔다: 카메라가 이 화면으로 파고든다(#68 · rowansong.dev #6 X1)
+    drawDoorContent(ctx, true, 0, false)
   }
 }
-
 const doorViews = []
 function buildDoors() {
   const host = document.getElementById('door-cards')
   const defs = [
     { state: 'idle', title: '평소', desc: '호박색 형광 단말기. 큰 화살표와 “책상으로”는 전경 거리에서도 덩어리로 읽힌다.' },
     { state: 'hover', title: 'hover (누를 수 있음)', desc: '테두리·제목 표시줄·화살표·안내가 청록 네온으로. 화살표가 왼쪽으로 한 칸씩.' },
-    { state: 'press', title: '누른 직후', desc: '번쩍 → 접힘 → 점 (0.45초). 끝나면 퇴장 애니메이션(카메라)에 넘긴다. 시안은 2.4초마다 다시 재생.' },
+    { state: 'press', title: '누른 직후', desc: '한 번 번쩍(80ms)하고 켜진 채. 실제로는 그동안 카메라가 이 화면으로 파고든다(0.7초). 시안은 2.4초마다 다시 재생.' },
   ]
   for (const d of defs) {
     const card = document.createElement('div'); card.className = 'scard'
