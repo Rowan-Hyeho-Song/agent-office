@@ -206,11 +206,18 @@ export async function send(url, token, docs, project, approvals = []) {
  */
 export function github(token) {
   const get = async (path) => {
-    const res = await fetch(`https://api.github.com${path}`, {
-      headers: { accept: 'application/vnd.github+json', authorization: `Bearer ${token}`, 'x-github-api-version': '2022-11-28' },
-    })
-    if (!res.ok) throw new Error(`GitHub ${res.status} ${path}`)
-    return res.json()
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetch(`https://api.github.com${path}`, {
+        headers: { accept: 'application/vnd.github+json', authorization: `Bearer ${token}`, 'x-github-api-version': '2022-11-28' },
+      })
+      if (res.ok) return res.json()
+      // rate limited (429, or 403 with nothing left): wait as GitHub says, at most a minute, then retry a few times
+      const limited = res.status === 429 || (res.status === 403 && res.headers.get('x-ratelimit-remaining') === '0')
+      if (!limited || attempt >= 3) throw new Error(`GitHub ${res.status} ${path}`)
+      const reset = Number(res.headers.get('x-ratelimit-reset')) * 1000 - Date.now()
+      const wait = Number(res.headers.get('retry-after')) * 1000 || reset || 5000
+      await new Promise((r) => setTimeout(r, Math.min(Math.max(wait, 1000), 60_000)))
+    }
   }
   return {
     get,
