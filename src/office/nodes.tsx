@@ -18,6 +18,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { assetUrl } from '../room/base'
 import type { NavKind, NavSpot } from './nav'
+import { prepareView } from './walls'
 
 // The office from assets/blender/office_bake.py: one glb + four baked atlases (same contract as the
 // rowansong.dev desk). Node extras -> userData:
@@ -165,7 +166,10 @@ export function useOffice() {
       t.colorSpace = SRGBColorSpace
       t.anisotropy = 8
     }
-    return { scene, nodes: prepare(scene, atlases), spots: navSpots(scene) }
+    const nodes = prepare(scene, atlases)
+    // wall tags, per-wall mesh split and fade groups (#111); before any rig grabs materials
+    const fades = prepareView(scene)
+    return { scene, nodes, spots: navSpots(scene), fades }
   }, [scene, atlases])
 }
 
