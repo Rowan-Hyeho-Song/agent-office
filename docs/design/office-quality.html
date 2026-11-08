@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>사무실 퀄리티 목표</title>
+<!-- 시안 열람용으로만 CDN에서 갈무리를 불러온다(앱은 자체 서빙, office-ui.md 7절). -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/galmuri.css" />
+<link rel="stylesheet" href="../../src/styles/tokens.css" />
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--color-void); color: var(--color-text); font-family: var(--font-text); font-size: 15px; line-height: 1.6; color-scheme: dark; }
+.page { max-width: 1240px; margin: 0 auto; padding: var(--space-8) var(--space-4) 96px; }
+h1, h2, h3 { font-family: var(--font-pixel); font-weight: 400; margin: 0; }
+h1 { font-size: var(--font-size-2); line-height: 36px; }
+h2 { font-size: var(--font-size-2); line-height: 36px; margin-top: 56px; }
+h3 { font-size: var(--font-size-1); color: var(--color-text-muted); margin: var(--space-4) 0 var(--space-2); }
+.kicker { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-amber); letter-spacing: var(--letter-spacing-label); }
+p.lead, .note { color: var(--color-text-muted); }
+p.lead { max-width: 76ch; margin: var(--space-2) 0 0; }
+.note { font-size: 13px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: var(--space-4); margin-top: var(--space-3); }
+.card { border: 1px solid var(--color-line); background: var(--color-surface); }
+.card .art { background: radial-gradient(ellipse 80% 70% at 50% 75%, #2a2f3b, #12161d 80%); display: grid; place-items: center; aspect-ratio: 4 / 3; }
+.card .art svg { width: 100%; height: 100%; }
+.card .txt { padding: var(--space-3) var(--space-4); font-size: 14px; color: var(--color-text-muted); }
+.card .txt b { display: block; font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); color: var(--color-text); margin-bottom: 4px; }
+.card .txt ul { margin: 6px 0 0; padding-left: 18px; }
+.pal { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-3); }
+.pal div { display: flex; align-items: center; gap: 8px; font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.pal i { width: 28px; height: 28px; border: 1px solid var(--color-line); }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-3); margin-top: var(--space-4); }
+.rule { border: 1px solid var(--color-line); background: var(--color-surface); padding: var(--space-3) var(--space-4); font-size: 14px; color: var(--color-text-muted); }
+.rule b { display: block; font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); color: var(--color-text); margin-bottom: 4px; }
+/* 비교 그림용: ?cmp=<이름>&cur=<지금 컷 주소> 로 한 장만 띄움 */
+body.cmp .page > *:not(#cmp) { display: none; }
+#cmp { display: none; }
+body.cmp #cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+#cmp figure { margin: 0; border: 1px solid var(--color-line); background: #12161d; }
+#cmp figure img, #cmp figure svg { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
+#cmp figcaption { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); padding: 6px 10px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div id="cmp"></div>
+  <header>
+    <div class="kicker">AGENT OFFICE · #108 · 확정 2026-11-08</div>
+    <h1>사무실 퀄리티 목표</h1>
+    <p class="lead">아래 그림은 목표를 보여 주는 <b>디자이너 스케치</b>입니다(레퍼런스를 옮겨 그린 것이 아님). 모델은 Blender가 스크립트로 만들고, 비율·디테일·색만 이 스케치를 따릅니다. 근거와 사물별 표·예산은 <code>office-quality.md</code>에 있습니다.</p>
+  </header>
+
+  <h2>1. 식물·화분 (1순위)</h2>
+  <p class="lead">지금은 늘인 구 9장이라 풍선처럼 보입니다. 목표는 <b>종마다 실루엣이 다른</b> 식물입니다. 멀리서(기본 카메라, 화분 40–80 px)도 "어떤 식물인지" 모양으로 갈리게 합니다. 잎은 메시 잎(가운데 잎맥을 접은 날개꼴, 장당 8–12 삼각형, 양면)입니다.</p>
+  <div class="grid" id="plants"></div>
+
+  <h2>2. 사물</h2>
+  <div class="grid" id="props"></div>
+
+  <h2>3. 색</h2>
+  <p class="lead">사물마다 기본색 3개 + 강조 1개까지만 씁니다. 나무·크림·숯색이 바탕이고, 식물의 초록 셋과 에이전트 색은 정보가 있는 곳(머그, 쿠션)에만 씁니다.</p>
+  <div class="pal" id="pal"></div>
+</div>
+
+<script>
+// ───────── 색 ─────────
+const C = {
+  leafD: '#2f6b3a', leafM: '#4f8f4a', leafL: '#8cbf6a', snakeEdge: '#d9c45a', stem: '#5b4a32',
+  soil: '#3b2a1f', pebble: '#9a9184', terracotta: '#c46a4a', terraD: '#9b4f35', charcoal: '#2c3138', charcoalL: '#3d434c',
+  cream: '#efe9df', creamD: '#d6cfc2', oak: '#c9a47a', oakD: '#9c7a55', walnut: '#7a5236', brass: '#c9a14a', chrome: '#b9c0c8',
+  teal: '#3f8f86', tealD: '#2f6f68', red: '#b8473f', fabric: '#e8dcc4', green: '#1f5a46', line: '#f2f2f2',
+  agents: ['#ffb347', '#8f9bff', '#ff3ea5', '#4df3ff'],
+}
+const svg = (inner, vb = '0 0 400 300') => `<svg viewBox="${vb}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${inner}</svg>`
+let seed = 7
+const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+const shadow = (cx, cy, rx, ry = rx * 0.22) => `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="#000" opacity=".35"/>`
+
+// 화분: 테이퍼 + 테두리 턱 + 흙 + 자갈 (+ 받침)
+function pot({ cx, top, w, h, color, dark, saucer = true, taper = 0.12, legs = false }) {
+  const wb = w * (1 - taper), rim = 7
+  let s = shadow(cx, top + h + (legs ? 46 : 6), w * 0.62)
+  if (legs) for (const dx of [-0.32, 0, 0.32]) s += `<path d="M${cx + dx * w - 3} ${top + h - 4} L${cx + dx * w * 1.25 - 1.5} ${top + h + 44} L${cx + dx * w * 1.25 + 1.5} ${top + h + 44} L${cx + dx * w + 3} ${top + h - 4} Z" fill="${C.walnut}"/>`
+  if (saucer && !legs) s += `<ellipse cx="${cx}" cy="${top + h + 2}" rx="${wb / 2 + 9}" ry="6" fill="${dark}"/>`
+  s += `<path d="M${cx - w / 2} ${top} L${cx - wb / 2} ${top + h} Q${cx} ${top + h + 7} ${cx + wb / 2} ${top + h} L${cx + w / 2} ${top} Z" fill="${color}"/>`
+  s += `<path d="M${cx + w * 0.18} ${top + 6} L${cx + wb * 0.2} ${top + h - 2}" stroke="#fff" stroke-opacity=".12" stroke-width="6"/>`
+  s += `<rect x="${cx - w / 2 - 3}" y="${top - rim}" width="${w + 6}" height="${rim}" rx="2" fill="${color}"/><rect x="${cx - w / 2 - 3}" y="${top - 1}" width="${w + 6}" height="2" fill="${dark}" opacity=".6"/>`
+  s += `<ellipse cx="${cx}" cy="${top - rim + 1}" rx="${w / 2 - 1}" ry="5" fill="${C.soil}"/>`
+  for (let i = 0; i < 4; i++) s += `<ellipse cx="${cx - w * 0.3 + i * w * 0.18}" cy="${top - rim + 1 + (i % 2)}" rx="3" ry="1.8" fill="${C.pebble}"/>`
+  return s
+}
+// 잎 하나: 잎맥 접힘을 밝은 반쪽 / 어두운 반쪽으로
+function leaf(x, y, len, wid, ang, shape = 'oval', tone = 0) {
+  const pal = [[C.leafM, C.leafD], [C.leafL, C.leafM], [C.leafD, '#24532d']][tone]
+  const w = wid / 2
+  let half1, half2
+  if (shape === 'violin') { // 떡갈고무나무: 끝이 넓은 바이올린꼴
+    half1 = `M0 0 C${w * 0.9} ${-len * 0.15} ${w * 0.6} ${-len * 0.45} ${w * 1.1} ${-len * 0.7} C${w * 1.2} ${-len * 0.95} ${w * 0.4} ${-len * 1.02} 0 ${-len} Z`
+    half2 = half1.replace(/(-?\d+\.?\d*) (-?\d+\.?\d*)/g, (m, a, b) => `${-a} ${b}`)
+  } else if (shape === 'monstera') { // 몬스테라: 하트꼴 + 갈라짐
+    half1 = `M0 0 C${w * 1.3} ${len * 0.05} ${w * 1.25} ${-len * 0.75} 0 ${-len} Z`
+    half2 = `M0 0 C${-w * 1.3} ${len * 0.05} ${-w * 1.25} ${-len * 0.75} 0 ${-len} Z`
+  } else {
+    half1 = `M0 0 Q${w} ${-len * 0.45} 0 ${-len} Z`
+    half2 = `M0 0 Q${-w} ${-len * 0.45} 0 ${-len} Z`
+  }
+  let s = `<g transform="translate(${x} ${y}) rotate(${ang})"><path d="${half1}" fill="${pal[0]}"/><path d="${half2}" fill="${pal[1]}"/>`
+  if (shape === 'monstera') for (const t of [0.3, 0.5, 0.7]) for (const sgn of [1, -1]) s += `<path d="M${sgn * w * 1.05} ${-len * t} L${sgn * w * 0.35} ${-len * (t + 0.04)} L${sgn * w * 1.05} ${-len * (t + 0.06)} Z" fill="#1d2430"/>`
+  s += `<path d="M0 0 L0 ${-len * 0.95}" stroke="${C.leafL}" stroke-opacity=".5" stroke-width="1"/></g>`
+  return s
+}
+function fig() { // 떡갈고무나무(코너 큰 화분)
+  seed = 11
+  let s = pot({ cx: 200, top: 222, w: 70, h: 52, color: C.charcoal, dark: '#1c2026' })
+  s += `<path d="M200 216 C198 170 206 130 200 70" stroke="${C.stem}" stroke-width="5" fill="none"/><path d="M201 150 C214 132 226 122 238 112" stroke="${C.stem}" stroke-width="3" fill="none"/><path d="M200 128 C186 112 176 104 164 96" stroke="${C.stem}" stroke-width="3" fill="none"/>`
+  const spots = [[200, 72], [238, 112], [164, 96], [201, 150], [200, 128], [220, 124], [182, 108]]
+  for (let i = 0; i < 26; i++) { const [px, py] = spots[i % spots.length]; s += leaf(px + (rnd() - 0.5) * 30, py + (rnd() - 0.5) * 34, 34 + rnd() * 12, 22 + rnd() * 6, (rnd() - 0.5) * 150, 'violin', i % 3) }
+  return svg(s)
+}
+function snake() { // 산세베리아(책장 옆): 칼잎 11장 + 노란 테두리, 다리 달린 화분
+  seed = 3
+  let s = pot({ cx: 200, top: 190, w: 64, h: 42, color: C.cream, dark: C.creamD, legs: true, saucer: false })
+  for (let i = 0; i < 11; i++) {
+    const x = 182 + i * 3.6 + (rnd() - 0.5) * 6, h = 90 + rnd() * 70, a = (i - 5) * 3.2 + (rnd() - 0.5) * 6, w = 13 + rnd() * 5
+    s += `<g transform="translate(${x} 186) rotate(${a})"><path d="M${-w / 2} 0 Q${-w * 0.65} ${-h * 0.6} 0 ${-h} Q${w * 0.65} ${-h * 0.6} ${w / 2} 0 Z" fill="${i % 2 ? C.leafD : C.leafM}" stroke="${C.snakeEdge}" stroke-width="2"/>`
+    for (let b = 1; b < 6; b++) s += `<path d="M${-w * 0.35} ${-h * b / 6.5} q${w * 0.35} -5 ${w * 0.7} 0" stroke="${C.leafL}" stroke-opacity=".45" stroke-width="2" fill="none"/>`
+    s += '</g>'
+  }
+  return svg(s)
+}
+function monstera() { // 몬스테라(소파 옆): 갈라진 하트 잎 8장 + 잎자루, 테라코타 + 받침
+  seed = 5
+  let s = pot({ cx: 200, top: 222, w: 74, h: 50, color: C.terracotta, dark: C.terraD })
+  const leaves = [[-70, 120, -40], [62, 126, 38], [-30, 92, -14], [34, 98, 18], [-88, 160, -62], [84, 160, 64], [0, 82, 2], [-10, 140, -8]]
+  leaves.forEach(([dx, dy, a], i) => {
+    const lx = 200 + dx, ly = 216 - (216 - dy) * 0.55 - 30
+    s += `<path d="M200 216 Q${200 + dx * 0.3} ${ly + 50} ${lx} ${ly}" stroke="${C.leafD}" stroke-width="3" fill="none"/>`
+    s += leaf(lx, ly, 46 + rnd() * 10, 46 + rnd() * 8, a + 180 - 180, 'monstera', i % 3)
+  })
+  return svg(s)
+}
+function echeveria() { // 다육이(휴 책상): 로제트 12장
+  let s = pot({ cx: 200, top: 196, w: 70, h: 54, color: C.terracotta, dark: C.terraD })
+  for (let r = 0; r < 2; r++) for (let i = 0; i < (r ? 6 : 9); i++) {
+    const a = (i / (r ? 6 : 9)) * 360 + r * 20
+    s += `<g transform="translate(200 186) rotate(${a}) scale(1 .55)"><path d="M0 0 Q${r ? 9 : 12} ${r ? -22 : -34} 0 ${r ? -34 : -50} Q${r ? -9 : -12} ${r ? -22 : -34} 0 0Z" fill="${r ? '#9cc7a2' : '#7fb08a'}" stroke="#5f8f6c" stroke-width="1"/></g>`
+  }
+  s += `<circle cx="200" cy="186" r="7" fill="#b9dcbf"/>`
+  return svg(s)
+}
+function pothos() { // 스킨답서스(책장 위): 늘어지는 덩굴
+  seed = 9
+  let s = `<rect x="80" y="96" width="240" height="10" fill="${C.walnut}"/>` + pot({ cx: 200, top: 70, w: 52, h: 26, color: C.cream, dark: C.creamD, saucer: false })
+  for (const [dx, len] of [[-22, 140], [-6, 100], [10, 160], [24, 120]]) {
+    let x = 200 + dx, y = 92
+    s += `<path d="M${x} ${y} q${dx * 0.6} ${len * 0.5} ${dx * 0.3} ${len}" stroke="${C.leafD}" stroke-width="1.6" fill="none"/>`
+    for (let t = 0; t < len; t += 18) s += leaf(x + dx * 0.6 * (t / len) * (1 - t / len) * 2 + (t / 18 % 2 ? 6 : -6), y + t, 14, 13, t / 18 % 2 ? 120 : 240, 'oval', (t / 18) % 3)
+  }
+  return svg(s)
+}
+
+// ───────── 사물 ─────────
+function coffee() {
+  let s = shadow(200, 268, 130)
+  s += `<rect x="80" y="150" width="240" height="116" fill="${C.charcoal}"/><rect x="80" y="262" width="240" height="6" fill="#16191e"/>`
+  s += `<rect x="86" y="160" width="112" height="98" fill="${C.charcoalL}"/><rect x="202" y="160" width="112" height="98" fill="${C.charcoalL}"/><rect x="186" y="200" width="3" height="22" rx="1" fill="${C.brass}"/><rect x="211" y="200" width="3" height="22" rx="1" fill="${C.brass}"/>`
+  s += `<rect x="72" y="140" width="256" height="12" rx="2" fill="${C.oak}"/><rect x="72" y="150" width="256" height="2" fill="${C.oakD}"/>`
+  // 에스프레소 머신: 둥근 몸통, 그룹 헤드, 포터필터, 드립 트레이, 스팀 완드, 노브 둘
+  s += `<path d="M120 140 L120 86 Q120 74 132 74 L196 74 Q208 74 208 86 L208 140 Z" fill="${C.red}"/><rect x="124" y="78" width="80" height="6" rx="3" fill="#fff" opacity=".18"/>`
+  s += `<rect x="150" y="104" width="26" height="8" rx="2" fill="${C.chrome}"/><rect x="156" y="112" width="14" height="6" fill="${C.chrome}"/><rect x="170" y="113" width="30" height="4" rx="2" fill="#1c1c1c"/>`
+  s += `<rect x="128" y="132" width="72" height="6" rx="1" fill="${C.chrome}"/><path d="M134 135 h60" stroke="#6f767e" stroke-dasharray="2 3"/><path d="M205 100 q10 8 6 30" stroke="${C.chrome}" stroke-width="3" fill="none"/><circle cx="134" cy="94" r="4" fill="${C.cream}"/><circle cx="194" cy="94" r="4" fill="${C.cream}"/>`
+  // 그라인더
+  s += `<rect x="228" y="104" width="26" height="36" rx="4" fill="${C.charcoal}"/><path d="M226 104 L232 80 L250 80 L256 104 Z" fill="#c9d3dc" opacity=".8"/><rect x="236" y="120" width="10" height="8" fill="#1a1d22"/>`
+  // 머그 넷 = 에이전트 색
+  s += `<rect x="96" y="40" width="208" height="6" fill="${C.oak}"/>`
+  C.agents.forEach((c, i) => { s += `<rect x="${116 + i * 46}" y="18" width="20" height="22" rx="3" fill="${c}"/><path d="M${136 + i * 46} 24 q8 0 8 7 q0 7 -8 7" stroke="${c}" stroke-width="3" fill="none"/>` })
+  return svg(s)
+}
+function pingpong() { // 옆에서 본 모습: 상판 두께, 흰 테두리, 네트 + 기둥 집게, 접이식 다리 + 바퀴
+  let s = shadow(200, 262, 170)
+  s += `<rect x="30" y="140" width="340" height="12" fill="${C.green}"/><rect x="30" y="138" width="340" height="3" fill="${C.line}"/><rect x="30" y="152" width="340" height="6" fill="#163f32"/>`
+  s += `<rect x="196" y="104" width="8" height="36" fill="${C.charcoal}"/><rect x="190" y="138" width="20" height="10" rx="2" fill="${C.charcoal}"/><rect x="198" y="104" width="4" height="3" fill="${C.line}"/>`
+  s += `<rect x="60" y="158" width="10" height="96" fill="${C.charcoal}"/><rect x="330" y="158" width="10" height="96" fill="${C.charcoal}"/><path d="M70 196 L190 236 M330 196 L210 236" stroke="${C.charcoal}" stroke-width="6"/><circle cx="65" cy="256" r="7" fill="#1a1d22"/><circle cx="335" cy="256" r="7" fill="#1a1d22"/>`
+  s += `<rect x="186" y="230" width="28" height="10" rx="2" fill="${C.charcoal}"/>`
+  return svg(s)
+}
+function sofa() { // 등쿠션 둘, 가는 팔걸이, 원목 테이퍼 다리, 쿠션 둘
+  let s = shadow(200, 252, 160)
+  s += `<rect x="52" y="110" width="296" height="90" rx="14" fill="${C.tealD}"/>`
+  s += `<rect x="70" y="96" width="126" height="70" rx="16" fill="${C.teal}"/><rect x="204" y="96" width="126" height="70" rx="16" fill="${C.teal}"/>`
+  s += `<rect x="64" y="166" width="272" height="38" rx="12" fill="${C.teal}"/><path d="M200 168 v34" stroke="${C.tealD}" stroke-width="2"/>`
+  s += `<rect x="40" y="128" width="30" height="82" rx="12" fill="${C.tealD}"/><rect x="330" y="128" width="30" height="82" rx="12" fill="${C.tealD}"/>`
+  s += `<rect x="86" y="128" width="44" height="40" rx="10" fill="${C.agents[0]}" transform="rotate(-8 108 148)"/><rect x="276" y="130" width="40" height="38" rx="10" fill="${C.fabric}" transform="rotate(7 296 149)"/>`
+  for (const x of [62, 330]) s += `<path d="M${x} 208 L${x + 4} 244 L${x + 10} 244 L${x + 12} 208 Z" fill="${C.oak}"/>`
+  return svg(s)
+}
+function lamp() { // 드럼 갓 + 황동 대 + 둥근 받침
+  let s = shadow(200, 270, 46)
+  s += `<ellipse cx="200" cy="264" rx="34" ry="8" fill="#d9d4cb"/><rect x="197" y="96" width="6" height="168" fill="${C.brass}"/>`
+  s += `<path d="M160 50 L240 50 L232 104 L168 104 Z" fill="${C.fabric}"/><ellipse cx="200" cy="104" rx="32" ry="6" fill="#ffd9a0"/><path d="M160 50 L240 50" stroke="#c9bfae" stroke-width="2"/>`
+  s += `<ellipse cx="200" cy="160" rx="90" ry="70" fill="#ffcf8a" opacity=".08"/>`
+  return svg(s)
+}
+function stool() { // 게임 테이블 스툴: 발받침 링 + 쿠션 이음매
+  let s = shadow(200, 268, 50)
+  s += `<ellipse cx="200" cy="262" rx="36" ry="9" fill="#1a1d22"/><rect x="195" y="120" width="10" height="142" fill="#1a1d22"/><ellipse cx="200" cy="210" rx="30" ry="7" fill="none" stroke="${C.chrome}" stroke-width="3"/>`
+  s += `<ellipse cx="200" cy="118" rx="46" ry="12" fill="#d0574c"/><rect x="154" y="104" width="92" height="14" fill="#d0574c"/><ellipse cx="200" cy="104" rx="46" ry="12" fill="#e06a5e"/><ellipse cx="200" cy="104" rx="38" ry="9" fill="none" stroke="#c24c42" stroke-width="1.5"/>`
+  return svg(s)
+}
+
+const PLANTS = [
+  ['떡갈고무나무 · 코너 큰 화분', fig, ['높이 1.5 m, 줄기 1 + 가지 2, 바이올린꼴 잎 24–30장(잎 20–30 cm)', '숯색 무광 도자기 화분 Ø38 cm, 테두리 턱 + 받침', '목표 1.5–3k 삼각형']],
+  ['산세베리아 · 책장 옆', snake, ['칼잎 9–13장, 높이 0.5–0.9 m로 들쭉날쭉, 노란 테두리(라우렌티)', '크림 도자기 + 원목 테이퍼 다리 셋(미드센추리 화분대)', '목표 0.8–1.5k']],
+  ['몬스테라 · 소파 옆', monstera, ['갈라진 하트꼴 잎 7–10장 + 잎자루', '테라코타 화분 + 받침', '목표 1.5–2.5k(갈라진 틈은 메시 구멍)']],
+  ['다육이 · 휴 책상', echeveria, ['로제트 2단 15장, 위에서 보면 꽃처럼', '작은 테라코타 화분, 자갈 흙', '목표 0.3–0.6k']],
+  ['스킨답서스 · 책장 맨 위', pothos, ['선반에서 늘어지는 덩굴 3–4줄, 잎 20–30장', '책장 서재가 "살아 있는 방"으로 읽히게 하는 소품', '목표 0.6–1k']],
+]
+const PROPS = [
+  ['커피 카운터', coffee, ['검은 상자 → 에스프레소 머신(둥근 몸통 · 그룹 헤드 · 포터필터 · 드립 트레이 · 스팀 완드 · 노브 둘) + 그라인더', '선반 위 머그 넷 = 에이전트 색(누구 컵인지가 정보)', '하부장 문 둘 + 황동 손잡이, 원목 상판, 걸레받이']],
+  ['탁구대', pingpong, ['판자 네트 → 네트 + 기둥 집게 둘, 네트 위 흰 띠', '상판 두께와 흰 테두리, 아래 짙은 스커트', '접이식 다리 + 대각 버팀대 + 바퀴']],
+  ['소파', sofa, ['원목 테이퍼 다리(12 cm), 등쿠션 둘, 앉는 쿠션 이음매', '팔걸이를 가늘게, 쿠션 둘(하나는 메모 호박)', '천은 베벨 2–4 cm, 3–4분할']],
+  ['플로어 스탠드', lamp, ['드럼 갓(천) + 황동 대 + 둥근 대리석 받침', '갓 아래 따뜻한 빛 웅덩이는 굽기에서', '켜진 갓 안쪽만 emissive']],
+  ['게임 테이블 스툴', stool, ['발받침 링(크롬), 쿠션 윗면 이음매', '테이블 상판 가장자리 베벨', '바둑판 말은 지금 그대로']],
+]
+function cards(host, list) {
+  document.getElementById(host).innerHTML = list.map(([t, f, li]) => `<div class="card" data-name="${t}"><div class="art">${f()}</div><div class="txt"><b>${t}</b><ul>${li.map((x) => `<li>${x}</li>`).join('')}</ul></div></div>`).join('')
+}
+cards('plants', PLANTS); cards('props', PROPS)
+document.getElementById('pal').innerHTML = [['잎 어둠', C.leafD], ['잎 중간', C.leafM], ['잎 밝음', C.leafL], ['테라코타', C.terracotta], ['숯색', C.charcoal], ['크림', C.cream], ['오크', C.oak], ['월넛', C.walnut], ['황동', C.brass], ['크롬', C.chrome]].map(([n, c]) => `<div><i style="background:${c}"></i>${n} ${c}</div>`).join('')
+
+// 비교 그림: ?cmp=<카드 제목 앞부분>&cur=<지금 컷>
+const q = new URLSearchParams(location.search)
+if (q.get('cmp')) {
+  const all = [...PLANTS, ...PROPS], hit = all.find(([t]) => t.startsWith(q.get('cmp')))
+  document.body.classList.add('cmp')
+  document.getElementById('cmp').innerHTML = `<figure><img src="${q.get('cur')}" alt=""><figcaption>지금 (Cycles 미리보기)</figcaption></figure><figure>${hit[1]()}<figcaption>목표 스케치 · ${hit[0]}</figcaption></figure>`
+}
+document.body.dataset.ready = '1'
+</script>
+</body>
+</html>
