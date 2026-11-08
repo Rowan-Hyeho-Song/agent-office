@@ -207,10 +207,24 @@ describe('traffic planner on the grid', () => {
     expect(p.sample('a', 6).moving).toBe(true)
   })
 
-  it('lists the designed spot pairs closer than 2R (the sofa seats)', () => {
-    expect(office().exemptPairs).toEqual([
-      ['sofa_0', 'sofa_1'],
-      ['sofa_1', 'sofa_2'],
-    ])
+  it('lists the designed neighbour spots, closer than the resting clearance 2R + planGap (sofa seats, coffee / shelf)', () => {
+    const pairs = office().exemptPairs
+    for (const p of [['sofa_0', 'sofa_1'], ['sofa_1', 'sofa_2'], ['coffee', 'shelf']]) expect(pairs).toContainEqual(p)
+    for (const [a, b] of pairs) expect(Math.hypot(GRAPH.spots[a].x - GRAPH.spots[b].x, GRAPH.spots[a].z - GRAPH.spots[b].z)).toBeLessThan(2 * TRAFFIC.bodyR + TRAFFIC.planGap)
+  })
+
+  it('someone standing at the coffee machine does not keep the shelf unreachable, nor the other way round', () => {
+    // 0.63 m apart: more than two bodies, less than the resting clearance; the planner used to send the second agent
+    // to wait beside its goal for good (seen in the day sim and in the browser, #184 review)
+    for (const [first, second] of [['coffee', 'shelf'], ['shelf', 'coffee']]) {
+      const p = office()
+      p.place('a', req(first), 0, 0)
+      p.place('b', req('hall_back'), 0, 1)
+      p.update(0)
+      p.request('b', req(second), 0)
+      run(p, ['a', 'b'], 0, 40)
+      expect(p.sample('b', 40).arrived).toBe(second)
+      expect(p.sample('a', 40).arrived).toBe(first)
+    }
   })
 })
