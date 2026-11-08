@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Point, PointKind } from '../timeline/types'
-import { ALL, AGENT_NAME, KIND_NAME, SECRET_NOTE, atMs, dayKey, kindName, kst, laneOf, prepare, shortName, sizeText, type Lane } from './engine'
+import { ALL, AGENT_NAME, KIND_NAME, SECRET_NOTE, atMs, dayKey, describe, isDeploy, kindWord, kst, laneOf, prepare, whoName, shortName, sizeText, type Lane } from './engine'
 import { Glyph } from './Glyph'
 import { replay, useReplay } from './store'
 import { tokens } from './barDraw'
@@ -24,7 +24,7 @@ export function ReplayList() {
   useEffect(() => root.current?.focus({ preventScroll: true }), [])
 
   const inProject = useMemo(() => prepare(everything, project), [everything, project])
-  const shown = useMemo(() => inProject.filter((p) => (!kinds.size || kinds.has(p.kind)) && (!agents.size || agents.has(laneOf(p)))), [inProject, kinds, agents])
+  const shown = useMemo(() => inProject.filter((p) => (!kinds.size || kinds.has(p.kind)) && (!agents.size || (!isDeploy(p) && agents.has(laneOf(p))))), [inProject, kinds, agents])
   const days = useMemo(() => {
     const map = new Map<string, Point[]>()
     for (const p of shown) map.set(dayKey(p), [...(map.get(dayKey(p)) ?? []), p])
@@ -112,8 +112,8 @@ function Row({ p }: { p: Point }) {
       <time dateTime={p.at}>{p2(k.h)}:{p2(k.mi)}</time>
       <div className="top">
         <Glyph p={p} />
-        <span className="who">{AGENT_NAME[lane]}</span>
-        <span className="kind">{kindName(p)}</span>
+        <span className="who">{whoName(p)}</span>
+        {kindWord(p) && <span className="kind">{kindWord(p)}</span>}
       </div>
       <div className="ttl">
         {p.secret ? (
@@ -122,7 +122,7 @@ function Row({ p }: { p: Point }) {
             <span className="replay-secret-chip">SECRET</span>
           </>
         ) : (
-          p.title
+          describe(p).title
         )}
       </div>
       {(size || p.issue !== null) && (
@@ -146,11 +146,23 @@ function Spark({ days }: { days: [string, number][] }) {
     g.clearRect(0, 0, c.width, c.height)
     const max = Math.max(...days.map((d) => d[1]))
     const bw = c.width / days.length
-    g.fillStyle = t.muted
-    days.forEach(([, n], i) => {
-      const h = Math.max(2, (n / max) * (c.height - 4))
-      g.fillRect(i * bw + 3, c.height - h, Math.max(1, bw - 6), h)
+    const text = bw >= 56
+    g.font = '20px Galmuri11, monospace'
+    g.textAlign = 'center'
+    g.textBaseline = 'alphabetic'
+    days.forEach(([day, n], i) => {
+      const room = c.height - (text ? 44 : 4)
+      const h = Math.max(2, (n / max) * room)
+      const x = i * bw
+      g.fillStyle = t.muted
+      g.fillRect(x + 3, c.height - (text ? 22 : 0) - h, Math.max(1, bw - 6), h)
+      if (!text) return
+      // the count over the bar, the date under it
+      g.fillStyle = t.text
+      g.fillText(`${n}`, x + bw / 2, c.height - 24 - h)
+      g.fillStyle = t.muted
+      g.fillText(day, x + bw / 2, c.height - 3)
     })
   }, [days])
-  return <canvas ref={ref} className="spark" width={732} height={56} role="img" aria-label={`날짜별 점 수: ${days.map(([d, n]) => `${d} ${n}개`).join(', ')}`} />
+  return <canvas ref={ref} className="spark" width={732} height={96} role="img" aria-label={`날짜별 점 수: ${days.map(([d, n]) => `${d} ${n}개`).join(', ')}`} />
 }

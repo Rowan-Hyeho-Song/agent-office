@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Point } from '../timeline/types'
 import officeFile from '../timeline/fixtures/agent-office.json'
 import hubFile from '../timeline/fixtures/rowansong.dev.json'
-import { ALL, approvalsAt, daybreakMs, doorFor, flipText, indexAt, isDaybreak, issueRange, laneOf, layoutX, prepare, projectFrom, remainingMs, sceneAt, shelfAt, statusAt, stepMs, valueText, whenText } from './engine'
+import { ALL, approvalsAt, deployTitle, describe as describePoint, whoKind, daybreakMs, doorFor, flipText, indexAt, isDaybreak, issueRange, laneOf, layoutX, prepare, projectFrom, remainingMs, sceneAt, shelfAt, statusAt, stepMs, valueText, whenText } from './engine'
 
 const OFFICE = 'Rowan-Hyeho-Song/agent-office'
 const pt = (n: number, over: Partial<Point> = {}): Point => ({
@@ -122,6 +122,27 @@ describe('the office at a point', () => {
     const s = sceneAt(prepare([pt(1, { secret: true, title: '', tier: 'review', kind: 'plan', agent: 1 })]), 0)
     expect(s.board.doing).toEqual([])
     expect(shelfAt([pt(1, { secret: true, issue: 3 })], 0).binders).toEqual([])
+  })
+})
+
+describe('a deploy is not "before roles"', () => {
+  const dep = pt(1, { kind: 'deploy', agent: null, title: 'Merge pull request #106 from Rowan-Hyeho-Song/dev', additions: null, deletions: null, files: null })
+  it('is named ▲ 배포 with no agent, in the subtitle, the tag, the list and the slider text', () => {
+    const d = describePoint(dep)
+    expect(d.head).toBe('▲ 배포')
+    expect(d.kind).toBe('')
+    expect(whoKind(dep)).toBe('▲ 배포')
+    expect(`${d.head} ${d.title}`).not.toContain('역할 분담 이전')
+    expect(valueText([dep], 0)).not.toContain('역할 분담 이전')
+    expect(valueText([dep], 0)).toContain('▲ 배포')
+  })
+  it('reads as 배포 #PR · dev → main, without the repository path', () => {
+    expect(describePoint(dep).title).toBe('배포 #106 · dev → main')
+    expect(deployTitle(pt(1, { kind: 'deploy', title: 'Deploy', pr: 7 }))).toBe('배포 #7 · dev → main')
+    expect(deployTitle(pt(1, { kind: 'deploy', title: 'Deploy', pr: null }))).toBe('배포 · dev → main')
+  })
+  it('a commit before roles still reads as 역할 분담 이전', () => {
+    expect(describePoint(pt(1, { agent: null })).who).toBe('역할 분담 이전')
   })
 })
 

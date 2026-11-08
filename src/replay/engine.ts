@@ -274,9 +274,24 @@ export const SECRET_NOTE = '결재 전이라 제목을 가렸어요'
 /** `+198 −8 · 파일 7` for a commit point, '' otherwise */
 export const sizeText = (p: Point) => (p.kind === 'work' && p.additions !== null ? `+${p.additions} −${p.deletions ?? 0} · 파일 ${p.files ?? 0}` : '')
 
+/** a deploy is the owner merging dev into main: no agent, not "before roles" */
+export const isDeploy = (p: Point) => p.kind === 'deploy'
+
+/** `배포 #106 · dev → main` from the merge commit's title; `배포 · dev → main` when it names no PR */
+export function deployTitle(p: Point): string {
+  const pr = /#(d+)/.exec(p.title)?.[1] ?? (p.pr === null ? null : String(p.pr))
+  return `배포${pr ? ` #${pr}` : ''} · dev → main`
+}
+
+/** who did it: an agent's name, the owner's mark, or "▲ 배포" for a deploy (no kind word after it) */
+export const whoName = (p: Point) => (isDeploy(p) ? '▲ 배포' : AGENT_NAME[laneOf(p)])
+export const kindWord = (p: Point) => (isDeploy(p) ? '' : kindName(p))
+/** `메모 · 작업` or `▲ 배포` */
+export const whoKind = (p: Point) => (isDeploy(p) ? '▲ 배포' : `${whoName(p)} · ${kindName(p)}`)
+
 /** the same sentence for the subtitle (screen reading uses it as the slider's text too) */
-export function describe(p: Point): { who: string; kind: string; title: string; size: string } {
-  return { who: AGENT_NAME[laneOf(p)], kind: kindName(p), title: p.secret ? SECRET_NOTE : p.title, size: sizeText(p) }
+export function describe(p: Point): { who: string; kind: string; title: string; size: string; head: string } {
+  return { who: whoName(p), kind: kindWord(p), head: whoKind(p), title: p.secret ? SECRET_NOTE : isDeploy(p) ? deployTitle(p) : p.title, size: sizeText(p) }
 }
 
 /** `121번째 점, 2026.11.08 일 01:51, 루프, 작업: 신호 통로 …, 줄 1406개 더함 37개 뺌, 파일 22개` */
@@ -285,5 +300,5 @@ export function valueText(points: readonly Point[], i: number): string {
   if (!p) return ''
   const d = describe(p)
   const lines = p.kind === 'work' && p.additions !== null ? `, 줄 ${p.additions}개 더함 ${p.deletions ?? 0}개 뺌, 파일 ${p.files ?? 0}개` : ''
-  return `${i + 1}번째 점, ${whenText(atMs(p))}, ${d.who}, ${d.kind}${d.title ? `: ${d.title}` : ''}${lines}`
+  return `${i + 1}번째 점, ${whenText(atMs(p))}, ${isDeploy(p) ? d.head : `${d.who}, ${d.kind}`}${d.title ? `: ${d.title}` : ''}${lines}`
 }

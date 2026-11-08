@@ -4,11 +4,17 @@ import { isDocsOpen } from '../office/docs/panel'
 import { AGENT_INFO, type OfficeWorld } from '../office/world'
 import type { Point } from '../timeline/types'
 import { drawBar, nearest, type BarLayout } from './barDraw'
-import { ALL, AGENT_NAME, LANES, LANE_NAME, SECRET_NOTE, SPEEDS, atMs, describe, dayLabel, laneOf, remainingMs, shortName, valueText, whenText, kst, type Lane } from './engine'
+import { ALL, LANES, LANE_NAME, SECRET_NOTE, SPEEDS, atMs, describe, dayLabel, laneOf, remainingMs, shortName, valueText, whenText, kst, type Lane } from './engine'
 import { replay, useReplay } from './store'
 import { ReplayList } from './ReplayList'
 import './replay.css'
 
+/** the last input was the keyboard (so the bar may take a visible focus on entering) */
+let usedKeyboard = false
+if (typeof window !== 'undefined') {
+  window.addEventListener('keydown', () => (usedKeyboard = true), true)
+  window.addEventListener('pointerdown', () => (usedKeyboard = false), true)
+}
 const narrowQuery = () => matchMedia('(max-width: 640px)')
 const p2 = (n: number) => String(n).padStart(2, '0')
 
@@ -97,7 +103,8 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
     raf = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(raf)
   }, [])
-  useEffect(() => slider.current?.focus({ preventScroll: true }), [])
+  // focus goes to the bar for keyboard users only; a mouse entry (the wall clock) leaves no focus ring behind
+  useEffect(() => slider.current?.focus({ preventScroll: true, focusVisible: usedKeyboard }), [])
 
   const pick = useCallback((clientX: number) => {
     const r = wrap.current!.getBoundingClientRect()
@@ -108,7 +115,7 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
     dragging.current = true
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
     replay.seek(pick(e.clientX).k)
-    slider.current?.focus({ preventScroll: true })
+    slider.current?.focus({ preventScroll: true, focusVisible: false })
   }
   const onMove = (e: RPointerEvent) => {
     if (dragging.current) return replay.seek(pick(e.clientX).k)
@@ -219,7 +226,7 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
         </div>
       )}
       <div className={`replay-subtitle${hp ? ' tipping' : ''}`} data-seat={String(lane)} aria-hidden="true">
-        <span className="who">{d.who} · {d.kind}</span>
+        <span className="who">{d.head}</span>
         {p.secret ? <><span className="replay-redact" /><span className="replay-secret-chip">SECRET · 결재 전</span></> : d.title}
         {d.size && <span className="meta">{d.size}</span>}
       </div>
@@ -281,7 +288,7 @@ function Tip({ point: p, x, wrap }: { point: Point; x: number; wrap: HTMLDivElem
   const left = r ? Math.max(8, Math.min(window.innerWidth - 288, r.left + x - 20)) : 8
   return (
     <div className="replay-tip" data-seat={String(lane)} style={{ left, bottom: r ? window.innerHeight - r.top + 14 : 0 }} aria-hidden="true">
-      <span className={`tab${p.secret ? ' secret' : ''}`}>{AGENT_NAME[lane]} · {d.kind}{p.secret ? ' · SECRET' : ''}</span>
+      <span className={`tab${p.secret ? ' secret' : ''}`}>{d.head}{p.secret ? ' · SECRET' : ''}</span>
       <div className="body">
         {p.secret ? <span className="replay-redact wide" /> : d.title || '(제목 없음)'}
         <span className="meta">
