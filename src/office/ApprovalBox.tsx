@@ -1,3 +1,4 @@
+import { cue } from '../audio/cues'
 import { DockSlot } from './CornerDock'
 import { SideSlot, useSidePanelOpen } from './SidePanel'
 import { setSideBack, setSideLayout, setSideRaise } from './sidePanel/store'
@@ -412,6 +413,9 @@ function Detail({
     if (!res.ok) return setPhase('error')
     setPhase('stamped')
     setThud(true)
+    // the decision chime, then the stamp lands at 70% of its drop (styles.css stamp-in) (docs/design/sound.md 4.1 #8, #3)
+    cue(answers.find((o) => o.value === sel)?.reject ? 'reject' : 'approve')
+    cue('stamp.ui', { at: (tokenMs('--approval-stamp-ms') * 0.7) / 1000 })
     announce(decidedText(a, sel))
     timer.current = setTimeout(() => onDone(a, sel), tokenMs('--approval-stamp-ms') + tokenMs('--approval-next-ms'))
   }

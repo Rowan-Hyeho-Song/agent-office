@@ -500,3 +500,47 @@ html[data-side='sheet'] p.cam-hint { bottom: calc(55% + 14px); }
 }
 @media (prefers-reduced-motion: reduce) { .side-panel, .side-body > *, .cam-hint, .corner-dock { animation: none; transition: none; } }
 html[data-motion='reduce'] .side-panel, html[data-motion='reduce'] .side-body > *, html[data-motion='reduce'] .cam-hint, html[data-motion='reduce'] .corner-dock { animation: none; transition: none; }
+
+/* sound button (#194, docs/design/sound.md 2.5): top of the dock, a 34 px icon; desktop opens a 120 px volume slider
+   to its left on hover/focus; phones get the toggle only; a one-time 4 s hint when opened on its own */
+.dock-slot#dock-sound { justify-content: flex-end; }
+.sound-dock { position: relative; display: flex; align-items: center; justify-content: flex-end; width: 100%; }
+.dock-btn.sound-toggle { flex: none; width: 34px; height: 34px; padding: 0; justify-content: center; background: var(--color-surface-alpha); color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-line); }
+.dock-btn.sound-toggle svg { width: 16px; height: 16px; }
+.dock-btn.sound-toggle.off { color: var(--color-text-muted); }
+.dock-btn.sound-toggle.flash { animation: sound-flash 300ms ease-in-out 3; }
+@keyframes sound-flash { 50% { box-shadow: inset 0 0 0 2px var(--color-cyan); color: var(--color-cyan); } }
+.sound-volume { position: absolute; right: calc(34px + 8px); top: 50%; translate: 0 -50%; width: 120px; display: flex; align-items: center;
+  padding: 0 var(--space-2); height: 34px; background: var(--color-surface-alpha); box-shadow: inset 0 0 0 1px var(--color-line);
+  opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 120ms ease, visibility 0s 120ms; }
+.sound-volume input { width: 100%; accent-color: var(--color-cyan); }
+.sound-dock:hover .sound-volume, .sound-dock:focus-within .sound-volume { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity 120ms ease, visibility 0s; }
+.sound-hint { position: absolute; right: calc(34px + 8px); top: 50%; translate: 0 -50%; margin: 0; padding: var(--space-1) var(--space-2); white-space: nowrap;
+  font-size: 13px; background: var(--color-surface-alpha); color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-cyan); pointer-events: none; }
+.sound-dock:hover .sound-hint, .sound-dock:focus-within .sound-hint { display: none; }
+@media (pointer: coarse), (max-width: 640px) { .sound-volume { display: none; } .dock-btn.sound-toggle { width: 44px; height: 44px; } }
+@media (prefers-reduced-motion: reduce) { .dock-btn.sound-toggle.flash { animation: none; box-shadow: inset 0 0 0 2px var(--color-cyan); } .sound-volume { transition: none; } }
+html[data-motion='reduce'] .dock-btn.sound-toggle.flash { animation: none; box-shadow: inset 0 0 0 2px var(--color-cyan); }
+/* ?debug=1 sound panel (#194): top left, scrolls on its own */
+.sound-debug { position: fixed; z-index: 40; left: var(--space-4); top: 56px; width: min(380px, calc(100vw - 32px)); max-height: 72vh; overflow: auto;
+  padding: var(--space-2) var(--space-3); background: var(--color-surface-alpha); color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-line); font-size: 12px; }
+.sound-debug summary { cursor: pointer; font-family: var(--font-pixel); }
+.sound-debug section, .sound-debug fieldset { margin: var(--space-2) 0; }
+.sound-debug fieldset { border: 1px solid var(--color-line); padding: var(--space-1) var(--space-2); }
+.sound-debug button { font: inherit; padding: 1px 6px; margin: 1px; }
+.sound-debug button[aria-pressed='true'] { background: var(--color-cyan); color: var(--color-ink); }
+.sound-debug .sd-note { color: var(--color-text-muted); margin: var(--space-1) 0; }
+.sound-debug .sd-row { display: grid; grid-template-columns: 64px 1fr 92px; gap: 6px; align-items: center; }
+.sound-debug .sd-cues { list-style: none; padding: 0; margin: 0; }
+.sound-debug .sd-cues li { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 2px 0; border-bottom: 1px solid var(--color-line); }
+.sound-debug .sd-name { flex: 1; min-width: 140px; }
+.sound-debug code { color: var(--color-text-muted); }
+.sound-debug input[readonly] { width: 100%; font: inherit; }
+.sound-debug .sd-layers label { margin-right: 6px; white-space: nowrap; }
+/* phones: the dock is a row and the sound button is its leftmost item, so the hint goes above it */
+@media (max-width: 640px) { .sound-hint { right: auto; left: 0; top: auto; bottom: calc(100% + 8px); translate: none; } }
+/* designer follow-up (#201): the volume number in a fixed 36 px cell right of the slider; on phones the one-time hint
+   sits 28 px higher so it clears the "AGENT OFFICE · 드래그해서 돌려 보기" caption */
+.sound-volume { width: calc(120px + 36px); gap: 4px; }
+.sound-volume-num { flex: none; width: 36px; text-align: right; font-family: var(--font-pixel); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; color: var(--color-text-muted); }
+@media (max-width: 640px) { .sound-hint { bottom: calc(100% + 8px + 28px); } }
