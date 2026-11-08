@@ -47,30 +47,48 @@ RNG = random.Random(7)
 DRNG = random.Random(43)  # desk props (#43): their own sequence, so the rest of the room keeps its randomness
 
 # ---------------------------------------------------------------- layout (web meters, floor top y = 0)
-HX, HZ = 3.5, 2.75  # half room: x -3.5..3.5, z -2.75..2.75 (back wall at -z, left wall at -x)
+# #109: 7 x 5.5 -> 9 x 7 m so that nothing touches (layout rules: .claude/skills/office-bake/SKILL.md 10, checked by
+# check-glb --overlap on the slot_* footprints). Zones: work back-left (desks 0-1 under the window, 2-3 along the left
+# wall), meeting at the whiteboard (back middle), library back-right, lounge front-right (ping-pong, sofa facing it),
+# coffee on the right wall, board games front-left, entrance on the left wall near the front (door + clock).
+HX, HZ = 4.5, 3.5  # half room: x -4.5..4.5, z -3.5..3.5 (back wall n at -z, left wall w at -x)
 WALL_H = 2.6
 WT = 0.14
 WORK_Z = 0.5  # where an agent hovers in front of its desk (from the desk center): hands reach the keyboard
 
 AGENTS = [  # desk frame (x, z, ry): the agent sits on local +z and faces local -z (the monitor / the wall)
-    {"color": "#ffb347", "at": (-2.45, -2.36, 0.0)},  # 0 MEMO amber
-    {"color": "#8f9bff", "at": (-1.15, -2.36, 0.0)},  # 1 MESH lavender
-    {"color": "#ff3ea5", "at": (-3.11, -1.15, math.pi / 2)},  # 2 HUE magenta
-    {"color": "#4df3ff", "at": (-3.11, 0.15, math.pi / 2)},  # 3 LOOP cyan
+    {"color": "#ffb347", "at": (-2.8, -3.07, 0.0)},  # 0 MEMO amber (its back edge just clear of the window sill)
+    {"color": "#8f9bff", "at": (-1.0, -3.07, 0.0)},  # 1 MESH lavender
+    {"color": "#ff3ea5", "at": (-4.14, -1.12, math.pi / 2)},  # 2 HUE magenta (0.6 m clear of MEMO's spot)
+    {"color": "#4df3ff", "at": (-4.14, 0.68, math.pi / 2)},  # 3 LOOP cyan
 ]
-DOOR_Z = 2.12
-PINGPONG = (1.75, 0.95)
-SOFA = (0.35, 2.15)
-GAME_TABLE = (-1.35, 1.55)
-SHELF_X = 2.85
+WINDOW_X = -1.9  # the window over desks 0-1 (2.6 m wide)
+WHITEBOARD_X, BULLETIN_X = 1.1, 2.55
+DOOR_Z = 2.6
+PINGPONG = (2.2, 0.0)
+SOFA = (2.2, 2.6)
+GAME_TABLE = (-1.6, 2.2)
+COUNTER = (HX - 0.32, -2.0, math.pi)  # against the right wall, its front (local +x) facing the room
+SHELF_X = 3.75
 SHELF_W, SHELF_D = 1.1, 0.34  # the bookshelf against the back wall: width, depth
-CLOCK_AT, CLOCK_S = (-HX + 0.02, 1.85, 1.35), 0.40  # wall clock face center (left wall, over the coffee counter), size
+PLANTS = [  # name, x, z, scale
+    ("plant_desk", 0.0, -3.22, 1.0),  # between MESH's desk and the whiteboard
+    ("plant_corner", 4.15, 3.12, 1.2),
+    ("plant_sofa", 0.9, 2.75, 0.85),
+    ("plant_boards", 2.0, -3.25, 0.7),  # under the gap between the whiteboard and the bulletin board
+]
+CLOCK_AT, CLOCK_S = (-HX + 0.02, 1.85, 1.6), 0.40  # wall clock face center (left wall, next to the door), size
 CLOCK_M = Mx((CLOCK_AT[0] + 0.01, CLOCK_AT[1], CLOCK_AT[2]), ry=math.pi / 2)  # the face front: local +z = web +x
 
 
 def frame(at):
     x, z, ry = at
     return Mx((x, 0, z), ry=ry)
+
+
+def counter_frame():
+    """the coffee counter's frame: origin at its floor center, local +x = its front (the machine's spout side)"""
+    return frame(COUNTER)
 
 
 # ---------------------------------------------------------------- layout slots (#109)
@@ -137,12 +155,12 @@ def build_room():
     parts = [
         box("floor", (2 * HX + WT, 0.12, 2 * HZ + WT), (-WT / 2, -0.06, -WT / 2), floor_wood, G, bev=0.01),
         # work corner carpet, lounge rug
-        box("carpet", (3.3, 0.01, 3.4), (-3.5 + 1.65, 0.005, -2.75 + 1.7), carpet, G),
-        rounded_slab("rug", 2.6, 0.01, 1.7, 0.25, (0.55, 0.006, 1.5), rug, G),
+        box("carpet", (4.3, 0.01, 4.8), (-HX + 2.15, 0.005, -HZ + 2.4), carpet, G),
+        rounded_slab("rug", 2.8, 0.01, 1.4, 0.25, (SOFA[0], 0.006, SOFA[1] - 1.05), rug, G),
     ]
     # back wall with a wide window over the two back desks; left wall solid
     back = box("back_wall", (2 * HX + WT, WALL_H, WT), (-WT / 2, WALL_H / 2, -HZ - WT / 2), wall, G)
-    win = box("win_cut", (2.6, 1.05, WT * 3), (-1.8, 1.72, -HZ - WT / 2), wall, G)
+    win = box("win_cut", (2.6, 1.05, WT * 3), (WINDOW_X, 1.72, -HZ - WT / 2), wall, G)
     back = cut(apply_all(back), apply_all(win))
     left = box("left_wall", (WT, WALL_H, 2 * HZ), (-HX - WT / 2, WALL_H / 2, 0), wall, G)
     parts += [back, left]
@@ -161,7 +179,7 @@ def build_room():
         box("edge_r", (0.02, 0.12, 2 * HZ + WT), (HX + 0.01, -0.06, -WT / 2), trim, G),
     ]
     # window: frame, mullions, sill, and the night city behind it (baked emission)
-    wx, wy, ww, wh = -1.8, 1.72, 2.6, 1.05
+    wx, wy, ww, wh = WINDOW_X, 1.72, 2.6, 1.05
     frame_m = plastic("#15171c", 0.4, 0.6, 0.05, "window_frame")
     parts += [
         box("win_top", (ww + 0.08, 0.05, 0.1), (wx, wy + wh / 2, -HZ), frame_m, G),
@@ -664,16 +682,17 @@ def build_wall_items():
     frame_m = plastic("#c8ccd4", 0.35, 0.7, 0.05, "alu")
     board = plastic("#f4f4f0", 0.25, 0, 0.05, "whiteboard")
     cork = plastic("#a87b4f", 0.95, 0, 0.8, "cork")
-    p = [box("wb_frame", (1.56, 1.06, 0.03), (0.35, 1.5, z), frame_m, G, bev=0.006),
-         box("wb", (1.5, 1.0, 0.02), (0.35, 1.5, z + 0.01), board, G),
-         box("wb_tray", (1.3, 0.025, 0.06), (0.35, 0.985, z + 0.03), frame_m, G)]
+    wbx = WHITEBOARD_X
+    p = [box("wb_frame", (1.56, 1.06, 0.03), (wbx, 1.5, z), frame_m, G, bev=0.006),
+         box("wb", (1.5, 1.0, 0.02), (wbx, 1.5, z + 0.01), board, G),
+         box("wb_tray", (1.3, 0.025, 0.06), (wbx, 0.985, z + 0.03), frame_m, G)]
     # the cards and the visitor notes are the app's (surface_whiteboard / surface_bulletin): the boards stay empty
     for k, col in enumerate(("#1f6feb", "#d64545", "#111111")):
-        p.append(cyl("marker", 0.008, 0.12, (0.0 + k * 0.05, 1.0, z + 0.04), plastic(col, 0.4, 0, 0, f"marker_{k}"), G, 10, axis="x"))
+        p.append(cyl("marker", 0.008, 0.12, (wbx - 0.35 + k * 0.05, 1.0, z + 0.04), plastic(col, 0.4, 0, 0, f"marker_{k}"), G, 10, axis="x"))
     fp("whiteboard", p, "wall", "n")
     # bulletin board for visitor notes
-    p += [box("cork_frame", (0.86, 0.96, 0.03), (1.75, 1.45, z), plastic("#5a3d26", 0.6, 0, 0.3, "cork_frame"), G, bev=0.006),
-          box("cork", (0.8, 0.9, 0.02), (1.75, 1.45, z + 0.01), cork, G)]
+    p += [box("cork_frame", (0.86, 0.96, 0.03), (BULLETIN_X, 1.45, z), plastic("#5a3d26", 0.6, 0, 0.3, "cork_frame"), G, bev=0.006),
+          box("cork", (0.8, 0.9, 0.02), (BULLETIN_X, 1.45, z + 0.01), cork, G)]
     fp("bulletin", p[-2:], "wall", "n")
     mark = len(p)
     # bookshelf (the library): 5 shelves; 0 and 4 keep the decorative books, 1..3 hold the live binders (#67, LIBRARY)
@@ -739,7 +758,7 @@ def build_lounge():
     p = []
     # ping-pong table
     tx, tz = PINGPONG
-    tw, td, th = 2.0, 1.1, 0.76
+    tw, td, th = 2.05, 1.14, 0.76  # 0.75 x a real table (2.74 x 1.525), office-quality.md rule 5
     green = plastic("#1f5a46", 0.6, 0, 0.2, "pp_top")
     white = plastic("#f2f2f2", 0.5, 0, 0, "pp_line")
     p += [box("pp_top", (tw, 0.04, td), (tx, th - 0.02, tz), green, G, bev=0.004),
@@ -795,20 +814,20 @@ def build_lounge():
               cyl("stool_col", 0.025, 0.48, (gx + dx, 0.24, gz), metal, G, 10),
               cyl("stool_foot", 0.15, 0.02, (gx + dx, 0.01, gz), metal, G, 24)]
     fp("game", p[mark:], "floor")  # the table with its two stools
-    # coffee counter against the left wall, between the desks and the door
-    mark = len(p)
-    cx, cz = -HX + 0.3, 1.32
-    p += [box("counter", (0.6, 0.9, 0.7), (cx, 0.45, cz), plastic("#2b2f3a", 0.6, 0, 0.2, "counter"), G, bev=0.01),
-          box("counter_top", (0.64, 0.04, 0.74), (cx, 0.92, cz), plastic("#e8e4dc", 0.3, 0, 0.3, "counter_top"), G, bev=0.006),
-          box("machine", (0.28, 0.36, 0.3), (cx, 1.12, cz - 0.12), plastic("#1b1d22", 0.35, 0.6, 0.05, "machine"), G, bev=0.02),
-          box("spout", (0.06, 0.05, 0.08), (cx + 0.12, 1.02, cz - 0.12), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G)]
+    # coffee counter against the right wall (#109: it used to cut into the door), built in its own frame: local +x = front
+    c = []
+    c += [box("counter", (0.6, 0.9, 0.7), (0, 0.45, 0), plastic("#2b2f3a", 0.6, 0, 0.2, "counter"), G, bev=0.01),
+          box("counter_top", (0.64, 0.04, 0.74), (0, 0.92, 0), plastic("#e8e4dc", 0.3, 0, 0.3, "counter_top"), G, bev=0.006),
+          box("machine", (0.28, 0.36, 0.3), (0, 1.12, -0.12), plastic("#1b1d22", 0.35, 0.6, 0.05, "machine"), G, bev=0.02),
+          box("spout", (0.06, 0.05, 0.08), (0.12, 1.02, -0.12), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G)]
     # the cup under the spout and one beside it are props (build_props); the stack stays baked
     for k in range(3):
-        p.append(cyl("cup", 0.035, 0.08, (cx + 0.05 - k * 0.0, 0.98 + k * 0.08, cz + 0.2), plastic("#f4f4f0", 0.4, 0, 0, "cup"), G, 16, r2=0.03))
-    fp("counter", p[mark:], "floor", "w")  # stands against the left wall
+        c.append(cyl("cup", 0.035, 0.08, (0.05, 0.98 + k * 0.08, 0.2), plastic("#f4f4f0", 0.4, 0, 0, "cup"), G, 16, r2=0.03))
+    c = place(c, counter_frame())
+    fp("counter", c, "floor", "e")  # stands against the right wall
+    p += c
     # plants
-    for name, (px, pz, s) in zip(("plant_desk", "plant_corner", "plant_sofa", "plant_shelf"),
-                                 ((-0.35, -2.45, 1.0), (3.15, 2.35, 1.2), (-0.55, 2.45, 0.85), (2.25, -2.4, 0.7))):
+    for name, px, pz, s in PLANTS:
         mark = len(p)
         p.append(cyl("planter", 0.18 * s, 0.4 * s, (px, 0.2 * s, pz), plastic("#e8e4dc", 0.6, 0, 0.2, "planter"), G, 24, r2=0.15 * s))
         for k in range(9):
@@ -818,7 +837,7 @@ def build_lounge():
             p.append(leaf)
         fp(name, p[mark:], "decor")
     # floor lamp by the sofa (its shade glows live)
-    lx, lz = SOFA[0] + 1.25, SOFA[1] + 0.1
+    lx, lz = SOFA[0] + 1.3, SOFA[1] + 0.25
     p += [cyl("lamp_base", 0.14, 0.03, (lx, 0.015, lz), metal, G, 24),
           cyl("lamp_pole", 0.015, 1.5, (lx, 0.78, lz), metal, G, 10)]
     shade = cyl("lamp_shade", 0.2, 0.26, (lx, 1.62, lz), emitter("#ffcf8a", 2.0, "lamp_shade"), "export", 32, r2=0.13)
@@ -863,12 +882,13 @@ def build_props():
     out.append(prop("prop_ball", "ball", [sphere("ball", 0.02, (0, 0, 0), plastic("#ffffff", 0.3, 0, 0, "ball"), G, seg=14, rings=10)],
                     (tx + 0.25, th + 0.02, tz - 0.1), grip_pos=(0, -0.05, 0)))
     # cups: origin at the handle (on local +x), body hanging beside it. Home on the counter, handle toward the room
-    cx, cz = -HX + 0.3, 1.32
-    for k, (bx, bz) in enumerate(((cx + 0.14, cz - 0.12), (cx + 0.19, cz + 0.07))):
+    C = counter_frame()
+    for k, (bx, bz) in enumerate(((0.14, -0.12), (0.19, 0.07))):  # counter frame: under the spout, and beside it
         # 1.25x the baked mugs so a cup still reads in a robot hand
         objs = [cyl("cup", 0.045, 0.105, (-0.072, 0, 0), plastic("#f4f4f0", 0.4, 0, 0, "cup"), G, 20),
                 torus("cup_handle", 0.027, 0.0075, (-0.027, 0.0, 0), plastic("#f4f4f0", 0.4, 0, 0, "cup"), G, axis="z", half=True, seg=16, rseg=6)]
-        out.append(prop(f"prop_cup_{k}", "cup", objs, (bx + 0.072, 0.94 + 0.0525, bz)))
+        at = (C @ Mx((bx + 0.072, 0.94 + 0.0525, bz))).to_translation()
+        out.append(prop(f"prop_cup_{k}", "cup", objs, (at.x, at.z, -at.y), (0.0, COUNTER[2], 0.0)))
     # watering can: origin at the top of its carry handle; body, spout and rose below. Home on the floor by the
     # front-right plant
     green = plastic("#3fa36b", 0.45, 0.2, 0.1, "can")
@@ -879,7 +899,7 @@ def build_props():
             box("can_bar", (0.1, 0.014, 0.018), (0, 0, 0), green, G, bev=0.004, seg=2),
             segment("can_spout", (0.07, -0.17, 0), (0.2, -0.07, 0), 0.012, green, G, r2=0.009),
             cyl("can_rose", 0.022, 0.014, (0.205, -0.065, 0), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G, 16)]
-    out.append(prop("prop_watering_can", "watering_can", objs, (2.8, 0.2, 2.45), (0.0, 0.6, 0.0)))
+    out.append(prop("prop_watering_can", "watering_can", objs, (3.75, 0.2, 3.3), (0.0, 0.6, 0.0)))
     # board pieces: center pivot, a little larger than the baked ones so they read in a hand
     for end, (at, col) in zip("ab", zip(PIECE_HOME, ("#1b1d22", "#f4f4f0"))):
         out.append(prop(f"prop_piece_{end}", "piece", [cyl("piece", 0.019, 0.014, (0, 0, 0), plastic(col, 0.3, 0, 0, f"piece_{end}"), G, 18)],
@@ -950,10 +970,10 @@ HEAD = (0.42, 0.32, 0.34)
 GLOW_Y = 0.97  # thrust ring under the head
 HAND_REST = (0.30, 0.86, -0.04)  # (±x, y, z) palm center at rest, agent frame
 SPAWN = [  # where each agent hovers in the exported (idle) pose: ping-pong, coffee, whiteboard, desk side
-    (0.42, 0.95, -math.pi / 2),
-    (3.08, 0.95, math.pi / 2),
-    (-2.6, 1.32, math.pi / 2),
-    (0.35, -2.05, 0.0),
+    (PINGPONG[0] - 1.33, PINGPONG[1], -math.pi / 2),
+    (PINGPONG[0] + 1.33, PINGPONG[1], math.pi / 2),
+    (COUNTER[0] - 0.62, COUNTER[1], -math.pi / 2),  # nav_coffee: in front of the counter, facing +x
+    (WHITEBOARD_X, -HZ + 0.9, 0.0),
 ]
 POSTIT = ["#ffe27a", "#ffc46b", "#fff1b8"]
 # the #20 grip offsets were defined on the old hand empty: agent frame, arm hanging (-y = away from the
@@ -1234,8 +1254,8 @@ def surface(name, center, w, h):
 
 def build_surfaces():
     z = -HZ + 0.02 + 0.021  # just in front of the board faces (board front at z + 0.02)
-    surface("whiteboard", (0.35, 1.5, z), 1.5, 1.0)
-    surface("bulletin", (1.75, 1.45, z), 0.8, 0.9)
+    surface("whiteboard", (WHITEBOARD_X, 1.5, z), 1.5, 1.0)
+    surface("bulletin", (BULLETIN_X, 1.45, z), 0.8, 0.9)
 
 
 def facing(fx, fz, tx, tz):
@@ -1243,10 +1263,10 @@ def facing(fx, fz, tx, tz):
     return math.atan2(-(tx - fx), -(tz - fz))
 
 
-# where a visiting agent stands to talk to the one at desk i: (x, z, ry facing the worker). Measured in the
-# app's nav check (#17: rays along every edge and round each spot, 0.2–1.0 m high, ±0.22 m body width) —
-# the first guesses (0.85 m beside each desk) sat inside the neighbouring desk's corner.
-DESK_SIDE = [(-1.90, -1.72, 1.32), (-0.60, -1.72, 1.32), (-2.10, -0.80, 0.969), (-2.00, -0.20, 2.092)]
+# where a visiting agent stands to talk to the one at desk i, in the desk frame: in front of the desk's right end,
+# in the 0.6 m gap to the next desk (#109 layout). Facing the worker.
+DESK_SIDE = (0.95, 0.55)
+COFFEE_SPOT = (0.62, 0.0)  # in the counter frame: in front of the machine
 
 
 def build_nav():
@@ -1254,40 +1274,43 @@ def build_nav():
         F = frame(a["at"])
         seat = (F @ Mx((0, 0, WORK_Z))).to_translation()
         nav(f"work_{i}", seat.x, -seat.y, a["at"][2], "work")
-        nav(f"desk_side_{i}", *DESK_SIDE[i], "stand")
-    nav("whiteboard", 0.35, -2.05, 0.0, "stand")
-    nav("bulletin", 1.75, -2.05, 0.0, "stand")
-    nav("shelf", SHELF_X, -2.05, 0.0, "stand")
-    nav("coffee", -2.6, 1.32, math.pi / 2, "stand")
+        side = (F @ Mx((DESK_SIDE[0], 0, DESK_SIDE[1]))).to_translation()
+        nav(f"desk_side_{i}", side.x, -side.y, facing(side.x, -side.y, seat.x, -seat.y), "stand")
+    stand_z = -HZ + 0.9  # in front of the back wall's boards and the shelf
+    nav("whiteboard", WHITEBOARD_X, stand_z, 0.0, "stand")
+    nav("bulletin", BULLETIN_X, stand_z, 0.0, "stand")
+    nav("shelf", SHELF_X, stand_z, 0.0, "stand")
+    cs = (counter_frame() @ Mx((COFFEE_SPOT[0], 0, COFFEE_SPOT[1]))).to_translation()
+    nav("coffee", cs.x, -cs.y, facing(cs.x, -cs.y, COUNTER[0], COUNTER[1]), "stand")
     nav("pingpong_a", PINGPONG[0] - 1.33, PINGPONG[1], -math.pi / 2, "play")
     nav("pingpong_b", PINGPONG[0] + 1.33, PINGPONG[1], math.pi / 2, "play")
     for k in range(3):
         nav(f"sofa_{k}", SOFA[0] - 0.53 + k * 0.53, SOFA[1] - 0.05, 0.0, "sofa")
     nav("game_a", GAME_TABLE[0] - 0.6, GAME_TABLE[1], -math.pi / 2, "stool")
     nav("game_b", GAME_TABLE[0] + 0.6, GAME_TABLE[1], math.pi / 2, "stool")
-    nav("door", -2.95, DOOR_Z, math.pi / 2, "door")
-    # face-to-face talk spots (0.8 m apart): in the open floor, and by the whiteboard
-    nav("meet_a", -0.75, -0.55, -math.pi / 2, "meet")
-    nav("meet_b", 0.05, -0.55, math.pi / 2, "meet")
-    nav("meet_c", 0.0, -1.55, -math.pi / 4, "meet")
-    nav("meet_d", 0.62, -1.55, math.pi / 4, "meet")
-    # hall nodes: the aisles between the furniture. hall_game (under the board-game table) and hall_ne (behind the
-    # ping-pong table) came from the app's nav check (#17): west→front grazed the game table by 2 cm and
-    # east→pingpong_b crossed the table top's corner; hall_lounge moved off the corner plant's leaves.
-    for name, x, z in (("door", -2.5, 2.25), ("west", -2.3, 0.75), ("work", -1.8, -1.35), ("mid", -0.35, -0.55),
-                       ("east", 2.0, -0.6), ("front", 0.1, 1.2), ("lounge", 2.95, 1.85), ("game", -1.35, 0.7),
-                       ("ne", 3.1, 0.0)):
+    nav("door", -HX + 0.55, DOOR_Z, math.pi / 2, "door")
+    # face-to-face talk spots (0.8 / 0.62 m apart): in the open floor, and by the whiteboard
+    nav("meet_a", -1.4, -0.6, -math.pi / 2, "meet")
+    nav("meet_b", -0.6, -0.6, math.pi / 2, "meet")
+    nav("meet_c", WHITEBOARD_X - 0.31, -1.9, -math.pi / 4, "meet")
+    nav("meet_d", WHITEBOARD_X + 0.31, -1.9, math.pi / 4, "meet")
+    # hall nodes: the aisles between the zones (#109 layout; the app's nav check #17 links and tests them)
+    for name, x, z in (("door", -3.3, DOOR_Z), ("west", -3.0, 1.4), ("work", -2.2, -1.5), ("mid", -1.0, -0.6),
+                       ("back", 2.0, -1.7), ("east", 3.1, -1.3), ("front", 0.2, 1.3), ("lounge", 3.95, 1.6),
+                       ("game", -1.6, 1.2), ("ne", 4.1, 0.0)):
         nav(f"hall_{name}", x, z, 0.0, "hall")
 
 
 # ================================================================ LIGHTS
 def build_lights(lamp_pos):
     # soft overhead "ceiling" panels over the work corner and the lounge (the room has no ceiling)
-    light("panel_work", "AREA", 70, "#dfe6ff", (-2.0, 3.2, -1.3), aim=(-2.0, 0, -1.3), size=2.6, size_y=2.2)
-    light("panel_lounge", "AREA", 55, "#ffe2c4", (1.2, 3.2, 1.2), aim=(1.2, 0, 1.2), size=3.0, size_y=2.2)
-    light("panel_wall", "AREA", 30, "#e8ecff", (1.6, 3.0, -1.8), aim=(1.6, 1.2, -2.75), size=2.4, size_y=0.8)
+    # #109: sized to the 9 x 7 room; power scaled with panel area so the light per m2 stays as it was
+    light("panel_work", "AREA", 160, "#dfe6ff", (-2.7, 3.2, -1.5), aim=(-2.7, 0, -1.5), size=3.6, size_y=3.6)
+    light("panel_lounge", "AREA", 120, "#ffe2c4", (2.2, 3.2, 1.3), aim=(2.2, 0, 1.3), size=4.0, size_y=3.6)
+    light("panel_mid", "AREA", 55, "#ece4dc", (-0.9, 3.2, 1.2), aim=(-0.9, 0, 1.2), size=2.8, size_y=2.6)
+    light("panel_wall", "AREA", 45, "#e8ecff", (2.4, 3.0, -2.55), aim=(2.4, 1.2, -HZ), size=3.6, size_y=0.8)
     # moonlight through the window, warm lamp in the lounge
-    light("moon", "AREA", 25, "#7d93ff", (-1.8, 1.75, -3.3), aim=(-1.8, 0.6, -1.0), size=2.4, size_y=1.0)
+    light("moon", "AREA", 25, "#7d93ff", (WINDOW_X, 1.75, -HZ - 0.55), aim=(WINDOW_X, 0.6, -HZ + 1.75), size=2.4, size_y=1.0)
     light("floor_lamp", "POINT", 18, "#ffcf8a", lamp_pos, size=0.12)
     world = bpy.data.worlds.new("night")
     scene.world = world
@@ -1470,7 +1493,7 @@ if PREVIEW:
         bpy.context.view_layer.update()
 
     # 1) the room as exported (agents at their spawn spots)
-    for name, (pos, target) in {"overview": ((6.6, 6.2, 7.4), (-0.25, 0.7, -0.2)),
+    for name, (pos, target) in {"overview": ((8.5, 8.0, 9.5), (-0.3, 0.6, -0.3)),
                                 "work": ((0.6, 2.3, 1.4), (-2.3, 0.8, -1.6)),
                                 "lounge": ((-1.2, 2.2, 4.4), (1.2, 0.6, 1.0)),
                                 "wall": ((1.4, 1.7, 1.2), (1.7, 1.35, -2.75)),
