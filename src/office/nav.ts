@@ -24,54 +24,58 @@ const desks = [0, 1, 2, 3]
  * draws a blocked edge red). Spots on furniture (sofa, stools) are entered from the open side only.
  */
 export const EDGES: [string, string][] = [
-  // work corner: seats and desk sides hang off the work aisle; the far seats share the west aisle
+  // work corner: desks 0-1 under the window, 2-3 along the west wall
   ...desks.flatMap((i): [string, string][] => [[`work_${i}`, 'hall_work']]),
   ['work_3', 'hall_west'],
   ['desk_side_0', 'hall_work'],
   ['desk_side_1', 'hall_mid'],
   ['desk_side_1', 'meet_c'],
   ['desk_side_2', 'hall_work'],
-  ['desk_side_2', 'desk_side_3'],
+  ['desk_side_3', 'hall_work'],
   ['desk_side_3', 'hall_west'],
   ['hall_work', 'hall_mid'],
   ['hall_work', 'hall_west'],
-  // left side: coffee counter, door, board game (passed on the open side, below the table)
-  ['hall_west', 'coffee'],
+  // left front: door, board game
   ['hall_west', 'hall_door'],
   ['hall_west', 'game_a'],
   ['hall_west', 'hall_game'],
+  ['hall_door', 'door'],
   ['hall_game', 'hall_front'],
   ['hall_game', 'hall_mid'],
-  ['coffee', 'hall_door'],
-  ['hall_door', 'door'],
-  // middle: talk spots and the wall (whiteboard, bulletin, shelf)
+  // middle: talk spots, whiteboard
   ['hall_mid', 'meet_a'],
   ['hall_mid', 'meet_b'],
   ['meet_a', 'meet_b'],
   ['hall_mid', 'meet_c'],
-  ['hall_mid', 'meet_d'],
   ['meet_c', 'meet_d'],
   ['meet_c', 'whiteboard'],
   ['meet_d', 'whiteboard'],
   ['hall_mid', 'whiteboard'],
-  ['hall_mid', 'hall_east'],
+  ['hall_mid', 'hall_back'],
   ['hall_mid', 'hall_front'],
   ['hall_mid', 'pingpong_a'],
-  ['hall_east', 'bulletin'],
-  ['hall_east', 'shelf'],
-  ['hall_east', 'meet_d'],
+  // back right: bulletin, shelf, coffee
+  ['hall_back', 'meet_d'],
+  ['hall_back', 'whiteboard'],
+  ['hall_back', 'bulletin'],
+  ['hall_back', 'shelf'],
+  ['hall_back', 'hall_east'],
   ['bulletin', 'shelf'],
-  // lounge: ping-pong, sofa, board game. The far end of the sofa is reached along the seat (the ping-pong
-  // table blocks it from the front), and the lounge corner only around the table's back side.
+  ['hall_east', 'shelf'],
+  ['hall_east', 'coffee'],
+  ['hall_east', 'hall_ne'],
+  // lounge (the front aisle hall_front - hall_lounge runs below the ping-pong table)
   ['hall_front', 'pingpong_a'],
   ['hall_front', 'game_b'],
   ['hall_front', 'sofa_0'],
-  ['hall_front', 'sofa_1'],
+  // (no hall_front–sofa_1: the ray crosses the sofa / side table; sofa_1 is reached via sofa_0 or sofa_2)
+  ['hall_front', 'hall_lounge'],
+  ['sofa_0', 'sofa_1'],
   ['sofa_1', 'sofa_2'],
+  ['hall_lounge', 'sofa_2'],
   ['hall_lounge', 'pingpong_b'],
-  ['hall_east', 'hall_ne'],
+  ['hall_lounge', 'hall_ne'],
   ['hall_ne', 'pingpong_b'],
-  ['hall_ne', 'shelf'],
 ]
 
 /**
@@ -108,10 +112,16 @@ export function buildGraph(spots: NavSpot[], edges: [string, string][] = EDGES):
   return { spots: byId, adj }
 }
 
+/** the spots beside the desks: standing there reads as waking the sleeper */
+export const DESK_SIDES: ReadonlySet<string> = new Set(desks.map((i) => `desk_side_${i}`))
+
 export const dist = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z)
 
-/** Dijkstra over the spot graph: the spot ids from `from` to `to` (both included), or null if unreachable */
-export function shortestPath(g: NavGraph, from: string, to: string): string[] | null {
+/**
+ * Dijkstra over the spot graph: the spot ids from `from` to `to` (both included), or null if unreachable.
+ * `blocked` spots are not walked through (#110: the night-duty agent keeps clear of the sleepers' desk sides).
+ */
+export function shortestPath(g: NavGraph, from: string, to: string, blocked?: ReadonlySet<string>): string[] | null {
   if (!g.spots[from] || !g.spots[to]) return null
   if (from === to) return [from]
   const best: Record<string, number> = { [from]: 0 }
@@ -125,6 +135,7 @@ export function shortestPath(g: NavGraph, from: string, to: string): string[] | 
     if (cur === to) break
     done.add(cur)
     for (const n of g.adj[cur]) {
+      if (blocked?.has(n) && n !== to) continue // never pass through a blocked spot (the ends are always allowed)
       const d = best[cur] + dist(g.spots[cur], g.spots[n])
       if (best[n] === undefined || d < best[n]) {
         best[n] = d
@@ -153,11 +164,12 @@ export function routeFromEdge(
   a: string,
   b: string,
   to: string,
+  blocked?: ReadonlySet<string>,
 ): string[] | null {
   let best: string[] | null = null
   let bestLen = Infinity
   for (const via of [a, b]) {
-    const p = shortestPath(g, via, to)
+    const p = shortestPath(g, via, to, blocked)
     if (!p) continue
     const len = dist(pos, g.spots[via]) + pathLength(g, p)
     if (len < bestLen) {

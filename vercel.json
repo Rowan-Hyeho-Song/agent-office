@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/rooms/office/app/:path*", "destination": "/:path*" }
+  ]
+}

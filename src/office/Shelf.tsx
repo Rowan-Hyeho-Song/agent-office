@@ -3,6 +3,7 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { type Object3D } from 'three'
 import { shelfLayout } from '../docs/library'
 import { openDocs } from './docs/panel'
+import { replay, useReplay } from '../replay/store'
 import { hitBox, useCanvasPick } from './pick'
 import { ShelfRig } from './shelfRig'
 import type { OfficeWorld } from './world'
@@ -22,11 +23,23 @@ export function Shelf({ world, scene, nodes }: { world: OfficeWorld; scene: Obje
   // once per loaded scene: React StrictMode builds this twice, and a second pass would clone the clones
   const rig = useMemo(() => (scene.userData.shelfRig ??= new ShelfRig(nodes)) as ShelfRig, [scene, nodes])
   const src = lib ?? EMPTY_LIBRARY
-  const { layout } = useSyncExternalStore(src.subscribe, src.getSnapshot)
+  const live = useSyncExternalStore(src.subscribe, src.getSnapshot).layout
+  // the timelapse (#82) shelves the binders filed up to its playhead
+  const rp = useReplay()
+  const layout = rp.mode === 'office' ? (replay.scene()?.layout ?? live) : live
   useEffect(() => {
     rig.apply(layout)
   }, [rig, layout])
   useEffect(() => rig.redrawWhenFontsReady(), [rig])
+  // a replayed meeting is over: its minutes are filed, the binder lights up
+  useEffect(
+    () =>
+      world.meeting.onEnd((s) => {
+        void lib?.refresh()
+        rig.flash(s.repo, s.n)
+      }),
+    [world, lib, rig],
+  )
   useFrame((_, dt) => rig.update(Math.min(dt, 0.1)))
 
   const box = useMemo(() => hitBox(scene, 'library'), [scene])

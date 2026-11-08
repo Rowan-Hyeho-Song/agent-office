@@ -32,7 +32,8 @@ const supabase: TimelineStore = {
     const res = await fetch(`${url}/rest/v1/timeline?on_conflict=key`, {
       method: 'POST',
       headers: { ...auth, 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify(rows),
+      // every row carries the same keys (a bulk upsert needs them): result is false off the approval results
+      body: JSON.stringify(rows.map((r) => ({ ...r, result: r.result === true }))),
     })
     if (!res.ok) throw new Error(`supabase ${res.status}: ${await res.text()}`)
   },

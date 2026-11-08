@@ -1,7 +1,9 @@
 // The office's shared runtime state: one per page. The 3D scene writes it every frame, the debug panel reads it.
 
 import type { ApprovalSource } from '../approvals/source'
-import { setClockFromText } from './clock'
+import { setClockFromText, setClockTime } from './clock'
+import { DutySource } from './duty'
+import { kstTimeToMs } from './kst'
 import { FakeApprovalSource } from '../approvals/fakeSource'
 import { supabaseSource } from './approval/supabaseSource'
 import { openApprovalBox } from './approval/panel'
@@ -14,6 +16,10 @@ import { feedBoardFromLibrary } from '../board/feed'
 import { BoardStore } from '../board/store'
 import type { Ref } from '../docs/library'
 import { Director, type Goal } from './director'
+import { BubbleCenter } from './bubbleCenter'
+import { MeetingRunner } from './meetingRun'
+import { ReplayControl } from './replay'
+import { splitDecision } from '../board/state'
 import { LiveStatusSource } from './liveStatus'
 import type { NavGraph } from './nav'
 import type { NavCheck } from './navcheck'
@@ -60,6 +66,7 @@ export class ScreenDebug {
 
 export interface OfficeWorld {
   debug: boolean
+  /** what the office reads: the raw source with day / night applied (duty.ts) */
   source: StatusSource
   /** set when the source is the development fake (the debug panel drives it) */
   fake: FakeStatusSource | null
@@ -84,7 +91,21 @@ export interface OfficeWorld {
   screens: ScreenDebug
   /** debug only: window.__office.clock.set('10:10') pins the wall clock (Seoul time), set('') releases it */
   clock: { set(text: string): void } | null
+  /**
+   * debug only (#110): window.__office.kst.set('02:00') makes the office believe it is 02:00 in Seoul (day / night,
+   * the play schedule and the wall clock; it keeps ticking from there), set('') goes back to real time.
+   * ?debug=1&kst=02:00 does the same at load.
+   */
+  kst: { set(text: string): void } | null
+  /** day / night applied on top of the raw status source (what `source` is) */
+  duty: DutySource
   director: Director
+  /** bubbles outside a replay (#97): window.__office.bubbles.say(agent, { kind: 'talk' | 'react' | 'private', text }) */
+  bubbles: BubbleCenter
+  /** the meeting replay player (#97, reused by the timelapse #82): .onDecisionPinned(cb), .onEnd(cb), .view(now) */
+  meeting: MeetingRunner
+  /** what starts replays (null without a library): window.__office.replay.minutes(n) / .secret() / .private() / .pick(at?) / .stop() */
+  replay: ReplayControl | null
   /** debug only: shifts the play clock to preview later schedules */
   timeOffsetMs: number
   goals: Record<string, Goal>
@@ -93,6 +114,13 @@ export interface OfficeWorld {
   planes: PaperPlanes | null
   graph: NavGraph | null
   check: NavCheck | null
+}
+
+function setKst(w: OfficeWorld, text: string) {
+  const ms = kstTimeToMs(text)
+  w.timeOffsetMs = ms === null ? 0 : ms - Date.now()
+  setClockTime(ms === null ? null : new Date(ms))
+  w.duty.refresh()
 }
 
 export const officeNow = (w: OfficeWorld) => Date.now() + w.timeOffsetMs
@@ -122,7 +150,10 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
   const board = new BoardStore()
   const fakeBoard = docs ? new FakeBoard(board) : null
   if (library && !fakeBoard) feedBoardFromLibrary(library, board)
-  return {
+  const meeting = new MeetingRunner()
+  const holder: { w?: OfficeWorld } = {}
+  const duty = new DutySource((live ?? fake)!, AGENTS, () => Date.now() + (holder.w?.timeOffsetMs ?? 0))
+  const world: OfficeWorld = {
     debug,
     board,
     fakeBoard,
@@ -130,14 +161,19 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     fakeApprovals,
     library,
     docs,
-    source: (live ?? fake)!,
+    source: duty,
+    duty,
     fake,
     live,
     props: live && supabase ? new LivePropsFeed(supabase) : fakeProps!,
     fakeProps,
     screens: new ScreenDebug(),
     clock: debug ? { set: setClockFromText } : null,
+    kst: debug ? { set: (text) => setKst(world, text) } : null,
     director: new Director(AGENTS),
+    bubbles: new BubbleCenter(),
+    meeting,
+    replay: null,
     timeOffsetMs: 0,
     goals: {},
     rigs: {},
@@ -145,6 +181,26 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     graph: null,
     check: null,
   }
+  holder.w = world
+  if (debug) setKst(world, query.get('kst') ?? '')
+  if (library) {
+    // the hourly idle replay is off under ?debug=1 unless &replay is in the address, so screenshots stay still
+    world.replay = new ReplayControl(library, meeting, { now: () => officeNow(world), status: () => world.source.getSnapshot(), reduced: prefersReducedMotion }, !debug || query.get('replay') === '')
+    world.replay.watch()
+  }
+  // the planner pins the decision on the whiteboard: the note fades in like any new one (#66)
+  meeting.onDecisionPinned(({ script, text }) => {
+    const s = splitDecision(text)
+    board.pin({ key: `meeting:${script.id}`, repo: script.repo, n: script.n, title: s.title, note: s.note, at: new Date().toISOString() })
+  })
+  return world
+}
+
+/** the same rule as the design tokens: html[data-motion="reduce"|"full"] wins, otherwise the OS setting */
+export function prefersReducedMotion(): boolean {
+  const forced = document.documentElement.dataset.motion
+  if (forced === 'reduce' || forced === 'full') return forced === 'reduce'
+  return matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 /** the library: Supabase, or under ?debug=1 the fake (shares the approval fake's role). ?debug=1&docs=owner|visitor opens the viewer */

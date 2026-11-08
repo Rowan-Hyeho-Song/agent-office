@@ -2,16 +2,19 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { Box3, CanvasTexture, MeshBasicMaterial, Raycaster, SRGBColorSpace, Vector2, Vector3, type PerspectiveCamera } from 'three'
 import { meshesOf, type OfficeNodes } from '../office/nodes'
+import { DEFAULT_CAMERA, DEFAULT_TARGET } from '../office/room'
+import { hitAllowed } from '../office/walls'
 import { DOOR_FX } from './doorFx'
 import { DOOR_H, DOOR_W, drawDoor, hoverTick } from './doorScreen'
+import { getDoorMessage } from './doorMessage'
 import { ROOM_MODE, isLocked, leaveOffice, onEntered, onLeaveStart } from './link'
 
 // The door screen's states (hover, press) and, in room mode, the camera that starts in front of it (O) and
 // dives into it (X1). The desk's CRT is what the visitor sees around these (rowansong.dev #6 spec).
 
 /** default view (App.tsx): the intro ends here */
-export const HOME_POS = new Vector3(6.6, 6.2, 7.4)
-export const HOME_TARGET = new Vector3(-0.25, 0.7, -0.2)
+export const HOME_POS = new Vector3(...DEFAULT_CAMERA)
+export const HOME_TARGET = new Vector3(...DEFAULT_TARGET)
 
 const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
 
@@ -83,10 +86,11 @@ export function Door({ nodes }: { nodes: OfficeNodes }) {
     const since = v.pressed === null ? null : now - v.pressed
     // the key changes only when a pixel would: hover/press, the arrow's and cursor's steps, the flash end
     const phase = since === null ? 'x' : since < DOOR_FX.pressFlashMs ? 'f' : since < DOOR_FX.reducedDimMs && reduced ? 'd' : 'p'
-    const key = `${v.hover ? 1 : 0}${phase}${v.hover || v.pressed !== null ? hoverTick(t) : ''}`
+    const message = getDoorMessage()
+    const key = `${v.hover ? 1 : 0}${phase}${v.hover || v.pressed !== null ? hoverTick(t) : ''}${message ? `|${message.masked ? 'm' : 't'}${message.text}` : ''}`
     if (key === v.key) return
     v.key = key
-    drawDoor(screen.ctx, { hover: v.hover, pressed: since, reduced, t })
+    drawDoor(screen.ctx, { hover: v.hover, pressed: since, reduced, t, message })
     screen.texture.needsUpdate = true
   })
 
@@ -103,7 +107,7 @@ export function Door({ nodes }: { nodes: OfficeNodes }) {
       const r = el.getBoundingClientRect()
       ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1)
       ray.setFromCamera(ndc, camera)
-      return ray.intersectObjects(meshesOf(door), false).length > 0
+      return ray.intersectObjects(meshesOf(door), false).some(hitAllowed)
     }
     let down: [number, number] | null = null
     const onDown = (e: PointerEvent) => (down = [e.clientX, e.clientY])

@@ -13,6 +13,8 @@ export interface DoorView {
   reduced: boolean
   /** ms clock for the hover animation */
   t: number
+  /** the owner's line of a meeting replay (#97): a ROWAN message under the hover hint */
+  message?: { text: string; masked: boolean } | null
 }
 
 const token = (name: string, fallback: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
@@ -81,6 +83,7 @@ export function drawDoor(ctx: CanvasRenderingContext2D, v: DoorView) {
     ctx.fillStyle = cyan
     ctx.fillText(`클릭해서 돌아가기${Math.floor(v.t / 500) % 2 ? '_' : ' '}`, W / 2, 1160)
   }
+  if (v.message) drawMessage(ctx, v.message, { amber, dim, bg, fsS })
   ctx.fillStyle = dim
   ctx.fillText('rowansong.dev', W / 2, H - 130)
   // scanlines
@@ -90,4 +93,53 @@ export function drawDoor(ctx: CanvasRenderingContext2D, v: DoorView) {
     ctx.fillStyle = `rgba(255,179,71,${DOOR_FX.pressFlashAlpha})`
     ctx.fillRect(0, 0, W, H)
   }
+}
+
+/** how many characters of a line fit the message box (full-width glyphs at the small size) */
+const MESSAGE_COLS = 12
+const MESSAGE_ROWS = 4
+
+/** wrap on characters (Korean has no spaces to break on): the same cut for the words and for the bars */
+export function wrapMessage(text: string, cols = MESSAGE_COLS, rows = MESSAGE_ROWS): string[] {
+  const out: string[] = []
+  for (const word of text.split(' ')) {
+    const chars = [...word]
+    const last = out[out.length - 1]
+    if (last !== undefined && [...last].length + 1 + chars.length <= cols) out[out.length - 1] = last + ' ' + word
+    else for (let i = 0; i < chars.length || (i === 0 && chars.length === 0); i += cols) out.push(chars.slice(i, i + cols).join(''))
+  }
+  return out.slice(0, rows)
+}
+
+function drawMessage(ctx: CanvasRenderingContext2D, m: { text: string; masked: boolean }, c: { amber: string; dim: string; bg: string; fsS: number }) {
+  const x0 = 90
+  const y0 = 1250
+  const w = 640
+  const step = c.fsS + 16
+  // header: inverted ROWAN tag, then the lines under it in a framed box
+  ctx.fillStyle = c.amber
+  ctx.fillRect(x0, y0, 220, 56)
+  ctx.fillStyle = c.bg
+  ctx.font = `bold ${c.fsS}px ${FONT}`
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'middle'
+  ctx.fillText('ROWAN', x0 + 16, y0 + 29)
+  const lines = wrapMessage(m.text)
+  ctx.strokeStyle = c.dim
+  ctx.lineWidth = 4
+  ctx.strokeRect(x0, y0 + 56, w, MESSAGE_ROWS * step + 24)
+  ctx.fillStyle = c.amber
+  lines.forEach((line, i) => {
+    const y = y0 + 56 + 12 + i * step + step / 2
+    if (m.masked) {
+      // black bars: the words never reach the canvas
+      let x = x0 + 20
+      for (const ch of line) {
+        if (ch !== ' ') ctx.fillRect(x, y - c.fsS / 2 + 4, c.fsS - 8, c.fsS - 8)
+        x += c.fsS
+      }
+    } else ctx.fillText(line, x0 + 20, y)
+  })
+  ctx.textBaseline = 'alphabetic'
+  ctx.textAlign = 'center'
 }

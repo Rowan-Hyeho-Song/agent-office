@@ -5,7 +5,8 @@
 // row's timestamps, so every visitor reaches the same answer without a server timer:
 //   working, quiet for 3 min  → idle      (the session is waiting for its user, or a long command runs)
 //   wrapping, quiet for 2 min → idle
-//   anything, quiet for 2 h   → off       (gone home)
+//   anything, quiet for 2 h   → off       (offReason 'quiet'; no row at all = 'none')
+// "off" only means no work signal. Whether that is rest by day or sleep at night is duty.ts's call (#110).
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AgentState, AgentStatus, OfficeMessage, StatusMap, StatusSource } from './status'
@@ -38,8 +39,8 @@ export function effective(row: StatusRow, now: number): AgentStatus {
       ? { lastResult: { activity: row.last_result_activity, ok: row.last_result_ok, at: Date.parse(row.last_result_at) } }
       : {}
   let s: AgentStatus
-  if (row.state === 'off') s = { state: 'off', since }
-  else if (quiet > OFF_AFTER) s = { state: 'off', since: updated + OFF_AFTER }
+  if (row.state === 'off') s = { state: 'off', since, offReason: 'ended' }
+  else if (quiet > OFF_AFTER) s = { state: 'off', since: updated + OFF_AFTER, offReason: 'quiet' }
   else if (row.state === 'working' && quiet > WORKING_FOR) s = { state: 'idle', since: updated + WORKING_FOR }
   else if (row.state === 'wrapping' && quiet > WRAPPING_FOR) s = { state: 'idle', since: updated + WRAPPING_FOR }
   else s = row.activity ? { state: row.state, activity: row.activity, since } : { state: row.state, since }
@@ -50,7 +51,7 @@ const agentOf = (seat: number) => `agent_${seat}`
 
 /** rows → status map; agents without a row yet are off */
 export function toStatusMap(rows: StatusRow[], agents: string[], now: number): StatusMap {
-  const out: StatusMap = Object.fromEntries(agents.map((a) => [a, { state: 'off', since: 0 } satisfies AgentStatus]))
+  const out: StatusMap = Object.fromEntries(agents.map((a) => [a, { state: 'off', since: 0, offReason: 'none' } satisfies AgentStatus]))
   for (const r of rows) if (agentOf(r.seat) in out) out[agentOf(r.seat)] = effective(r, now)
   return out
 }
