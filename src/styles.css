@@ -154,6 +154,7 @@ body,
 .approval-meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
 .approval-meta .who { color: var(--agent-ink); }
 .approval-meta a { color: var(--color-cyan); }
+.approval-content a { color: var(--color-cyan); } /* links in a request: neon = clickable (#18), not the browser's visited purple */
 .approval-content { margin: var(--space-3) 0; padding: var(--space-3); background: var(--surface-raised); border-left: var(--bubble-stripe) solid var(--agent); font-size: 14px; line-height: 1.65; }
 .approval-content p { margin: 0 0 var(--space-2); }
 .approval-content p:last-child { margin: 0; }
