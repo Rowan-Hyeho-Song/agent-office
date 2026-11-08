@@ -6,6 +6,7 @@ import { AgentList } from './office/AgentList'
 import { ApprovalBox } from './office/ApprovalBox'
 import { DebugPanel } from './office/DebugPanel'
 import { Office } from './office/Office'
+import { RoomUi } from './room/RoomUi'
 import { createWorld } from './office/world'
 
 /** the diorama's center and the default isometric-ish view from the front right */
@@ -63,6 +64,7 @@ export function App() {
       </p>
       <AgentList world={world} />
       <ApprovalBox world={world} />
+      <RoomUi />
       {world.debug && <DebugPanel world={world} />}
     </>
   )

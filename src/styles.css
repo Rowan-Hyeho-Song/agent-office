@@ -242,3 +242,44 @@ fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap
 .approval-stamp text { font-family: var(--font-pixel); }
 /* full screen on phones: an opaque board, nothing of the HUD behind shows through */
 @media (max-width: 640px) { .approval-box { top: 0; right: 0; bottom: 0; width: 100%; background: var(--color-void); } .approval-box .approval-body { background: var(--color-surface); } }
+
+/* the way out: a link standalone; in a room the desk draws its own, so only a focusable door button is left */
+.desk-link {
+  position: fixed;
+  left: 16px;
+  top: 14px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(10, 13, 19, 0.85);
+  color: #e8e6e1;
+  font-size: 13px;
+  text-decoration: none;
+}
+.desk-link:hover,
+.desk-link:focus-visible {
+  color: #ffb347;
+}
+.door-btn {
+  position: fixed;
+  left: 16px;
+  top: 14px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(10, 13, 19, 0.85);
+  color: #e8e6e1;
+  font: inherit;
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+}
+.door-btn:focus-visible {
+  opacity: 1;
+  outline: 2px solid #ffb347;
+}
+/* the desk started leaving: swallow input until the frame is removed */
+.room-lock {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+}
