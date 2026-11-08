@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { handle, nextStatus, parseSignal, sameToken, type Activity, type Signal, type StatusRow, type Store } from './events'
+import { handle, matchRepo, nextStatus, parseSignal, sameToken, type Activity, type Signal, type StatusRow, type Store } from './events'
 
 describe('parseSignal', () => {
   it('accepts seats 0..3 for each kind', () => {
@@ -101,6 +101,37 @@ describe('parseSignal', () => {
   })
 })
 
+describe('the task a signal names (#182)', () => {
+  it('matchRepo takes the short name or owner/name from the list, nothing else', () => {
+    const repos = ['Rowan-Hyeho-Song/agent-office', 'Rowan-Hyeho-Song/rowansong.dev']
+    expect(matchRepo('agent-office', repos)).toBe('Rowan-Hyeho-Song/agent-office')
+    expect(matchRepo('ROWANSONG.dev', repos)).toBe('Rowan-Hyeho-Song/rowansong.dev')
+    expect(matchRepo('rowan-hyeho-song/agent-office', repos)).toBe('Rowan-Hyeho-Song/agent-office')
+    for (const bad of ['evil/agent-office', 'secret', '', 'agent-office extra', 5, null, undefined, 'a'.repeat(200)]) expect(matchRepo(bad, repos)).toBeNull()
+  })
+
+  it('parseSignal carries a valid repo + issue, and ignores a bad one without failing the event', () => {
+    expect(parseSignal({ seat: 3, kind: 'activity', activity: 'edit', repo: 'agent-office', issue: 170 })).toEqual({
+      seat: 3, kind: 'activity', activity: 'edit', task: { repo: 'agent-office', issue: 170 },
+    })
+    const plain = { seat: 3, kind: 'activity', activity: 'edit' }
+    for (const extra of [
+      { repo: 'secret', issue: 1 },
+      { repo: 'agent-office', issue: 0 },
+      { repo: 'agent-office', issue: -1 },
+      { repo: 'agent-office', issue: 1.5 },
+      { repo: 'agent-office', issue: '170' },
+      { repo: 'agent-office', issue: 1_000_001 },
+      { repo: 'agent-office' },
+      { issue: 170 },
+      { repo: ['agent-office'], issue: 170 },
+    ])
+      expect(parseSignal({ ...plain, ...extra })).toEqual(plain)
+    // anything else still may not ride along
+    expect(parseSignal({ ...plain, repo: 'agent-office', issue: 1, title: 'x' })).toBeNull()
+  })
+})
+
 describe('sameToken', () => {
   it('compares', () => {
     expect(sameToken('secret', 'secret')).toBe(true)
@@ -116,7 +147,8 @@ describe('sameToken', () => {
 describe('nextStatus', () => {
   const T0 = '2026-01-01T00:00:00.000Z'
   const T1 = '2026-01-01T00:01:00.000Z'
-  const NONE = { last_result_activity: null, last_result_ok: null, last_result_at: null }
+  const TASK_NONE = { task_repo: null, task_issue: null, task_title: null, task_private: null }
+const NONE = { last_result_activity: null, last_result_ok: null, last_result_at: null, ...TASK_NONE }
   const row = (over: Partial<StatusRow> = {}): StatusRow => ({ seat: 1, state: 'idle', activity: null, since: T0, updated_at: T0, ...NONE, ...over })
   const sig = (kind: 'start' | 'stop' | 'end' | 'activity', activity?: Activity): Signal =>
     kind === 'activity' ? { seat: 1, kind, activity: activity ?? 'think' } : { seat: 1, kind }
@@ -195,7 +227,8 @@ describe('nextStatus', () => {
   })
 })
 
-const NONE = { last_result_activity: null, last_result_ok: null, last_result_at: null }
+const TASK_NONE = { task_repo: null, task_issue: null, task_title: null, task_private: null }
+const NONE = { last_result_activity: null, last_result_ok: null, last_result_at: null, ...TASK_NONE }
 
 function memoryStore(initial: StatusRow[] = []) {
   const rows = new Map(initial.map((r) => [r.seat, r]))
@@ -333,6 +366,81 @@ describe('handle', () => {
       expect(res.status).toBe(400)
       untouched(m)
     }
+  })
+
+  describe('a task (#182)', () => {
+    const cfg = { repos: ['Rowan-Hyeho-Song/agent-office', 'Rowan-Hyeho-Song/rowansong.dev'], publicRepos: ['Rowan-Hyeho-Song/agent-office'] }
+    const withTitles = (titles: Record<string, string>, store: Store): { store: Store; asked: string[] } => {
+      const asked: string[] = []
+      return { asked, store: { ...store, issueTitle: async (repo, issue) => (asked.push(repo + '#' + issue), titles[repo + '#' + issue] ?? null) } }
+    }
+    const send = (store: Store, body: unknown) => handle(post(body), store, TOKEN, NOW, cfg)
+
+    it('a public issue stores the repo name, number and the title the server found', async () => {
+      const m = memoryStore()
+      const { store, asked } = withTitles({ 'Rowan-Hyeho-Song/agent-office#170': '서재 옆 패널' }, m.store)
+      expect((await send(store, { seat: 3, kind: 'activity', activity: 'edit', repo: 'agent-office', issue: 170 })).status).toBe(200)
+      expect(m.rows.get(3)).toMatchObject({ task_repo: 'agent-office', task_issue: 170, task_title: '서재 옆 패널', task_private: false })
+      expect(asked).toEqual(['Rowan-Hyeho-Song/agent-office#170'])
+    })
+
+    it('the title is looked up once per issue, not on every signal', async () => {
+      const m = memoryStore()
+      const { store, asked } = withTitles({ 'Rowan-Hyeho-Song/agent-office#170': '제목' }, m.store)
+      for (const activity of ['edit', 'read', 'test']) await send(store, { seat: 3, kind: 'activity', activity, repo: 'agent-office', issue: 170 })
+      expect(asked).toHaveLength(1)
+      await send(store, { seat: 3, kind: 'activity', activity: 'edit', repo: 'agent-office', issue: 171 })
+      expect(asked).toHaveLength(2)
+      expect(m.rows.get(3)).toMatchObject({ task_issue: 171, task_title: null, task_private: false })
+    })
+
+    it('no public document for the issue: the number alone', async () => {
+      const m = memoryStore()
+      await send(withTitles({}, m.store).store, { seat: 3, kind: 'activity', activity: 'edit', repo: 'agent-office', issue: 5 })
+      expect(m.rows.get(3)).toMatchObject({ task_repo: 'agent-office', task_issue: 5, task_title: null, task_private: false })
+    })
+
+    it('a failed title lookup does not fail the signal', async () => {
+      const m = memoryStore()
+      const store: Store = { ...m.store, issueTitle: async () => Promise.reject(new Error('down')) }
+      expect((await send(store, { seat: 3, kind: 'activity', activity: 'edit', repo: 'agent-office', issue: 5 })).status).toBe(200)
+      expect(m.rows.get(3)).toMatchObject({ task_issue: 5, task_title: null })
+    })
+
+    it('a private repo stores no repo, number or title, and is never looked up', async () => {
+      const m = memoryStore()
+      const { store, asked } = withTitles({ 'Rowan-Hyeho-Song/rowansong.dev#12': '비밀 제목' }, m.store)
+      await send(store, { seat: 3, kind: 'activity', activity: 'edit', repo: 'rowansong.dev', issue: 12 })
+      expect(m.rows.get(3)).toMatchObject({ task_repo: null, task_issue: null, task_title: null, task_private: true })
+      expect(asked).toEqual([])
+    })
+
+    it('a repo outside the list or a bad number is ignored and the event still goes through', async () => {
+      for (const extra of [{ repo: 'secret-company', issue: 9 }, { repo: 'agent-office', issue: 0 }, { repo: 'agent-office', issue: 1e9 }]) {
+        const m = memoryStore()
+        const { store, asked } = withTitles({}, m.store)
+        expect((await send(store, { seat: 3, kind: 'activity', activity: 'edit', ...extra })).status).toBe(200)
+        expect(m.rows.get(3)).toMatchObject(TASK_NONE)
+        expect(asked).toEqual([])
+      }
+    })
+
+    it('a signal without a task clears it; the session ending clears it too', async () => {
+      const m = memoryStore()
+      const { store } = withTitles({ 'Rowan-Hyeho-Song/agent-office#170': '제목' }, m.store)
+      await send(store, { seat: 3, kind: 'activity', activity: 'edit', repo: 'agent-office', issue: 170 })
+      await send(store, { seat: 3, kind: 'activity', activity: 'read' })
+      expect(m.rows.get(3)).toMatchObject(TASK_NONE)
+      await send(store, { seat: 3, kind: 'activity', activity: 'edit', repo: 'agent-office', issue: 170 })
+      await send(store, { seat: 3, kind: 'end', repo: 'agent-office', issue: 170 })
+      expect(m.rows.get(3)).toMatchObject({ state: 'off', ...TASK_NONE })
+    })
+
+    it('the event row carries no task', async () => {
+      const m = memoryStore()
+      await send(withTitles({}, m.store).store, { seat: 3, kind: 'activity', activity: 'edit', repo: 'agent-office', issue: 170 })
+      expect(m.calls.addEvent[0]).toEqual({ seat: 3, kind: 'activity', activity: 'edit', ok: null, to_seat: null, created_at: NOW.toISOString() })
+    })
   })
 
   it('event for a stop has a null activity', async () => {

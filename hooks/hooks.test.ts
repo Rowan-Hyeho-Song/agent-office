@@ -62,3 +62,45 @@ describe('formatApprovals', () => {
     expect(t).toContain(`${'y'.repeat(299)}…`)
   })
 })
+
+describe('office-hook: the seat survives a failed send (#162)', () => {
+  it('a title gives the seat once; the next events know it although /api/events answered 502', async () => {
+    const { spawn } = await import('node:child_process')
+    const { createServer } = await import('node:http')
+    const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join, resolve } = await import('node:path')
+    const seats: (number | null)[] = []
+    const server = createServer((req, res) => {
+      let body = ''
+      req.on('data', (c) => (body += c))
+      req.on('end', () => {
+        seats.push((JSON.parse(body) as { seat: number | null }).seat)
+        res.writeHead(502, { 'content-type': 'application/json' }).end('{"error":"store failed"}')
+      })
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    const port = (server.address() as { port: number }).port
+    const home = mkdtempSync(join(tmpdir(), 'office-hook-'))
+    writeFileSync(join(home, 'hook.json'), JSON.stringify({ endpoint: `http://127.0.0.1:${port}/api/events`, token: 't' }))
+    const run = (input: Record<string, unknown>) =>
+      new Promise<void>((done) => {
+        const env = { ...process.env, AGENT_OFFICE_HOME: home }
+        delete env.AGENT_OFFICE_SEAT
+        delete env.AGENT_OFFICE_CONFIG
+        const p = spawn(process.execPath, [resolve('hooks/office-hook.mjs')], { env, stdio: ['pipe', 'ignore', 'ignore'] })
+        p.on('exit', () => done())
+        p.stdin.end(JSON.stringify({ session_id: 's-1', cwd: resolve('.'), ...input }))
+      })
+    try {
+      await run({ hook_event_name: 'UserPromptSubmit', session_title: '코더', prompt: 'x' })
+      await run({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: {} })
+      await run({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: {} })
+    } finally {
+      server.close()
+      rmSync(home, { recursive: true, force: true })
+    }
+    // every event was sent (all failed with 502), and the two without a title still had the coder's seat
+    expect(seats).toEqual([3, 3, 3])
+  }, 20_000)
+})

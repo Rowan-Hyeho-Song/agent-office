@@ -9,9 +9,8 @@
 [data-seat='n'] { --agent: var(--color-text-muted); --agent-ink: var(--color-text-muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-.replay-entry, .replay-btn { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text); background: var(--color-surface-alpha); border: 1px solid var(--color-line); height: 32px; padding: 0 var(--space-3); cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; clip-path: polygon(0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%); }
+.replay-btn { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text); background: var(--color-surface-alpha); border: 1px solid var(--color-line); height: 32px; padding: 0 var(--space-3); cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; clip-path: polygon(0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%); }
 .replay-entry:hover, .replay-btn:hover { border-color: var(--color-cyan); color: var(--color-cyan); }
-.replay-entry { position: fixed; right: 16px; bottom: 14px; z-index: 6; }
 .replay :focus-visible, .replay-entry:focus-visible, .replay-list :focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
 
 .replay-grain { position: absolute; inset: 0; pointer-events: none !important; opacity: var(--replay-grain); mix-blend-mode: screen; background-repeat: repeat; }

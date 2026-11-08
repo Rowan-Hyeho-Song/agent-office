@@ -4,8 +4,11 @@ import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing'
 import { Suspense, useEffect, useState } from 'react'
 import { AgentList } from './office/AgentList'
 import { ApprovalBox } from './office/ApprovalBox'
+import { CornerDock } from './office/CornerDock'
 import { DebugPanel } from './office/DebugPanel'
 import { DocsViewer } from './office/DocsViewer'
+import { SidePanel } from './office/SidePanel'
+import { SideViewOffset } from './office/sidePanelRig'
 import { CameraHint, CameraRig } from './office/cameraRig'
 import { CAMERA_FAR, DEFAULT_CAMERA, DEFAULT_TARGET, LAMP_POS } from './office/room'
 import { VIEW } from './office/view'
@@ -15,6 +18,9 @@ import { RoomUi } from './room/RoomUi'
 import { createWorld } from './office/world'
 import { ReplayDriver } from './replay/ReplayDriver'
 import { ReplayHud } from './replay/ReplayHud'
+import { SoundButton } from './audio/SoundButton'
+import { SoundDebug } from './audio/SoundDebug'
+import { SoundListener, SoundRoot } from './audio/SoundRoot'
 
 /** the default isometric-ish view from the front right (room.ts) */
 const TARGET = [...DEFAULT_TARGET] as [number, number, number]
@@ -46,10 +52,13 @@ export function App() {
         gl={{ antialias: true, stencil: true }}
       >
         <Suspense fallback={null}>
-          {/* real-time light for the agents only (everything else is baked): cool fill from the window side,
-              a warm key from the lounge lamp, and the work-corner panel overhead */}
-          <hemisphereLight args={['#9fb4ff', '#2a1e1a', 0.9]} />
-          <directionalLight position={[-2, 4.5, 2]} intensity={1.6} color="#e8ecff" />
+          {/* real-time light for the agents and live props only (everything else is baked): a neutral-warm fill and key,
+              so their whites read like the baked room and the desk room (#173: the cool fill made them violet-grey, a mug
+              measured #878ca2). The key is soft and the ground bounce light, so the tops do not burn out: from above a mug's
+              brightest face is #f4eee2 and its bright 20% #d6d0c4 (designer: at most #f4efe6, at least #d0ccc4). A warm key
+              from the lounge lamp, and the work-corner panel overhead */}
+          <hemisphereLight args={['#fffaf3', '#c2b6a6', 1.82]} />
+          <directionalLight position={[-2, 4.5, 2]} intensity={1.3} color="#fff8ef" />
           <pointLight position={[...LAMP_POS]} intensity={3} distance={5} decay={1.6} color="#ffcf8a" />
           <Office world={world} />
           <EffectComposer multisampling={0} stencilBuffer>
@@ -73,18 +82,25 @@ export function App() {
         />
         )}
         <CameraRig limits={limits} />
+        <SideViewOffset />
+        <SoundListener />
       </Canvas>
       <p className="hud">
         <b>AGENT OFFICE</b> · 드래그해서 돌려 보기
       </p>
       <CameraHint enabled={limits && !busy} />
       <AgentList world={world} />
+      <CornerDock />
+      <SidePanel world={world} />
       <ApprovalBox world={world} />
       <DocsViewer world={world} />
       <RoomUi />
       <ReplayDriver world={world} />
       <ReplayHud world={world} />
       {world.debug && <DebugPanel world={world} />}
+      <SoundRoot world={world} />
+      <SoundButton />
+      {world.debug && <SoundDebug />}
     </>
   )
 }

@@ -7,10 +7,11 @@ import { seatName } from './meeting'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BufferGeometry, CanvasTexture, Color, Float32BufferAttribute, Group, Line, LineBasicMaterial, LineLoop, LineSegments, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace, Vector3 } from 'three'
-import { buildGraph, dist, pathLength, patchSpots, shortestPath, type NavGraph } from './nav'
+import { buildGraph, pathLength, patchSpots, shortestPath, type NavGraph } from './nav'
 import { buildGrid, cellAt, centre } from './grid'
-import { requestOf } from './director'
-import { TrafficPlanner, type Request } from './traffic'
+import { sideArea } from './sidePanel/store'
+import { requestOf, type Goal } from './director'
+import { TrafficPlanner, type Request, type Sample } from './traffic'
 import { demoRequest } from './trafficDemo'
 import { checkNav, edgeKey } from './navcheck'
 import { rasterFootprint } from './floorMask'
@@ -20,10 +21,13 @@ import { PaperPlanes } from './plane'
 import { ScreenLive } from './screenLive'
 import { deskProps } from './props'
 import { AgentRig, PropBank, buildRig } from './rig'
+import { PlayStage } from './playStage'
 import { replay } from '../replay/store'
-import { atMs, stepMs } from '../replay/engine'
-import { boardDistance, REPLAY_PACE, shouldWalk, stageSpot, walkHold, WALK_HOLD_MS } from '../replay/walk'
-import { replayDoorLine, replayGoals } from '../replay/scene'
+import { atMs } from '../replay/engine'
+import { boardDistance, REPLAY_PACE } from '../replay/walk'
+import { replayDoorLine } from '../replay/scene'
+import { DrawnTrack, lineMode, Stage } from '../replay/stage'
+import { setLineSub, type LineSub } from '../replay/lineSub'
 import { STAMP_MS } from './props'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
 import type { RootState } from '@react-three/fiber'
@@ -53,6 +57,12 @@ function useReducedMotion() {
   return reduced
 }
 
+/** where a rig stands now, as a planner request (a spot it rests on, else a slot at its feet) */
+function standingAt(r: AgentRig, g: NavGraph): Request {
+  if (r.arrived && g.spots[r.arrived]) return { spot: r.arrived, pace: 1 }
+  return { spot: `stand_${r.id}`, slot: { x: r.x, z: r.z, ry: r.heading }, pace: 1 }
+}
+
 /** The agents: each frame the director picks goals from the status source and the clock, the rigs move. */
 export function Agents({ world }: { world: OfficeWorld }) {
   const { scene, nodes, spots } = useOffice()
@@ -76,6 +86,10 @@ export function Agents({ world }: { world: OfficeWorld }) {
   )
   // the props agents pick up while playing (#20, #27); once per loaded scene
   const props = useMemo(() => (scene.userData.props ??= new PropBank(scene, nodes)) as PropBank, [scene, nodes])
+  // what the hands do with things: play in 3D, grips (#135, #164); once per loaded scene
+  const playStage = useMemo(() => (scene.userData.playStage ??= new PlayStage(scene, nodes, props)) as PlayStage, [scene, nodes, props])
+  const tagEl = useRef<HTMLDivElement | null>(null)
+  const tagAt = useRef<[number, number, number]>([0, 0, 0])
   // the LIVE desk props (#44): what each desk shows about its agent
   const desks = useMemo(() => new DeskLive(nodes), [nodes])
   // the work monitors (#75); ?debug=1&screens=off leaves them blank (the frame-cost baseline)
@@ -91,7 +105,14 @@ export function Agents({ world }: { world: OfficeWorld }) {
   world.planes = planes
   const reduced = useReducedMotion()
   const layer = useRef<BubbleLayer | null>(null)
-  const walkPlan = useRef<{ key: string; spots: Record<string, string>; walk: Record<string, boolean> }>({ key: '', spots: {}, walk: {} })
+  // the timelapse (#158): its own planner, clocked by the replay clock, while the replay is open in the office
+  const stage = useRef<Stage | null>(null)
+  const replayNow = useRef<number | null>(null)
+  const rigTau = useRef(0)
+  const drawn = useMemo(() => new DrawnTrack(), [])
+  const drawnSeen = useRef(0)
+  const reducedRef = useRef(reduced)
+  reducedRef.current = reduced
   const narrow = useMemo(() => matchMedia('(max-width: 640px)'), [])
   const head = useMemo(() => new Vector3(), [])
   useEffect(() => {
@@ -127,40 +148,64 @@ export function Agents({ world }: { world: OfficeWorld }) {
     world.simTime = sim.current
     const now = officeNow(world)
     const t = state.clock.elapsedTime
-    // the timelapse (#82): the record's statuses and desk goals stand in for the live ones (and the director's play)
-    const scene = replay.getSnapshot().mode === 'office' ? replay.scene() : null
-    const status = scene ? scene.status : world.source.getSnapshot()
-    let stage: Record<string, string> = {}
-    if (scene) {
-      // walking is presentation only (#117): decided once per landing / speed, never part of the scene
-      const rs = replay.getSnapshot()
-      const key = `${scene.index}:${replay.landedAt}:${rs.speed}:${reduced}`
-      if (walkPlan.current.key !== key) {
-        const spots: Record<string, string> = {}
-        const walk: Record<string, boolean> = {}
-        for (const id in rigs) {
-          const seat = Number(id.split('_')[1])
-          const want = stageSpot(scene.point, seat)
-          const rig = rigs[id]
-          const from = rig.arrived
-          const to = graph.spots[want]
-          const path = from && to ? shortestPath(graph, from, want) : null
-          const distanceM = from === want ? 0 : from ? (path ? pathLength(graph, path) : Infinity) : to ? dist(rig, to) : Infinity
-          walk[id] = shouldWalk({ speed: rs.speed, via: replay.landedVia, reduced, distanceM, budgetMs: stepMs(scene.point, rs.speed) + WALK_HOLD_MS })
-          spots[id] = walk[id] ? want : `work_${seat}`
-        }
-        walkPlan.current = { key, spots, walk }
-      }
-      stage = walkPlan.current.spots
+    // the timelapse (#82, #158): the record's statuses and desk goals stand in for the live ones (and the director's play).
+    // Everything of it runs on the replay clock (stage.ts): the speed only sets how fast that clock advances.
+    const wantReplay = replay.getSnapshot().mode === 'office' && replay.scene() !== null
+    if (wantReplay && !stage.current) {
+      const door = graph.spots.door
+      const replayPlanner = new TrafficPlanner(planner.grid, graph)
+      const st = new Stage({ store: replay, planner: replayPlanner, meeting: world.meeting, ids: Object.keys(rigs), door: door ? { x: door.x, z: door.z } : undefined, reduced: () => reducedRef.current, spot: (id) => graph.spots[id] ?? null })
+      const from: Record<string, Request> = {}
+      for (const id in rigs) if (rigs[id].visible) from[id] = standingAt(rigs[id], graph)
+      st.begin(from)
+      stage.current = st
+      rigTau.current = st.now
+      drawn.reset()
+      drawnSeen.current = replay.landings
+    } else if (!wantReplay && stage.current) {
+      // back to live: everyone stands where the replay left them and walks to their live goal from there
+      stage.current.dispose()
+      stage.current = null
+      for (const id in rigs) if (rigs[id].visible) planner.place(id, standingAt(rigs[id], graph), sim.current, Number(id.split('_')[1]))
     }
-    const goals = scene ? replayGoals(status, stage) : world.director.goals(now, Math.floor(now / 60000), status, (a) => rigs[a].arrived)
-    // a replayed meeting calls its agents in (plan 6.4); the director's goals are the fallback for everyone else
-    world.replay?.tick()
-    const door = graph.spots.door
-    world.meeting.apply(now, (a) => rigs[a].arrived, goals, door ? { x: door.x, z: door.z } : undefined, { at: (a) => rigs[a] ?? null, spot: (s) => graph.spots[s] ?? null })
-    if (!world.meeting.busy) departs.current.clear()
+    const st = stage.current
+    // the rig steps of this frame in replay: [tau, dt, goals, tracks] sampled while the planner held that moment's plan
+    const steps: { anim: number; dt: number; goals: Record<string, Goal>; tracks: Record<string, Sample | null> }[] = []
+    const track = (s: Stage, goals: Record<string, Goal>, tau: number) =>
+      Object.fromEntries(Object.keys(rigs).map((id) => [id, goals[id].pose !== 'leave' && s.planner.has(id) ? s.planner.sample(id, tau) : null]))
+    let goals: Record<string, Goal>
+    if (st) {
+      // ticks of at most 50 ms of replay time (the speed only sets how many a frame spends); the rigs follow in steps of
+      // about 100 ms (their own dt clamp) at the tick's tau, then a last step up to the shown time
+      const rdt = Math.min(dt, 0.1)
+      let acc = 0
+      st.frame(rdt * 1000, Infinity, (clock, len) => {
+        acc += len
+        if (acc < 60) return
+        steps.push({ anim: clock / 1000, dt: acc / 1000, goals: st.goals, tracks: track(st, st.goals, clock / 1000) })
+        rigTau.current = clock
+        acc = 0
+      })
+      const vis = st.now - rigTau.current
+      const flowing = replay.getSnapshot().playing && vis > 0
+      steps.push({ anim: flowing ? st.now / 1000 : t, dt: flowing ? vis / 1000 : rdt, goals: st.goals, tracks: track(st, st.goals, st.now / 1000) })
+      rigTau.current = st.now
+      replayNow.current = st.now
+      goals = st.goals
+    } else {
+      replayNow.current = null
+      goals = world.director.goals(now, Math.floor(now / 60000), world.source.getSnapshot(), (a) => rigs[a].arrived)
+      // a replayed meeting calls its agents in (plan 6.4); the director's goals are the fallback for everyone else
+      world.replay?.tick()
+      const door = graph.spots.door
+      world.meeting.apply(now, (a) => rigs[a].arrived, goals, door ? { x: door.x, z: door.z } : undefined, { at: (a) => rigs[a] ?? null, spot: (s) => graph.spots[s] ?? null })
+      if (!world.meeting.busy) departs.current.clear()
+    }
+    const scene = st ? replay.scene() : null
+    const status = scene ? scene.status : world.source.getSnapshot()
     // ?debug=1: window.__office.forceSpots = { agent_0: 'whiteboard', ... } sends agents to spots (head-on tests, screenshots)
     if (world.debug && world.forceSpots) for (const id in world.forceSpots) if (goals[id]) goals[id] = { ...goals[id], spot: world.forceSpots[id], pose: 'idle', label: 'debug' }
+    if (world.debug && world.forceGoal) for (const id in world.forceGoal) if (goals[id]) goals[id] = { ...goals[id], ...world.forceGoal[id], label: 'debug' }
     // ?debug=1: window.__office.trafficDemo('narrow' | 'wide') stands agent_0 and agent_1 at the two ends, then swaps them
     const demo = world.debug ? world.demo : null
     const fresh = !!demo && demo.at === null
@@ -181,7 +226,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
           ...world.props.getSnapshot(),
           pending: scene.pending,
           waitingSeats: scene.waitingSeats,
-          decidedAt: scene.stamped && performance.now() - replay.landedAt < STAMP_MS ? atMs(scene.point) : null,
+          decidedAt: scene.stamped && (st?.now ?? 0) - replay.landedClock < STAMP_MS ? atMs(scene.point) : null,
           handoffsToday: 0,
           status,
           now: atMs(scene.point),
@@ -189,27 +234,76 @@ export function Agents({ world }: { world: OfficeWorld }) {
       : deskProps({ ...world.props.getSnapshot(), status, now })
     // the coder looks at its rubber duck when a test fails (set before the rigs move)
     if (rigs.agent_3) rigs.agent_3.watch = desk.duckLook && rigs.agent_3.arrived === `work_3` ? desks.duckPoint() : null
-    for (const id in rigs) {
-      rigs[id].pace = scene ? REPLAY_PACE : 1
-      rigs[id].traffic = goals[id].pose !== 'leave'
-      if (rigs[id].traffic) {
-        const g = goals[id]
-        let notBefore: number | undefined
-        if (g.depart !== undefined) {
-          const key = `${id}|${g.spot}|${g.depart}`
-          notBefore = departs.current.get(key) ?? sim.current + Math.max(0, (g.depart - now) / 1000)
-          departs.current.set(key, notBefore)
-        }
-        planner.request(id, demoReq[id] ?? requestOf(g, rigs[id].pace, notBefore), sim.current, Number(id.split('_')[1]))
+    if (st) {
+      // a seek is a jump: the drawn bodies snap with it
+      if (drawnSeen.current !== replay.landings) {
+        drawnSeen.current = replay.landings
+        if (replay.landedVia === 'seek') drawn.reset()
       }
-      rigs[id].setGoal(goals[id], graph)
+      const speed = replay.getSnapshot().speed
+      const tauTotal = steps.reduce((a, s) => a + s.dt, 0)
+      const realDt = Math.min(dt, 0.1)
+      for (const step of steps)
+        for (const id in rigs) {
+          const r = rigs[id]
+          r.gestureMin = speed > 1 ? 0.15 * speed : 0
+          r.ambient = speed >= 16 ? 0 : 1
+          const tk = step.tracks[id]
+          // the screen speed cap: the body is drawn following its plan position at no more than SCREEN_MPS of real time
+          r.drawAt = tk ? drawn.follow(id, tk.x, tk.z, replay.getSnapshot().playing && tauTotal > 0 ? (realDt * step.dt) / tauTotal : realDt) : null
+          r.pace = REPLAY_PACE
+          r.traffic = step.goals[id].pose !== 'leave'
+          r.setGoal(step.goals[id], graph)
+          r.track = step.tracks[id]
+          r.update(step.dt, step.anim, graph, rigs, reduced, status[id])
+        }
+    } else {
+      for (const id in rigs) {
+        rigs[id].pace = 1
+        rigs[id].gestureMin = 0
+        rigs[id].ambient = 1
+        rigs[id].drawAt = null
+        rigs[id].traffic = goals[id].pose !== 'leave'
+        if (rigs[id].traffic) {
+          const g = goals[id]
+          let notBefore: number | undefined
+          if (g.depart !== undefined) {
+            const key = `${id}|${g.spot}|${g.depart}`
+            notBefore = departs.current.get(key) ?? sim.current + Math.max(0, (g.depart - now) / 1000)
+            departs.current.set(key, notBefore)
+          }
+          planner.request(id, demoReq[id] ?? requestOf(g, rigs[id].pace, notBefore), sim.current, Number(id.split('_')[1]))
+        }
+        rigs[id].setGoal(goals[id], graph)
+      }
+      planner.update(sim.current)
+      for (const id in rigs) rigs[id].track = rigs[id].traffic && planner.has(id) ? planner.sample(id, sim.current) : null
+      for (const id in rigs) rigs[id].update(dt, t, graph, rigs, reduced, status[id])
     }
-    planner.update(sim.current)
-    for (const id in rigs) rigs[id].track = rigs[id].traffic && planner.has(id) ? planner.sample(id, sim.current) : null
-    walkHold.busy = !!scene && Object.keys(rigs).some((id) => walkPlan.current.walk[id] && rigs[id].arrived !== goals[id].spot)
-    for (const id in rigs) rigs[id].update(dt, t, graph, rigs, reduced, status[id])
-    // the planner picks up its stamp the moment the owner decides something
-    if (desk.stamp && rigs.agent_0?.visible) rigs.agent_0.want = { kind: 'stamp', side: 'r' }
+    // the hands: play from the office clock (nothing of it in the timelapse), grips on everything that is held or touched
+    playStage.update({
+      now,
+      t: st ? st.now / 1000 : t,
+      dt: Math.min(dt, 0.1),
+      reduced,
+      replaying: !!st,
+      rigs,
+      goals,
+      status,
+      tablet: desk.tablet,
+      stamp: desk.stamp,
+      colors: AGENT_COLORS,
+      forcedSessions: world.debug ? world.forcedSessions : undefined,
+      gripDemo: world.debug ? world.gripDemo : null,
+    })
+    const tag = playStage.tag
+    if (tagEl.current) {
+      tagEl.current.style.opacity = tag ? '1' : '0'
+      if (tag) {
+        tagEl.current.textContent = tag.text
+        tagAt.current = [tag.at.x, tag.at.y, tag.at.z]
+      }
+    }
     props.hold(new Map(Object.values(rigs).map((r) => [r, r.want])))
     planes.update(state.clock.elapsedTime, graph, rigs, reduced)
     props.update(Math.min(dt, 0.1))
@@ -223,13 +317,27 @@ export function Agents({ world }: { world: OfficeWorld }) {
     if (!l) return
     // a meeting's bubbles win over a staged talk's; one per agent
     const byId = new Map<string, BubbleItem>()
-    const replaying = replay.getSnapshot().mode === 'office'
+    const replaying = replayNow.current !== null
     if (!replaying) {
       for (const id in rigs) world.bubbles.goal(id, world.goals[id]?.bubble, now, world.goals[id]?.lookAt)
       for (const b of world.bubbles.items(now, reduced)) byId.set(b.id, b)
     }
-    const meet = world.meeting.view(now)
-    if (meet) {
+    const meet = world.meeting.view(replayNow.current ?? now)
+    // the timelapse (timelapse.md): at x4 a line is in full at once, and a line that would not stay 0.6 s real, or any line
+    // at x16, is the subtitle instead of a bubble
+    let mode: 'bubble' | 'full' | 'subtitle' = 'bubble'
+    let sub: LineSub | null = null
+    if (replaying && meet) {
+      const k = meet.frame.index
+      const lines = meet.script.lines
+      const line = lines[k]
+      if (line) {
+        mode = lineMode(replay.getSnapshot().speed, (lines[k + 1]?.startMs ?? meet.script.linesMs) - line.startMs)
+        if (mode === 'subtitle' && typeof line.from === 'number') sub = { seat: line.from, who: seatName(line.from), text: line.private ? '(비공개)' : line.text }
+      }
+    }
+    setLineSub(sub)
+    if (meet && mode !== 'subtitle') {
       for (const b of meet.frame.bubbles) {
         const id = `agent_${b.seat}`
         byId.set(id, {
@@ -239,9 +347,10 @@ export function Agents({ world }: { world: OfficeWorld }) {
           kind: b.kind,
           label: b.kind === 'private' ? '비공개' : '회의',
           text: b.text,
-          typed: b.typed,
+          typed: mode === 'full' ? [...b.text].length : b.typed,
           log: b.log,
           dim: b.dim,
+          down: !!meet.script.decision,
           order: b.order,
           pairWith: b.pairWith === null ? null : `agent_${b.pairWith}`,
           open: b.row && meet.script.repo && meet.script.n ? { repo: meet.script.repo, n: meet.script.n, row: b.row } : null,
@@ -251,9 +360,11 @@ export function Agents({ world }: { world: OfficeWorld }) {
     }
     const d = meet?.frame.door
     const chars = d ? [...d.text] : []
-    setDoorMessage(d ? { text: chars.slice(0, d.typed).join(''), masked: d.masked } : replaying ? replayDoorLine(performance.now()) : null)
+    setDoorMessage(d ? { text: chars.slice(0, d.typed).join(''), masked: d.masked } : replaying ? replayDoorLine(replayNow.current!) : null)
     if (d && d.typed >= chars.length) l.note(d.key, d.log)
     const rect = state.gl.domElement.getBoundingClientRect()
+    // the side panel covers part of the canvas (#170): bubbles, tags and z's work inside the area that is still 3D
+    const area = sideArea()
     const anchors: Record<string, Anchor> = {}
     const tags: TagItem[] = []
     // the replay shows the past: no live night / duty state (sleepers' z, status tags) reaches the bubble layer
@@ -262,10 +373,11 @@ export function Agents({ world }: { world: OfficeWorld }) {
       const rig = rigs[id]
       head.set(rig.group.position.x, rig.parts.head.position.y + 0.3, rig.group.position.z).project(state.camera)
       anchors[id] = { x: rect.left + ((head.x + 1) / 2) * rect.width, y: rect.top + ((1 - head.y) / 2) * rect.height, visible: head.z < 1 && !rig.hidden }
+      if (anchors[id].x > area.w || anchors[id].y > area.h) anchors[id].visible = false
       const tag = replaying ? null : statusTag(status[id])
       if (tag) tags.push({ id, seat: Number(id.split('_')[1]), ...tag })
     }
-    l.update([...byId.values()], tags, anchors, { w: window.innerWidth, h: window.innerHeight, narrow: narrow.matches })
+    l.update([...byId.values()], tags, anchors, { w: area.w, h: area.h, narrow: narrow.matches })
     l.updateZ(
       Object.keys(rigs).filter((id) => status[id]?.night === 'sleep' && rigs[id].arrived === world.goals[id]?.spot && world.goals[id]?.pose === 'doze').map((id) => ({ id, seat: Number(id.split('_')[1]) })),
       anchors,
@@ -277,6 +389,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
   return (
     <>
       {world.debug && <NavDebug world={world} graph={graph} meshes={furniture} planner={planner} />}
+      <TagLabel el={tagEl} at={tagAt} />
     </>
   )
 }
@@ -409,5 +522,18 @@ function NavDebug({ world, graph, meshes, planner }: { world: OfficeWorld; graph
         </Html>
       ))}
     </>
+  )
+}
+
+/** the score over the net for 2 s after a point (play.md 1: the agents' rally; no scoreboard in the room) */
+function TagLabel({ el, at }: { el: { current: HTMLDivElement | null }; at: { current: [number, number, number] } }) {
+  const group = useRef<Group>(null)
+  useFrame(() => group.current?.position.set(...at.current))
+  return (
+    <group ref={group}>
+      <Html center zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
+        <div ref={el} className="play-tag" aria-hidden="true" style={{ opacity: 0, transition: 'opacity 0.2s', fontFamily: 'var(--font-pixel, monospace)', fontSize: 13, color: '#f3ead8', background: 'rgba(14,16,22,0.8)', padding: '2px 8px', border: '1px solid #f3ead8' }} />
+      </Html>
+    </group>
   )
 }
