@@ -104,10 +104,12 @@ body,
 [data-seat='2'] { --agent: var(--agent-2); --agent-ink: var(--agent-2-ink); }
 [data-seat='3'] { --agent: var(--agent-3); --agent-ink: var(--agent-3-ink); }
 [data-seat='x'] { --agent: var(--agent-x); --agent-ink: var(--agent-x-ink); }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* visually hidden, still read: the negative margin keeps the 1px box from adding a row of scroll at the page bottom */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; border: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 .approval-box :focus-visible, .approval-launcher:focus-visible, .owner-tag button:focus-visible, .door-key:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
 /* ═════════ 결재함 패널 ═════════ */
 .approval-box {
+  color-scheme: dark; scrollbar-color: var(--bubble-dim-line) transparent; scrollbar-width: thin; /* dark scrollbars, table scroll, textarea grip (designer) */
   position: fixed; z-index: 30; top: var(--space-4); right: var(--space-4); bottom: var(--space-8);
   width: min(var(--approval-panel-w), calc(100% - 2 * var(--space-4)));
   display: flex; flex-direction: column;
@@ -144,7 +146,7 @@ body,
 .approval-badge { display: inline-flex; align-items: center; gap: var(--space-1); height: 20px; padding: 0 var(--space-2) 0 var(--space-1); font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: 20px; color: var(--approval-accent); border: 1px solid var(--approval-accent); }
 .approval-badge svg { width: 12px; height: 12px; }
 .approval-badge[data-kind='publish'] { background: var(--approval-accent); color: var(--color-ink); }
-.approval-badge[data-kind='review'] { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--approval-accent) 28%, transparent) 0 3px, transparent 3px 6px); }
+.approval-badge[data-kind='review'] { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--approval-accent) 16%, transparent) 0 3px, transparent 3px 7px); }
 
 /* 한 건 */
 .approval-detail { position: relative; }

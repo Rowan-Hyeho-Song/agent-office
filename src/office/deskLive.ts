@@ -21,6 +21,8 @@ function emitter(node: Object3D | undefined) {
 
 const WEEKDAY_EN = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 const OFF = 0.08
+/** the IN tray's amber dot when nothing waits: 15% of lit (designer, #64), dim enough not to read as "pending" */
+const APPROVAL_DOT_OFF = 0.15
 const HOURGLASS_EVERY = 6 // s: while the planner waits, it turns the hourglass over now and then
 const BLINK_HZ = 2.2
 
@@ -104,7 +106,7 @@ export class DeskLive {
     this.trays[0]?.set(p.inbox, p.inboxMore)
     this.trays[1]?.set(p.outbox, p.outboxMore)
     this.drawCalendar(p)
-    this.approvalDot(p.inbox > 0 ? 1 : OFF)
+    this.approvalDot(p.inbox > 0 ? 1 : APPROVAL_DOT_OFF)
     // the hourglass turns over every few seconds while the planner waits for an approval, else stays upright
     if (this.hourglass) {
       if (p.hourglass && t >= this.flip.nextAt) {
