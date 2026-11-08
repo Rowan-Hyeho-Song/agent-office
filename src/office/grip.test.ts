@@ -118,7 +118,7 @@ describe('the baked model and the #134 hands', () => {
       const hold = GRIPS.piece.r!.hold
       for (const top of ['index', 'middle'] as const) {
         const models = { index: fingerModelOf(hand, 0, 'r')!, middle: fingerModelOf(hand, 1, 'r')! }
-        const g = stoneGrip(models, top, { index: hold[0], middle: hold[1] }, STONE_PITCH, stoneRoll(models, top, { index: hold[0], middle: hold[1] }))
+        const g = stoneGrip(models, top, { index: hold[0], middle: hold[1] }, STONE_PITCH, stoneRoll(models, top, { index: hold[0], middle: hold[1] }, STONE_PITCH))
         expect(g.err[top], `agent_${i} ${top} on top`).toBeLessThanOrEqual(0.003)
         expect(g.off[top]).toBeGreaterThanOrEqual(-1e-4)
       }

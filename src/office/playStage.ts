@@ -378,7 +378,7 @@ export class PlayStage {
     this.pingpong(pp, inp)
     this.omok(og, inp)
     for (const e of this.carry.values()) e.seen = false
-    for (const id of ids) this.solo(inp.rigs[id], inp.goals[id], inp, pp, og)
+    for (const id of ids) if (inp.gripDemo?.agent !== id) this.solo(inp.rigs[id], inp.goals[id], inp, pp, og)
     this.demo(inp)
     this.putBack(inp)
     for (const id of ids) {
@@ -495,10 +495,12 @@ export class PlayStage {
       const models = { index: fingerModelOf(hand, 0, 'r')!, middle: fingerModelOf(hand, 1, 'r')! }
       // the finger that presses from above is the one whose contact empty on the stone faces up (data, not code)
       const top = this.stoneTop()
-      const roll = stoneRoll(models, top, { index: hold[0], middle: hold[1] })
       // carrying: the hand pitched 40°; sliding in it lays flatter (30°)
       // a fit every 2° from the carrying pitch to the flat one; the wrist is blended between neighbours so the tips stay on the stone throughout
-      f = Array.from({ length: 11 }, (_, k) => stoneGrip(models, top, { index: hold[0], middle: hold[1] }, STONE_PITCH + ((STONE_PITCH_FLAT - STONE_PITCH) * k) / 10, roll))
+      f = Array.from({ length: 11 }, (_, k) => {
+        const pitch = STONE_PITCH + ((STONE_PITCH_FLAT - STONE_PITCH) * k) / 10
+        return stoneGrip(models, top, { index: hold[0], middle: hold[1] }, pitch, stoneRoll(models, top, { index: hold[0], middle: hold[1] }, pitch))
+      })
       this.stoneFrames.set(rig.id, f)
     }
     return f

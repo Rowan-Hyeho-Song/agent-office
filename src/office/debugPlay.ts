@@ -76,6 +76,9 @@ export function makePlayTools(world: OfficeWorld) {
       const demo: GripDemo = { agent, ...d(Number(agent.split('_')[1])) }
       world.gripDemo = demo
       world.forceGoal = { ...(world.forceGoal ?? {}), [agent]: { ...demo.goal, pose: 'idle' } }
+      // the others go to their desks: nobody else holds the prop (a running ping-pong game would have a paddle in hand), and the schedule's pairs fall apart
+      world.forcedSessions = []
+      for (const id of Object.keys(world.rigs)) if (id !== agent) world.forceGoal[id] = { spot: 'work_' + Number(id.split('_')[1]), pose: 'idle' }
     },
     stop() {
       world.gripDemo = null

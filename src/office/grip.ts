@@ -431,7 +431,7 @@ export interface StoneGrip {
 }
 
 /** the hand's pitch over the board while it carries a stone: its fingers point forward and this far down; sliding in, 30° (designer: 30–40°) */
-export const STONE_PITCH = (40 * Math.PI) / 180
+export const STONE_PITCH = (35 * Math.PI) / 180
 export const STONE_PITCH_FLAT = (30 * Math.PI) / 180
 /** palm down with the little-finger side raised by this much (pronation) */
 export const STONE_ROLL = (30 * Math.PI) / 180
@@ -486,14 +486,19 @@ export function stoneGrip(models: { index: FingerModel; middle: FingerModel }, t
   return { m, ...res, top, err: { ...{ index: 0, middle: 0 }, [top]: fit.err }, off: { ...{ index: zero.off, middle: zero.off }, [top]: fit.off } }
 }
 
+/** the palm's normal never points up more than this far below horizontal: y ≤ −0.61 (designer: palm down, bound −0.6) */
+export const PALM_DOWN_Y = -0.61
+
 /**
- * The least pronation (from the designer's 30° up) at which this hand's go grip fits within 2.5 mm over the whole pitch range
- * (carrying 40° … sliding in 30°). The hands differ by a few mm, and the finger on top needs more roll on some of them.
+ * The least pronation (from the designer's 30°) at which this hand's go grip fits within 2.5 mm at this pitch while the palm stays down
+ * (palm normal y = −cos pitch · cos roll ≤ ${PALM_DOWN_Y}). The hands differ by a few mm and the finger on top needs more roll on some of them; where
+ * no roll does both, the most roll the palm bound allows.
  */
-export function stoneRoll(models: { index: FingerModel; middle: FingerModel }, top: 'index' | 'middle', hold: { index: number; middle: number }): number {
-  for (let deg = 30; deg <= 50; deg += 2.5) {
-    const roll = (deg * Math.PI) / 180
-    if (Math.max(stoneGrip(models, top, hold, STONE_PITCH, roll).err[top], stoneGrip(models, top, hold, STONE_PITCH_FLAT, roll).err[top]) <= 0.0025) return roll
+export function stoneRoll(models: { index: FingerModel; middle: FingerModel }, top: 'index' | 'middle', hold: { index: number; middle: number }, pitch: number): number {
+  const max = Math.acos(Math.min(1, -PALM_DOWN_Y / Math.cos(pitch)))
+  for (let deg = 30; deg <= 60; deg += 2.5) {
+    const roll = Math.min((deg * Math.PI) / 180, max)
+    if (stoneGrip(models, top, hold, pitch, roll).err[top] <= 0.0025 || roll >= max) return roll
   }
-  return (50 * Math.PI) / 180
+  return max
 }
