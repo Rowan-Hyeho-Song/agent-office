@@ -17,7 +17,7 @@ Node contract (the app reads glTF extras):
   wall_n|e|s|w                     the four walls (#111), pivot_at at the wall's foot (floor, middle of the wall),
                                    extras wall; the app lowers the camera-side ones. n carries the window frame
   door, boards, wallclock          hung on a wall: extras wall (w, n, w). shelf, lounge, desk_<i>, pad_<i>: on the floor
-  window_sky|skyline|mid|near, window_lights, window_portal
+  window_sky|skyline|mid|near, window_lights, window_lights_far, window_portal
                                    the city behind the window (#111): live "sky" (UV 0..1, the app paints it by the
                                    hour), "backdrop", "city_lights" (the app sets day / night strength), at 40 / 25 /
                                    12 / 6 m; "portal" = the window opening, the stencil the cards are masked to.
