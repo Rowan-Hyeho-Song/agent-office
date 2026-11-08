@@ -7,6 +7,8 @@ import { ApprovalBox } from './office/ApprovalBox'
 import { CornerDock } from './office/CornerDock'
 import { DebugPanel } from './office/DebugPanel'
 import { DocsViewer } from './office/DocsViewer'
+import { SidePanel } from './office/SidePanel'
+import { SideViewOffset } from './office/sidePanelRig'
 import { CameraHint, CameraRig } from './office/cameraRig'
 import { CAMERA_FAR, DEFAULT_CAMERA, DEFAULT_TARGET, LAMP_POS } from './office/room'
 import { VIEW } from './office/view'
@@ -74,6 +76,7 @@ export function App() {
         />
         )}
         <CameraRig limits={limits} />
+        <SideViewOffset />
       </Canvas>
       <p className="hud">
         <b>AGENT OFFICE</b> · 드래그해서 돌려 보기
@@ -81,6 +84,7 @@ export function App() {
       <CameraHint enabled={limits && !busy} />
       <AgentList world={world} />
       <CornerDock />
+      <SidePanel world={world} />
       <ApprovalBox world={world} />
       <DocsViewer world={world} />
       <RoomUi />

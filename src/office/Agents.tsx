@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { BufferGeometry, CanvasTexture, Color, Float32BufferAttribute, Group, Line, LineBasicMaterial, LineLoop, LineSegments, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace, Vector3 } from 'three'
 import { buildGraph, pathLength, patchSpots, shortestPath, type NavGraph } from './nav'
 import { buildGrid, cellAt, centre } from './grid'
+import { sideArea } from './sidePanel/store'
 import { requestOf, type Goal } from './director'
 import { TrafficPlanner, type Request, type Sample } from './traffic'
 import { demoRequest } from './trafficDemo'
@@ -334,6 +335,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
     setDoorMessage(d ? { text: chars.slice(0, d.typed).join(''), masked: d.masked } : replaying ? replayDoorLine(replayNow.current!) : null)
     if (d && d.typed >= chars.length) l.note(d.key, d.log)
     const rect = state.gl.domElement.getBoundingClientRect()
+    // the side panel covers part of the canvas (#170): bubbles, tags and z's work inside the area that is still 3D
+    const area = sideArea()
     const anchors: Record<string, Anchor> = {}
     const tags: TagItem[] = []
     // the replay shows the past: no live night / duty state (sleepers' z, status tags) reaches the bubble layer
@@ -342,10 +345,11 @@ export function Agents({ world }: { world: OfficeWorld }) {
       const rig = rigs[id]
       head.set(rig.group.position.x, rig.parts.head.position.y + 0.3, rig.group.position.z).project(state.camera)
       anchors[id] = { x: rect.left + ((head.x + 1) / 2) * rect.width, y: rect.top + ((1 - head.y) / 2) * rect.height, visible: head.z < 1 && !rig.hidden }
+      if (anchors[id].x > area.w || anchors[id].y > area.h) anchors[id].visible = false
       const tag = replaying ? null : statusTag(status[id])
       if (tag) tags.push({ id, seat: Number(id.split('_')[1]), ...tag })
     }
-    l.update([...byId.values()], tags, anchors, { w: window.innerWidth, h: window.innerHeight, narrow: narrow.matches })
+    l.update([...byId.values()], tags, anchors, { w: area.w, h: area.h, narrow: narrow.matches })
     l.updateZ(
       Object.keys(rigs).filter((id) => status[id]?.night === 'sleep' && rigs[id].arrived === world.goals[id]?.spot && world.goals[id]?.pose === 'doze').map((id) => ({ id, seat: Number(id.split('_')[1]) })),
       anchors,

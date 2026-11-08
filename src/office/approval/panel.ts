@@ -2,6 +2,7 @@
 // scene), the panel's own tab and ?owner all open it through these functions.
 
 import { useSyncExternalStore } from 'react'
+import { closeDocs } from '../docs/panel'
 
 let open = false
 const listeners = new Set<() => void>()
@@ -11,9 +12,13 @@ const set = (v: boolean) => {
   listeners.forEach((l) => l())
 }
 
-export const openApprovalBox = () => set(true)
+// one side panel, two tabs: opening this tab closes the other one at once (no frame with both)
+export const openApprovalBox = () => {
+  closeDocs()
+  set(true)
+}
 export const closeApprovalBox = () => set(false)
-export const toggleApprovalBox = () => set(!open)
+export const toggleApprovalBox = () => (open ? closeApprovalBox() : openApprovalBox())
 export const isApprovalBoxOpen = () => open
 
 export function useApprovalBoxOpen() {
