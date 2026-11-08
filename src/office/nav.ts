@@ -68,7 +68,7 @@ export const EDGES: [string, string][] = [
   ['hall_front', 'pingpong_a'],
   ['hall_front', 'game_b'],
   ['hall_front', 'sofa_0'],
-  ['hall_front', 'sofa_1'],
+  // (no hall_front–sofa_1: the ray crosses the sofa / side table; sofa_1 is reached via sofa_0 or sofa_2)
   ['hall_front', 'hall_lounge'],
   ['sofa_0', 'sofa_1'],
   ['sofa_1', 'sofa_2'],
