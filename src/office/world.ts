@@ -20,7 +20,7 @@ import { BubbleCenter } from './bubbleCenter'
 import { MeetingRunner } from './meetingRun'
 import { ReplayControl } from './replay'
 import { splitDecision } from '../board/state'
-import { LiveStatusSource } from './liveStatus'
+import { liveStatusFor, type LiveStatusSource } from './liveStatus'
 import type { NavGraph } from './nav'
 import type { NavCheck } from './navcheck'
 import type { PaperPlanes } from './plane'
@@ -131,7 +131,7 @@ export const officeNow = (w: OfficeWorld) => Date.now() + w.timeOffsetMs
  * or the fake with everyone idle when nothing is configured (local development).
  */
 export function createWorld(debug: boolean, query = new URLSearchParams()): OfficeWorld {
-  const live = supabase && (!debug || query.has('live')) ? new LiveStatusSource(supabase, AGENTS) : null
+  const live = supabase && (!debug || query.has('live')) ? liveStatusFor(supabase, AGENTS) : null
   const fake = live ? null : new FakeStatusSource(AGENTS)
   const fakeProps = live ? null : new FakePropsFeed()
   // the fake only under ?debug=1 (and not &live): the shipped page never gets it
