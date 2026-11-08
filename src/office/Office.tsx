@@ -11,6 +11,7 @@ import { Icon } from './ApprovalIcons'
 import { meshesOf, useOffice } from './nodes'
 import { hitBox, useCanvasPick } from './pick'
 import { Shelf } from './Shelf'
+import { Whiteboard } from './Whiteboard'
 import type { OfficeWorld } from './world'
 
 /** The whole office as baked (room, desks, wall, lounge) and the agents moving through it. */
@@ -22,6 +23,7 @@ export function Office({ world }: { world: OfficeWorld }) {
       <Agents world={world} />
       <TrayClick scene={scene} nodes={nodes} />
       <Shelf world={world} scene={scene} nodes={nodes} />
+      <Whiteboard world={world} scene={scene} />
       {world.approvals && <DoorKey world={world} nodes={nodes} />}
       <Door nodes={nodes} />
       <ReadyPing />

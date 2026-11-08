@@ -8,6 +8,9 @@ import { openDocs } from './docs/panel'
 import { supabaseDocsSource } from './docs/supabaseSource'
 import { FakeDocsSource } from '../docs/fakeSource'
 import { LibraryStore } from '../docs/store'
+import { FakeBoard } from '../board/fake'
+import { feedBoardFromLibrary } from '../board/feed'
+import { BoardStore } from '../board/store'
 import type { Ref } from '../docs/library'
 import { Director, type Goal } from './director'
 import { LiveStatusSource } from './liveStatus'
@@ -48,6 +51,10 @@ export interface OfficeWorld {
   library: LibraryStore | null
   /** set when the library is the debug fake: window.__office.docs.as('owner' | 'visitor'), .open(n, kind, row), .publish(id) */
   docs: FakeDocsSource | null
+  /** the whiteboard's data (#66): from the library, or the debug fake when the library is the fake */
+  board: BoardStore
+  /** set under ?debug=1 with the fake library: window.__office.fakeBoard.add(n, title, seat, col) / .move(n, col) / .decide(title, note, n) / .secret(n) */
+  fakeBoard: FakeBoard | null
   director: Director
   /** debug only: shifts the play clock to preview later schedules */
   timeOffsetMs: number
@@ -83,8 +90,13 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     }
   }
   const { library, docs } = createLibrary(approvals, fakeApprovals, debug && !(live && supabase), query)
+  const board = new BoardStore()
+  const fakeBoard = docs ? new FakeBoard(board) : null
+  if (library && !fakeBoard) feedBoardFromLibrary(library, board)
   return {
     debug,
+    board,
+    fakeBoard,
     approvals,
     fakeApprovals,
     library,
