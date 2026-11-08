@@ -137,6 +137,25 @@
   --board-fs-l: 48; /* 칸 제목·카드 제목: 1/4 거리에서 12px */
   --board-fs-s: 24; /* #번호·에이전트 이름: 가까이서만 */
 
+  /* ── 타임랩스 재생 모드 (#80) ──
+     실시간과 구분: 위아래 레터박스 + 필름 그레인 + 날짜. 장면 색은 그대로(에이전트 색이 정보라서 톤을 바꾸지 않음) */
+  --replay-bar: rgb(5 7 10 / 0.94); /* 레터박스 판. 위 = 날짜·프로젝트, 아래 = 타임라인 막대 */
+  --replay-top-h: 56px;
+  --replay-bottom-h: 176px;
+  --replay-lane-h: 14px; /* 줄 하나(주인·메모·메시·휴·루프·이전) */
+  --replay-lane-h-compact: 6px; /* 휴대폰 */
+  --replay-pt-step: 8px; /* 점 사이 최소 간격. 모자라면 막대가 가로로 흐르고 미니맵이 생김 */
+  --replay-playhead: #f3ead8; /* 재생 위치 = 아이보리(청록은 포커스·누를 수 있음 전용) */
+  --replay-future-alpha: 0.35; /* 아직 재생 안 된 점 */
+  --replay-project-office: #3a4250; /* 프로젝트 띠: agent-office */
+  --replay-project-hub: rgb(255 179 71 / 0.45); /* 프로젝트 띠: rowansong.dev(책상 방 호박 + 스캔라인 무늬) */
+  --replay-grain: 0.05; /* 필름 그레인 세기 */
+  --replay-live: #ff5a5f; /* 재생 중 실시간 신호 알림의 LIVE 점 */
+  --replay-step-ms: 3000; /* ×1에서 점 하나 */
+  --replay-minutes-ms: 4500; /* ×1에서 회의록 점(대화 두 줄) */
+  --replay-daybreak-ms: 1000; /* 하루를 넘는 공백 */
+  --replay-enter-ms: 1200; /* 들어갈 때 시계가 거꾸로 감김 */
+
   /* ── 움직임 ── 시간은 ms(단위 없음은 JS용) */
   --dur-instant: 80ms;
   --dur-fast: 160ms;
@@ -180,6 +199,8 @@
     --bob-px: 0;
     --door-press-ms: 120;
     --approval-stamp-ms: 0; /* 도장이 찍힌 상태로 바로 나타남 */
+    --replay-grain: 0;
+    --replay-enter-ms: 0;
   }
 }
 :root[data-motion='reduce'] {
@@ -194,4 +215,6 @@
   --bob-px: 0;
   --door-press-ms: 120;
   --approval-stamp-ms: 0;
+  --replay-grain: 0;
+  --replay-enter-ms: 0;
 }
