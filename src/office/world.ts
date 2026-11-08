@@ -1,6 +1,7 @@
 // The office's shared runtime state: one per page. The 3D scene writes it every frame, the debug panel reads it.
 
 import type { ApprovalSource } from '../approvals/source'
+import { setClockFromText } from './clock'
 import { FakeApprovalSource } from '../approvals/fakeSource'
 import { supabaseSource } from './approval/supabaseSource'
 import { openApprovalBox } from './approval/panel'
@@ -81,6 +82,8 @@ export interface OfficeWorld {
   fakeBoard: FakeBoard | null
   /** debug only: force the monitor screens (ScreenDebug) */
   screens: ScreenDebug
+  /** debug only: window.__office.clock.set('10:10') pins the wall clock (Seoul time), set('') releases it */
+  clock: { set(text: string): void } | null
   director: Director
   /** debug only: shifts the play clock to preview later schedules */
   timeOffsetMs: number
@@ -133,6 +136,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     props: live && supabase ? new LivePropsFeed(supabase) : fakeProps!,
     fakeProps,
     screens: new ScreenDebug(),
+    clock: debug ? { set: setClockFromText } : null,
     director: new Director(AGENTS),
     timeOffsetMs: 0,
     goals: {},
