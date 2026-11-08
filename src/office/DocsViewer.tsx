@@ -1,4 +1,6 @@
 import { DockSlot } from './CornerDock'
+import { SideSlot, useSidePanelOpen } from './SidePanel'
+import { setSideBack, setSideRaise } from './sidePanel/store'
 import { IssueReplayButton } from '../replay/IssueReplayButton'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
 import { fmtDay as fmtShortDay } from '../approvals/view'
@@ -18,7 +20,7 @@ import {
   type DocMeta,
 } from '../docs/library'
 import type { LibraryStore } from '../docs/store'
-import { closeApprovalBox, openApprovalBox } from './approval/panel'
+import { openApprovalBox } from './approval/panel'
 import { renderMarkdown } from './approval/markdown'
 import { useRole } from './ApprovalBox'
 import { Icon } from './ApprovalIcons'
@@ -26,8 +28,9 @@ import { closeDocs, openFromHash, toggleDocs, useDocsPanel } from './docs/panel'
 import { AGENT_INFO, type OfficeWorld } from './world'
 
 /**
- * The library viewer (#65; design: docs/design/docs-ui.md section 2). Left: project folders and files (an issue each).
- * Right: the file's head, its table of contents (기획서 → 회의록 → 결정 → 보고서, only those present) and one sheet of
+ * The library viewer (#65; design: docs/design/docs-ui.md sections 2 and 4). It is the 서재 tab of the side panel (#170),
+ * one column: a list stage (project folders, then the files of one folder: an issue each) or the paper stage: a path
+ * line, the file's head, its table of contents (기획서 → 회의록 → 결정 → 보고서, only those present) and one sheet of
  * paper. Minutes read as a conversation. SECRET documents show a manila cover with kind, date and agents only; the
  * body is never in the page for a visitor (the server's filter, see src/docs/library.ts and supabase/docs.sql), so
  * nothing here hides anything: it just draws what arrived. The owner sees review bodies under a "SECRET · 결재 대기" band.
@@ -45,6 +48,9 @@ const fmtDocDay = (iso: string) => (new Date(iso).getFullYear() === new Date().g
 const seatName = (seat: number) => AGENT_INFO[`agent_${seat}`]?.name ?? ''
 const seatFirst = (seat: number) => seatName(seat).split(' ')[0]
 
+/** the stages of the one column: the folders, the files of a folder, one file's papers */
+type Stage = 'folders' | 'files' | 'paper'
+
 function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
   const src = world.approvals!
   const role = useRole(src)
@@ -54,7 +60,11 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
   const [sel, setSel] = useState<Sel>({ fileKey: null, kind: null, row: null })
   const [live, setLive] = useState('')
   const [peeling, setPeeling] = useState<ReadonlySet<number>>(new Set())
-  const box = useRef<HTMLElement>(null)
+  const [stage, setStage] = useState<Stage>('files')
+  const shown = useSidePanelOpen()
+  const viewer = useRef<HTMLDivElement>(null)
+  const selRef = useRef(sel)
+  selRef.current = sel
   const landed = useRef(0)
   const open = panel.open
 
@@ -69,38 +79,16 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
   useEffect(() => {
     if (!open || !snap.metas || landed.current === panel.nonce) return
     landed.current = panel.nonce
-    // a bare open (the launcher) keeps where you were
+    // a bare open (the launcher) keeps where you were; the first one starts at the list
     setSel((s) => (panel.target || !s.fileKey ? landOn(snap.folders, panel.target) : s))
+    if (panel.target) setStage('paper')
+    else if (!selRef.current.fileKey) setStage(snap.folders.length > 1 ? 'folders' : 'files')
   }, [open, snap.metas, snap.folders, panel])
-
-  // the viewer and the approval box share the screen: opening one closes the other
-  useEffect(() => {
-    if (open) closeApprovalBox()
-  }, [open])
 
   // fresh list each time it opens
   useEffect(() => {
     if (open) void lib.refresh()
   }, [open, lib])
-
-  // focus goes into the panel when it opens and back to where it was when it closes
-  useEffect(() => {
-    if (!open) return
-    const from = document.activeElement as HTMLElement | null
-    box.current?.focus()
-    // the launcher is unmounted while open: after it is back, focus returns to it (or to where focus was)
-    return () => void requestAnimationFrame(() => (from && from !== document.body && from.isConnected ? from : document.querySelector<HTMLElement>('.docs-launcher'))?.focus())
-  }, [open])
-
-  // Esc closes (joins the shared Esc registry of #68 later)
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented) closeDocs()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [open])
 
   const files = snap.folders.flatMap((f) => f.files)
   const file = files.find((f) => f.key === sel.fileKey) ?? files[0] ?? null
@@ -108,6 +96,25 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
   const kinds = file ? TOC.filter((t) => file.docs.some((d) => d.kind === t.kind)) : []
   const kind = kinds.find((t) => t.kind === sel.kind)?.kind ?? kinds[0]?.kind ?? null
   const docs = useMemo(() => (file && kind ? file.docs.filter((d) => d.kind === kind) : []), [file, kind])
+  const view: Stage = stage === 'paper' && file && folder ? 'paper' : stage === 'files' && folder ? 'files' : 'folders'
+
+  // Esc steps back first (a paper -> its list); at a list it closes the panel (SidePanel.tsx). Focus follows the stage
+  // so a button that just left the page does not drop it on the body. A paper raises the phone sheet to full.
+  const viewRef = useRef(view)
+  viewRef.current = view
+  useEffect(() => {
+    setSideBack('docs', () => {
+      if (viewRef.current !== 'paper') return false
+      setStage('files')
+      return true
+    })
+    return () => setSideBack('docs', null)
+  }, [])
+  useEffect(() => viewer.current?.focus({ preventScroll: true }), [view])
+  useEffect(() => {
+    setSideRaise('docs', open && view === 'paper')
+    return () => void setSideRaise('docs', false)
+  }, [open, view])
 
   // the bodies of the readable documents shown now
   useEffect(() => {
@@ -142,8 +149,15 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
   }, [open, file, kind, sel.row])
 
   const pick = useCallback((next: Partial<Sel>) => setSel((s) => ({ ...s, row: null, ...next })), [])
-  const goFile = (f: DocFile) => pick({ fileKey: f.key, kind: null })
-  const goFolder = (fo: DocFolder) => fo.files[0] && goFile(fo.files[0])
+  const goFile = (f: DocFile) => {
+    pick({ fileKey: f.key, kind: null })
+    setStage('paper')
+  }
+  const goFolder = (fo: DocFolder) => {
+    if (!fo.files[0]) return
+    pick({ fileKey: fo.files[0].key, kind: null })
+    setStage('files')
+  }
 
   const toc = useRef<HTMLDivElement>(null)
   const onTocKey = (e: KeyboardEvent) => {
@@ -161,7 +175,7 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
       <div className="sr-only" role="status" aria-live="polite">
         {live}
       </div>
-      {!open && (
+      {!shown && (
         <DockSlot slot="docs">
           <button type="button" className="dock-btn docs-launcher" aria-label="서재" aria-expanded={false} aria-controls="docs-box" onClick={toggleDocs}>
             <Icon name="publish" />
@@ -169,18 +183,39 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
           </button>
         </DockSlot>
       )}
-      {open && (
-        <section id="docs-box" ref={box} tabIndex={-1} className="docs-box" aria-label="서재">
-          <div className="docs-tab">
-            <Icon name="publish" />
-            {isOwner ? '서재 · OWNER' : '서재'}
-          </div>
-          <div className="docs-body">
-            <button type="button" className="approval-close docs-close" aria-label="닫기" onClick={closeDocs}>
-              Esc
-            </button>
-            <div className="doc-viewer">
+      <SideSlot tab="docs">
+        <div id="docs-box" className="docs-box" role="tabpanel" aria-labelledby="side-tab-docs">
+          <div className="doc-viewer" ref={viewer} tabIndex={-1}>
+            {view === 'paper' && file && folder ? (
+              <div className="doc-main">
+                <DocPath folder={folder} file={file} onRoot={() => setStage('folders')} onFolder={() => setStage('files')} />
+                <FileHead file={file} />
+                {kinds.length > 0 && (
+                  <div className="doc-toc" role="tablist" aria-label="문서 순서" ref={toc} onKeyDown={onTocKey}>
+                    {kinds.map((t, i) => (
+                      <button
+                        key={t.kind}
+                        type="button"
+                        role="tab"
+                        id={`doc-tab-${t.kind}`}
+                        data-doc={t.kind}
+                        aria-selected={t.kind === kind}
+                        aria-controls="doc-stage"
+                        tabIndex={t.kind === kind ? 0 : -1}
+                        onClick={() => pick({ kind: t.kind })}
+                      >
+                        {i + 1}. {t.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="doc-stage" id="doc-stage" role="tabpanel" aria-labelledby={kind ? `doc-tab-${kind}` : undefined}>
+                  <Stack file={file} folder={folder} docs={docs} bodies={snap.bodies} isOwner={isOwner} peeling={peeling} row={sel.row} nonce={panel.nonce} />
+                </div>
+              </div>
+            ) : (
               <nav className="doc-nav" aria-label="서재 목록">
+                {view === 'files' && folder && <DocPath folder={folder} file={null} onRoot={() => setStage('folders')} onFolder={() => setStage('files')} />}
                 {snap.metas === null && !snap.error && <p className="doc-note">불러오는 중…</p>}
                 {snap.error && (
                   <p className="approval-error" role="alert">
@@ -190,79 +225,69 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
                     </button>
                   </p>
                 )}
-                <h4>프로젝트 폴더</h4>
-                {snap.folders.map((fo) => (
-                  <button key={fo.key} type="button" className="doc-folder" aria-current={fo === folder} onClick={() => goFolder(fo)}>
-                    <Icon name={fo.repo === null ? 'lock' : 'publish'} />
-                    {fo.label}
-                  </button>
-                ))}
-                {folder && <h4>파일철</h4>}
-                {folder?.files.map((f) => (
-                  <button key={f.key} type="button" className="doc-file" aria-current={f === file} onClick={() => goFile(f)}>
-                    <span className="n">{f.n ? `#${f.n}` : '—'}</span>
-                    <span>
-                      {f.title ?? (
-                        <>
-                          <span className="redact" style={{ width: 120 }} aria-hidden="true" />
-                          <span className="sr-only">가려진 제목</span>
-                        </>
-                      )}
-                    </span>
-                    {f.secret && <span className="sec">{f.secret === 'review' ? `SECRET ${f.docs.filter((d) => !d.approved).length}` : 'SECRET'}</span>}
-                  </button>
-                ))}
+                {view === 'folders' && <h4>프로젝트 폴더</h4>}
+                {view === 'folders' &&
+                  snap.folders.map((fo) => (
+                    <button key={fo.key} type="button" className="doc-folder" aria-current={fo === folder} onClick={() => goFolder(fo)}>
+                      <Icon name={fo.repo === null ? 'lock' : 'publish'} />
+                      {fo.label}
+                    </button>
+                  ))}
+                {view === 'files' && <h4>파일철</h4>}
+                {view === 'files' &&
+                  folder?.files.map((f) => (
+                    <button key={f.key} type="button" className="doc-file" aria-current={f === file} onClick={() => goFile(f)}>
+                      <span className="n">{f.n ? `#${f.n}` : '—'}</span>
+                      <span>
+                        {f.title ?? (
+                          <>
+                            <span className="redact" style={{ width: 120 }} aria-hidden="true" />
+                            <span className="sr-only">가려진 제목</span>
+                          </>
+                        )}
+                      </span>
+                      {f.secret && <span className="sec">{f.secret === 'review' ? `SECRET ${f.docs.filter((d) => !d.approved).length}` : 'SECRET'}</span>}
+                    </button>
+                  ))}
                 {snap.layout.note && <p className="doc-note">{snap.layout.note}</p>}
                 {snap.metas?.length === 0 && <p className="doc-note">아직 문서가 없어요.</p>}
               </nav>
-              <div className="doc-main">
-                {file && folder ? (
-                  <>
-                    <FileHead file={file} folder={folder} />
-                    {kinds.length > 0 && (
-                      <div className="doc-toc" role="tablist" aria-label="문서 순서" ref={toc} onKeyDown={onTocKey}>
-                        {kinds.map((t, i) => (
-                          <button
-                            key={t.kind}
-                            type="button"
-                            role="tab"
-                            id={`doc-tab-${t.kind}`}
-                            data-doc={t.kind}
-                            aria-selected={t.kind === kind}
-                            aria-controls="doc-stage"
-                            tabIndex={t.kind === kind ? 0 : -1}
-                            onClick={() => pick({ kind: t.kind })}
-                          >
-                            {i + 1}. {t.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    <div className="doc-stage" id="doc-stage" role="tabpanel" aria-labelledby={kind ? `doc-tab-${kind}` : undefined}>
-                      <Stack file={file} folder={folder} docs={docs} bodies={snap.bodies} isOwner={isOwner} peeling={peeling} row={sel.row} nonce={panel.nonce} />
-                    </div>
-                  </>
-                ) : (
-                  <p className="doc-note doc-empty">{snap.metas ? '왼쪽에서 파일철을 골라 주세요.' : ''}</p>
-                )}
-              </div>
-            </div>
+            )}
           </div>
-        </section>
-      )}
+        </div>
+      </SideSlot>
     </>
   )
 }
 
-function FileHead({ file, folder }: { file: DocFile; folder: DocFolder }) {
+/** the path line of a stage: 서재 › folder › 파일철 #45; every step before the last goes back to that list */
+function DocPath({ folder, file, onRoot, onFolder }: { folder: DocFolder; file: DocFile | null; onRoot: () => void; onFolder: () => void }) {
   const priv = folder.repo === null
   return (
+    <nav className="doc-path" aria-label="경로">
+      <button type="button" onClick={onRoot}>
+        서재
+      </button>
+      <span aria-hidden="true">›</span>
+      {file ? (
+        <>
+          <button type="button" onClick={onFolder}>
+            {folder.label}
+          </button>
+          <span aria-hidden="true">›</span>
+          <span aria-current="location">파일철 {priv ? <Bar w={30} /> : `#${file.n}`}</span>
+        </>
+      ) : (
+        <span aria-current="location">{folder.label}</span>
+      )}
+    </nav>
+  )
+}
+
+function FileHead({ file }: { file: DocFile }) {
+  const priv = file.repo === null
+  return (
     <div className="doc-filehead">
-      <span className="doc-crumb">
-        {folder.label}
-        {' · 파일철 '}
-        {priv ? <Bar w={30} /> : `#${file.n}`}
-      </span>
       <h4>
         {file.title ?? (
           <>
