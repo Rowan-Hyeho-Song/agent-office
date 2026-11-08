@@ -22,6 +22,7 @@ import type { Goal } from './director'
 import { DOZE } from './doze'
 import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
 import { GLOW } from './nodes'
+import { TRAFFIC, type Sample } from './traffic'
 import type { AgentStatus } from './status'
 
 const SPEED = 0.75 // m/s cruising
@@ -468,6 +469,9 @@ export class AgentRig {
   private speed = 0
   /** walking pace scale (the replay walks faster) */
   pace = 1
+  /** the traffic planner (traffic.ts) moves this rig: its trajectory sample for this frame; when set, nothing here integrates */
+  track: Sample | null = null
+  traffic = false
   private turnVel = 0
   private lift = 0
   private seat = 0
@@ -522,6 +526,7 @@ export class AgentRig {
 
   /** the spot it has arrived at and stopped on, if any */
   get arrived(): string | null {
+    if (this.traffic) return this.track ? this.track.arrived : this.at
     return this.path.length === 0 && this.at !== EXIT ? this.at : null
   }
 
@@ -561,6 +566,10 @@ export class AgentRig {
   setGoal(goal: Goal, g: NavGraph) {
     const prev = this.goal
     this.goal = goal
+    if (this.traffic) {
+      this.placed = true
+      return
+    }
     if (!this.placed) {
       // first frame: start where the schedule says (every visitor sees the same scene from the start)
       this.placed = true
@@ -605,7 +614,20 @@ export class AgentRig {
     let wantHeading = this.heading
     let moving = false
 
-    if (this.path.length) {
+    if (this.traffic) {
+      const k = this.track
+      if (k) {
+        this.x = k.x
+        this.z = k.z
+        this.speed = k.speed
+        this.at = k.arrived
+        this.from = null
+        this.path = []
+        moving = k.moving
+        if (k.moving && k.heading !== null) wantHeading = k.heading
+        else if (k.arrived) wantHeading = this.restHeading(g, others)
+      }
+    } else if (this.path.length) {
       moving = true
       // slow down for the final stop and for sharp corners
       const next = this.point(g, this.path[0])
@@ -720,7 +742,43 @@ export class AgentRig {
         : null
   }
 
+  /** the angle from the body's heading to the other agent of the current yield / pass cue (positive = to the left) */
+  private cueRel(): number {
+    const c = this.track?.cue
+    if (!c?.toward) return 0
+    return wrap(Math.atan2(-(c.toward.x - this.x), -(c.toward.z - this.z)) - this.heading)
+  }
+
+  /** the designer's yield gestures (agents.md 2.8) as head motion; none with reduced motion (the step aside is the gesture) */
+  private cueLook(reduced: boolean): { pitch: number; yaw: number; roll: number } | null {
+    const c = this.track?.cue
+    if (!c || reduced) return null
+    const C = TRAFFIC.cue
+    const D = Math.PI / 180
+    const rel = this.cueRel()
+    const clampDeg = (deg: number) => MathUtils.clamp(rel, -deg * D, deg * D)
+    const env = MathUtils.clamp(c.age / 0.15, 0, 1) * MathUtils.clamp((c.dur - c.age) / 0.15, 0, 1)
+    const arc = Math.sin(MathUtils.clamp(c.age / c.dur, 0, 1) * Math.PI)
+    switch (c.kind) {
+      case 'yield': {
+        const k = MathUtils.clamp((c.age - C.nodFromS) / (C.nodToS - C.nodFromS), 0, 1)
+        const turn = MathUtils.clamp(c.age / C.stepAsideS, 0, 1)
+        return { pitch: c.gesture ? -Math.sin(k * Math.PI) * C.nodDeg * D : 0, yaw: clampDeg(C.yieldHeadDeg) * turn * env, roll: 0 }
+      }
+      case 'pass':
+        return { pitch: -arc * C.nodDeg * D, yaw: clampDeg(C.passHeadDeg) * arc, roll: 0 }
+      case 'wide':
+        return { pitch: 0, yaw: clampDeg(C.wideHeadDeg) * arc, roll: 0 }
+      case 'tilt':
+        return { pitch: 0, yaw: 0, roll: C.tiltDeg * D * arc }
+      case 'dest':
+        return { pitch: 0, yaw: clampDeg(40) * MathUtils.clamp(c.age / 0.3, 0, 1), roll: 0 }
+    }
+  }
+
   private headLook(pose: string, t: number, reduced: boolean, others: Record<string, AgentRig>) {
+    const cue = this.cueLook(reduced)
+    if (cue) return cue
     const m = reduced ? 0.3 : 1
     const s = (f: number, o = 0) => Math.sin(t * f + this.phase + o) * m
     const idle = { pitch: 0, yaw: reduced ? 0 : s(0.35) * 0.25, roll: 0 }
@@ -782,6 +840,22 @@ export class AgentRig {
       // once caught, the pinching hand moves out a little so it doesn't cover the face screen (its reaction shows)
       const caught = side === 'r' && g.caught
       return at(sx * (0.16 + (caught ? CAUGHT_OUT : 0)), 1.32 + sit, -0.32, NONE, caught ? PINCH_CURL : { index: 0.1, fingers: 0.3, thumb: 0.2 })
+    }
+    // the yield gesture: the hand on the passer's side opens palm up in front and sweeps toward them ("after you")
+    const cue = this.track?.cue
+    if (cue && !reduced) {
+      const C = TRAFFIC.cue
+      if (cue.kind === 'yield' && cue.gesture && cue.age >= C.nodFromS && cue.age < C.followFromS && side === (this.cueRel() > 0 ? 'l' : 'r')) {
+        const k = (cue.age - C.nodFromS) / (C.followFromS - C.nodFromS)
+        const sweep = Math.sin(k * Math.PI * 0.5 + 0.0) * C.handSweepM * (k < 0.7 ? k / 0.7 : 1)
+        return at(sx * (0.2 + sweep), 1.0 + sit, -0.15 - C.handForwardM, NONE, { index: 0, fingers: 0, thumb: C.handThumb })
+      }
+      if (cue.kind === 'dest' && side === 'r') {
+        // a small impatient tap every 1.5 s: index, then the finger lump
+        const ph = (cue.age % C.destTapEveryS) / 0.4
+        const pulse = ph < 1 ? Math.sin(ph * Math.PI) * C.destTapCurl : 0
+        return at(rest.x, rest.y + 0.02, rest.z + 0.1, NONE, { index: REST_CURL.index + (ph < 0.5 ? pulse : 0), fingers: REST_CURL.fingers + (ph >= 0.5 ? pulse : 0), thumb: REST_CURL.thumb })
+      }
     }
     switch (pose) {
       case 'move':

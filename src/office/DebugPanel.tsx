@@ -228,6 +228,9 @@ export function DebugPanel({ world }: { world: OfficeWorld }) {
       )}
       <BubbleDebug world={world} />
       <PropsDebug world={world} now={now} />
+      <label style={{ display: 'block' }}>
+        <input type="checkbox" defaultChecked={world.showGrid} onChange={(e) => (world.showGrid = e.target.checked)} /> 이동 칸 · 예약 경로 그리기 (#138)
+      </label>
       <footer>
         {world.director.pending.talks.join(', ')}
         {world.check && (

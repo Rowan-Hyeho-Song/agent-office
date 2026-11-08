@@ -23,6 +23,8 @@ import { splitDecision } from '../board/state'
 import { liveStatusFor, type LiveStatusSource } from './liveStatus'
 import type { NavGraph } from './nav'
 import type { NavCheck } from './navcheck'
+import type { TrafficPlanner } from './traffic'
+import type { DemoKind, DemoState } from './trafficDemo'
 import type { PaperPlanes } from './plane'
 import type { AgentRig } from './rig'
 import { FakePropsFeed, LivePropsFeed, type PropsFeed } from './propsFeed'
@@ -114,6 +116,16 @@ export interface OfficeWorld {
   planes: PaperPlanes | null
   graph: NavGraph | null
   check: NavCheck | null
+  /** the traffic planner (#138), set by the scene; ?debug=1 draws its grid and plans when showGrid is on */
+  traffic: TrafficPlanner | null
+  showGrid: boolean
+  forceSpots: Record<string, string> | null
+  /** the planner's clock, s (accumulated frame time) */
+  simTime: number
+  /** ?debug=1 only: the traffic demo running (trafficDemo.ts) */
+  demo: DemoState | null
+  /** ?debug=1 only: window.__office.trafficDemo('narrow' | 'wide') swaps agent_0 and agent_1 where they must meet; 'off' lets them go */
+  trafficDemo: (kind: DemoKind | 'off') => void
 }
 
 function setKst(w: OfficeWorld, text: string) {
@@ -180,6 +192,16 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     planes: null,
     graph: null,
     check: null,
+    traffic: null,
+    showGrid: false,
+    forceSpots: null,
+    simTime: 0,
+    demo: null,
+    trafficDemo: (kind) => {
+      if (!debug) return
+      world.demo = kind === 'off' ? null : { kind, at: null }
+      world.showGrid = kind !== 'off' || world.showGrid
+    },
   }
   holder.w = world
   if (debug) setKst(world, query.get('kst') ?? '')

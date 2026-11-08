@@ -42,7 +42,7 @@ export interface MeetingScript {
   /** SECRET for this viewer's eyes (blocks), or private (lock) */
   secret: boolean
   private: boolean
-  /** the agents at the meeting, in order of first appearance (meet_a, meet_b, meet_c, meet_d) */
+  /** the agents at the meeting, in order of first appearance (meet_floor_0, _1, _2, _3) */
   seats: number[]
   lines: ScriptLine[]
   /** when the last hold ends */
@@ -202,8 +202,8 @@ export function trimScript(script: MeetingScript, present: number[]): MeetingScr
   return { ...script, lines, linesMs, seats: script.seats.filter((s) => present.includes(s)), followUps: script.followUps.filter((s) => present.includes(s)) }
 }
 
-/** meet_a..meet_d for the agents in order: the first two face each other, the next two the same */
-export const meetSpot = (index: number) => `meet_${'abcd'[index]}`
+/** the seats of the floor talk circle for the agents in order (#147, nav.meetSeats): the first two face each other, the rest close the circle */
+export const meetSpot = (index: number) => `meet_floor_${index}`
 
 // ---- the script at a moment ----------------------------------------------------------------------------------------
 
