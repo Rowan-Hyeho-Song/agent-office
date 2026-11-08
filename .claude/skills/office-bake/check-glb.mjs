@@ -11,7 +11,7 @@
 // Exit code 1 when a --want name is missing or a check fails.
 import { readFileSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { Box3, Vector3 } from 'three'
+import { Box3, Triangle, Vector3 } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 
@@ -162,6 +162,48 @@ if (overlap) {
   for (const s of outside) console.log(`outside the room: ${s.name}`)
   console.log(`overlap: ${items.length} slots, ${bad.length} pairs under their minimum, ${outside.length} outside the room`)
   if (bad.length || outside.length) fail('--overlap: layout rules broken (table above)')
+}
+
+// 5b) #164 hand fits: every prop with a <prop>_grip_r|l child has a contact point or more, and each
+// <prop>_contact_* lies within 2 mm of the prop's surface (the prop and its sibling parts <prop>_* meshes, e.g. the
+// book halves). Contacts with extras state (e.g. "open": a page only there once the book opens) are skipped
+{
+  scene.updateMatrixWorld(true)
+  const props = scene.children.filter((o) => o.children.some((c) => /_grip_[lr]$/.test(c.name)))
+  const tri = new Triangle()
+  const near = new Vector3()
+  let bad = 0
+  for (const p of props) {
+    const contacts = p.children.filter((c) => c.name.startsWith(`${p.name}_contact_`))
+    if (!contacts.length) {
+      console.log(`hand fit: ${p.name} has a grip but no contact point`)
+      bad++
+    }
+    const meshes = []  // a prop with several materials is a group of meshes
+    for (const o of [p, ...scene.children.filter((o) => o !== p && o.name.startsWith(`${p.name}_`))]) o.traverse((m) => m.isMesh && meshes.push(m))
+    for (const c of contacts.filter((c) => !c.userData.state)) {
+      const at = c.getWorldPosition(new Vector3())
+      let best = Infinity
+      for (const m of meshes) {
+        const g = m.geometry
+        const pos = g.attributes.position
+        const idx = g.index
+        const n = idx ? idx.count : pos.count
+        const v = [new Vector3(), new Vector3(), new Vector3()]
+        for (let i = 0; i < n; i += 3) {
+          for (let k = 0; k < 3; k++) v[k].fromBufferAttribute(pos, idx ? idx.getX(i + k) : i + k).applyMatrix4(m.matrixWorld)
+          tri.set(v[0], v[1], v[2]).closestPointToPoint(at, near)
+          best = Math.min(best, near.distanceTo(at))
+        }
+      }
+      if (best > 0.002) {
+        console.log(`hand fit: ${c.name} is ${(best * 1000).toFixed(1)} mm off ${p.name}'s surface`)
+        bad++
+      }
+    }
+  }
+  console.log(`hand fit (#164): ${props.length} props with grips, ${bad} problems`)
+  if (bad) fail('hand fit: contact points (above)')
 }
 
 // 6) --show: world position, bounds and extras

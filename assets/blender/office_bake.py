@@ -33,10 +33,24 @@ Node contract (the app reads glTF extras):
   agent_<i>_hand_l|r_grip          empties, children of the palms: attach a held prop here (extras grip_of)
   screen_work_<i>, screen_door     live "screen" slots the app draws (extras screen, aspect, w, h, ppm); shipped off
   surface_whiteboard|bulletin      empties at the board faces where the app pins cards / notes (extras w, h, normal)
-  prop_*, agent_0_pen              live "prop": paddles, ball, cups, watering can, board pieces, paper plane, pen
+  prop_*, agent_0_pen              live "prop": paddles, cups, watering can, omok stones in hand (prop_piece_a black,
+                                   _b white), book (its spine), paper plane, pen
                                    (extras prop, home, grip; the pen's home is on its head: extras home_on)
+  prop_book_l|r                   live "bot" (#135): the book's halves, pivot on the spine axis (local z); the app
+                                   attaches them to prop_book; _l opens by +180° about local z (lies flat at -x)
+  prop_watering_can_spout          empty, child of the can: the spout's end, local +z = the water's way out
+  omok_board                       the 15 x 15 board and its two stone bowls (lounge atlas, 3x texels: the lines are baked)
+  omok_grid                        empty at the (0, 0) intersection on the board top, +x = columns, +z = rows
+                                   (extras n, cell, stone_h)
+  omok_stone_b|w                   live "bot" samples (the app hides them and instances the stones on the board);
+                                   pivot = the stone's bottom center
+  omok_bowl_b|w                    empties: the grab point in each stone bowl (extras bowl); black by nav_game_a
+  pp_ball                          live "bot" (#135): the ball, the app moves it (not a prop); pivot = its center
+  pp_table                         empty at the table top center, +x = the long side (extras size [l, w], net_h)
   nav_<id>                         empties: where agents go and which way they face (navigation); nav_meet_center_*
                                    (#147): meeting ring centers, extras r = floor kept free around it
+  soil_<plant>                     empties (#184): the soil top's centre of each world-built pot (plant_corner|desk|sofa,
+                                   vine), extras soil_of, r = the soil disc's radius: where watering lands
   shelf_r<r>_b<k>, _band, _label, _secret
                                    live "bot": the library binders (#67): cover, spine band, spine label (one cell of
                                    the shared "spines" canvas: extras canvas, grid, px, cell), SECRET stamp (own pivot)
@@ -87,6 +101,7 @@ SOFA = (2.2, 2.6)
 GAME_TABLE = (-1.6, 2.2)
 SIDE_TABLE = (0.3, 2.6)  # a small round table in the open front middle (designer, #109): visitors' snacks and cheers later
 COUNTER = (HX - 0.32, -2.0, math.pi)  # against the right wall, its front (local +x) facing the room
+COFFEE_BUTTON = (0.146, 1.2, -0.02)  # #164: the brew button face, counter frame (front = local +x)
 SHELF_X = 3.75
 SHELF_W, SHELF_D = 1.1, 0.34  # the bookshelf against the back wall: width, depth
 PLANTS = [  # name, species, x, z (#126: one species each, office-quality.md 3; plant_boards left out, designer)
@@ -638,8 +653,7 @@ def desk_props_hue(G):
     s.append(cyl("fan_pin", 0.006, 0.02, (fx, h + 0.018, fz), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G, 10, axis="z"))
     # 2 pen tablet in the mouse spot (baked) + live active-area outline (glows while HUE edits)
     bx, bz = 0.36, 0.06
-    s += [rounded_slab("tablet", 0.20, 0.012, 0.14, 0.012, (bx, h + 0.006, bz), plastic("#22252c", 0.5, 0.1, 0.05, "tablet"), G),
-          segment("tablet_pen", (bx + 0.075, h + 0.017, bz - 0.06), (bx + 0.085, h + 0.017, bz + 0.065), 0.005, plastic("#1a1c21", 0.4, 0.2, 0, "pen_dark"), G, verts=10, r2=0.003)]
+    s += [rounded_slab("tablet", 0.20, 0.012, 0.14, 0.012, (bx, h + 0.006, bz), plastic("#22252c", 0.5, 0.1, 0.05, "tablet"), G)]  # its pen is prop_tablet_pen (#164)
     mag = emitter(AGENTS[2]["color"], 2.0, "tablet_area")
     aw, ad, t = 0.13, 0.09, 0.003
     area = [box("area", (aw, 0.001, t), (0, 0, -ad / 2), mag, "export"), box("area", (aw, 0.001, t), (0, 0, ad / 2), mag, "export"),
@@ -905,8 +919,7 @@ def build_wall_items():
          box("wb", (1.5, 1.0, 0.02), (wbx, 1.5, z + 0.01), board, G),
          box("wb_tray", (1.3, 0.025, 0.06), (wbx, 0.985, z + 0.03), frame_m, G)]
     # the cards and the visitor notes are the app's (surface_whiteboard / surface_bulletin): the boards stay empty
-    for k, col in enumerate(("#1f6feb", "#d64545", "#111111")):
-        p.append(cyl("marker", 0.008, 0.12, (wbx - 0.35 + k * 0.05, 1.0, z + 0.04), plastic(col, 0.4, 0, 0, f"marker_{k}"), G, 10, axis="x"))
+    # the markers on the tray are props (prop_marker_<k>, #164: MEMO writes with them)
     fp("whiteboard", p, "wall", "n")
     # bulletin board for visitor notes
     p += [box("cork_frame", (0.86, 0.96, 0.03), (BULLETIN_X, 1.45, z), plastic("#5a3d26", 0.6, 0, 0.3, "cork_frame"), G, bev=0.006),
@@ -1187,7 +1200,7 @@ def flip(o):
     return o
 
 
-def pot3(name, x, z, y0, r_top, r_bot, h, body, group, saucer=False, pebbles=4, seg=24, foot=None, chips=0):
+def pot3(name, x, z, y0, r_top, r_bot, h, body, group, saucer=False, pebbles=4, seg=24, foot=None, chips=0, soil_node=True):
     """a pot in three parts: tapered body, a 1 cm rim (a wall above the soil, inside and out, capped by a rolled
     lip), soil 1.5 cm under the rim with pebbles and bark chips; optional saucer. foot = the material of an
     unglazed foot band (the glaze stops above it: a gloss difference that reads up close, #126). Returns
@@ -1208,6 +1221,13 @@ def pot3(name, x, z, y0, r_top, r_bot, h, body, group, saucer=False, pebbles=4, 
          flip(tube(f"{name}_collar_in", r_top - 0.006, 0.015, (x, soil_y + 0.0075, z), body, group, seg)),
          torus(f"{name}_rim", r_top - 0.003, 0.0055, (x, y0 + h, z), body, group, seg=seg, rseg=4),
          cyl(f"{name}_soil", r_top - 0.006, 0.004, (x, soil_y + 0.001, z), soil, group, seg)]
+    # #184: where watering lands (world-built pots only: soil_node): an empty at the soil's centre, extras r = its radius
+    if soil_node:
+        e = bpy.data.objects.new(f"soil_{name}", None)
+        coll("export").objects.link(e)
+        e.matrix_world = Mx((x, soil_y + 0.003, z))
+        e["soil_of"], e["r"] = name, round(r_top - 0.006, 4)
+        NODES.append({"obj": e, "soil": name})
     if foot:
         o.append(add_bevel(cyl(f"{name}_foot", r_bot, fy - y0, (x, (y0 + fy) / 2, z), foot, group, seg, r2=radius(fy) - 0.001), 0.002, seg=bseg))
     for k in range(pebbles):
@@ -1322,7 +1342,7 @@ def echeveria(name, x, y, z, group):
     """HUE's desk: echeveria rosette in three tiers (8 + 6 + 4 fleshy leaves, 12 triangles a side) curling up, the
     centre lighter; small terracotta pot with pebbles"""
     PRNG.seed(f"126:{name}")  # each plant its own stream: changing one leaves the others as they are
-    pot, sy = pot3(name, x, z, y, 0.04, 0.032, 0.05, plastic("#b5654a", 0.85, 0, 0.3, "terracotta"), group, pebbles=2, seg=10,
+    pot, sy = pot3(name, x, z, y, 0.04, 0.032, 0.05, plastic("#b5654a", 0.85, 0, 0.3, "terracotta"), group, pebbles=2, seg=10, soil_node=False,
                    foot=plastic("#96523d", 0.9, 0, 0.3, "terracotta_dark"))
     fol = Foliage(f"{name}_leaves")
     for tier, (n, length, elev, r0) in enumerate(((8, 0.044, 0.25, 0.007), (6, 0.034, 0.7, 0.004), (4, 0.022, 1.15, 0.0015))):
@@ -1407,6 +1427,224 @@ PLANT_NODES = []  # (node, name): each floor plant is its own baked node in the 
 
 
 # ================================================================ LOUNGE (atlas: lounge)
+OMOK_NODES = []  # the omok board with its bowls: its own baked node in the lounge atlas at OMOK_DENSITY (1.2 mm lines)
+OMOK_DENSITY = 3.0
+OMOK = dict(n=15, cell=0.0257, board=0.42, top=0.77, stone_d=0.022, stone_h=0.008)
+OMOK_BOWLS = {}  # "b" | "w" -> the grab point in the bowl (web): build_props puts prop_piece_a|b there
+SRNG = random.Random(135)  # #135's own draws (the stone heaps)
+
+
+def omok_mat(x0, z0, top):
+    """light wood with the 15 x 15 grid drawn in the shader (world position): 1.2 mm lines, the border 2 mm, five
+    star points 4 mm. Only on the top face (y >= top - 0.5 mm). Baked into the atlas like any colour."""
+    m, nodes, links, b = new_mat("omok_board")
+    # matte (designer, app cut): COMBINED baking reads a facing-up surface along its normal, so a glossy top baked
+    # the overhead panel into a white sheen (#fee399 in the app)
+    b.inputs["Roughness"].default_value = 0.92
+    for k in ("Specular IOR Level", "Specular"):
+        if k in b.inputs:
+            b.inputs[k].default_value = 0.15
+    bump(nodes, links, b, 900, 0.06, 0.0002)
+    geo = nodes.new("ShaderNodeNewGeometry")
+    sep = nodes.new("ShaderNodeSeparateXYZ")
+    links.new(geo.outputs["Position"], sep.inputs["Vector"])
+
+    def op(kind, a, bb=None, c=None):
+        n = nodes.new("ShaderNodeMath")
+        n.operation = kind
+        for k, v in enumerate((a, bb, c)):
+            if v is None:
+                continue
+            if isinstance(v, (int, float)):
+                n.inputs[k].default_value = v
+            else:
+                links.new(v, n.inputs[k])
+        return n.outputs[0]
+
+    pitch, last = OMOK["cell"], OMOK["n"] - 1
+    u = op("DIVIDE", op("SUBTRACT", sep.outputs["X"], x0), pitch)  # web x = Blender X
+    v = op("DIVIDE", op("SUBTRACT", op("MULTIPLY", sep.outputs["Y"], -1.0), z0), pitch)  # web z = -Blender Y
+
+    def line(a, other):
+        """mask of the lines a = const: near a whole number, inside the grid along the other axis"""
+        ra = op("ROUND", a)
+        border = op("MAXIMUM", op("LESS_THAN", ra, 0.5), op("GREATER_THAN", ra, last - 0.5))
+        hw = op("DIVIDE", op("ADD", 0.0006, op("MULTIPLY", border, 0.0004)), pitch)  # half width in cells
+        near = op("LESS_THAN", op("ABSOLUTE", op("SUBTRACT", a, ra)), hw)
+        inside = op("MULTIPLY", op("GREATER_THAN", other, op("MULTIPLY", hw, -1.0)), op("LESS_THAN", other, op("ADD", hw, last)))
+        within = op("MULTIPLY", op("GREATER_THAN", ra, -0.5), op("LESS_THAN", ra, last + 0.5))
+        return op("MULTIPLY", op("MULTIPLY", near, inside), within)
+
+    # star points: (3, 3), (3, 11), (11, 3), (11, 11), (7, 7) -> both rounded coords in {3, 11}, or both 7
+    ru, rv = op("ROUND", u), op("ROUND", v)
+
+    def is_(r, k):
+        return op("LESS_THAN", op("ABSOLUTE", op("SUBTRACT", r, k)), 0.5)
+
+    corner = op("MULTIPLY", op("MAXIMUM", is_(ru, 3), is_(ru, 11)), op("MAXIMUM", is_(rv, 3), is_(rv, 11)))
+    star = op("MAXIMUM", corner, op("MULTIPLY", is_(ru, 7), is_(rv, 7)))
+    du, dv = op("SUBTRACT", u, ru), op("SUBTRACT", v, rv)
+    dist = op("MULTIPLY", op("SQRT", op("ADD", op("MULTIPLY", du, du), op("MULTIPLY", dv, dv))), pitch)
+    dot = op("MULTIPLY", star, op("LESS_THAN", dist, 0.0026))  # star points: a clear dot, twice a line and more
+    on_top = op("GREATER_THAN", sep.outputs["Z"], top - 0.0005)  # web y = Blender Z
+    ink = op("MULTIPLY", op("MAXIMUM", op("MAXIMUM", line(u, v), line(v, u)), dot), on_top)
+    def mix(factor, a, b_):
+        """colour a where factor = 0, b_ where 1; a / b_ = hex or a colour socket"""
+        n = nodes.new("ShaderNodeMix")
+        n.data_type = "RGBA"
+        ca, cb = [s for s in n.inputs if s.type == "RGBA" and s.name in ("A", "B")]
+        for sock, v in ((ca, a), (cb, b_)):
+            if isinstance(v, str):
+                sock.default_value = rgba(v)
+            else:
+                links.new(v, sock)
+        links.new(factor, n.inputs["Factor"])
+        return [s for s in n.outputs if s.type == "RGBA"][0]
+
+    # designer (app cut): the top #b5844c reads as light wood once baked (x4 exposure, the lamp); the sides a step
+    # darker so the thickness reads
+    # the top bakes ~1.5x the sides under the overhead panel: #8d683d reads about #d4a463 in the app (measured, #172)
+    wood_c = mix(on_top, "#8f6438", "#8d683d")
+    # #156 (desk-room standard): a faint grain across the board, bands along z (the halves' long grain)
+    wave = nodes.new("ShaderNodeTexWave")
+    wave.wave_type, wave.bands_direction = "BANDS", "X"
+    wave.inputs["Scale"].default_value = 60.0  # straight, fine grain (a real board), within 8% lightness
+    wave.inputs["Distortion"].default_value = 0.6
+    wave.inputs["Detail"].default_value = 1.0
+    links.new(geo.outputs["Position"], wave.inputs["Vector"])
+    grain = op("POWER", wave.outputs["Fac"], 2.0)
+    wood_c = mix(op("MULTIPLY", grain, on_top), wood_c, "#83613a")  # grain: 7% darker
+    links.new(mix(ink, wood_c, "#2a1d12"), b.inputs["Base Color"])  # ink lines (designer: #2a1d12)
+    return m
+
+
+def lathe(name, profile, center, material, group, seg=32):
+    """a turned solid: profile = [(r, y), ...] in web metres from the bottom up, r = 0 points close the ends"""
+    bm = bmesh.new()
+    rings = []
+    for r, y in profile:
+        if r < 1e-6:
+            rings.append([bm.verts.new((0, 0, y))])
+        else:
+            rings.append([bm.verts.new((r * math.cos(2 * math.pi * k / seg), r * math.sin(2 * math.pi * k / seg), y)) for k in range(seg)])
+    for a, b_ in zip(rings, rings[1:]):
+        for k in range(seg):
+            k2 = (k + 1) % seg
+            if len(a) == 1 and len(b_) > 1:
+                bm.faces.new((a[0], b_[k2], b_[k]))
+            elif len(b_) == 1 and len(a) > 1:
+                bm.faces.new((a[k], a[k2], b_[0]))
+            elif len(a) > 1:
+                bm.faces.new((a[k], a[k2], b_[k2], b_[k]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    o = mesh_obj(name, bm, material, group)
+    o.location = W(*center)
+    return smooth(o)
+
+
+def lens(name, d, h, center, material, group, seg=16, rings=8):
+    """a go stone: a lens, both faces domed (a flattened sphere)"""
+    return sphere(name, d / 2, center, material, group, scale=(1.0, h / d, 1.0), seg=seg, rings=rings)
+
+
+def stone_mats():
+    return (plastic("#1d1f24", 0.25, 0, 0, "stone_b"), plastic("#f2efe8", 0.35, 0, 0, "stone_w"))
+
+
+def build_omok(gx, gz, G):
+    """the board, its bowls, lids and heaps: all baked into the omok_board node"""
+    B, top = OMOK["board"], OMOK["top"]
+    span = OMOK["cell"] * (OMOK["n"] - 1)
+    x0, z0 = gx - span / 2, gz - span / 2  # the (0, 0) intersection: the board's -x, -z corner
+    table = 0.74
+    # a folding board (#156, real boards): two halves meeting on the middle line with a 0.6 mm seam (it falls inside
+    # line 7, so the grid reads whole), two small brass hinges on the front and back edges, an inset foot
+    board_m = omok_mat(x0, z0, top)
+    st = top - table - 0.008
+    half = (B - 0.0006) / 2
+    brass_m = brass()
+    parts = [box("omok_slab", (half, st, B), (gx - B / 2 + half / 2, table + 0.008 + st / 2, gz), board_m, G, bev=0.003, seg=3),
+             box("omok_slab", (half, st, B), (gx + B / 2 - half / 2, table + 0.008 + st / 2, gz), board_m, G, bev=0.003, seg=3),
+             box("omok_foot", (B - 0.008, 0.008, B - 0.008), (gx, table + 0.004, gz), plastic("#8f6438", 0.6, 0, 0.2, "omok_foot"), G, bev=0.001, seg=1)]
+    for sz in (-1, 1):
+        parts.append(box("omok_hinge", (0.016, 0.01, 0.0012), (gx, table + 0.008 + st / 2, gz + sz * (B / 2 + 0.0006)), brass_m, G, bev=0.0004, seg=1))
+        for sx in (-1, 1):  # the screw heads
+            parts.append(cyl("omok_screw", 0.0012, 0.0006, (gx + sx * 0.005, table + 0.008 + st / 2, gz + sz * (B / 2 + 0.0013)), brass_m, G, 8, axis="z"))
+    grid = bpy.data.objects.new("omok_grid", None)
+    coll("export").objects.link(grid)
+    grid.matrix_world = Mx((x0, top, z0))  # +x = columns, +z = rows
+    grid["n"], grid["cell"], grid["stone_h"] = OMOK["n"], OMOK["cell"], OMOK["stone_h"]
+    NODES.append({"obj": grid, "play": "omok"})
+    # bowls: wooden pots with the stones heaped in them, the lid upside down beside; black by game_a (-x)
+    bowl_m = plastic("#5e3f27", 0.5, 0, 0.3, "omok_bowl")  # designer: dark walnut (orange read as a terracotta pot)
+    rim_m = plastic("#7a5236", 0.5, 0, 0.3, "omok_lid_rim")
+    inner = plastic("#3b2717", 0.8, 0, 0.2, "omok_bowl_in")
+    mats = dict(zip("bw", stone_mats()))
+    # go bowls (#156, real ones): turned, bulging at 45% height, a narrow foot ring and a rolled lip; the domed lid
+    # lies upside down beside it, its lip (the lighter band) up. 0.09 wide, 0.052 high without the lid
+    BOWL = [(0.0, 0.0), (0.03, 0.0), (0.033, 0.002), (0.031, 0.004), (0.036, 0.006), (0.042, 0.014), (0.045, 0.024),
+            (0.044, 0.033), (0.04, 0.043), (0.035, 0.05), (0.0335, 0.052), (0.031, 0.0515), (0.03, 0.048), (0.0, 0.046)]
+    LID = [(0.0, 0.0), (0.016, 0.0008), (0.03, 0.004), (0.04, 0.009), (0.0445, 0.013), (0.0445, 0.0135), (0.0, 0.0135)]
+    LIP = [(0.0445, 0.0), (0.0445, 0.004), (0.0425, 0.0045), (0.0385, 0.0045), (0.0385, 0.0), (0.0445, 0.0)]
+    bh = 0.052
+    for side, dx in (("b", -0.29), ("w", 0.29)):
+        bx, bz = gx + dx, gz + 0.06
+        parts += [lathe("bowl", BOWL, (bx, table, bz), bowl_m, G, 32),
+                  lathe("bowl_lid", LID, (bx, table, gz - 0.07), bowl_m, G, 32),
+                  lathe("bowl_lid_rim", LIP, (bx, table + 0.0135, gz - 0.07), rim_m, G, 32)]
+        for k in range(9):  # the heap: a ring of stones around the middle, mounded over the rim (grab point clear)
+            a, r = 2 * math.pi * (k + SRNG.random() * 0.6) / 9, 0.012 + SRNG.random() * 0.014
+            s = lens("heap", OMOK["stone_d"], OMOK["stone_h"], (bx + r * math.cos(a), table + 0.049 + (0.026 - r) * 0.15, bz + r * math.sin(a)),
+                     mats[side], G, 10, 5)
+            s.rotation_euler = (SRNG.uniform(-0.3, 0.3), SRNG.uniform(-0.3, 0.3), 0)
+            parts.append(s)
+        parts.append(cyl("bowl_in", 0.03, 0.001, (bx, table + 0.0465, bz), inner, G, 24))
+        at = (bx, table + bh + 0.002, bz)
+        OMOK_BOWLS[side] = at
+        e = bpy.data.objects.new(f"omok_bowl_{side}", None)  # where a hand dips in for a stone
+        coll("export").objects.link(e)
+        e.matrix_world = Mx(at)
+        e["bowl"] = side
+        NODES.append({"obj": e, "play": "omok"})
+    return parts
+
+
+def build_play_lives():
+    """live nodes of #135 that are not props: the stone samples, the ball, the table surface"""
+    G = "prop"
+    out = []
+    # stone samples (hidden by the app, which instances them): pivot at the bottom center. They sit on the heaps
+    for side, m in zip("bw", stone_mats()):
+        x, y, z = OMOK_BOWLS[side]
+        M = Mx((x, y, z))
+        out.append((pivot(join(f"omok_stone_{side}", place([lens("stone", OMOK["stone_d"], OMOK["stone_h"], (0, OMOK["stone_h"] / 2, 0), m, G)], M)), M), "bot"))
+    # ping-pong: the ball moves by the app (not a prop: PropBank must not pick it up); pp_table = the playing surface
+    tx, tz = PINGPONG
+    th = 0.76
+    M = Mx((tx + 0.25, th + 0.02, tz - 0.1))
+    # the seam: a flush colour band on the ball (a ring standing proud read as Saturn and flickered, designer)
+    ball = sphere("ball", 0.02, (0, 0, 0), plastic("#f7f7f2", 0.8, 0, 0, "ball"), G, seg=32, rings=16)
+    ball.data.materials.append(plastic("#dcdcd4", 0.8, 0, 0, "ball_seam"))
+    bm = bmesh.new()
+    bm.from_mesh(ball.data)
+    for z in (0.0005, -0.0005):  # web y = Blender z: cut two rings 1 mm apart round the equator
+        g = bm.verts[:] + bm.edges[:] + bm.faces[:]
+        bmesh.ops.bisect_plane(bm, geom=g, plane_co=(0, 0, z), plane_no=(0, 0, 1))
+    for f in bm.faces:
+        if abs(f.calc_center_median().z) < 0.0005:
+            f.material_index = 1
+    bm.to_mesh(ball.data)
+    bm.free()
+    ball = [ball]
+    out.append((pivot(join("pp_ball", place(ball, M)), M), "bot"))
+    t = bpy.data.objects.new("pp_table", None)
+    coll("export").objects.link(t)
+    t.matrix_world = Mx((tx, th, tz))  # +x = the long side
+    t["size"], t["net_h"] = [2.05, 1.14], 0.15
+    NODES.append({"obj": t, "play": "pingpong"})
+    return out
+
+
 def build_lounge():
     G = "lounge"
     metal = plastic("#2a2c31", 0.35, 0.8, 0.03, "metal")
@@ -1450,31 +1688,30 @@ def build_lounge():
     p += [cyl("gt_top", 0.42, 0.04, (gx, 0.72, gz), plastic("#c9b89a", 0.55, 0, 0.35, "desk_top"), G, 40, bev=0.006),
           cyl("gt_col", 0.04, 0.68, (gx, 0.36, gz), metal, G, 14),
           cyl("gt_foot", 0.22, 0.03, (gx, 0.015, gz), metal, G, 32)]
-    board = box("board", (0.36, 0.015, 0.36), (gx, 0.7475, gz), plastic("#e9dcc0", 0.6, 0, 0.2, "board_light"), G)
-    p.append(board)
-    for r in range(8):
-        for c in range(8):
-            if (r + c) % 2:
-                p.append(box("sq", (0.044, 0.002, 0.044), (gx - 0.154 + c * 0.044, 0.7555, gz - 0.154 + r * 0.044), plastic("#5a3d26", 0.6, 0, 0.2, "board_dark"), G))
+    # omok (#135, play.md 1): a 15 x 15 board on the table, a stone bowl at each stool's side. The stones on the
+    # board are the app's (InstancedMesh from omok_stone_b|w at omok_grid); the board bakes empty
     for k in range(10):
-        r, c = RNG.randint(0, 7), RNG.randint(0, 7)  # drawn for every piece so the RNG stream (plants below) is unchanged
-        at = (gx - 0.154 + c * 0.044, 0.762, gz - 0.154 + r * 0.044)
-        if k < 2:  # the first black and white piece move: props (build_props)
-            PIECE_HOME.append(at)
-            continue
-        col = "#f4f4f0" if k % 2 else "#1b1d22"
-        p.append(cyl("piece", 0.016, 0.012, at, plastic(col, 0.3, 0, 0, f"piece_{k % 2}"), G, 16))
+        RNG.randint(0, 7), RNG.randint(0, 7)  # the old chess pieces' draws: the RNG stream (plants below) stays as it was
+    board = build_omok(gx, gz, G)
+    p += board
     for dx in (-0.6, 0.6):
         p += [cyl("stool", 0.18, 0.05, (gx + dx, 0.5, gz), plastic("#d64545", 0.6, 0, 0.3, "stool"), G, 24, bev=0.01),
               cyl("stool_col", 0.025, 0.48, (gx + dx, 0.24, gz), metal, G, 10),
               cyl("stool_foot", 0.15, 0.02, (gx + dx, 0.01, gz), metal, G, 24)]
     fp("game", p[mark:], "floor")  # the table with its two stools
+    p = [o for o in p if o not in board]
+    # its own node at OMOK_DENSITY: the 1.2 mm lines need texels, and the bowls are near-field too (office-quality.md 0:
+    # >= 500 px/m up close, #156)
+    OMOK_NODES.append(join("omok_board", board))
     # coffee counter against the right wall (#109: it used to cut into the door), built in its own frame: local +x = front
     c = []
     c += [box("counter", (0.6, 0.9, 0.7), (0, 0.45, 0), plastic("#2b2f3a", 0.6, 0, 0.2, "counter"), G, bev=0.01),
           box("counter_top", (0.64, 0.04, 0.74), (0, 0.92, 0), plastic("#e8e4dc", 0.3, 0, 0.3, "counter_top"), G, bev=0.006),
           box("machine", (0.28, 0.36, 0.3), (0, 1.12, -0.12), plastic("#1b1d22", 0.35, 0.6, 0.05, "machine"), G, bev=0.02),
-          box("spout", (0.06, 0.05, 0.08), (0.12, 1.02, -0.12), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G)]
+          box("spout", (0.06, 0.05, 0.08), (0.12, 1.02, -0.12), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G),
+          # #164: the brew button the index presses (coffee_button_contact_index), a chrome ring round it
+          cyl("coffee_btn", 0.011, 0.006, (COFFEE_BUTTON[0] - 0.003, COFFEE_BUTTON[1], COFFEE_BUTTON[2]), plastic("#2a2d33", 0.5, 0, 0.1, "coffee_btn"), G, 20, axis="x", bev=0.0015),
+          torus("coffee_btn_ring", 0.0125, 0.0015, (0.1405, COFFEE_BUTTON[1], COFFEE_BUTTON[2]), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G, axis="x", seg=20, rseg=6)]
     # the cup under the spout and one beside it are props (build_props); the stack stays baked
     for k in range(3):
         c.append(cyl("cup", 0.035, 0.08, (0.05, 0.98 + k * 0.08, 0.2), plastic("#f4f4f0", 0.4, 0, 0, "cup"), G, 16, r2=0.03))
@@ -1509,7 +1746,77 @@ def build_lounge():
 # cup and watering-can handle; ball and pieces at their center), exported at its home spot with extras:
 #   prop = kind,  home = {pos, rot} (web, Euler XYZ),  grip = {pos, rot} (offset from agent_i_hand_l|r)
 # They are left out of the bake (#43): a lifted prop would leave its shadow behind; the app can add a small contact shadow.
-PIECE_HOME = []  # filled by build_lounge: the two board pieces that became props
+#
+# #164 hand shapes per object (designer: docs/design/grips.md): empties the app fits the hand to
+#   <prop>_grip_r|l               where the hand's _grip frame sits while that hand holds the prop (hand_grip = this);
+#                                 only on the hands that really hold it
+#   <prop>_contact_<part>[_l]     the point a finger pad (thumb, index, middle, ring, little) or the palm touches;
+#                                 local +z = the surface's outward normal. _l = the left hand of a two-handed prop
+# Children of the prop (they move with it); on baked things (mouse, coffee button, bowls) they stand alone.
+# The hand's _grip frame, measured on the #134 hand (preview hold_piece prints it): fingers along its -y, the palm
+# facing -x (right hand) / +x (left hand).
+def child_empty(parent, name, M, extras=None):
+    e = bpy.data.objects.new(name, None)
+    coll("export").objects.link(e)
+    if parent:
+        e.parent = parent
+    e.matrix_world = M
+    for k, v in (extras or {}).items():
+        e[k] = v
+    NODES.append({"obj": e, "hand": name})
+    return e
+
+
+def wv(v):
+    """a web vector as a Blender one"""
+    return Vector((v[0], -v[2], v[1]))
+
+
+def grip_frame(pos, fingers, palm, side):
+    """the hand-grip frame (Blender matrix in the prop's frame) from the designer's spec: a position and the
+    directions the fingers reach and the palm faces (web, prop local)"""
+    ey = -Vector(fingers).normalized()
+    p = Vector(palm).normalized()
+    ex = (-p if side == "r" else p)
+    ex = (ex - ex.project(ey)).normalized()
+    ez = ex.cross(ey)
+    R = Matrix((wv(ex), wv(-ez), wv(ey))).transposed().to_4x4()  # columns: local x, y (= web -z), z (= web y)
+    return Matrix.Translation(W(*pos)) @ R
+
+
+def grip_at(o, side, pos, fingers, palm, M=None):
+    """<name>_grip_<side>; o = the prop (None for a baked thing: then M is its frame and the name is o's own)"""
+    base = o.matrix_world if hasattr(o, "matrix_world") else M
+    name = f"{o.name}_grip_{side}" if hasattr(o, "matrix_world") else f"{o}_grip_{side}"
+    return child_empty(o if hasattr(o, "matrix_world") else None, name, base @ grip_frame(pos, fingers, palm, side), {"grip_for": side})
+
+
+def web_z_along(d):
+    """a rotation whose web (glTF) local +z points along the web direction d. The glTF export turns Blender local
+    axes too: Blender local -Y becomes glTF local +Z (and Blender +Z becomes glTF +Y). Aligning Blender +Z instead
+    left the spout and the contact normals at right angles (#184)."""
+    return wv(d).normalized().to_track_quat("-Y", "Z").to_matrix().to_4x4()
+
+
+def contact(o, part, pos, normal, side="", M=None):
+    """<name>_contact_<part>[_side]: pos and the outward normal in the prop's frame (web); o = a prop, or a name
+    string for a baked thing (then M is its frame)"""
+    n = wv(normal).normalized()
+    R = web_z_along(normal)
+    obj = hasattr(o, "matrix_world")
+    base = o.matrix_world if obj else M
+    name = (o.name if obj else o) + f"_contact_{part}" + (f"_{side}" if side else "")
+    return child_empty(o if obj else None, name, base @ Matrix.Translation(W(*pos)) @ R, {"contact": part})
+
+
+def tripod(o, tip_z, r, side="r"):
+    """a pen held in the tripod grip (grips.md): grip 3 cm up from the tip at -z, fingers 45° to the axis; thumb,
+    index and middle pads around the barrel 120° apart (index on top, +y)"""
+    z = tip_z + 0.03
+    grip_at(o, side, (0, 0, z), (0, -0.7071, -0.7071), (-1, 0, 0) if side == "r" else (1, 0, 0))
+    for part, deg in (("index", 90), ("thumb", 210), ("middle", 330)):
+        a = math.radians(deg)
+        contact(o, part, (r * math.cos(a), r * math.sin(a), z), (math.cos(a), math.sin(a), 0))
 
 
 def prop(name, kind, objs, home_pos, home_rot=(0.0, 0.0, 0.0), grip_pos=(0.0, 0.0, 0.0), grip_rot=(0.0, 0.0, 0.0)):
@@ -1521,24 +1828,106 @@ def prop(name, kind, objs, home_pos, home_rot=(0.0, 0.0, 0.0), grip_pos=(0.0, 0.
     return o
 
 
+PINCH_GRIP = {"l": (0.02, -0.0107, -0.03), "r": (-0.0274, -0.0077, -0.0297)}  # #135: pinch point per hand (web, _grip frame)
+BOOK_HALVES = []  # live bot: prop_book_l, prop_book_r
+
+
+def build_book(G):
+    """book frame: origin on the spine axis at mid thickness, pages along +x (0.15), spine along z (0.22), thickness
+    along y; the lower half (_r) under y = 0, the upper half (_l) above. Home: lying on the side table"""
+    W_, H_, T = 0.15, 0.22, 0.025
+    cover = plastic("#2f6f9f", 0.6, 0, 0.3, "book_cover")  # a decorative-book blue from the shelf
+    paper = plastic("#efe8d8", 0.9, 0, 0.1, "book_paper")
+    leaf = plastic("#d9d2c2", 0.9, 0, 0.0, "book_leaf")  # the paper lines on the page block's three faces
+    groove = plastic("#285f88", 0.7, 0, 0.3, "book_groove")  # the cover blue, 15% darker
+    ink = plastic("#9a948a", 0.9, 0, 0.0, "book_ink")
+    band = plastic("#a83232", 0.8, 0, 0.3, "book_band")
+    gilt = plastic("#c9a465", 0.35, 0.9, 0.1, "book_gilt")
+    sx2, sz2 = SIDE_TABLE
+    H = Mx((sx2 - 0.235, 0.565 + T / 2, sz2 + 0.06), 0.0, 0.15, 0.0)
+
+    def half(name, sgn):
+        """sgn = +1: the upper half (cover on top), -1: the lower one"""
+        c = T / 2 - 0.001
+        objs = [box("cover", (W_, 0.002, H_), (W_ / 2, sgn * c, 0), cover, G, bev=0.0008, seg=1),
+                # the page block: the fore-edge hollows a little toward the book's middle (two steps)
+                box("pages", (W_ - 0.0075, 0.004, H_ - 0.01), (W_ / 2 - 0.00175, sgn * 0.002, 0), paper, G),
+                box("pages", (W_ - 0.006, T / 2 - 0.006, H_ - 0.01), (W_ / 2 - 0.001, sgn * (0.004 + (T / 2 - 0.006) / 2), 0), paper, G)]
+        for k in range(4):  # paper lines: thin darker strips on the fore-edge, the head and the tail
+            y = sgn * (0.0015 + k * 0.0022)
+            objs += [box("leaf", (0.0003, 0.0003, H_ - 0.012), (W_ - (0.0054 if abs(y) < 0.004 else 0.0039), y, 0), leaf, G),
+                     box("leaf", (W_ - 0.008, 0.0003, 0.0003), (W_ / 2 - 0.001, y, H_ / 2 - 0.0048), leaf, G),
+                     box("leaf", (W_ - 0.008, 0.0003, 0.0003), (W_ / 2 - 0.001, y, -(H_ / 2 - 0.0048)), leaf, G)]
+        # #156 (real hardcovers): a red headband at each end of the page block by the spine
+        for sz in (-1, 1):
+            objs.append(box("headband", (0.004, T / 2 - 0.003, 0.002), (0.0025, sgn * (T / 4 - 0.0005), sz * (H_ / 2 - 0.006)), band, G, bev=0.0005, seg=1))
+        if sgn > 0:  # the spine's upper half turns with this half (a whole spine would stand up between open pages)
+            objs.append(box("spine", (0.003, T / 2, H_), (-0.0015, T / 4, 0), cover, G, bev=0.001, seg=2))
+            # the front cover: a gilt rule by the spine and a cream title label
+            objs += [box("groove", (0.0015, 0.0002, H_ - 0.012), (0.012, c + 0.0011, 0), groove, G),  # a shallow hinge groove
+                     box("label", (0.075, 0.0004, 0.034), (W_ / 2 + 0.008, c + 0.0012, -0.045), paper, G, bev=0.0002, seg=1),
+                     box("label_ink", (0.05, 0.0002, 0.004), (W_ / 2 + 0.008, c + 0.0015, -0.049), ink, G),
+                     box("label_ink", (0.032, 0.0002, 0.003), (W_ / 2 + 0.008, c + 0.0015, -0.039), ink, G)]
+        else:  # a ribbon bookmark slips out at the foot and lies on the table
+            objs.append(box("ribbon", (0.005, 0.0005, 0.04), (0.055, -T / 2 + 0.0003, H_ / 2 + 0.012), band, G, rot_y=0.25))
+        for k in range(8):  # a few grey lines of text on the inner page (seen when open)
+            objs.append(box("line", (W_ - 0.04 - (0.03 if k % 3 == 2 else 0), 0.0002, 0.0025),
+                            (W_ / 2 - (0.015 if k % 3 == 2 else 0), -sgn * 0.0001, -0.075 + k * 0.02), ink, G))
+        return live(pivot(join(name, place(objs, H)), H), "bot")
+
+    BOOK_HALVES.extend([half("prop_book_l", 1), half("prop_book_r", -1)])
+    spine = [box("spine", (0.003, T / 2, H_), (-0.0015, -T / 4, 0), cover, G, bev=0.001, seg=2)]  # the lower half of the spine
+    return prop("prop_book", "book", spine, (sx2 - 0.235, 0.565 + T / 2, sz2 + 0.06), (0.0, 0.15, 0.0),
+                grip_pos=(0, -0.04, 0), grip_rot=(-math.pi / 2, 0, 0))
+
+
 def build_props():
     G = "prop"
     out = []
     tx, tz = PINGPONG
     th = 0.76
-    wood_h = plastic("#c9a36b", 0.6, 0, 0.3, "handle")
-    # paddles: handle end at the origin, handle along local +y, blade (rubber facing local +z) beyond it.
-    # Home: flat on the table (blade up), handle toward the player at that end. Grip: handle in the fist, blade
-    # carried on along the arm (local +y -> hand -y).
-    for k, (end, bx, bz, rz, col) in enumerate((("a", tx - 0.6, tz + 0.25, -math.pi / 2, "#c0392b"),
-                                                 ("b", tx + 0.62, tz - 0.25, math.pi / 2, "#2c3e50"))):
-        objs = [box("grip", (0.03, 0.1, 0.014), (0, 0.05, 0), wood_h, G, bev=0.004, seg=2),
-                cyl("blade", 0.085, 0.012, (0, 0.18, 0), plastic(col, 0.6, 0, 0.3, f"paddle_{k}"), G, 28, axis="z")]
-        hx = bx + (-0.18 if end == "a" else 0.18)  # handle end sits 0.18 m behind the blade center
-        out.append(prop(f"prop_paddle_{end}", "paddle", objs, (hx, th + 0.007, bz), (-math.pi / 2, 0.0, rz),
+    wood_h = plastic("#c9a47a", 0.6, 0, 0.3, "handle")
+    # paddles (play.md): handle end at the origin, handle along local +y, an oval blade 0.15 x 0.16 beyond it: a
+    # 4 mm wooden core (its 1 mm rim shows), red rubber on local +z, black on -z, 6 mm in all. The handle widens
+    # a little at its end. Home: flat on the table, red up, handle toward the player at that end. Grip: handle in
+    # the fist, blade carried on along the arm (local +y -> hand -y).
+    red, black = plastic("#d43a33", 0.7, 0, 0.3, "paddle_red"), plastic("#1d1f24", 0.7, 0, 0.3, "paddle_black")
+    ply, gilt = plastic("#8a5a35", 0.6, 0, 0.3, "paddle_ply"), plastic("#c9a465", 0.35, 0.9, 0.1, "paddle_badge")
+
+    rim_m = plastic("#8a6a2a", 0.4, 0.8, 0.1, "paddle_badge_rim")
+
+    def squash(o, k):
+        """flatten the handle across the blade (web z): an oval section. A y-axis cylinder: web z = Blender local -y"""
+        o.data.transform(Matrix.Diagonal((1.0, k, 1.0, 1.0)))
+        return o
+
+    def oval_plate(name, r, depth, at, m):
+        o = cyl(name, r, depth, at, m, G, 20, axis="z")
+        o.data.transform(Matrix.Diagonal((1.4, 1.0, 1.0, 1.0)))
+        return o
+
+    def oval(name, r, depth, z, m):
+        o = cyl(name, r, depth, (0, 0.17, z), m, G, 32, axis="z")
+        o.data.transform(Matrix.Diagonal((1.0, 0.16 / 0.15, 1.0, 1.0)))  # local y = web y after the axis turn
+        return o
+
+    for end, bx, bz, rz in (("a", tx - 0.6, tz + 0.25, -math.pi / 2), ("b", tx + 0.62, tz - 0.25, math.pi / 2)):
+        objs = [squash(cyl("grip", 0.016, 0.1, (0, 0.05, 0), wood_h, G, 28, r2=0.013), 0.8),  # round, 3.2 -> 2.6 cm
+                squash(cyl("ply", 0.0162, 0.096, (0, 0.05, 0), ply, G, 28, r2=0.0132), 0.1),  # its sides: a dark ply line
+                oval("blade", 0.075, 0.004, 0.0, wood_h),
+                oval("rubber_red", 0.074, 0.001, 0.0025, red),
+                oval("rubber_black", 0.074, 0.001, -0.0025, black),
+                # #156 (real paddles): a rounded throat where the handle flares into the blade, a darker centre
+                # ply showing along the handle's sides, a small brass badge on each face
+                # the throat sits inside the rubber faces (it z-fought them: a sawtooth edge in the app)
+                cyl("throat", 0.02, 0.0044, (0, 0.093, 0), wood_h, G, 28, axis="z", bev=0.001)]
+        for sz in (1, -1):  # a flat oval badge with a darker rim, on each face of the handle
+            objs += [oval_plate("badge_rim", 0.0068, 0.0004, (0, 0.06, sz * 0.0112), rim_m),
+                     oval_plate("badge", 0.0056, 0.0006, (0, 0.06, sz * 0.0115), gilt)]
+        hx = bx + (-0.17 if end == "a" else 0.17)  # handle end sits 0.17 m behind the blade center
+        out.append(prop(f"prop_paddle_{end}", "paddle", objs, (hx, th + 0.003, bz), (-math.pi / 2, 0.0, rz),
                         grip_pos=(0, -0.02, 0), grip_rot=(math.pi, 0, 0)))
-    out.append(prop("prop_ball", "ball", [sphere("ball", 0.02, (0, 0, 0), plastic("#ffffff", 0.3, 0, 0, "ball"), G, seg=14, rings=10)],
-                    (tx + 0.25, th + 0.02, tz - 0.1), grip_pos=(0, -0.05, 0)))
+    # the ball is pp_ball now (build_play_lives): the app moves it, PropBank must not pick it up
     # cups: origin at the handle (on local +x), body hanging beside it. Home on the counter, handle toward the room
     C = counter_frame()
     for k, (bx, bz) in enumerate(((0.14, -0.12), (0.19, 0.07))):  # counter frame: under the spout, and beside it
@@ -1557,11 +1946,30 @@ def build_props():
             box("can_bar", (0.1, 0.014, 0.018), (0, 0, 0), green, G, bev=0.004, seg=2),
             segment("can_spout", (0.07, -0.17, 0), (0.2, -0.07, 0), 0.012, green, G, r2=0.009),
             cyl("can_rose", 0.022, 0.014, (0.205, -0.065, 0), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G, 16)]
-    out.append(prop("prop_watering_can", "watering_can", objs, (3.75, 0.2, 3.3), (0.0, 0.6, 0.0)))
-    # board pieces: center pivot, a little larger than the baked ones so they read in a hand
-    for end, (at, col) in zip("ab", zip(PIECE_HOME, ("#1b1d22", "#f4f4f0"))):
-        out.append(prop(f"prop_piece_{end}", "piece", [cyl("piece", 0.019, 0.014, (0, 0, 0), plastic(col, 0.3, 0, 0, f"piece_{end}"), G, 18)],
-                        (at[0], 0.763, at[2]), grip_pos=(0, -0.04, 0)))
+    can = prop("prop_watering_can", "watering_can", objs, (3.75, 0.2, 3.3), (0.0, 0.6, 0.0))
+    out.append(can)
+    # the spout's end (#135): where the water starts, local +z = along the spout (the app tilts the can to pour)
+    a = math.atan2(0.10, 0.13)
+    e = bpy.data.objects.new("prop_watering_can_spout", None)
+    coll("export").objects.link(e)
+    e.parent = can
+    # local +z along the spout (up and out): from the direction itself (an Euler here lost the upward tilt, #184)
+    e.matrix_world = can.matrix_world @ Matrix.Translation(W(0.212, -0.06, 0.0)) @ web_z_along((math.cos(a), math.sin(a), 0.0))
+    NODES.append({"obj": e, "play": "spout"})
+    # omok stones in the hand (#135: the chess pieces became go stones): a = black, b = white, home on the heap in
+    # its bowl, next to the sample stone. Center pivot, held in the pinch ("OK hand", agents.md 2.7): the point where
+    # the index and thumb tips meet differs per hand in the _grip frame (measured in the preview, hold_piece), so
+    # extras grip_lr = {l, r} gives each hand's offset; grip = the right hand's
+    for end, side, m in zip("ab", "bw", stone_mats()):
+        x, y, z = OMOK_BOWLS[side]
+        o = prop(f"prop_piece_{end}", "piece", [lens("piece", OMOK["stone_d"], OMOK["stone_h"], (0, 0, 0), m, G)],
+                 (x + (0.014 if side == "b" else -0.014), y + 0.006, z), grip_pos=PINCH_GRIP["r"])
+        o["grip_lr"] = {s: {"pos": list(PINCH_GRIP[s]), "rot": [0, 0, 0]} for s in "lr"}
+        out.append(o)
+    # a book to read on the sofa (#135, play.md): closed 0.15 x 0.22 x 0.025 on the side table. prop_book is the
+    # spine (the prop PropBank carries); its two halves are live bot nodes the app attaches to it and turns
+    # about the spine (local z through the pivot): prop_book_l (the upper half) opens by +180° to lie flat at -x
+    out.append(build_book(G))
     # MEMO's desk (seat 0) props, homes in world coordinates through the desk frame
     F0 = frame(AGENTS[0]["at"])
     ry0 = AGENTS[0]["at"][2]
@@ -1584,7 +1992,98 @@ def build_props():
             sphere("stamp_knob", 0.02, (0, 0.05, 0), plastic("#c9a36b", 0.6, 0, 0.3, "handle"), G, seg=14, rings=8)]
     out.append(prop("prop_stamp", "stamp", objs, desk0(0.51, DESK_H + 0.0425, 0.12), (0.0, ry0, 0.0),
                     grip_pos=(0, -0.03, 0), grip_rot=(-math.pi / 2, 0, 0)))
+    # #164: things written with are props now (HUE draws with the tablet pen, MEMO writes with a marker). Pens lie
+    # along local z, the tip at -z, centre pivot; the old grip extras as MEMO's pen
+    PEN_GRIP = dict(grip_pos=(0, -0.04, 0), grip_rot=(math.pi / 2, 0, 0))
+    # HUE's tablet pen (a stylus: tapered barrel, rubber grip sleeve, nib, two side buttons, end cap), on the tablet
+    F2 = frame(AGENTS[2]["at"])
+    dark_p, rubber = plastic("#1a1c21", 0.4, 0.2, 0, "pen_dark"), plastic("#2a2d33", 0.85, 0, 0.3, "pen_rubber")
+    objs = [cyl("pen_barrel", 0.0055, 0.11, (0, 0, 0.005), dark_p, G, 16, axis="z", r2=0.0045),
+            cyl("pen_sleeve", 0.006, 0.035, (0, 0, -0.04), rubber, G, 16, axis="z", r2=0.0058),
+            cyl("pen_nib", 0.0045, 0.012, (0, 0, -0.064), plastic("#c8ccd4", 0.3, 0.6, 0, "chrome"), G, 12, axis="z", r2=0.0008),
+            cyl("pen_end", 0.0047, 0.006, (0, 0, 0.063), plastic(AGENTS[2]["color"], 0.4, 0, 0.05, "pen_end"), G, 16, axis="z", bev=0.001),
+            box("pen_button", (0.003, 0.002, 0.008), (0, 0.0058, -0.012), rubber, G, bev=0.0006, seg=1),
+            box("pen_button", (0.003, 0.002, 0.006), (0, 0.0058, -0.002), rubber, G, bev=0.0006, seg=1)]
+    t = (F2 @ Mx((0.44, DESK_H + 0.017, 0.0625))).to_translation()
+    out.append(prop("prop_tablet_pen", "tablet_pen", objs, (t.x, t.z, -t.y), (0.0, AGENTS[2]["at"][2] + math.pi + 0.08, 0.0), **PEN_GRIP))
+    # whiteboard markers on the tray (cap over the tip, white barrel with a colour band, colour end plug)
+    zb = -HZ + 0.02
+    for k, col in enumerate(("#1f6feb", "#d64545", "#111111")):
+        cm = plastic(col, 0.4, 0, 0, f"marker_{k}")
+        objs = [cyl("marker_body", 0.0075, 0.08, (0, 0, 0.015), plastic("#ebe8e1", 0.45, 0, 0.05, "marker_body"), G, 16, axis="z", bev=0.0008),
+                cyl("marker_cap", 0.0085, 0.035, (0, 0, -0.0425), cm, G, 16, axis="z", bev=0.001),
+                box("marker_clip", (0.003, 0.002, 0.022), (0, 0.0092, -0.04), cm, G, bev=0.0005, seg=1),
+                cyl("marker_band", 0.0077, 0.012, (0, 0, 0.03), cm, G, 16, axis="z"),
+                cyl("marker_plug", 0.006, 0.006, (0, 0, 0.058), cm, G, 12, axis="z", bev=0.001)]
+        out.append(prop(f"prop_marker_{k}", "marker", objs, (WHITEBOARD_X - 0.42 + k * 0.14, 0.9975 + 0.0085, zb + 0.04),
+                        (0.0, math.pi / 2, 0.0), **PEN_GRIP))
     return out
+
+
+def build_hands():
+    """#164: grips and contact points per object (grips.md); after every prop and agent is built"""
+    O = bpy.data.objects
+    R, L = "r", "l"
+    # mug (right hand; its mirror for the left): grip 1.5 cm out from the handle's outer middle, fingers through the
+    # loop, palm toward the body. Cup frame: handle loop in x-y around (-0.027, 0), body centre at x -0.072
+    for k in range(2):
+        o = O[f"prop_cup_{k}"]
+        for side, fz in ((R, -1.0), (L, 1.0)):
+            grip_at(o, side, (0.0225, 0, 0), (0, 0, fz), (-1, 0, 0))
+        for side in ("", L):
+            contact(o, "index", (-0.027, 0.0195, 0), (0, -1, 0), side)  # inside the loop, at its top
+            contact(o, "thumb", (-0.027, 0.0345, 0), (0, 1, 0), side)  # on top of the handle
+            contact(o, "ring", (-0.027, -0.04, 0), (1, 0, 0), side)  # the body's lower third, handle side
+    # paddles (right hand, shakehand): grip mid-handle, fingers wrapping front (red, +z) to back, palm to the axis
+    for e in "ab":
+        o = O[f"prop_paddle_{e}"]
+        grip_at(o, R, (0, 0.05, 0), (0, 0, -1), (-1, 0, 0))
+        contact(o, "index", (0.02, 0.115, -0.003), (0, 0, -1))  # the black face, low on the blade
+        contact(o, "thumb", (-0.01, 0.1, 0.003), (0, 0, 1))  # the red face where blade meets handle
+    # book (both hands, open): left palm under the spine, right palm under the right page; left thumb on the left
+    # page, the right index turns the top right corner. Book frame: spine on z, pages +x, open pages at y = 0
+    o = O["prop_book"]
+    grip_at(o, L, (0, -0.0125, 0), (-1, 0, 0), (0, 1, 0))
+    grip_at(o, R, (0.075, -0.0125, 0), (-1, 0, 0), (0, 1, 0))
+    contact(o, "thumb", (-0.075, 0, 0), (0, 1, 0), L)["state"] = "open"  # on the left page once open (check-glb skips it)
+    contact(o, "index", (0.14, 0, -0.1), (0, 1, 0))
+    # watering can (both): right fist round the top bar (palm down on it), left palm under the body's spout third
+    o = O["prop_watering_can"]
+    grip_at(o, R, (0, 0, 0), (0, 0, 1), (0, -1, 0))
+    grip_at(o, L, (0.04, -0.205, 0), (1, 0, 0), (0, 1, 0))
+    contact(o, "palm", (0, 0.007, 0), (0, 1, 0))
+    contact(o, "palm", (0.04, -0.2, 0), (0, -1, 0), L)
+    # omok: the hand dips into a bowl (3 cm below the mouth's centre); the stone in hand, go style: middle on top,
+    # index under it (the app sticks it to the fingers, agents.md 2.10, #192)
+    for side in "bw":
+        x, y, z = OMOK_BOWLS[side]
+        contact(f"omok_bowl_{side}", "index", (0, 0, 0), (0, 1, 0), M=Mx((x, y - 0.002 - 0.03, z)))
+    for e in "ab":
+        o = O[f"prop_piece_{e}"]
+        contact(o, "middle", (0, OMOK["stone_h"] / 2, 0), (0, 1, 0))  # go style (Nihon Ki-in): the middle finger on top
+        contact(o, "index", (0, -OMOK["stone_h"] / 2, 0), (0, -1, 0))  # the index nail under the stone (designer, #192)
+    # paper plane (OK pinch): index and thumb 2 cm from the tail (+z), on the top and bottom faces
+    o = O["prop_plane"]
+    lo, hi = [min(v.co[k] for v in o.data.vertices) for k in range(3)], [max(v.co[k] for v in o.data.vertices) for k in range(3)]
+    tail = -lo[1] - 0.02  # Blender local -y = web +z
+    contact(o, "index", (0, hi[2], tail), (0, 1, 0))
+    contact(o, "thumb", (0, lo[2], tail), (0, -1, 0))
+    # stamp: grip over the knob's head, fingers level, palm down
+    grip_at(O["prop_stamp"], R, (0, 0.08, 0), (0, 0, -1), (0, -1, 0))
+    contact(O["prop_stamp"], "palm", (0, 0.07, 0), (0, 1, 0))
+    # pens (tripod): MEMO's pen (tip = the capped end, -z), the tablet pen, the markers
+    tripod(O["agent_0_pen"], -0.085, 0.009)
+    tripod(O["prop_tablet_pen"], -0.07, 0.006)
+    for k in range(3):
+        tripod(O[f"prop_marker_{k}"], -0.06, 0.0085)
+    # baked things: the mouse (palm over it, index on the left button) and the coffee machine's button
+    for i, a in enumerate(AGENTS):
+        if i == 2:
+            continue
+        F = frame(a["at"])
+        grip_at(f"desk_{i}_mouse", R, (0.3, DESK_H + 0.04, 0.08), (0, -0.3, -1), (0, -1, 0), M=F)
+        contact(f"desk_{i}_mouse", "index", (0.29, DESK_H + 0.02, 0.04), (0, 1, 0), M=F)
+    contact("coffee_button", "index", COFFEE_BUTTON, (1, 0, 0), M=counter_frame())
 
 
 # ================================================================ EXIT DOOR (part of room atlas + live screen)
@@ -2105,8 +2604,12 @@ baked(lounge, "lounge")
 for o in PLANT_NODES:  # #126: leaves are near flat colour; half the texel density saves the atlas (office-quality.md 4)
     baked(o, "lounge", density=0.5)
 live(shade, "neon")
+for o in OMOK_NODES:  # #135: the 1.2 mm grid lines need about 3x the lounge texels
+    baked(o, "lounge", density=OMOK_DENSITY)
 for o in build_props():
     live(o, "prop")
+for o, kind in build_play_lives():
+    live(o, kind)  # BOOK_HALVES are already live (build_book)
 for i, a in enumerate(AGENTS):
     bots, neons, others = build_agent(i, a)
     for o in bots:
@@ -2121,6 +2624,7 @@ for i, a in enumerate(AGENTS):
         for o in bots + neons + [o for o, _ in others]:
             if o.type == "MESH":
                 print("   ", o.name, sum(len(p.vertices) - 2 for p in o.data.polygons))
+build_hands()  # #164: after every prop and agent
 build_nav()
 build_surfaces()
 build_hits()
@@ -2268,7 +2772,7 @@ if PREVIEW:
         """put a prop in a hand by its grip extras (preview only). upright: keep it level (a cup)"""
         g = bpy.data.objects[f"agent_{i}_hand_{side}_grip"]
         p = bpy.data.objects[prop_name]
-        gr = p["grip"]
+        gr = p["grip_lr"][side] if "grip_lr" in p else p["grip"]
         level = Mx(rx=-GRIP_RX) if upright else Mx()
         p.matrix_world = g.matrix_world @ level @ Mx(tuple(gr["pos"]), *[float(v) for v in gr["rot"]])
         bpy.context.view_layer.update()
@@ -2323,8 +2827,12 @@ if PREVIEW:
         "q_door": ((-1.35, 1.45, 1.15), (-3.4, 1.1, 2.12)),
         "q_window": ((-1.2, 1.5, -0.55), (-1.8, 1.7, -2.75)),
         "q_rug": ((0.55, 2.7, -0.45), (0.55, 0.0, 1.5)),
+        "q_omok": ((-1.6, 1.3, 2.62), (-1.6, 0.77, 2.2)),  # #135
+        "q_omok_side": ((-0.75, 1.15, 2.75), (-1.6, 0.76, 2.2)),
+        "q_paddles": ((1.55, 1.3, 0.95), (1.75, 0.76, 0.0)),
+        "q_book": ((0.55, 1.0, 3.05), (0.14, 0.57, 2.66)),
     }
-    if not want or any(n in want for n in QUALITY):
+    if not want or any(n in want for n in list(QUALITY) + ["q_omok_game", "q_book_open"]):
         was = {o.name: o.hide_render for o in bpy.data.objects if o.name.startswith("agent_")}
         for n in was:
             bpy.data.objects[n].hide_render = True
@@ -2332,6 +2840,25 @@ if PREVIEW:
         scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage = 800, 600, 100
         for name, (pos, target) in QUALITY.items():
             shoot(name, pos, target)
+        # #135, as the app will do it: stones on the board (copies of the samples at grid points), the book open
+        if not want or any(n in want for n in ("q_omok_game", "q_book_open")):
+            grid = bpy.data.objects["omok_grid"].matrix_world
+            moves = [(7, 7), (8, 7), (8, 8), (6, 6), (9, 9), (7, 8), (6, 8), (9, 6), (5, 9), (7, 6), (10, 7)]
+            copies = []
+            for k, (c, r) in enumerate(moves):
+                s = bpy.data.objects[f"omok_stone_{'bw'[k % 2]}"]
+                o = s.copy()
+                scene.collection.objects.link(o)
+                o.matrix_world = grid @ Mx((c * OMOK["cell"], 0, r * OMOK["cell"]))
+                copies.append(o)
+            shoot("q_omok_game", (-1.6, 1.3, 2.62), (-1.6, 0.77, 2.2))
+            for o in copies:
+                bpy.data.objects.remove(o)
+            L = bpy.data.objects["prop_book_l"]
+            P = L.matrix_world.copy()
+            L.matrix_world = P @ Mx(rz=math.pi)
+            shoot("q_book_open", (0.55, 1.0, 3.05), (0.14, 0.57, 2.66))
+            L.matrix_world = P
         scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage = res
         for n, h in was.items():
             bpy.data.objects[n].hide_render = h
@@ -2375,6 +2902,115 @@ if PREVIEW:
     shoot("hold_cup", (1.15, 1.05, -2.6), (0.6, 0.86, -2.1))
     for n, M in saved.items():
         bpy.data.objects[n].matrix_world = M
+    # #135: the book (its halves follow the spine), the watering can, a stone pinched (agents.md 2.7 "집기")
+    if not want or any(n in want for n in ("hold_book", "hold_can", "hold_piece", "hold_piece_in", "hold_piece_top")):
+        names = ("prop_book", "prop_book_l", "prop_book_r", "prop_watering_can", "prop_piece_a")
+        saved = {n: bpy.data.objects[n].matrix_world.copy() for n in names}
+
+        def near(i, side, d=(0.32, 0.12, 0.42)):
+            h = bpy.data.objects[f"agent_{i}_hand_{side}"].matrix_world.to_translation()
+            t = (h.x, h.z, -h.y)
+            return (t[0] + d[0], t[1] + d[1], t[2] + d[2]), t
+
+        hold(1, "r", "prop_book")
+        for n in ("prop_book_l", "prop_book_r"):
+            bpy.data.objects[n].matrix_world = bpy.data.objects["prop_book"].matrix_world.copy()
+        pose(1, "r", *GRIP_POSE)
+        shoot("hold_book", *near(1, "r"))
+        hold(2, "r", "prop_watering_can")
+        pose(2, "r", *GRIP_POSE)
+        shoot("hold_can", *near(2, "r", (0.45, 0.1, 0.55)))
+        PINCH = ((0.90, 0.25, 0.30, 0.35), (0.0, 0.7))  # agents.md 2.7 "집기" (OK hand)
+
+        def tip(n):
+            """the vertex farthest from the segment's pivot (world)"""
+            o = bpy.data.objects[n]
+            p = o.matrix_world.to_translation()
+            return max((o.matrix_world @ v.co for v in o.data.vertices), key=lambda w: (w - p).length)
+
+        for side in "lr":  # where index and thumb tips meet, in each grip frame (web axes): the pinch grip offset
+            pose(1, side, *PINCH)
+            bpy.context.view_layer.update()
+            n = f"agent_1_hand_{side}"
+            q = bpy.data.objects[f"{n}_grip"].matrix_world.inverted() @ ((tip(f"{n}_f1_3") + tip(f"{n}_t_2")) / 2)
+            print(f"pinch point, {side} grip frame (web):", [round(q.x, 4), round(q.z, 4), round(-q.y, 4)])
+            # #164: the hand's fingers and palm directions in its grip frame (web axes): straight hand, then curled
+            Gi = bpy.data.objects[f"{n}_grip"].matrix_world.inverted().to_3x3()
+            pose(1, side)
+            bpy.context.view_layer.update()
+            palm_at = bpy.data.objects[n].matrix_world.to_translation()
+            straight = tip(f"{n}_f2_3")
+            fingers = (Gi @ (straight - palm_at)).normalized()
+            pose(1, side, (1, 1, 1, 1))
+            bpy.context.view_layer.update()
+            curl = Gi @ (tip(f"{n}_f2_3") - straight)
+            palm = (curl - curl.project(fingers)).normalized()
+            print(f"hand axes, {side} grip frame (web): fingers", [round(fingers.x, 3), round(fingers.z, 3), round(-fingers.y, 3)],
+                  "palm", [round(palm.x, 3), round(palm.z, 3), round(-palm.y, 3)])
+            # #178: the same in the palm node's own frame and in the agent's frame (web axes), at rest
+            curl_w = tip(f"{n}_f2_3") - straight
+            pose(1, side)
+            bpy.context.view_layer.update()
+            fw = (straight - palm_at).normalized()
+            pw = (curl_w - curl_w.project(fw)).normalized()
+            tw = (bpy.data.objects[f"{n}_t_1"].matrix_world.to_translation() - palm_at).normalized()
+            for frame_name, Fm in (("palm node", bpy.data.objects[n].matrix_world), ("agent", bpy.data.objects["agent_1"].matrix_world)):
+                Fi = Fm.inverted().to_3x3().normalized()
+
+                def wv3(v):
+                    q = (Fi @ v).normalized()
+                    return [round(q.x, 3), round(q.z, 3), round(-q.y, 3)]
+                print(f"hand axes, {side} {frame_name} frame (web): fingers", wv3(fw), "palm", wv3(pw), "thumb", wv3(tw))
+            pose(1, side, *PINCH)
+            bpy.context.view_layer.update()
+        hold(1, "l", "prop_piece_a")
+        shoot("hold_piece", *near(1, "l", (-0.2, 0.08, 0.28)))
+        shoot("hold_piece_in", *near(1, "l", (0.22, 0.02, 0.12)))
+        shoot("hold_piece_top", *near(1, "l", (0.02, 0.3, 0.05)))
+        for n, M in saved.items():
+            bpy.data.objects[n].matrix_world = M
+    # #164, as the app will do it: the hand moved so its _grip sits on the prop's <prop>_grip_<side>, then posed
+    FITS = {  # shot: [(agent, side, grip empty, finger c, thumb)], the empty to aim at
+        "fit_cup": ([(3, "r", "prop_cup_1_grip_r", (0.7, 0.75, 0.85, 0.9), (0.4, 0.6))], "prop_cup_1"),
+        "fit_paddle": ([(0, "r", "prop_paddle_a_grip_r", (0.3, 0.85, 0.9, 0.92), (0.3, 0.4))], "prop_paddle_a"),
+        "fit_pen": ([(2, "r", "prop_tablet_pen_grip_r", (0.5, 0.6, 0.8, 0.85), (0.5, 0.8))], "prop_tablet_pen"),
+        "fit_can": ([(2, "r", "prop_watering_can_grip_r", GRIP_POSE[0], GRIP_POSE[1]),
+                     (2, "l", "prop_watering_can_grip_l", (0.2, 0.2, 0.25, 0.3), (0.1, 0))], "prop_watering_can"),
+        "fit_book": ([(1, "l", "prop_book_grip_l", (0.15, 0.15, 0.2, 0.25), (0.1, 0)),
+                      (1, "r", "prop_book_grip_r", (0.15, 0.15, 0.2, 0.25), (0.1, 0))], "prop_book"),
+        "fit_mouse": ([(0, "r", "desk_0_mouse_grip_r", (0.3, 0.35, 0.4, 0.45), (0.3, 0.2))], "desk_0_mouse_grip_r"),
+    }
+    if not want or any(n in want for n in FITS):
+        O = bpy.data.objects
+        moved = {}
+        for name, (fits, aim) in FITS.items():
+            if want and name not in want:
+                continue
+            lift = O.get(aim) if aim.startswith("prop_") else None  # lift the prop clear of its table (children follow)
+            if lift:
+                moved.setdefault(aim, lift.matrix_world.copy())
+                lift.matrix_world = Matrix.Translation(W(0, 0.3, 0)) @ lift.matrix_world
+                bpy.context.view_layer.update()
+            for i, side, g, c, th in fits:
+                n = f"agent_{i}_hand_{side}"
+                pose(i, side)  # records the rest frames before the palm moves
+                for m in (n, f"{n}_cuff"):
+                    moved.setdefault(m, O[m].matrix_world.copy())
+                rel = O[f"{n}_grip"].matrix_world.inverted() @ O[n].matrix_world
+                O[n].matrix_world = O[f"{n}_cuff"].matrix_world = O[g].matrix_world @ rel
+                bpy.context.view_layer.update()
+                pose(i, side, c, th)
+            if name == "fit_book":
+                book = O["prop_book"].matrix_world
+                O["prop_book_l"].matrix_world = book @ Mx(rz=math.pi)
+            at = O[aim].matrix_world.to_translation()
+            t = (at.x, at.z, -at.y)
+            shoot(name, (t[0] - 0.32, t[1] + 0.12, t[2] + 0.34), t)
+            if name == "fit_book":
+                O["prop_book_l"].matrix_world = O["prop_book"].matrix_world.copy()
+        for m, M in moved.items():
+            O[m].matrix_world = M
+        bpy.context.view_layer.update()
     # 3) the four in a row: front, back, at work — hands in the designer's rest pose (#134)
     for i in range(len(AGENTS)):
         for s in "lr":
@@ -2448,7 +3084,7 @@ scene.render.bake.target = "IMAGE_TEXTURES"
 # when they leave (props too since #43: a lifted paddle left its shadow on the table; the binders since #67: the app
 # shows only as many as there are files)
 for n in NODES:
-    if n["obj"].name.startswith(("agent_", "shelf_r", "clock_", "window_")) or n.get("live") == "prop":
+    if n["obj"].name.startswith(("agent_", "shelf_r", "clock_", "window_", "prop_book_", "omok_stone_", "pp_ball")) or n.get("live") == "prop":
         n["obj"].hide_render = True
 
 atlases = {}
