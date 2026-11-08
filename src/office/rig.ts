@@ -473,9 +473,10 @@ const HOLD_CURL = shape([0.85, 0.88, 0.9, 0.92], [0.7, 1])
 /**
  * the index and thumb tips meet (#62). Measured on the #148 hand: the table's values (index 0.55, thumb 0.6 / 0.9)
  * leave the tips 5.9 cm apart; a fully bent index onto a straight, opposed thumb closes them to 5 mm (a search over
- * index 0.2–1 × thumb bend 0–1.5 × opposition 0–1.5). The other fingers fold away so they don't cover what's held.
+ * index 0.2–1 × thumb bend 0–1.5 × opposition 0–1.5). The other three stay loose as at rest: an "OK" hand, not a fist
+ * (designer, #154), and they keep clear of the paper plane's wings.
  */
-const PINCH_CURL = shape([0.9, 0.8, 0.85, 0.9], [0, 0.7])
+const PINCH_CURL = shape([0.9, 0.25, 0.3, 0.35], [0, 0.7])
 const POINT_CURL = shape([0, 0.9, 0.92, 0.95], [0.6, 0.6])
 const WAVE_CURL = shape([0, 0, 0.02, 0.05], [0.1, 0])
 const FRAME_CURL = shape([0, 0.92, 0.94, 0.96], [0, -0.85])
