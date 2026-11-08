@@ -2930,6 +2930,20 @@ if PREVIEW:
             palm = (curl - curl.project(fingers)).normalized()
             print(f"hand axes, {side} grip frame (web): fingers", [round(fingers.x, 3), round(fingers.z, 3), round(-fingers.y, 3)],
                   "palm", [round(palm.x, 3), round(palm.z, 3), round(-palm.y, 3)])
+            # #178: the same in the palm node's own frame and in the agent's frame (web axes), at rest
+            curl_w = tip(f"{n}_f2_3") - straight
+            pose(1, side)
+            bpy.context.view_layer.update()
+            fw = (straight - palm_at).normalized()
+            pw = (curl_w - curl_w.project(fw)).normalized()
+            tw = (bpy.data.objects[f"{n}_t_1"].matrix_world.to_translation() - palm_at).normalized()
+            for frame_name, Fm in (("palm node", bpy.data.objects[n].matrix_world), ("agent", bpy.data.objects["agent_1"].matrix_world)):
+                Fi = Fm.inverted().to_3x3().normalized()
+
+                def wv3(v):
+                    q = (Fi @ v).normalized()
+                    return [round(q.x, 3), round(q.z, 3), round(-q.y, 3)]
+                print(f"hand axes, {side} {frame_name} frame (web): fingers", wv3(fw), "palm", wv3(pw), "thumb", wv3(tw))
             pose(1, side, *PINCH)
             bpy.context.view_layer.update()
         hold(1, "l", "prop_piece_a")
