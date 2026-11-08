@@ -20,6 +20,7 @@ const UNKNOWN_AGENT = '#a39d90' // --agent-x
 /** the designer asked for 0.15; the ivory still read grey on the dim shelf, so it is higher (see the PR notes) */
 const LABEL_GLOW = 0.4
 const Z = new Vector3(0, 0, 1)
+const FLASH_S = 1.6
 const FONT = "'Galmuri11', ui-monospace, monospace"
 
 interface Slot {
@@ -58,6 +59,8 @@ export class ShelfRig {
   private plates: Plate[] = []
   private labels: { ctx: CanvasRenderingContext2D; texture: CanvasTexture } | null = null
   private drops: Drop[] = []
+  /** binders that are glowing (#97): seconds since the flash began */
+  private flashes = new Map<Slot, number>()
   /** file keys that were SECRET at the last layout (a file that stops being SECRET gets its stamp dropped) */
   private secretFiles = new Set<string>()
   private lastLayout: ShelfLayout | null = null
@@ -284,8 +287,23 @@ export class ShelfRig {
     this.drops.push({ slot, t: 0, dur: ms / 1000 })
   }
 
+  /** a meeting just filed its minutes: the binder of this file glows for a moment (a short pulse of its spine band) */
+  flash(repo: string | null, n: number | null) {
+    const slot = [...this.slots.values()].find((s) => s.shown && s.shown.repo === repo && s.shown.n === n)
+    if (slot) this.flashes.set(slot, 0)
+  }
+
   /** advance the falling stamps: a short lift and tilt, then a fall about the stamp's own pivot (0.9 s, --docs-stamp-ms) */
   update(dt: number) {
+    for (const [slot, t] of this.flashes) {
+      const u = Math.min(1, (t + dt) / FLASH_S)
+      this.flashes.set(slot, t + dt)
+      for (const m of slot.bands) m.emissiveIntensity = 1 + 3 * Math.sin(Math.PI * u) ** 2
+      if (u >= 1) {
+        this.flashes.delete(slot)
+        for (const m of slot.bands) m.emissiveIntensity = 1
+      }
+    }
     if (!this.drops.length) return
     for (const d of this.drops) {
       d.t += dt

@@ -109,6 +109,10 @@ export const sampleRows = (): Row[] => {
       '## 무엇을 했나\n서재 뷰어 첫 구현. 결재 전이라 방문자는 표지만 본다.\n\n## 확인한 것\n| 확인 | 방법 | 결과 |\n|---|---|---|\n| 방문자 응답 | 단위 시험 | 본문 없음 |' }),
     // rowansong.dev #3: SECRET (review)
     row({ repo: RD, kind: 'report', folder: 3, title: T3, agents: [3], grade: 'review', approved: false, created_at: at(7, 18), body: '## 무엇을 했나\n대사가 끝날 때까지 다른 상호작용이 덮지 않게 했다.' }),
+    // a SECRET minutes: a visitor sees only the cover (who attended), the replay shows blocks instead of words
+    row({ repo: RD, kind: 'minutes', folder: 3, title: T3, agents: [3, 0, 2], grade: 'review', approved: false, created_at: at(7, 17), data: { minutes: [
+      minutes('2026-11-07', [[3, [0], '대사가 덮이는 순서를 바꾸면 새벽 인사가 지워지는 문제'], [0, [3], '먼저 말하는 쪽이 끝날 때까지 기다리게 해 주세요'], [2, [3], '말풍선 위치도 맞춰야 해요']], '대사가 끝날 때까지 다른 상호작용이 덮지 않게.', '루프가 고친다.'),
+    ] } }),
     // private: no project, no number, no title, no body
     row({ repo: 'private/x', kind: 'minutes', folder: 9, title: '비공개 회의', agents: [0, 3], grade: 'private', approved: false, created_at: at(6, 20), body: 'never sent' }),
     row({ repo: 'private/x', kind: 'report', folder: 9, title: '비공개 보고', agents: [3], grade: 'private', approved: false, created_at: at(5, 20), body: 'never sent' }),
@@ -157,6 +161,16 @@ export class FakeDocsSource implements DocsSource {
     if (!r) return
     Object.assign(r, { grade: 'public', approved: true, updated_at: new Date().toISOString(), source_url: '' })
     this.changed()
+  }
+  /** debug: a new minutes document arrives (the page replays it as a meeting): copies minutes row `like` with a new id and time */
+  addMinutes(like = 28) {
+    const src = this.rows.find((r) => r.kind === 'minutes' && r.folder === like)
+    if (!src) return null
+    const created = new Date().toISOString()
+    const copy: Row = { ...src, id: Math.max(...this.rows.map((r) => r.id)) + 1, created_at: created, updated_at: created }
+    this.rows.push(copy)
+    this.changed()
+    return copy.id
   }
   /** debug: the sample documents' ids */
   ids() {
