@@ -18,6 +18,9 @@ import { RoomUi } from './room/RoomUi'
 import { createWorld } from './office/world'
 import { ReplayDriver } from './replay/ReplayDriver'
 import { ReplayHud } from './replay/ReplayHud'
+import { SoundButton } from './audio/SoundButton'
+import { SoundDebug } from './audio/SoundDebug'
+import { SoundListener, SoundRoot } from './audio/SoundRoot'
 
 /** the default isometric-ish view from the front right (room.ts) */
 const TARGET = [...DEFAULT_TARGET] as [number, number, number]
@@ -80,6 +83,7 @@ export function App() {
         )}
         <CameraRig limits={limits} />
         <SideViewOffset />
+        <SoundListener />
       </Canvas>
       <p className="hud">
         <b>AGENT OFFICE</b> · 드래그해서 돌려 보기
@@ -94,6 +98,9 @@ export function App() {
       <ReplayDriver world={world} />
       <ReplayHud world={world} />
       {world.debug && <DebugPanel world={world} />}
+      <SoundRoot world={world} />
+      <SoundButton />
+      {world.debug && <SoundDebug />}
     </>
   )
 }
