@@ -18,9 +18,10 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { assetUrl } from '../room/base'
 import type { NavKind, NavSpot } from './nav'
+import { setRoomFromExtras } from './room'
 import { prepareView } from './walls'
 
-// The office from assets/blender/office_bake.py: one glb + four baked atlases (same contract as the
+// The office from assets/blender/office_bake.py: one glb + six baked atlases (same contract as the
 // rowansong.dev desk). Node extras -> userData:
 //   atlas: "<name>"  baked: MeshBasicMaterial + that atlas, no runtime lighting
 //   live:  "<kind>"  bot: agent parts, real-time lit (they hover and move), keep their PBR material
@@ -28,7 +29,7 @@ import { prepareView } from './walls'
 //   nav:   "<kind>"  empties: where agents go and which way they face (navigation graph: nav.ts)
 
 export const MODEL_URL = assetUrl('models/office.glb')
-export const ATLASES = ['room', 'work', 'wall_items', 'lounge'] as const
+export const ATLASES = ['room', 'walls_nw', 'walls_se', 'work', 'wall_items', 'lounge'] as const
 const ATLAS_URLS = ATLASES.map((a) => assetUrl(`models/${a}.webp`))
 
 /** runtime glow per live kind (the bake used its own strengths for the light the emitters cast) */
@@ -166,6 +167,7 @@ export function useOffice() {
       t.colorSpace = SRGBColorSpace
       t.anisotropy = 8
     }
+    setRoomFromExtras(scene.getObjectByName('room')?.userData.room) // the room's size comes from the model (room.ts)
     const nodes = prepare(scene, atlases)
     // wall tags, per-wall mesh split and fade groups (#111); before any rig grabs materials
     const fades = prepareView(scene)

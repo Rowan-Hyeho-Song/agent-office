@@ -1,11 +1,11 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useMemo, useRef } from 'react'
 import { type Material } from 'three'
-import { boxDistance, occlusionSegment, segmentHitsBox, stepOpacity, wantOpacity } from './view'
-import { FADED, type FadeGroup } from './walls'
+import { DEFAULT_TARGET } from './room'
+import { backToOpacity, boxDistance, occlusionSegment, segmentHitsBox, stepOpacity, wantOpacity } from './view'
+import { FADED, WALL_HIDDEN, type FadeGroup } from './walls'
 
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
-const HOME_TARGET = [-0.25, 0.7, -0.2] as const
 
 interface State {
   cur: number
@@ -16,7 +16,7 @@ interface State {
  * Near-object fade (#111): objects whose bounding box is within 1.4 m of the camera, or that the camera -> target
  * segment crosses, fade towards 25% (walls have their own cutaway, agents and the floor are not in `groups`). Wanted
  * opacities are recomputed only when the camera or its target moved; the fade itself runs only while something is
- * still moving. Faded groups are listed in FADED so they stop taking clicks (walls.ts hitAllowed).
+ * still moving. Furniture with its back to a wall (`backTo`, the bookshelf) is also at 25% while that wall is lowered. Furniture with its back to a wall (`backTo`, the bookshelf) is also at 25% while that wall is lowered. Faded groups are listed in FADED so they stop taking clicks (walls.ts hitAllowed).
  */
 export function Occluders({ groups }: { groups: FadeGroup[] }) {
   const camera = useThree((s) => s.camera)
@@ -26,15 +26,15 @@ export function Occluders({ groups }: { groups: FadeGroup[] }) {
   useFrame(({ controls }, dt) => {
     const c = camera.position
     const tg = (controls as { target?: { x: number; y: number; z: number } } | null)?.target
-    const t = tg ? ([tg.x, tg.y, tg.z] as const) : HOME_TARGET
-    const key = `${c.x.toFixed(3)},${c.y.toFixed(3)},${c.z.toFixed(3)},${t[0].toFixed(3)},${t[1].toFixed(3)},${t[2].toFixed(3)}`
+    const t = tg ? ([tg.x, tg.y, tg.z] as const) : DEFAULT_TARGET
+    const key = `${c.x.toFixed(3)},${c.y.toFixed(3)},${c.z.toFixed(3)},${t[0].toFixed(3)},${t[1].toFixed(3)},${t[2].toFixed(3)},${WALL_HIDDEN.n}${WALL_HIDDEN.e}${WALL_HIDDEN.s}${WALL_HIDDEN.w}`
     if (key !== last.current) {
       last.current = key
       const cam = [c.x, c.y, c.z] as const
       const [a, b] = occlusionSegment(cam, t)
       groups.forEach((g, i) => {
         const box = { min: g.box.min.toArray() as [number, number, number], max: g.box.max.toArray() as [number, number, number] }
-        states[i].want = wantOpacity(boxDistance(cam, box), segmentHitsBox(a, b, box))
+        states[i].want = backToOpacity(wantOpacity(boxDistance(cam, box), segmentHitsBox(a, b, box)), g.backTo, WALL_HIDDEN)
       })
     }
     groups.forEach((g, i) => {

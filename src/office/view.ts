@@ -2,22 +2,28 @@
 // three.js side: cutaway.tsx (walls), cameraRig.tsx (limits, keys, reset), occluders.tsx (near-object fade).
 // ONE constants object: the designer's values live here and nowhere else.
 
-export type Wall = 'n' | 'e' | 's' | 'w'
+import { ROOM, WALL_THICKNESS, floorRect, type WallId } from './room'
+
+export type Wall = WallId
 export const WALLS: readonly Wall[] = ['n', 'e', 's', 'w']
 
 export const VIEW = {
   // --- cutaway walls: a hidden wall is lowered to a floor strip (the room outline stays) ---
-  wallH: 2.6,
+  get wallH() {
+    return ROOM.wallH
+  },
   stripH: 0.15,
   lowerMs: 240,
   raiseMs: 320,
   /** lower when c > this, raise when c < -this, else keep (sin 10 degrees); c = dot(room centre -> camera, wall outward normal) */
   switchSin: 0.17,
   /** the cap on the cut top (hides the hollow inside the wall) */
-  capThickness: 0.14,
+  capThickness: WALL_THICKNESS,
   capColor: '#2a2e36',
-  /** the room: floor rectangle (inner faces of the two walls that exist, the open edges) and its centre */
-  floor: { minX: -3.5, maxX: 3.5, minZ: -2.8, maxZ: 2.75 },
+  /** the room: floor rectangle (inner faces of the four walls, room.ts) and its centre */
+  get floor() {
+    return floorRect()
+  },
   center: { x: 0, z: 0 },
 
   // --- view limits ---
@@ -195,6 +201,9 @@ export function wantOpacity(dist: number, occluding: boolean): number {
   const k = clamp((n.start - dist) / (n.start - n.end), 0, 1)
   return 1 - (1 - n.minOpacity) * k
 }
+
+/** `backTo` furniture (tall, back to a wall) is at the minimum while that wall is lowered, else whatever the near-fade wants */
+export const backToOpacity = (want: number, backTo: Wall | undefined, hidden: Hidden): number => (backTo && hidden[backTo] ? Math.min(want, VIEW.near.minOpacity) : want)
 
 /** opacity moved towards `want` at the fade rates (out fast, back slower); instant when reduced */
 export function stepOpacity(cur: number, want: number, dt: number, reduced: boolean): number {

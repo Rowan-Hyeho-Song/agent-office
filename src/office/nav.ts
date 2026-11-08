@@ -24,54 +24,58 @@ const desks = [0, 1, 2, 3]
  * draws a blocked edge red). Spots on furniture (sofa, stools) are entered from the open side only.
  */
 export const EDGES: [string, string][] = [
-  // work corner: seats and desk sides hang off the work aisle; the far seats share the west aisle
+  // work corner: desks 0-1 under the window, 2-3 along the west wall
   ...desks.flatMap((i): [string, string][] => [[`work_${i}`, 'hall_work']]),
   ['work_3', 'hall_west'],
   ['desk_side_0', 'hall_work'],
   ['desk_side_1', 'hall_mid'],
   ['desk_side_1', 'meet_c'],
   ['desk_side_2', 'hall_work'],
-  ['desk_side_2', 'desk_side_3'],
+  ['desk_side_3', 'hall_work'],
   ['desk_side_3', 'hall_west'],
   ['hall_work', 'hall_mid'],
   ['hall_work', 'hall_west'],
-  // left side: coffee counter, door, board game (passed on the open side, below the table)
-  ['hall_west', 'coffee'],
+  // left front: door, board game
   ['hall_west', 'hall_door'],
   ['hall_west', 'game_a'],
   ['hall_west', 'hall_game'],
+  ['hall_door', 'door'],
   ['hall_game', 'hall_front'],
   ['hall_game', 'hall_mid'],
-  ['coffee', 'hall_door'],
-  ['hall_door', 'door'],
-  // middle: talk spots and the wall (whiteboard, bulletin, shelf)
+  // middle: talk spots, whiteboard
   ['hall_mid', 'meet_a'],
   ['hall_mid', 'meet_b'],
   ['meet_a', 'meet_b'],
   ['hall_mid', 'meet_c'],
-  ['hall_mid', 'meet_d'],
   ['meet_c', 'meet_d'],
   ['meet_c', 'whiteboard'],
   ['meet_d', 'whiteboard'],
   ['hall_mid', 'whiteboard'],
-  ['hall_mid', 'hall_east'],
+  ['hall_mid', 'hall_back'],
   ['hall_mid', 'hall_front'],
   ['hall_mid', 'pingpong_a'],
-  ['hall_east', 'bulletin'],
-  ['hall_east', 'shelf'],
-  ['hall_east', 'meet_d'],
+  // back right: bulletin, shelf, coffee
+  ['hall_back', 'meet_d'],
+  ['hall_back', 'whiteboard'],
+  ['hall_back', 'bulletin'],
+  ['hall_back', 'shelf'],
+  ['hall_back', 'hall_east'],
   ['bulletin', 'shelf'],
-  // lounge: ping-pong, sofa, board game. The far end of the sofa is reached along the seat (the ping-pong
-  // table blocks it from the front), and the lounge corner only around the table's back side.
+  ['hall_east', 'shelf'],
+  ['hall_east', 'coffee'],
+  ['hall_east', 'hall_ne'],
+  // lounge (the front aisle hall_front - hall_lounge runs below the ping-pong table)
   ['hall_front', 'pingpong_a'],
   ['hall_front', 'game_b'],
   ['hall_front', 'sofa_0'],
   ['hall_front', 'sofa_1'],
+  ['hall_front', 'hall_lounge'],
+  ['sofa_0', 'sofa_1'],
   ['sofa_1', 'sofa_2'],
+  ['hall_lounge', 'sofa_2'],
   ['hall_lounge', 'pingpong_b'],
-  ['hall_east', 'hall_ne'],
+  ['hall_lounge', 'hall_ne'],
   ['hall_ne', 'pingpong_b'],
-  ['hall_ne', 'shelf'],
 ]
 
 /**
