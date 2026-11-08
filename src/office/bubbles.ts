@@ -6,8 +6,8 @@ import { activityLabel } from './status'
 
 /** the values of the --bubble-* / --type-* / --hold-* tokens (src/styles/tokens.css) */
 export const BUBBLE = {
-  /** a replayed minutes row: its first sentence, about this long (plan.md 6.4) */
-  lineChars: 40,
+  /** a replayed minutes row: its first sentence, at most this long = --bubble-max-chars (fits 248px in two lines) */
+  lineChars: 36,
   perCharMs: 28,
   typeMaxMs: 1000,
   holdBaseMs: 1600,
@@ -25,6 +25,12 @@ export const BUBBLE = {
 } as const
 
 /** the first sentence of a markdown cell, plain, at most `max` characters (the last one an ellipsis when cut) */
+/** the --bubble-max-chars token when there is a page to read it from, else the default */
+export function lineChars(): number {
+  if (typeof document === 'undefined') return BUBBLE.lineChars
+  return parseInt(getComputedStyle(document.documentElement).getPropertyValue('--bubble-max-chars'), 10) || BUBBLE.lineChars
+}
+
 export function firstSentence(markdown: string, max: number = BUBBLE.lineChars): string {
   const plain = markdown
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
@@ -153,12 +159,21 @@ export function placeBubbles(items: PlaceInput[], view: PlaceView): Record<strin
   for (let k = 1; k < live.length; k++) {
     const cur = live[k]
     const p = out[cur.id]
-    for (let j = 0; j < k; j++) {
-      const a = cardRect(live[j], out[live[j].id])
-      const b = cardRect(cur, p)
-      const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left)
-      const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
-      if (overlapX > 0 && overlapY > -BUBBLE.gap && p.dir === 'up') p.stack += overlapY + BUBBLE.gap
+    // raise it until it clears every earlier bubble it overlaps (a few passes: clearing one can run into another)
+    for (let pass = 0; pass < 4 && p.dir === 'up'; pass++) {
+      let moved = false
+      for (let j = 0; j < k; j++) {
+        const a = cardRect(live[j], out[live[j].id])
+        const b = cardRect(cur, p)
+        const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left)
+        const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
+        if (overlapX > 0 && overlapY > -BUBBLE.gap) {
+          // its bottom edge to the other's top edge, plus the gap
+          p.stack += b.bottom - a.top + BUBBLE.gap
+          moved = true
+        }
+      }
+      if (!moved) break
     }
   }
   return out

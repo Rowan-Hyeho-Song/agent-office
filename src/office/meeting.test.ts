@@ -26,6 +26,7 @@ describe('buildScript', () => {
     const s = buildScript(meta(), convs)
     expect(s.lines.map((l) => [l.key, l.from, l.to])).toEqual([['1-1', 2, [3]], ['1-2', 3, [2]], ['1-3', 'owner', [0]]])
     expect(s.lines[0].text).toBe('질문 셋이에요.')
+    expect(buildScript(meta(), conversations({ minutes: [{ ...minutes[0], rows: [{ ...minutes[0].rows[0], text: '가'.repeat(60) }] }] })).lines[0].text).toHaveLength(36)
     expect(s.seats).toEqual([2, 3, 0])
     expect(s.decision).toBe('얼굴은 캔버스 슬롯으로 한다.')
     expect(s.followUps).toEqual([3])

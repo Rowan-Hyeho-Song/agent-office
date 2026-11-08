@@ -8,9 +8,9 @@ describe('firstSentence', () => {
   it('keeps dots inside words', () => {
     expect(firstSentence('v1.2 로 올림')).toBe('v1.2 로 올림')
   })
-  it('cuts at 40 characters with an ellipsis', () => {
+  it('cuts at 36 characters (--bubble-max-chars) with an ellipsis', () => {
     const out = firstSentence('가'.repeat(60))
-    expect([...out]).toHaveLength(40)
+    expect([...out]).toHaveLength(36)
     expect(out.endsWith('…')).toBe(true)
   })
   it('keeps a short line as it is', () => {
@@ -21,7 +21,7 @@ describe('firstSentence', () => {
 describe('timing', () => {
   it('types 28 ms a character, never more than a second', () => {
     expect(typeMs(10)).toBe(280)
-    expect(typeMs(40)).toBeCloseTo(1000)
+    expect(typeMs(36)).toBeCloseTo(1000)
     expect(typedCount(10, 56)).toBe(2)
     expect(typedCount(10, 99999)).toBe(10)
   })
@@ -61,6 +61,26 @@ describe('placement', () => {
     const out = placeBubbles([item({ id: 'a', order: 1 }), item({ id: 'b', order: 2, x: 520, y: 410 })], view)
     expect(out.a.stack).toBe(0)
     expect(out.b.stack).toBeGreaterThan(0)
+  })
+  it('stacks three close speakers in steps, 8px apart, so no card covers another', () => {
+    // the replay case: three agents side by side, same height, cards 220-250px wide
+    const three = [
+      item({ id: 'a', order: 1, x: 405, y: 288, w: 221, h: 76, prefSide: 'left', pair: true }),
+      item({ id: 'b', order: 2, x: 767, y: 276, w: 248, h: 94, prefSide: 'right', pair: true }),
+      item({ id: 'c', order: 3, x: 696, y: 316, w: 222, h: 76, prefSide: 'right', pair: true }),
+    ]
+    const out = placeBubbles(three, view)
+    const rect = (i: PlaceInput) => cardRect(i, out[i.id])
+    for (let i = 0; i < 3; i++)
+      for (let j = i + 1; j < 3; j++) {
+        const a = rect(three[i])
+        const b = rect(three[j])
+        const sideBySide = Math.min(a.right, b.right) <= Math.max(a.left, b.left)
+        const gap = Math.max(a.top, b.top) - Math.min(a.bottom, b.bottom)
+        expect(sideBySide || gap >= BUBBLE.gap).toBe(true)
+      }
+    // the speaking (latest) one is raised above the one it overlapped, with the gap
+    expect(rect(three[2]).bottom).toBeLessThanOrEqual(rect(three[1]).top - BUBBLE.gap)
   })
   it('hides an off-screen anchor and, on a narrow screen, the dim line', () => {
     expect(placeBubbles([item({ x: -50 })], view).a.visible).toBe(false)

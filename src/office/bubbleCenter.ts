@@ -2,7 +2,7 @@
 // short ones something else sets (a visitor's reaction, a private talk, ?debug=1). Pure: time comes in as an argument.
 // Meeting bubbles come from meeting.ts frameAt; the scene merges both, one bubble per agent (a meeting wins).
 
-import { firstSentence, logLine, typedCount, type BubbleItem, type BubbleKind } from './bubbles'
+import { firstSentence, lineChars, logLine, typedCount, type BubbleItem, type BubbleKind } from './bubbles'
 import { seatName } from './meeting'
 
 const LABEL: Record<BubbleKind, string> = { talk: '대화', react: '반응', private: '비공개' }
@@ -37,7 +37,7 @@ export class BubbleCenter {
   /** a bubble over an agent: 'react' pops at once, 'talk' types, 'private' shows the lock's words and no content */
   say(agent: string, s: Say = {}, now = Date.now()) {
     const kind = s.kind ?? 'talk'
-    const text = kind === 'private' ? '비공개 대화' : firstSentence(s.text ?? '', 40)
+    const text = kind === 'private' ? '비공개 대화' : firstSentence(s.text ?? '', lineChars())
     this.live.set(agent, { key: `say${++this.seq}`, agent, kind, text, from: now, until: now + (s.ms ?? 5000), to: s.to ?? null, n: this.seq })
   }
 

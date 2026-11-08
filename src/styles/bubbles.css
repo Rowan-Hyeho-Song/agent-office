@@ -5,6 +5,7 @@
 .ob[data-agent='1'], .ot[data-agent='1'] { --agent: var(--agent-1); --agent-ink: var(--agent-1-ink); }
 .ob[data-agent='2'], .ot[data-agent='2'] { --agent: var(--agent-2); --agent-ink: var(--agent-2-ink); }
 .ob[data-agent='3'], .ot[data-agent='3'] { --agent: var(--agent-3); --agent-ink: var(--agent-3-ink); }
+.ob:not([data-dim]) { z-index: calc(var(--z-bubble) + 1); } /* the one speaking now is on top */
 .ob[data-leaving] { animation: ob-out var(--dur-fast) linear both; }
 @keyframes ob-out { to { opacity: 0; } }
 .ob-text .t, .ob-text .g { white-space: pre-wrap; }

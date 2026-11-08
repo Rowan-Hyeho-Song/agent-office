@@ -141,17 +141,19 @@ export class BubbleLayer {
   }
 
   private setOpen(l: Live, b: BubbleItem) {
-    const sig = b.open ? `${b.open.repo}#${b.open.n}/${b.open.row}` : ''
+    // only the bubble speaking now carries the link (a greyed past line would add a tab stop)
+    const open = b.dim ? null : b.open
+    const sig = open ? `${open.repo}#${open.n}/${open.row}` : ''
     if (sig === l.open) return
     l.open = sig
     l.el.querySelector('.ob-open')?.remove()
-    if (!b.open) return
+    if (!open) return
     const btn = document.createElement('button')
     btn.type = 'button'
     btn.className = 'ob-open'
     btn.textContent = '전문 보기'
-    btn.setAttribute('aria-label', `전문 보기: ${b.who}의 회의록`)
-    const target = b.open
+    btn.setAttribute('aria-label', `전문 보기: #${open.n} 회의록, ${b.who.split('(')[0]}의 말`)
+    const target = open
     btn.addEventListener('click', () => this.onOpen(target))
     l.el.querySelector('.ob-body')!.append(btn)
   }
