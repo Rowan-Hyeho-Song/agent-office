@@ -1,6 +1,7 @@
 # 사무실 퀄리티 기준 (#108)
 
-> 시안: [office-quality.html](office-quality.html)(목표 스케치) · 2026-11-08 · 그래픽 디자이너 세션(미감) + Blender 세션(기법·예산). 결재 전 시안.
+> 시안: [office-quality.html](office-quality.html)(목표 스케치) · 2026-11-08 · 그래픽 디자이너 세션(미감) + Blender 세션(기법·예산).
+> **확정 2026-11-08**: [#108 ✅ 결재](https://github.com/Rowan-Hyeho-Song/agent-office/issues/108). 모델 개선은 Blender 후속 이슈(1차: 식물 다섯).
 > 사용자 의견: "식물 화분이랑 각종 오브젝트의 퀄리티가 너무 낮다. 충분히 레퍼런스 조사를 거친 뒤 적용할 것."
 > 기준점은 rowansong.dev 책상 방의 [`asset-quality-plan.md`](https://github.com/Rowan-Hyeho-Song/rowansong.dev/blob/dev/docs/asset-quality-plan.md) 수준이다. 사물마다 실물 구조를 찾아보고, "진짜 물건"으로 읽히게 하는 디테일을 한두 개씩 더한다.
 
