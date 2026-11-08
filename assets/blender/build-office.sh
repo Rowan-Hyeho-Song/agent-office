@@ -5,6 +5,9 @@ set -euo pipefail
 cd "$(dirname "$0")"
 BLENDER="${BLENDER:-blender}"
 OUT="$PWD/out/office"
+# the SECRET stamp's lettering (#67): Galmuri11 Bold, the app's UI font (SIL OFL), fetched once, not kept in the repo
+FONT="$PWD/out/fonts/Galmuri11-Bold.ttf"
+[ -f "$FONT" ] || curl -sSfL --create-dirs -o "$FONT" https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/Galmuri11-Bold.ttf
 "$BLENDER" --background --factory-startup --python office_bake.py -- "$OUT" "$@" | grep -E "cycles device|baked|saved|denoise|Error|DONE"
 # --prune-attributes false keeps TEXCOORD_0: the glb has no textures (the app binds the atlases),
 # so the default prune would drop the UVs as "unused". --flatten false --prune false keep the empty nodes
