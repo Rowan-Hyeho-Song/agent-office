@@ -6,6 +6,7 @@ import { prefersReducedMotion, officeNow, type OfficeWorld } from '../office/wor
 import { atMs } from './engine'
 import { scriptFor } from './scene'
 import { replay } from './store'
+import { walkHold } from './walk'
 
 const ENTER_MS = 1200
 const EXIT_MS = 800
@@ -86,7 +87,7 @@ export function ReplayDriver({ world }: { world: OfficeWorld }) {
         })()
       }),
     ]
-    replay.hold = () => world.meeting.busy
+    replay.hold = () => world.meeting.busy || walkHold.busy
     // debug only: window.__replay.open({ project, t }) / .seek(i) / .points / .scene() for screenshot scripts
     if (world.debug) (window as unknown as { __replay: typeof replay }).__replay = replay
     setClockClick(() => void replay.open({ project: 'all' }))

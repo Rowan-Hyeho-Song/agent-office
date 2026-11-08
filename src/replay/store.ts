@@ -64,6 +64,8 @@ export class ReplayStore {
   prog = 0
   /** performance.now() when the playhead last landed on a point */
   landedAt = 0
+  /** how the current point was reached (walking only follows `play`) */
+  landedVia: PointVia = 'seek'
   /** set by the scene: a long scene (a meeting) holds the next point at x1 */
   hold: () => boolean = () => false
   /** where the points come from (the fixtures until /api/timeline is deployed); swapped in tests */
@@ -176,6 +178,7 @@ export class ReplayStore {
 
   private land(via: PointVia) {
     this.landedAt = performance.now()
+    this.landedVia = via
     const p = this.point
     if (p) this.pointListeners.forEach((l) => l(p, via))
   }

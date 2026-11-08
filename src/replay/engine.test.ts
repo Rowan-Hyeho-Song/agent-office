@@ -136,10 +136,10 @@ describe('a deploy is not "before roles"', () => {
     expect(valueText([dep], 0)).not.toContain('역할 분담 이전')
     expect(valueText([dep], 0)).toContain('▲ 배포')
   })
-  it('reads as 배포 #PR · dev → main, without the repository path', () => {
-    expect(describePoint(dep).title).toBe('배포 #106 · dev → main')
-    expect(deployTitle(pt(1, { kind: 'deploy', title: 'Deploy', pr: 7 }))).toBe('배포 #7 · dev → main')
-    expect(deployTitle(pt(1, { kind: 'deploy', title: 'Deploy', pr: null }))).toBe('배포 · dev → main')
+  it('reads as #PR · dev → main, without the repository path', () => {
+    expect(describePoint(dep).title).toBe('#106 · dev → main')
+    expect(deployTitle(pt(1, { kind: 'deploy', title: 'Deploy', pr: 7 }))).toBe('#7 · dev → main')
+    expect(deployTitle(pt(1, { kind: 'deploy', title: 'Deploy', pr: null }))).toBe('dev → main')
   })
   it('a commit before roles still reads as 역할 분담 이전', () => {
     expect(describePoint(pt(1, { agent: null })).who).toBe('역할 분담 이전')

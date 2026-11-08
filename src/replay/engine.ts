@@ -277,10 +277,10 @@ export const sizeText = (p: Point) => (p.kind === 'work' && p.additions !== null
 /** a deploy is the owner merging dev into main: no agent, not "before roles" */
 export const isDeploy = (p: Point) => p.kind === 'deploy'
 
-/** `배포 #106 · dev → main` from the merge commit's title; `배포 · dev → main` when it names no PR */
+/** `#106 · dev → main` from the merge commit's title; `dev → main` when it names no PR (the kind already says 배포) */
 export function deployTitle(p: Point): string {
   const pr = /#(\d+)/.exec(p.title)?.[1] ?? (p.pr === null ? null : String(p.pr))
-  return `배포${pr ? ` #${pr}` : ''} · dev → main`
+  return `${pr ? `#${pr} · ` : ''}dev → main`
 }
 
 /** who did it: an agent's name, the owner's mark, or "▲ 배포" for a deploy (no kind word after it) */
