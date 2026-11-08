@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { handle, matchRepo, nextStatus, parseSignal, sameToken, type Activity, type Signal, type StatusRow, type Store } from './events'
+import { SEATS, handle, matchRepo, nextStatus, parseSignal, sameToken, type Activity, type Signal, type StatusRow, type Store } from './events'
 
 describe('parseSignal', () => {
   it('accepts seats 0..3 for each kind', () => {
@@ -18,7 +18,7 @@ describe('parseSignal', () => {
   })
 
   it('rejects bad seats', () => {
-    for (const seat of [-1, 4, 1.5, NaN, Infinity, '1', null, undefined, [1], {}]) {
+    for (const seat of [-1, 5, 1.5, NaN, Infinity, '1', null, undefined, [1], {}]) {
       expect(parseSignal({ seat, kind: 'start' })).toBeNull()
     }
   })
@@ -87,7 +87,7 @@ describe('parseSignal', () => {
 
   it('rejects a bad handoff: missing / unknown / own seat, or anything riding along', () => {
     expect(parseSignal({ seat: 0, kind: 'handoff' })).toBeNull()
-    for (const to of [-1, 4, 1.5, NaN, '1', null, [1], {}]) expect(parseSignal({ seat: 0, kind: 'handoff', to })).toBeNull()
+    for (const to of [-1, 5, 1.5, NaN, '1', null, [1], {}]) expect(parseSignal({ seat: 0, kind: 'handoff', to })).toBeNull()
     expect(parseSignal({ seat: 2, kind: 'handoff', to: 2 })).toBeNull()
     expect(parseSignal({ seat: 0, kind: 'handoff', to: 3, activity: 'delegate' })).toBeNull()
     expect(parseSignal({ seat: 0, kind: 'handoff', to: 3, ok: true })).toBeNull()
@@ -466,5 +466,15 @@ describe('handle', () => {
     expect(await res.json()).toMatchObject({ changed: false })
     expect(m.calls.addEvent).toEqual([])
     expect(m.calls.prune).toHaveLength(1)
+  })
+})
+
+describe('the fifth seat (#193)', () => {
+  it('accepts seat 4 and a handoff to it; 5 is still no seat', () => {
+    expect(SEATS).toContain(4)
+    expect(SEATS).not.toContain(5)
+    expect(parseSignal({ seat: 4, kind: 'start' })).toEqual({ seat: 4, kind: 'start' })
+    expect(parseSignal({ seat: 0, kind: 'handoff', to: 4 })).toEqual({ seat: 0, kind: 'handoff', to: 4 })
+    expect(parseSignal({ seat: 5, kind: 'start' })).toBeNull()
   })
 })
