@@ -3,6 +3,8 @@ import { useFrame } from '@react-three/fiber'
 import { useMemo, useRef } from 'react'
 import { Box3, Vector3, type Object3D } from 'three'
 import { openApprovalBox } from './approval/panel'
+import { Door } from '../room/Door'
+import { ReadyPing } from '../room/RoomUi'
 import { Agents } from './Agents'
 import { useRole } from './ApprovalBox'
 import { Icon } from './ApprovalIcons'
@@ -21,6 +23,8 @@ export function Office({ world }: { world: OfficeWorld }) {
       <TrayClick scene={scene} nodes={nodes} />
       <Shelf world={world} scene={scene} nodes={nodes} />
       {world.approvals && <DoorKey world={world} nodes={nodes} />}
+      <Door nodes={nodes} />
+      <ReadyPing />
     </>
   )
 }

@@ -1,3 +1,4 @@
+import { assetUrl } from '../../room/base'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import type { ApprovalSource, Cover, DecideResult, Role } from '../../approvals/source'
 import type { StoredApproval } from '../../approvals/types'
@@ -55,7 +56,7 @@ export function supabaseSource(supabase: SupabaseClient): ApprovalSource {
     },
     async decide(id, result, opinion): Promise<DecideResult> {
       try {
-        const res = await fetch('/api/approve', {
+        const res = await fetch(assetUrl('api/approve'), {
           method: 'POST',
           headers: { 'content-type': 'application/json', authorization: `Bearer ${session?.access_token ?? ''}` },
           body: JSON.stringify({ id, result, opinion }),
