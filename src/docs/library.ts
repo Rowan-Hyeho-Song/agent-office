@@ -197,7 +197,9 @@ export function shelfLayout(folders: DocFolder[]): ShelfLayout {
   const binders: Binder[] = []
   const plates = Array.from({ length: SHELVES }, () => '')
   let cut = false
-  folders.slice(0, SHELVES).forEach((folder, r) => {
+  // private projects never stand on the shelf (#67): not their count, not their agents' band colours
+  const shelved = folders.filter((f) => f.repo !== null)
+  shelved.slice(0, SHELVES).forEach((folder, r) => {
     plates[r] = folder.label
     const files = [...folder.files].sort((a, b) => a.date.localeCompare(b.date) || (a.n ?? 0) - (b.n ?? 0))
     if (files.length > SLOTS) cut = true
@@ -217,7 +219,7 @@ export function shelfLayout(folders: DocFolder[]): ShelfLayout {
       })
     })
   })
-  if (folders.length > SHELVES) cut = true
+  if (shelved.length > SHELVES) cut = true
   return { binders, plates, note: cut ? `책장엔 최근 폴더 ${SHELVES}개, 폴더마다 최근 ${SLOTS}권만 꽂혀요. 나머지는 이 목록에서 볼 수 있어요.` : null }
 }
 

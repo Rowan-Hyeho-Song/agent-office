@@ -139,18 +139,26 @@ describe('bookshelf layout', () => {
     expect(l.plates).toEqual(['agent-office', '', ''])
     expect(l.note).toBeNull()
   })
-  it('three newest folders on r0..r2, newest folder lowest; a private binder has no label', () => {
+  it('three newest public folders on r0..r2, newest lowest; private is never on the shelf', () => {
     const l = shelfLayout(
       groupLibrary([
         meta({ id: 1, repo: 'o/a', folder: 1, created_at: day(1) }),
         meta({ id: 2, repo: 'o/b', folder: 1, created_at: day(2) }),
         meta({ id: 3, repo: 'o/c', folder: 1, created_at: day(3) }),
-        meta({ id: 4, repo: 'o/d', folder: 1, created_at: day(4), grade: 'private', approved: false }),
+        meta({ id: 4, repo: 'o/d', folder: 1, created_at: day(4), grade: 'private', approved: false, agents: [0, 3] }),
+        meta({ id: 5, repo: 'o/e', folder: 1, created_at: day(5), grade: 'private', approved: false }),
       ]),
     )
-    expect(l.plates).toEqual([PRIVATE_LABEL, 'c', 'b'])
-    expect(l.binders.find((b) => b.r === 0)!.label).toBe('')
-    expect(l.note).toMatch(/최근/)
+    expect(l.plates).toEqual(['c', 'b', 'a'])
+    expect(l.binders).toHaveLength(3)
+    expect(l.binders.every((b) => b.repo !== null && b.secret === false)).toBe(true)
+    expect(l.plates).not.toContain(PRIVATE_LABEL)
+    expect(l.note).toBeNull()
+  })
+  it('private only: an empty shelf', () => {
+    const l = shelfLayout(groupLibrary([meta({ id: 1, grade: 'private', approved: false, agents: [3] })]))
+    expect(l.binders).toEqual([])
+    expect(l.plates).toEqual(['', '', ''])
   })
   it('more than ten files in a folder: the latest ten, with a note', () => {
     const l = shelfLayout(groupLibrary(Array.from({ length: 12 }, (_, i) => meta({ id: i + 1, folder: i + 1, created_at: day(i + 1) }))))

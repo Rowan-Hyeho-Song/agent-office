@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
-import { fmtDay } from '../approvals/view'
+import { fmtDay as fmtShortDay } from '../approvals/view'
 import {
   KIND_NAME,
   TOC,
@@ -36,6 +36,9 @@ export function DocsViewer({ world }: { world: OfficeWorld }) {
 
 /** a number from a design token (tokens.css, unitless ms) */
 const tokenMs = (name: string) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || 0
+
+/** "11.07", with the year ("2025.11.07") when it is not this year */
+const fmtDocDay = (iso: string) => (new Date(iso).getFullYear() === new Date().getFullYear() ? fmtShortDay(iso) : `${new Date(iso).getFullYear()}.${fmtShortDay(iso)}`)
 
 const seatName = (seat: number) => AGENT_INFO[`agent_${seat}`]?.name ?? ''
 const seatFirst = (seat: number) => seatName(seat).split(' ')[0]
@@ -202,7 +205,7 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
                         </>
                       )}
                     </span>
-                    {f.secret && <span className="sec">SECRET</span>}
+                    {f.secret && <span className="sec">{f.secret === 'review' ? `SECRET ${f.docs.filter((d) => !d.approved).length}` : 'SECRET'}</span>}
                   </button>
                 ))}
                 {snap.layout.note && <p className="doc-note">{snap.layout.note}</p>}
@@ -491,7 +494,7 @@ function SecretCover({ doc, file, folder, unsealing }: { doc: DocMeta; file: Doc
           <span className="sr-only">{priv ? '지워짐' : '결재 전이라 가려짐'}</span>
         </dd>
         <dt>날짜</dt>
-        <dd>{fmtDay(doc.created_at)}</dd>
+        <dd>{fmtDocDay(doc.created_at)}</dd>
         <dt>참여</dt>
         <dd>{doc.agents.length ? doc.agents.map(seatFirst).join(', ') : '—'}</dd>
       </dl>
