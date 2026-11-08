@@ -92,7 +92,7 @@ SHELF_W, SHELF_D = 1.1, 0.34  # the bookshelf against the back wall: width, dept
 PLANTS = [  # name, species, x, z (#126: one species each, office-quality.md 3; plant_boards left out, designer)
     ("plant_desk", "sansevieria", 0.0, -3.2),  # between MESH's desk and the whiteboard: tall and narrow
     ("plant_corner", "fiddle_fig", 4.22, 3.18),  # its canopy (0.6 m) clears the floor lamp by 0.1 m
-    ("plant_sofa", "monstera", 0.925, 2.75),  # between the side table and the sofa: 0.44 m wide (#156: leaves all round, short toward ±x)
+    ("plant_sofa", "monstera", 0.905, 2.75),  # between the side table and the sofa: 0.44 m wide (#156: leaves all round, short toward ±x)
 ]
 CLOCK_AT, CLOCK_S = (-HX + 0.02, 1.85, 1.6), 0.40  # wall clock face center (left wall, next to the door), size
 CLOCK_M = Mx((CLOCK_AT[0] + 0.01, CLOCK_AT[1], CLOCK_AT[2]), ry=math.pi / 2)  # the face front: local +z = web +x
@@ -1499,21 +1499,28 @@ def monstera(name, x, z, group):
         a = cam_a + math.radians(az + PRNG.uniform(-8, 8))
         out = Vector((math.cos(a), 0.0, math.sin(a)))
         f = abs(out.z)  # 1 = along the gap (z), 0 = toward the sofa / the side table (x)
-        reach = 0.18 + 0.82 * f
+        reach = 0.1 + 0.9 * f
         base = Vector((x, sy, z)) + out * 0.02 + side * PRNG.uniform(-0.015, 0.015)
         arc_r = math.radians(arc)
-        pts = [base, base + UP * (length * 0.32), base + UP * (length * 0.62)]
+        # radial from the soil (designer: not a bamboo bundle): together for the first 5 cm, then each leans
+        # 10–25° off the vertical toward its leaf; the top third arcs on from there
+        # (in x, toward the sofa and the side table, the lean stays small: the gap is 0.45 m)
+        lean = math.radians(PRNG.uniform(10, 25))
+        lean_out = Vector((out.x * 0.3, 0.0, out.z))
+        pts = [base, base + UP * 0.05]
+        for frac in (0.3, 0.62):
+            pts.append(pts[1] + (UP * math.cos(lean) + lean_out * math.sin(lean)) * ((length - 0.05) * frac))
         for k in (1, 2, 3):  # the top third arcs outward
-            ak = arc_r * k / 3
+            ak = lean + arc_r * k / 3
             pts.append(pts[-1] + (UP * math.cos(ak) + out * math.sin(ak) * reach) * (length * 0.38 / 3))
         r = 0.0075 * (size / 0.3) ** 0.5
         stem = rail(f"{name}_petiole", [tuple(q) for q in pts], r, stem_m, group)
         stem.data.resolution_u, stem.data.bevel_resolution = 6, 2
-        for bp, rr in zip(stem.data.splines[0].bezier_points, (1.2, 1.05, 0.95, 0.85, 0.8, 1.15)):  # tapering, a thicker knee
+        for bp, rr in zip(stem.data.splines[0].bezier_points, (1.2, 1.1, 1.0, 0.92, 0.85, 0.8, 1.15)):  # tapering, a thicker knee
             bp.radius = rr
         stems.append(stem)
         young = size < 0.2
-        monstera_leaf(fol, pts[-1], out, tilt + (1 - f) * 18, size * (0.62 + 0.38 * f), 2 if young else 0, splits=cuts,
+        monstera_leaf(fol, pts[-1], out, tilt + (1 - f) * 18, size * (0.52 + 0.48 * f), 2 if young else 0, splits=cuts,
                       holes=holes, fold=PRNG.uniform(10, 15), droop=PRNG.uniform(15, 25))
     # the new shoot: a rolled leaf, lime, standing up out of the middle on its own short petiole
     tip = Vector((x, sy + 0.32, z)) + cam * 0.01
@@ -2519,7 +2526,7 @@ if PREVIEW:
         "q_plant_corner": ((2.7, 1.6, 1.9), (4.22, 0.95, 3.18)),
         "q_plant_desk": ((0.95, 1.35, -1.85), (0.0, 0.75, -3.2)),
         "q_plant_sofa": ((2.05, 1.35, 3.74), (0.925, 0.6, 2.75)),
-        "q_monstera_top": ((1.25, 1.75, 3.45), (0.925, 0.6, 2.75)),  # #156: from above and in front
+        "q_monstera_top": ((1.25, 1.75, 3.45), (0.905, 0.6, 2.75)),  # #156: from above and in front
         "q_monstera_low": ((0.6, 0.85, 3.45), (0.925, 0.6, 2.75)),
         "q_vine": ((3.25, 2.25, -1.95), (4.0, 1.95, -3.2)),
         "q_succulent": ((-3.55, 1.15, -0.9), (-4.32, 0.8, -1.36)),
