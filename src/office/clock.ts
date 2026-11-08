@@ -31,7 +31,7 @@ export function setClockFromText(text: string | null) {
   setClockTime(new Date(`${day}T${m[1].padStart(2, '0')}:${m[2]}:${m[3] ?? '00'}+09:00`))
 }
 
-/** placeholder: the timelapse (#82) hooks this */
-export const onClockClick = () => {
-  if (new URLSearchParams(location.search).get('debug') === '1') console.debug('clock click')
-}
+/** the timelapse (#82) sets what a click on the clock does */
+let clickHandler: (() => void) | null = null
+export const setClockClick = (h: (() => void) | null) => void (clickHandler = h)
+export const onClockClick = () => clickHandler?.()

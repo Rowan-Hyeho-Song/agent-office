@@ -161,7 +161,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
   }
   if (library) {
     // the hourly idle replay is off under ?debug=1 unless &replay is in the address, so screenshots stay still
-    world.replay = new ReplayControl(library, meeting, { now: () => officeNow(world), status: () => world.source.getSnapshot(), reduced: prefersReducedMotion }, !debug || query.has('replay'))
+    world.replay = new ReplayControl(library, meeting, { now: () => officeNow(world), status: () => world.source.getSnapshot(), reduced: prefersReducedMotion }, !debug || query.get('replay') === '')
     world.replay.watch()
   }
   // the planner pins the decision on the whiteboard: the note fades in like any new one (#66)
