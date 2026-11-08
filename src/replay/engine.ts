@@ -138,11 +138,11 @@ export const stepMs = (p: Point, speed: Speed) => (p.kind === 'minutes' ? MINUTE
 export const daybreakMs = (speed: Speed) => DAYBREAK_MS / speed
 export const isDaybreak = (a: Point, b: Point) => dayKey(a) !== dayKey(b) && atMs(b) - atMs(a) >= DAYBREAK_GAP_MS
 
-/** the time left from point `i` at this speed, ms */
-export function remainingMs(points: readonly Point[], i: number, speed: Speed): number {
+/** the time left from point `i` at this speed, ms; `wait` adds the expected walk holds per point (x1 only) */
+export function remainingMs(points: readonly Point[], i: number, speed: Speed, wait?: (k: number, first: boolean) => number): number {
   let ms = 0
   for (let k = Math.max(0, i); k < points.length; k++) {
-    ms += stepMs(points[k], speed)
+    ms += stepMs(points[k], speed) + (wait && speed === 1 ? wait(k, k === Math.max(0, i)) : 0)
     if (k + 1 < points.length && isDaybreak(points[k], points[k + 1])) ms += daybreakMs(speed)
   }
   return ms

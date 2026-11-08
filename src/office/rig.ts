@@ -466,6 +466,8 @@ export class AgentRig {
 
   // motion state
   private speed = 0
+  /** walking pace scale (the replay walks faster) */
+  pace = 1
   private turnVel = 0
   private lift = 0
   private seat = 0
@@ -612,17 +614,17 @@ export class AgentRig {
       const d = Math.hypot(dx, dz)
       let remaining = d
       for (let k = 1; k < this.path.length; k++) remaining += dist(this.point(g, this.path[k - 1]), this.point(g, this.path[k]))
-      let cap = Math.min(SPEED, Math.sqrt(2 * ACCEL * remaining) + 0.04)
+      let cap = Math.min(SPEED * this.pace, Math.sqrt(2 * ACCEL * this.pace * remaining) + 0.04)
       if (this.path.length > 1 && d < 0.35) {
         const after = this.point(g, this.path[1])
         const turn = Math.abs(wrap(Math.atan2(-(after.x - next.x), -(after.z - next.z)) - Math.atan2(-dx, -dz)))
-        if (turn > 0.8) cap = Math.min(cap, CORNER_SPEED)
+        if (turn > 0.8) cap = Math.min(cap, CORNER_SPEED * this.pace)
       }
       // a hover bot turns before it sets off when the new direction is behind it
       const headingTo = Math.atan2(-dx, -dz)
       if (d > 1e-4) wantHeading = headingTo
       const behind = Math.abs(wrap(headingTo - this.heading)) > 1.6 && this.speed < 0.1
-      this.speed = behind ? 0 : Math.min(cap, this.speed + ACCEL * dt)
+      this.speed = behind ? 0 : Math.min(cap, this.speed + ACCEL * this.pace * dt)
       let step = this.speed * dt
       while (step > 0 && this.path.length) {
         const p = this.point(g, this.path[0])
@@ -681,7 +683,7 @@ export class AgentRig {
     this.look.yaw = damp(this.look.yaw, lookTarget.yaw, 6, dt)
     this.look.roll = damp(this.look.roll, lookTarget.roll, 6, dt)
     const lean = MathUtils.clamp(this.turnVel * 0.09, -0.22, 0.22) * motion
-    const forward = Math.min(this.speed / SPEED, 1) * 0.12 * motion
+    const forward = Math.min(this.speed / (SPEED * this.pace), 1) * 0.12 * motion
     const dy = this.lift + this.seat + bob
     head.position.y = this.parts.headRestY + dy
     head.rotation.set(this.look.pitch - forward, this.look.yaw, this.look.roll + lean, 'YXZ')
