@@ -9,9 +9,13 @@ import { VIEW, WALLS, type Wall } from './view'
 // wall. When Blender ships wall_n/e/s/w nodes and `wall` extras (node userData.wall), those win: the mesh split is
 // skipped when a `wall_*` node exists and a tagged node is never re-tagged.
 
-/** node name -> wall, for wall-mounted things (window, whiteboard, bulletin, clock, door, shelf) */
+/**
+ * node name -> wall, for things that HANG on a wall above the floor (window, whiteboard, bulletin, clock, door screen
+ * and frame): they are cut with it. Anything that touches the floor is furniture (bookshelf, coffee counter, desks,
+ * plants, sofa, lamp): never cut, only near/occluder-faded.
+ */
 export const WALL_NODES: { wall: Wall; match: RegExp }[] = [
-  { wall: 'n', match: /^(shelf_|screen_shelf_|hit_library$|surface_whiteboard$|surface_bulletin$)/ },
+  { wall: 'n', match: /^(surface_whiteboard$|surface_bulletin$)/ },
   { wall: 'w', match: /^(door$|screen_door$|clock_|hit_clock$)/ },
 ]
 
@@ -19,15 +23,21 @@ export const WALL_NODES: { wall: Wall; match: RegExp }[] = [
  * The merged baked meshes: which triangle (by centroid) belongs to which wall. The window frames and the city card
  * behind the window stick out of the back wall (z down to -3.2), so they are `n` too.
  */
-export const WALL_SPLIT: Record<string, (x: number, y: number, z: number) => Wall | null> = {
+export const WALL_SPLIT: Record<string, (x: number, y: number, z: number) => Wall | typeof SHELF | null> = {
   room: (x, y, z) => (y < 0.05 ? null : z < -2.5 ? 'n' : x < -3.3 ? 'w' : null),
-  wall_items: (x, _y, z) => (z < -2.3 ? 'n' : x < -3.3 ? 'w' : null),
+  // the bookshelf stands on the floor against the back wall: furniture, its own fade group
+  wall_items: (x, _y, z) => (inShelf(x, z) ? SHELF : z < -2.3 ? 'n' : x < -3.3 ? 'w' : null),
 }
 
-/** loose parts of the lounge atlas that hang on a wall (they do not touch the floor) go with it */
-export const wallOfLoose = (box: Box3): Wall | null => {
-  if (box.min.y <= 0.08) return null
+/** the bookshelf's footprint (x from its left side, depth from the wall) and its fade group */
+export const SHELF = 'shelf'
+export const inShelf = (x: number, z: number, minX = 2.28) => x > minX && x < 3.6 && z > -2.8 && z < -2.3
+
+/** loose parts of the lounge atlas: the shelf's things are furniture; parts that hang on a wall (off the floor) go with it */
+export const wallOfLoose = (box: Box3): Wall | typeof SHELF | null => {
   const c = box.getCenter(new Vector3())
+  if (inShelf(c.x, c.z, 2.1)) return SHELF // books leaning at its left edge count
+  if (box.min.y <= 0.08) return null
   return c.z < -2.3 ? 'n' : c.x < -3.2 ? 'w' : null
 }
 
@@ -37,11 +47,12 @@ export const WALL_RECT: Partial<Record<Wall, { cx: number; cz: number; sx: numbe
   w: { cx: -3.55, cz: -0.05, sx: VIEW.capThickness, sz: 5.7 },
 }
 
-/** desk-attached things (screens, desk props, the tray's hit box) take the desk's opacity: node name -> fade group */
+/** things attached to a piece of furniture (desk screens and props, the tray's hit box, the shelf's binders and plates) take its opacity: node name -> fade group */
 const FADE_NODE = /^(?:desk|screen_work|neon_desk|screen_cal)_(\d)(?:_|$)/
 export const fadeGroupOfNode = (name: string) => {
   const m = FADE_NODE.exec(name)
   if (m) return `desk${m[1]}`
+  if (/^(shelf_|screen_shelf_|hit_library$)/.test(name)) return SHELF
   return name === 'hit_approval' ? 'desk0' : null
 }
 
@@ -214,13 +225,22 @@ export function prepareView(scene: Object3D): FadeGroup[] {
     if (hit) o.userData.wall = hit.wall
   })
 
+  const byId = new Map<string, Mesh[]>()
+  const toGroup = (id: string, m: Mesh) => {
+    m.userData.fadeGroup = id
+    byId.set(id, [...(byId.get(id) ?? []), m])
+  }
+
   // 2. the merged baked meshes, split per wall (skipped once the glb carries wall_n/e/s/w itself)
   if (![...byName.keys()].some((n) => /^wall_[nesw]$/.test(n))) {
     for (const [name, rule] of Object.entries(WALL_SPLIT)) {
       const node = byName.get(name)
       const c = new Vector3()
       for (const m of node ? meshesUnder(node) : []) {
-        for (const [w, part] of splitBy(m, (t) => { const q = triCentroid(m, t, c); return rule(q.x, q.y, q.z) })) part.userData.wall = w
+        for (const [k, part] of splitBy(m, (t) => { const q = triCentroid(m, t, c); return rule(q.x, q.y, q.z) })) {
+          if (k === SHELF) toGroup(SHELF, part)
+          else part.userData.wall = k
+        }
       }
     }
   }
@@ -234,7 +254,8 @@ export function prepareView(scene: Object3D): FadeGroup[] {
       const mesh = subMesh(m, part.tris)
       m.parent?.add(mesh)
       const w = wallOfLoose(part.box)
-      if (w) mesh.userData.wall = w
+      if (w === SHELF) toGroup(SHELF, mesh)
+      else if (w) mesh.userData.wall = w
       else if (part.box.max.y >= 0.12) {
         const id = `lounge${k++}`
         mesh.userData.fadeGroup = id
@@ -245,15 +266,14 @@ export function prepareView(scene: Object3D): FadeGroup[] {
   }
 
   // 4. desk things fade with their desk
-  const desks = new Map<string, Mesh[]>()
   scene.traverse((o) => {
     const id = fadeGroupOfNode(o.name)
     if (!id) return
     o.userData.fadeGroup = id
-    if (o instanceof Mesh) desks.set(id, [...(desks.get(id) ?? []), o])
+    if (o instanceof Mesh) toGroup(id, o)
   })
   scene.updateMatrixWorld(true)
-  for (const [id, meshes] of desks) {
+  for (const [id, meshes] of byId) {
     meshes.forEach((m) => (m.userData.fadeGroup = id))
     const box = new Box3()
     for (const m of meshes) box.union(new Box3().setFromObject(m))
