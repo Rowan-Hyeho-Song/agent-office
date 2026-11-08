@@ -58,6 +58,9 @@ export function SoundButton() {
             aria-valuetext={`${Math.round(s.volume * 100)}%`}
             onChange={(e) => setSetting({ volume: Number(e.target.value) / 100, muted: false })}
           />
+          <output className="sound-volume-num" aria-hidden="true">
+            {Math.round(s.volume * 100)}%
+          </output>
         </label>
         <button
           type="button"

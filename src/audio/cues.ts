@@ -304,6 +304,8 @@ export type CueOpts = {
   dur?: number
   /** seconds from now */
   at?: number
+  /** a stable id of the event (e.g. `pingpong:<session>:<shot>`): the replay keeps or drops the same ones every time */
+  key?: string
 }
 
 // ── replay speed (sound.md 6): ×1 as is, ×4 half the busywork and events −3 dB, ×16 events only at −6 dB ──
@@ -315,6 +317,16 @@ export function speedRule(kind: Kind, s: number, roll: number): number {
   if (kind === 'ui' || s <= 1) return 1
   if (kind === 'repeat') return s >= 16 ? 0 : roll < 0.5 ? 1 : 0
   return s >= 16 ? 0.5 : 0.71
+}
+
+/** a stable 0..1 from an event key (FNV-1a), for the replay's "half of them" (pure, tested) */
+export function keyRoll(key: string): number {
+  let h = 0x811c9dc5
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return (h >>> 0) / 0x100000000
 }
 
 // ── the voice cap and repeats ──
@@ -329,7 +341,8 @@ export function cue(name: CueName, opts: CueOpts = {}): boolean {
   const def = CUES[name] as CueDef
   const now = performance.now()
   if (now - (lastAt.get(name) ?? -1e9) < def.gap) return false
-  const k = speedRule(def.kind, speed, Math.random())
+  // the "every other one" at ×4 is decided by the event's key when there is one, so a replayed scene sounds the same
+  const k = speedRule(def.kind, speed, opts.key !== undefined ? keyRoll(opts.key) : Math.random())
   if (k === 0) return false
 
   const t = g.ctx.currentTime + (opts.at ?? 0)

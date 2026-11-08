@@ -230,7 +230,7 @@ export class PaperPlanes {
         if (k >= 1) {
           f.phase = f.toHand && receiver.visible ? 'held' : 'landed'
           f.since = t
-          cue('plane.land', { pos: plane.node.position, agent: f.to })
+          cue('plane.land', { pos: plane.node.position.clone(), agent: f.to })
           // the fingers close on it (rig.ts: the pinch shape while caught)
           if (f.phase === 'held' && receiver.gesture?.kind === 'catch') receiver.gesture.caught = true
         }
@@ -256,7 +256,7 @@ export class PaperPlanes {
     f.flyFor = Math.min(1.8, Math.max(0.9, f.start.distanceTo(end) / 2.2))
     f.phase = 'fly'
     f.since = t
-    cue('plane.throw', { pos: f.start, agent: f.from })
+    cue('plane.throw', { pos: f.start.clone(), agent: f.from })
     // the receiver looks up and raises its hands as the plane comes (the coder catches one-handed)
     if (f.toHand) receiver.gesture = { kind: 'catch', until: t + f.flyFor + HOLD_S, oneHand: receiver.id === 'agent_3' }
   }

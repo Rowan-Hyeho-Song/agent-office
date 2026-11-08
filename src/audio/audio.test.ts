@@ -99,3 +99,15 @@ describe('momentaryMax', () => {
     expect(momentaryMax(new Float32Array(rate), rate)).toBeLessThan(-100)
   })
 })
+
+describe('keyRoll', () => {
+  it('is stable per key, spread over 0..1', async () => {
+    const { keyRoll } = await import('./cues')
+    expect(keyRoll('pingpong:a:3')).toBe(keyRoll('pingpong:a:3'))
+    const rolls = [...Array(400).keys()].map((i) => keyRoll(`ev:${i}`))
+    expect(rolls.every((r) => r >= 0 && r < 1)).toBe(true)
+    const kept = rolls.filter((r) => r < 0.5).length
+    expect(kept).toBeGreaterThan(160)
+    expect(kept).toBeLessThan(240)
+  })
+})
