@@ -470,6 +470,14 @@ const v = (x: number, y: number, z: number) => new Vector3(x, y, z)
 const qz = (a: number) => new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), a)
 const qy = (a: number) => new Quaternion().setFromAxisAngle(UP, a)
 const NONE = new Quaternion()
+/**
+ * The hand's frame (#148, measured in Blender and in the app): at rest the palms face each other, the right palm toward
+ * the agent's −x and the left toward +x, thumbs up. Palm down is a roll about the agent's forward axis: the right hand
+ * +90° about +z, the left −90°. (#178: the sign was the other way round for the old glove hand and turned the new
+ * hand's palms up, back of the hand on the keyboard.)
+ */
+export const REST_PALM: Record<'l' | 'r', readonly [number, number, number]> = { r: [-1, 0, 0], l: [1, 0, 0] }
+export const palmDown = (side: 'l' | 'r') => qz(((side === 'l' ? -1 : 1) * Math.PI) / 2)
 /** the nine shapes of agents.md 2.7 (#134) */
 const REST_CURL = shape([0.25, 0.25, 0.3, 0.35], [0.2, 0])
 const TYPE_CURL = shape([0.35, 0.35, 0.35, 0.4], [0.3, 0.2])
@@ -957,7 +965,7 @@ export class AgentRig {
     const s = (f: number, o = 0) => Math.sin(t * f + this.phase + o) * m
     const sx = side === 'l' ? -1 : 1
     const rest = this.parts.hands[side].restPos
-    const down = qz(-sx * Math.PI / 2) // palm down (#27 rest: palms face each other)
+    const down = palmDown(side)
     const at = (x: number, y: number, z: number, turn = NONE, curl = REST_CURL): HandPose => ({ pos: v(x, y, z), turn, curl })
     const sit = this.seat
     // a moment's gesture on top of whatever the agent does (#51): throw the plane, raise a hand to catch it

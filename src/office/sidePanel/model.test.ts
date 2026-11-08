@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SIDE, bezier, clampWidth, defaultWidth, easeOut, fitScale, isPhone, leftArea, maxWidth, panelWidth, snapSheet, stepWidth, viewOffset, widthAt } from './model'
+import { SIDE, bezier, clampWidth, defaultWidth, easeOut, fitKey, fitScale, isPhone, leftArea, maxWidth, panelWidth, snapSheet, stepWidth, viewOffset, widthAt } from './model'
 
 describe('side panel width', () => {
   it('starts at 480 on a desktop screen', () => {
@@ -86,5 +86,18 @@ describe('fit scale (#175)', () => {
     expect(fitScale({ w: 1280, h: 800 }, { ...open, open: false }, 1150)).toBe(1)
     expect(fitScale({ w: 390, h: 844 }, open, 1150)).toBe(1)
     expect(fitScale({ w: 1280, h: 800 }, open, 0)).toBe(1)
+  })
+})
+
+describe('fit key (#190)', () => {
+  const open = { open: true, width: 480, sheet: 'half' as const }
+  it('changes only with the panel and the screen, so the camera moving never re-measures the fit', () => {
+    const k = fitKey({ w: 1280, h: 800 }, open)
+    expect(fitKey({ w: 1280, h: 800 }, { ...open })).toBe(k)
+    expect(fitKey({ w: 1280, h: 800 }, { ...open, width: 540 })).not.toBe(k)
+    expect(fitKey({ w: 1024, h: 768 }, open)).not.toBe(k)
+  })
+  it('is empty when closed: the scale goes back to 1', () => {
+    expect(fitKey({ w: 1280, h: 800 }, { ...open, open: false })).toBe('')
   })
 })
