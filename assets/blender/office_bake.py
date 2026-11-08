@@ -139,7 +139,9 @@ def build_slots():
         o["slot"] = f["kind"]
         o["size"] = [round(b - a, 3) for a, b in zip(lo, hi)]
         if f["wall"]:
-            o["wall"] = f["wall"]
+            # a wall item belongs to its wall (it is lowered with it); a floor thing only stands against one (#115:
+            # furniture that touches the floor stays when the wall is lowered), so it gets "against", not "wall"
+            o["wall" if f["kind"] == "wall" else "against"] = f["wall"]
         NODES.append({"obj": o, "slot": f["kind"]})
 
 
@@ -890,8 +892,15 @@ def build_wall_items():
     sz = -HZ + sd / 2 + 0.01
     p += [box("shelf_l", (0.03, sh, sd), (sx - sw / 2, sh / 2, sz), shelf_m, G),
           box("shelf_r", (0.03, sh, sd), (sx + sw / 2, sh / 2, sz), shelf_m, G),
-          box("shelf_back", (sw, sh, 0.01), (sx, sh / 2, -HZ + 0.015), shelf_m, G),
           box("shelf_top", (sw + 0.03, 0.03, sd), (sx, sh, sz), shelf_m, G)]
+    # the back reads as a furniture back from behind (designer, #109: when the n wall is lowered the app fades the
+    # shelf to 25% and this side faces the camera): a 6 cm frame and a panel set 5 mm in, not one flat board
+    fw, bz = 0.06, -HZ + 0.016
+    p += [box("shelf_back_l", (fw, sh, 0.012), (sx - sw / 2 + fw / 2, sh / 2, bz), shelf_m, G),
+          box("shelf_back_r", (fw, sh, 0.012), (sx + sw / 2 - fw / 2, sh / 2, bz), shelf_m, G),
+          box("shelf_back_b", (sw - 2 * fw, fw, 0.012), (sx, fw / 2, bz), shelf_m, G),
+          box("shelf_back_t", (sw - 2 * fw, fw, 0.012), (sx, sh - fw / 2, bz), shelf_m, G),
+          box("shelf_back_panel", (sw - 2 * fw, sh - 2 * fw, 0.006), (sx, sh / 2, bz + 0.002), shelf_m, G)]
     book_cols = ["#c0392b", "#2c3e50", "#d4a017", "#16a085", "#8e44ad", "#e67e22", "#ecf0f1", "#34495e", "#7f8c8d"]
     for s in range(5):
         y0 = 0.08 + s * 0.42
@@ -922,7 +931,8 @@ def build_wall_items():
     # #111: one atlas (wall_items), three nodes, so the app can lower / hide what hangs on a wall with that wall
     boards = join("boards", p[:mark])
     boards["wall"] = "n"
-    shelf = join("shelf", p[mark:mark2])  # stands on the floor: no wall (the designer decides if it goes with n)
+    shelf = join("shelf", p[mark:mark2])  # stands on the floor: no wall (#115). Tall with its back to n: backTo
+    shelf["backTo"] = "n"  # the app fades it to 25% when the n wall is lowered (its back faces the camera)
     face = join("wallclock", p[mark2:])
     face["wall"] = "w"
     return [boards, shelf, face]
