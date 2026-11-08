@@ -10,7 +10,7 @@
 import type { Goal } from '../office/director'
 import type { MeetingRunner } from '../office/meetingRun'
 import type { DocMeta } from '../docs/library'
-import { DESK_SIDES } from '../office/nav'
+import { requestOf } from '../office/director'
 import type { StatusMap } from '../office/status'
 import { TrafficPlanner, type Request, type Sample } from '../office/traffic'
 import type { Point } from '../timeline/types'
@@ -31,6 +31,8 @@ export interface StageEnv {
   /** where to turn for the owner's line */
   door?: { x: number; z: number }
   reduced: () => boolean
+  /** a nav spot's floor position (the meeting's formation is laid out around the talk circles) */
+  spot?: (id: string) => { x: number; z: number } | null
 }
 
 const seatOf = (id: string) => Number(id.split('_')[1])
@@ -125,7 +127,7 @@ export class Stage {
   private arrivedAt = (id: string, tau: number) => (this.env.planner.has(id) ? this.env.planner.sample(id, tau / 1000).arrived : null)
 
   /** the goals at the clock, and the planner's requests for them (`place` = stand there at once) */
-  private evaluate(place: boolean) {
+  private evaluate(snap: boolean) {
     const { store, planner, meeting, ids, door } = this.env
     const scene = store.scene()
     if (!scene) return
@@ -133,12 +135,14 @@ export class Stage {
     const spots: Record<string, string> = {}
     for (const id of ids) spots[id] = this.env.reduced() ? `work_${seatOf(id)}` : stageSpot(scene.point, seatOf(id))
     const goals = replayGoals(scene.status, spots)
-    meeting.apply(tau, (a) => this.arrivedAt(a, tau), goals, door)
+    const place = { at: (a: string) => (planner.has(a) ? planner.position(a, tau / 1000) : null), spot: (sp: string) => this.env.spot?.(sp) ?? null }
+    meeting.apply(tau, (a) => this.arrivedAt(a, tau), goals, door, place)
     for (const id of ids) {
       const g = goals[id]
       if (!g || g.pose === 'leave') continue
-      const req: Request = { spot: g.spot, pace: REPLAY_PACE, avoid: g.quiet ? DESK_SIDES : undefined }
-      if (place) planner.place(id, req, tau / 1000, seatOf(id))
+      // a staggered departure is in replay ms, the planner runs on replay seconds
+      const req = requestOf(g, REPLAY_PACE, g.depart !== undefined ? g.depart / 1000 : undefined)
+      if (snap) planner.place(id, req, tau / 1000, seatOf(id))
       else planner.request(id, req, tau / 1000, seatOf(id))
     }
     planner.update(tau / 1000)

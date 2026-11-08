@@ -29,6 +29,10 @@ const SPEED = 0.75 // m/s cruising
 const ACCEL = 1.4 // m/s²
 const CORNER_SPEED = 0.32 // through a sharp turn
 const TURN_RATE = 4.5 // rad/s
+// a meeting listener's nod (#141): how long it takes, how far the head dips, how long the addressee's hand stays up
+const NOD_S = 0.5
+const NOD_DEG = 5
+const NOD_HAND_S = 0.8
 const LIFT = 0.06 // extra hover height while moving
 /** seated spots: the head floats lower over the cushion / stool */
 const SEAT: Record<string, number> = { sofa: -0.3, stool: -0.2 }
@@ -556,6 +560,9 @@ export class AgentRig {
   private blinkAt = 0
   /** what it is holding this frame (read by the PropBank) */
   want: { kind: string; side: 'l' | 'r'; prefer?: string } | null = null
+  /** the meeting reaction in progress (#141): when it started on the scene clock, whether a hand lifts with it; the key it answered last */
+  private nod: { t0: number; hand: boolean } | null = null
+  private nodKey = ''
   /** a point to turn the head to while resting (the coder's rubber duck when a test fails, #44) */
   watch: Vector3 | null = null
   /** a short gesture set by the paper plane (#51): until = the scene clock time it ends */
@@ -677,7 +684,7 @@ export class AgentRig {
     if (goal.face) return Math.atan2(-(goal.face.x - this.x), -(goal.face.z - this.z))
     const look = goal.lookAt && others?.[goal.lookAt]
     if (look && goal.pose !== 'listen') return Math.atan2(-(look.x - this.x), -(look.z - this.z))
-    return g.spots[goal.spot]?.ry ?? this.heading
+    return goal.slot?.ry ?? g.spots[goal.spot]?.ry ?? this.heading
   }
 
   update(dt: number, t: number, g: NavGraph, others: Record<string, AgentRig>, reduced: boolean, status?: AgentStatus) {
@@ -773,6 +780,7 @@ export class AgentRig {
     // the head: lifts while moving, sits lower on seats, bobs, leans into turns and forward with speed
     const pose = resting ? goal.pose : moving ? 'move' : 'idle'
     const lookTarget = this.headLook(pose, t, reduced, others)
+    lookTarget.pitch -= this.nodDip(goal, t, reduced)
     this.look.pitch = damp(this.look.pitch, lookTarget.pitch, 6, dt)
     this.look.yaw = damp(this.look.yaw, lookTarget.yaw, 6, dt)
     this.look.roll = damp(this.look.roll, lookTarget.roll, 6, dt)
@@ -812,6 +820,18 @@ export class AgentRig {
       : pen
         ? { kind: 'pen', side: 'r' }
         : null
+  }
+
+  /** a goal's gesture starts once per new key; the head dips NOD_DEG over NOD_S (rad now; 0 when still or with reduced motion) */
+  private nodDip(goal: Goal, t: number, reduced: boolean): number {
+    const g = goal.gesture
+    if (g && g.key !== this.nodKey) {
+      this.nodKey = g.key
+      this.nod = reduced ? null : { t0: t, hand: g.hand }
+    }
+    const n = this.nod
+    if (!n || reduced || t - n.t0 > NOD_S) return 0
+    return Math.sin(((t - n.t0) / NOD_S) * Math.PI) * NOD_DEG * (Math.PI / 180)
   }
 
   /** the angle from the body's heading to the other agent of the current yield / pass cue (positive = to the left) */
@@ -872,8 +892,12 @@ export class AgentRig {
         const yaw = o ? MathUtils.clamp(wrap(Math.atan2(-(o.x - this.x), -(o.z - this.z)) - this.heading), -1.1, 1.1) : 0
         return { pitch: 0, yaw, roll: 0 }
       }
-      case 'talk':
-        return { pitch: 0.04 + s(5) * 0.04, yaw: 0, roll: 0 }
+      case 'talk': {
+        // the head alone turns to the one it listens to / speaks to (#141); the body keeps the circle's direction
+        const o = this.goal?.gaze ? others[this.goal.gaze] : undefined
+        const yaw = o ? MathUtils.clamp(wrap(Math.atan2(-(o.x - this.x), -(o.z - this.z)) - this.heading), -1.1, 1.1) : 0
+        return { pitch: 0.04 + s(5) * 0.04, yaw, roll: 0 }
+      }
       case 'post':
         return { pitch: 0.2, yaw: 0, roll: 0 }
       case 'boardgame':
@@ -929,6 +953,8 @@ export class AgentRig {
         return at(rest.x, rest.y + 0.02, rest.z + 0.1, NONE, shape(f, [REST_CURL.thumb[0], REST_CURL.thumb[1]]))
       }
     }
+    // the addressee's small reaction: the left hand lifts a few cm, its curl as at rest (#141)
+    if (this.nod?.hand && !reduced && side === 'l' && t - this.nod.t0 < NOD_HAND_S) return at(rest.x, rest.y + 0.07, rest.z + 0.1)
     switch (pose) {
       case 'move':
         return at(rest.x, rest.y - 0.03, rest.z + 0.08)

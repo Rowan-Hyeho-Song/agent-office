@@ -31,7 +31,7 @@ async function run(speed: Speed, checkpoints: number[], fps = 60) {
     if (via === 'play' && p.kind === 'minutes') startMinutes(meeting, p, undefined, null, store.landedClock, store.scene()!.status)
   })
   const planner = new TrafficPlanner(buildGrid(decodeFootprint(FOOTPRINT_DATA), GRAPH), GRAPH)
-  const stage = new Stage({ store, planner, meeting, ids: IDS, door: GRAPH.spots.door ? { x: GRAPH.spots.door.x, z: GRAPH.spots.door.z } : undefined, reduced: () => false })
+  const stage = new Stage({ store, planner, meeting, ids: IDS, door: GRAPH.spots.door ? { x: GRAPH.spots.door.x, z: GRAPH.spots.door.z } : undefined, reduced: () => false, spot: (id) => GRAPH.spots[id] ?? null })
   store.play()
   stage.begin()
   const dt = 1000 / fps

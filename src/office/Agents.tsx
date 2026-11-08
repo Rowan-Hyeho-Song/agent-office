@@ -7,10 +7,10 @@ import { seatName } from './meeting'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BufferGeometry, CanvasTexture, Color, Float32BufferAttribute, Group, Line, LineBasicMaterial, LineLoop, LineSegments, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace, Vector3 } from 'three'
-import { buildGraph, DESK_SIDES, pathLength, patchSpots, shortestPath, type NavGraph } from './nav'
+import { buildGraph, pathLength, patchSpots, shortestPath, type NavGraph } from './nav'
 import { buildGrid, cellAt, centre } from './grid'
+import { requestOf, type Goal } from './director'
 import { TrafficPlanner, type Request, type Sample } from './traffic'
-import type { Goal } from './director'
 import { demoRequest } from './trafficDemo'
 import { checkNav, edgeKey } from './navcheck'
 import { rasterFootprint } from './floorMask'
@@ -72,6 +72,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
   const furniture = useMemo(() => Object.values(nodes).filter((m) => m.userData.atlas).flatMap(meshesOf), [nodes])
   const planner = useMemo(() => new TrafficPlanner(buildGrid(rasterFootprint(furniture, 0.05, scene), graph), graph), [furniture, graph, scene])
   const sim = useRef(0)
+  // a meeting departure (office ms) as planner seconds, fixed once per goal: the planner treats a drifting value as a new request (#141)
+  const departs = useRef(new Map<string, number>())
   const rigs = useMemo(
     () =>
       Object.fromEntries(
@@ -143,7 +145,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
     if (wantReplay && !stage.current) {
       const door = graph.spots.door
       const replayPlanner = new TrafficPlanner(planner.grid, graph)
-      const st = new Stage({ store: replay, planner: replayPlanner, meeting: world.meeting, ids: Object.keys(rigs), door: door ? { x: door.x, z: door.z } : undefined, reduced: () => reducedRef.current })
+      const st = new Stage({ store: replay, planner: replayPlanner, meeting: world.meeting, ids: Object.keys(rigs), door: door ? { x: door.x, z: door.z } : undefined, reduced: () => reducedRef.current, spot: (id) => graph.spots[id] ?? null })
       const from: Record<string, Request> = {}
       for (const id in rigs) if (rigs[id].visible) from[id] = standingAt(rigs[id], graph)
       st.begin(from)
@@ -185,7 +187,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
       // a replayed meeting calls its agents in (plan 6.4); the director's goals are the fallback for everyone else
       world.replay?.tick()
       const door = graph.spots.door
-      world.meeting.apply(now, (a) => rigs[a].arrived, goals, door ? { x: door.x, z: door.z } : undefined)
+      world.meeting.apply(now, (a) => rigs[a].arrived, goals, door ? { x: door.x, z: door.z } : undefined, { at: (a) => rigs[a] ?? null, spot: (s) => graph.spots[s] ?? null })
+      if (!world.meeting.busy) departs.current.clear()
     }
     const scene = st ? replay.scene() : null
     const status = scene ? scene.status : world.source.getSnapshot()
@@ -233,7 +236,16 @@ export function Agents({ world }: { world: OfficeWorld }) {
       for (const id in rigs) {
         rigs[id].pace = 1
         rigs[id].traffic = goals[id].pose !== 'leave'
-        if (rigs[id].traffic) planner.request(id, demoReq[id] ?? { spot: goals[id].spot, pace: rigs[id].pace, avoid: goals[id].quiet ? DESK_SIDES : undefined }, sim.current, Number(id.split('_')[1]))
+        if (rigs[id].traffic) {
+          const g = goals[id]
+          let notBefore: number | undefined
+          if (g.depart !== undefined) {
+            const key = `${id}|${g.spot}|${g.depart}`
+            notBefore = departs.current.get(key) ?? sim.current + Math.max(0, (g.depart - now) / 1000)
+            departs.current.set(key, notBefore)
+          }
+          planner.request(id, demoReq[id] ?? requestOf(g, rigs[id].pace, notBefore), sim.current, Number(id.split('_')[1]))
+        }
         rigs[id].setGoal(goals[id], graph)
       }
       planner.update(sim.current)
