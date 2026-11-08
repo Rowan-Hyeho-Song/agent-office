@@ -96,6 +96,13 @@ body,
 .agent-list i { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 2px; }
 .agent-list b { font-weight: 600; color: #f3ead8; }
 .agent-list .state-off { opacity: 0.55; }
+/* #182: the issue an agent is on, one line; only the title is cut (JS: 18 characters; on phones it is dropped) */
+.agent-list li { white-space: nowrap; }
+.agent-task-no { font-variant-numeric: tabular-nums; font-weight: 600; color: #f3ead8; }
+.agent-task-title, .agent-task-private { color: var(--color-muted, #a39d90); }
+.agent-task-lock { display: inline-block; width: 0.9em; height: 0.9em; margin-right: 4px; vertical-align: -0.1em; }
+.agent-task-lock svg { width: 100%; height: 100%; fill: currentColor; }
+@media (max-width: 640px) { .agent-task-title { display: none; } }
 .agent-list-error { margin: 4px 0 0; color: #a39d90; }
 
 /* approval box (#25, #64): the #45 design (docs/design/docs-ui.html), values from src/styles/tokens.css */

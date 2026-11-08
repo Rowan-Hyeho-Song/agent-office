@@ -9,7 +9,7 @@
 // "off" only means no work signal. Whether that is rest by day or sleep at night is duty.ts's call (#110).
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { AgentState, AgentStatus, OfficeMessage, StatusMap, StatusSource } from './status'
+import type { AgentState, AgentStatus, AgentTask, OfficeMessage, StatusMap, StatusSource } from './status'
 
 export interface StatusRow {
   seat: number
@@ -21,9 +21,14 @@ export interface StatusRow {
   last_result_activity?: 'test' | 'build' | null
   last_result_ok?: boolean | null
   last_result_at?: string | null
+  /** #182: the issue it is on; task_private = a private repo (no repo / number / title) */
+  task_repo?: string | null
+  task_issue?: number | null
+  task_title?: string | null
+  task_private?: boolean | null
 }
 
-export const COLUMNS = 'seat,state,activity,since,updated_at,last_result_activity,last_result_ok,last_result_at'
+export const COLUMNS = 'seat,state,activity,since,updated_at,last_result_activity,last_result_ok,last_result_at,task_repo,task_issue,task_title,task_private'
 
 export const WORKING_FOR = 3 * 60_000
 export const WRAPPING_FOR = 2 * 60_000
@@ -38,13 +43,18 @@ export function effective(row: StatusRow, now: number): AgentStatus {
     row.last_result_activity && typeof row.last_result_ok === 'boolean' && row.last_result_at
       ? { lastResult: { activity: row.last_result_activity, ok: row.last_result_ok, at: Date.parse(row.last_result_at) } }
       : {}
+  const task: { task?: AgentTask } = row.task_private
+    ? { task: { private: true, repo: null, issue: null, title: null } }
+    : row.task_repo && typeof row.task_issue === 'number'
+      ? { task: { private: false, repo: row.task_repo, issue: row.task_issue, title: row.task_title ?? null } }
+      : {}
   let s: AgentStatus
   if (row.state === 'off') s = { state: 'off', since, offReason: 'ended' }
   else if (quiet > OFF_AFTER) s = { state: 'off', since: updated + OFF_AFTER, offReason: 'quiet' }
   else if (row.state === 'working' && quiet > WORKING_FOR) s = { state: 'idle', since: updated + WORKING_FOR }
   else if (row.state === 'wrapping' && quiet > WRAPPING_FOR) s = { state: 'idle', since: updated + WRAPPING_FOR }
   else s = row.activity ? { state: row.state, activity: row.activity, since } : { state: row.state, since }
-  return { ...s, ...result }
+  return { ...s, ...result, ...(s.state === 'working' || s.state === 'wrapping' ? task : {}) }
 }
 
 const agentOf = (seat: number) => `agent_${seat}`

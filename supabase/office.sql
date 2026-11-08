@@ -42,6 +42,13 @@ create table if not exists public.agent_status (
 alter table public.agent_status add column if not exists last_result_activity text check (last_result_activity in ('test', 'build'));
 alter table public.agent_status add column if not exists last_result_ok boolean;
 alter table public.agent_status add column if not exists last_result_at timestamptz;
+-- #182: the issue the agent is on. The hook sends only the repo name and the number; the server looks the title
+-- up from the public plan documents (docs table). A private repo stores only task_private = true: no repo, no
+-- number, no title. All null = no task. Existing rows stay null, so this is safe to run before deploying.
+alter table public.agent_status add column if not exists task_repo text check (char_length(task_repo) <= 100);
+alter table public.agent_status add column if not exists task_issue integer check (task_issue between 1 and 1000000);
+alter table public.agent_status add column if not exists task_title text check (char_length(task_title) <= 300);
+alter table public.agent_status add column if not exists task_private boolean;
 
 insert into public.agent_status (seat) select seat from public.agents on conflict do nothing;
 

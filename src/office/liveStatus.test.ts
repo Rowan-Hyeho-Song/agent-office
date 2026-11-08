@@ -131,6 +131,25 @@ describe('effective lastResult (#44)', () => {
   })
 })
 
+describe('effective task (#182)', () => {
+  it('maps a public task, with or without a title', () => {
+    expect(effective(row({ state: 'working', activity: 'edit', task_repo: 'agent-office', task_issue: 170, task_title: '제목', task_private: false }), NOW).task).toEqual({
+      private: false, repo: 'agent-office', issue: 170, title: '제목',
+    })
+    expect(effective(row({ state: 'wrapping', task_repo: 'agent-office', task_issue: 170, task_title: null, task_private: false }), NOW).task).toEqual({
+      private: false, repo: 'agent-office', issue: 170, title: null,
+    })
+  })
+  it('maps a private task to no repo, number or title', () => {
+    expect(effective(row({ state: 'working', activity: 'edit', task_private: true }), NOW).task).toEqual({ private: true, repo: null, issue: null, title: null })
+  })
+  it('no task columns (or all null): no task; idle / off carry none', () => {
+    expect(effective(row({ state: 'working', activity: 'edit' }), NOW)).not.toHaveProperty('task')
+    expect(effective(row({ state: 'idle', task_repo: 'agent-office', task_issue: 1, task_private: false }), NOW)).not.toHaveProperty('task')
+    expect(effective(row({ state: 'off', task_private: true }), NOW)).not.toHaveProperty('task')
+  })
+})
+
 describe('toHandoff (#51)', () => {
   const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
   const ev = (over: Partial<EventRow> = {}): EventRow => ({ id: 7, seat: 0, kind: 'handoff', to_seat: 3, created_at: iso(NOW), ...over })

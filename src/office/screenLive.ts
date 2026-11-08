@@ -4,7 +4,7 @@
 
 import { CanvasTexture, Color, Frustum, LinearMipmapLinearFilter, Matrix4, MeshBasicMaterial, SRGBColorSpace, Sphere, type Camera, type Mesh, type Object3D } from 'three'
 import { hasStill, LIVE_OPS, screenPlan, screenState, ICONS, WRAP_FIELDS, type IconName, type Op, type ScreenState } from './screens'
-import type { AgentStatus, StatusMap } from './status'
+import { clip, PRIVATE_TASK_LABEL, taskNumber, taskOf, type AgentStatus, type AgentTask, type StatusMap } from './status'
 import { AGENT_INFO } from './world'
 
 export const MW = 584
@@ -52,6 +52,7 @@ const mix = (a: string, b: string, t: number) => {
   return `rgb(${A.map((v, i) => Math.round(v * (1 - t) + B[i] * t)).join(',')})`
 }
 const alpha = (a: string, t: number) => `rgba(${hex(a).join(',')},${t})`
+const taskNumber2 = (t: AgentTask) => (t.private ? 'private' : `${taskNumber(t)} ${t.title ?? ''}`)
 const two = (n: number) => String(n).padStart(2, '0')
 const pixel = (size: number, bold = false) => `${bold ? 700 : 400} ${size}px Galmuri11, monospace`
 
@@ -160,14 +161,15 @@ export class ScreenLive {
       // the saver's position / the standby light's phase are part of the key for the states that are only that
       const phase = state === 'rest' ? Math.round(f.t * 8) : state === 'off' ? (f.reduced || Math.floor(f.t * 0.8) % 2 === 0 ? 1 : 0) : 0
       const minute = Math.floor(f.now / 60000)
-      const key = `${state}|${state === 'work' ? activity : ''}|${f.reduced}|${minute}|${phase}`
+      const task = state === 'work' || state === 'wrap' || state === 'private' ? taskOf(f.status[`agent_${m.seat}`]) : undefined
+      const key = `${state}|${state === 'work' ? activity : ''}|${f.reduced}|${minute}|${phase}|${task ? taskNumber2(task) : ''}`
       const plan = screenPlan(state, activity)
       if (key !== m.key) {
         m.key = key
-        this.draw(m, plan, f, since, false)
+        this.draw(m, plan, f, since, false, task)
         this.fullDraws++
       } else if (hasStill(plan)) {
-        this.draw(m, plan, f, since, true)
+        this.draw(m, plan, f, since, true, task)
         this.stripDraws++
       } else continue
       m.texture.needsUpdate = true
@@ -175,7 +177,7 @@ export class ScreenLive {
     }
   }
 
-  private draw(m: Monitor, plan: Op[], f: ScreenFrame, since: number, bandOnly: boolean) {
+  private draw(m: Monitor, plan: Op[], f: ScreenFrame, since: number, bandOnly: boolean, task?: AgentTask) {
     const tk = this.tk!
     const g = m.ctx
     const { col, ink } = tk.agent(m.seat)
@@ -322,6 +324,31 @@ export class ScreenLive {
           break
         }
       }
+    }
+    if (task && !bandOnly) {
+      // #182: the one-line header strip at the very top: number chip (agent colour at 20%) + the title, cut with an ellipsis
+      g.font = pixel(16)
+      g.textBaseline = 'middle'
+      const y = 12
+      let x = pad
+      if (task.private) {
+        icon('lock', x, y - 6, 12, tk.lock)
+        g.fillStyle = tk.muted
+        g.fillText(PRIVATE_TASK_LABEL, x + 20, y)
+      } else {
+        const num = taskNumber(task)
+        const w = g.measureText(num).width
+        g.fillStyle = alpha(col, 0.2)
+        g.fillRect(x - 6, y - 10, w + 12, 20)
+        g.fillStyle = tk.text
+        g.fillText(num, x, y)
+        x += w + 14
+        let title = task.title ? clip(task.title, 22) : ''
+        while (title.length > 1 && x + g.measureText(title).width > MW - pad) title = clip(title, Array.from(title).length - 1)
+        g.fillStyle = tk.muted
+        g.fillText(title, x, y)
+      }
+      g.textBaseline = 'top'
     }
     g.fillStyle = `rgb(255 255 255 / ${tk.scan})`
     for (let y = bandOnly ? BAND_Y : 0; y < MH; y += 3) g.fillRect(0, y, MW, 1)
