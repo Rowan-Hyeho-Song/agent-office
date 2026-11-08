@@ -110,7 +110,7 @@ export const meshesOf = (node: Object3D) => {
   return out
 }
 
-function prepare(scene: Object3D, atlases: Texture[]): OfficeNodes {
+export function prepare(scene: Object3D, atlases: Texture[]): OfficeNodes {
   // once per loaded scene: React StrictMode runs memos twice in development, and a second pass would find
   // the materials already swapped (no emissive left to read)
   if (scene.userData.nodes) return scene.userData.nodes as OfficeNodes
