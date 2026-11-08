@@ -1,28 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { pointWaitMs, shouldWalk, stageSpot, walkWaitMs, WALK_HOLD_MS, WALK_MPS } from './walk'
+import { pointWaitMs, stageSpot, walkWaitMs, WALK_HOLD_MS, WALK_MPS } from './walk'
 import { remainingMs } from './engine'
 import type { Point } from '../timeline/types'
 
-const base = { speed: 1, via: 'play', reduced: false, distanceM: 2.3, budgetMs: 3000 } as const
 const plan = { kind: 'plan', agent: 0 } as Point
-
-describe('shouldWalk', () => {
-  it('walks while playing at x1', () => expect(shouldWalk(base)).toBe(true))
-  it('stays put at x4 and x16', () => {
-    expect(shouldWalk({ ...base, speed: 4, budgetMs: 750 })).toBe(false)
-    expect(shouldWalk({ ...base, speed: 16, budgetMs: 190 })).toBe(false)
-  })
-  it('snaps after a seek and with reduced motion', () => {
-    expect(shouldWalk({ ...base, via: 'seek' })).toBe(false)
-    expect(shouldWalk({ ...base, reduced: true })).toBe(false)
-  })
-  it('snaps when the walk cannot finish inside the point', () => {
-    expect(shouldWalk({ ...base })).toBe(true)
-    expect(shouldWalk({ ...base, distanceM: 2.4 })).toBe(false)
-    expect(shouldWalk({ ...base, distanceM: Infinity })).toBe(false)
-    expect(shouldWalk({ ...base, distanceM: 3.7, budgetMs: 7000 })).toBe(true)
-  })
-})
 
 describe('stageSpot', () => {
   it('sends only the plan point agent to the whiteboard', () => {
@@ -38,7 +19,8 @@ describe('walk waits', () => {
   it('holds only by the part that does not fit, capped, and not at all when skipped', () => {
     expect(walkWaitMs(1, 3000)).toBe(0)
     expect(walkWaitMs(3.69, 3000)).toBeCloseTo((3.69 / WALK_MPS) * 1000 - 3000, 5)
-    expect(walkWaitMs(50, 3000)).toBe(0)
+    expect(walkWaitMs(Infinity, 3000)).toBe(0)
+    expect(walkWaitMs(50, 3000)).toBe(WALK_HOLD_MS)
     expect(walkWaitMs(undefined, 3000)).toBe(0)
     expect(walkWaitMs(3.9, 3000)).toBeLessThanOrEqual(WALK_HOLD_MS)
   })
@@ -53,9 +35,10 @@ describe('walk waits', () => {
     expect(pointWaitMs(pts, 4, step, d)).toBe(0)
     expect(pointWaitMs(pts, 2, step, d, true)).toBe(0)
   })
-  it('adds to the time left at x1 only', () => {
+  it('adds to the time left at every speed, scaled with it', () => {
     const pts = [at(1), at(2)]
     expect(remainingMs(pts, 0, 1, () => 500)).toBe(7000)
-    expect(remainingMs(pts, 0, 4, () => 500)).toBe(1500)
+    expect(remainingMs(pts, 0, 4, () => 500)).toBe(1750)
+    expect(remainingMs(pts, 0, 16, () => 800)).toBe(2 * (3000 + 800) / 16)
   })
 })

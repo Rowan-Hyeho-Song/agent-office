@@ -210,7 +210,7 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
     <div className={`replay${compact ? ' compact' : ''}`} data-seat={String(lane)} role="region" aria-label="타임랩스 재생">
       <div className="replay-grain" ref={grain} aria-hidden="true" />
       <div className="replay-vignette" aria-hidden="true" />
-      {p.kind === 'deploy' && <div className="replay-flash" key={`${s.i}-${replay.landedAt}`} aria-hidden="true" />}
+      {p.kind === 'deploy' && <div className="replay-flash" key={`${s.i}-${replay.landings}`} aria-hidden="true" />}
       <div className="replay-top">
         {!compact && <span className="replay-title">◀◀ 타임랩스</span>}
         {!compact && (

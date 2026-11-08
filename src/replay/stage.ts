@@ -1,0 +1,153 @@
+// The timelapse's stage (#158): what the office does at replay time tau, with the speed reduced to the rate tau advances at.
+// Pure (no three.js, no DOM): the 3D scene feeds it real frame time and reads goals and the planner's samples back; the
+// determinism test drives the very same code with fake frames.
+//
+// A frame adds real dt x speed to a pending amount of replay time and spends it in ticks of at most TICK_MS, each cut short
+// at the playhead's next boundary. A tick moves the clock, lets the playhead land, takes the goals at that tau (scene spots,
+// the meeting), asks the traffic planner for them and replans. The ticks depend only on the replay's own state, never on the
+// frame length, so x1 and x16 run the identical sequence and agree on every position and pose at the same tau.
+
+import type { Goal } from '../office/director'
+import type { MeetingRunner } from '../office/meetingRun'
+import type { DocMeta } from '../docs/library'
+import { DESK_SIDES } from '../office/nav'
+import type { StatusMap } from '../office/status'
+import { TrafficPlanner, type Request, type Sample } from '../office/traffic'
+import type { Point } from '../timeline/types'
+import { replayGoals, scriptFor } from './scene'
+import type { ReplayStore } from './store'
+import { HOLD_CAP_MS } from './store'
+import { REPLAY_PACE, stageSpot, WALK_HOLD_MS } from './walk'
+
+/** the longest piece of replay time one tick covers, ms */
+export const TICK_MS = 50
+
+export interface StageEnv {
+  store: ReplayStore
+  /** a planner of the replay's own: its clock is tau, so the live planner's clock is never disturbed */
+  planner: TrafficPlanner
+  meeting: MeetingRunner
+  ids: readonly string[]
+  /** where to turn for the owner's line */
+  door?: { x: number; z: number }
+  reduced: () => boolean
+}
+
+const seatOf = (id: string) => Number(id.split('_')[1])
+
+export class Stage {
+  /** the goals at the last tick */
+  goals: Record<string, Goal> = {}
+  /** someone is still walking to a scene spot */
+  walking = false
+  private pending = 0
+  private seen = -1
+  private ready = false
+
+  constructor(private env: StageEnv) {
+    env.store.hold = this.holdCap
+  }
+
+  get planner() {
+    return this.env.planner
+  }
+
+  dispose() {
+    this.env.store.hold = () => 0
+  }
+
+  /** how long the next point may wait (replay ms): for a meeting, or briefly for walkers */
+  holdCap = () => (this.env.meeting.busy ? HOLD_CAP_MS : this.walking ? WALK_HOLD_MS : 0)
+
+  /** the replay time the screen shows: the committed clock plus what the current frame has not spent yet, ms */
+  get now() {
+    return this.env.store.clock + this.pending
+  }
+  /** the committed clock (what the last tick computed), ms */
+  get clock() {
+    return this.env.store.clock
+  }
+
+  /**
+   * Open the stage. Playing: everyone starts from `from` (where they stood in the office) and walks to the scene; paused
+   * (a shared link): everyone is at the scene spot at once, since nothing would move them.
+   */
+  begin(from: Record<string, Request> = {}) {
+    const { store, planner } = this.env
+    this.seen = store.landings
+    this.ready = true
+    if (store.getSnapshot().playing) {
+      for (const id of this.env.ids) if (from[id]) planner.place(id, from[id], store.clock / 1000, seatOf(id))
+      this.evaluate(false)
+    } else this.evaluate(true)
+  }
+
+  /** the planner's sample of an agent at the shown replay time */
+  sample(id: string): Sample {
+    return this.env.planner.sample(id, this.now / 1000)
+  }
+
+  /**
+   * One frame of `dtMs` real ms. Returns the replay ms it advanced (0 when paused). `until` stops the clock there
+   * (tests compare two speeds at the same tau); `onTick` runs after each tick (the scene moves the rigs there).
+   */
+  frame(dtMs: number, until = Infinity, onTick?: (clock: number, len: number) => void): number {
+    const { store } = this.env
+    if (!this.ready) return 0
+    const c0 = store.clock
+    let ran = false
+    // a viewer's seek is a jump: everyone is at the point's spots at once
+    if (this.seen !== store.landings) {
+      this.seen = store.landings
+      if (store.landedVia === 'seek') {
+        this.pending = 0
+        this.evaluate(true)
+        ran = true
+      }
+    }
+    const s = store.getSnapshot()
+    if (s.mode === 'office' && s.playing) this.pending += dtMs * s.speed
+    while (store.getSnapshot().playing) {
+      const len = Math.min(TICK_MS, store.untilBoundary())
+      if (this.pending < len || store.clock + len > until) break
+      this.pending -= len
+      store.advance(len)
+      this.seen = store.landings
+      this.evaluate(false)
+      onTick?.(store.clock, len)
+      ran = true
+    }
+    if (!store.getSnapshot().playing) this.pending = 0
+    if (!ran && !Object.keys(this.goals).length) this.evaluate(false)
+    return store.clock - c0
+  }
+
+  private arrivedAt = (id: string, tau: number) => (this.env.planner.has(id) ? this.env.planner.sample(id, tau / 1000).arrived : null)
+
+  /** the goals at the clock, and the planner's requests for them (`place` = stand there at once) */
+  private evaluate(place: boolean) {
+    const { store, planner, meeting, ids, door } = this.env
+    const scene = store.scene()
+    if (!scene) return
+    const tau = store.clock
+    const spots: Record<string, string> = {}
+    for (const id of ids) spots[id] = this.env.reduced() ? `work_${seatOf(id)}` : stageSpot(scene.point, seatOf(id))
+    const goals = replayGoals(scene.status, spots)
+    meeting.apply(tau, (a) => this.arrivedAt(a, tau), goals, door)
+    for (const id of ids) {
+      const g = goals[id]
+      if (!g || g.pose === 'leave') continue
+      const req: Request = { spot: g.spot, pace: REPLAY_PACE, avoid: g.quiet ? DESK_SIDES : undefined }
+      if (place) planner.place(id, req, tau / 1000, seatOf(id))
+      else planner.request(id, req, tau / 1000, seatOf(id))
+    }
+    planner.update(tau / 1000)
+    this.goals = goals
+    this.walking = ids.some((id) => goals[id] && goals[id].pose !== 'leave' && this.arrivedAt(id, tau) !== goals[id].spot)
+  }
+}
+
+/** a minutes point plays its brief meeting from the clock it landed on (a late body load does not move its start) */
+export function startMinutes(meeting: MeetingRunner, p: Point, meta: DocMeta | undefined, convs: Parameters<typeof scriptFor>[2], at: number, status: StatusMap): boolean {
+  return meeting.start(scriptFor(p, meta, convs, false), at, status, {})
+}
