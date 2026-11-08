@@ -1,10 +1,10 @@
 // Decides where each agent should be and what it does there, from the status source, the play schedule and
 // the messages in flight. Pure: no three.js; the rigs report arrivals back through `arrivedAt`.
 
-import { playAt, type PlayKind } from './play'
+import { playAt, soloAt, type PlayKind } from './play'
 import { activityLabel, type OfficeMessage, type StatusMap } from './status'
 
-export type Pose = 'idle' | 'type' | 'post' | 'talk' | 'listen' | 'leave' | PlayKind
+export type Pose = 'idle' | 'type' | 'post' | 'talk' | 'listen' | 'leave' | 'doze' | PlayKind
 
 export interface Goal {
   spot: string
@@ -15,6 +15,8 @@ export interface Goal {
   lookAt?: string
   /** placeholder speech bubble text (bubble design comes later) */
   bubble?: string
+  /** walk clear of the desk sides (the night-duty agent, so it doesn't look like it wakes a sleeper) */
+  quiet?: boolean
   /** what it's doing, for the debug panel */
   label: string
 }
@@ -101,7 +103,7 @@ export class Director {
     this.startTalks(now, status)
     this.updateTalks(now, arrivedAt)
 
-    const busy = new Set(this.agents.filter((a) => status[a]?.state === 'working' || status[a]?.state === 'off'))
+    const busy = new Set(this.agents.filter((a) => status[a]?.state === 'working' || status[a]?.state === 'off' || status[a]?.night === 'duty'))
     const play = playAt(minute, this.agents, busy)
     const out: Record<string, Goal> = {}
     let whiteboardTaken = false
@@ -124,8 +126,16 @@ export class Director {
         }
         continue
       }
+      // #110: nobody leaves. Off at night = dozing at its own desk, or the one awake on night duty; off by day
+      // (a source that skipped duty.ts) = resting at the desk. 'leave' stays in the rig but is never chosen.
+      if (s.night === 'duty' && s.state === 'idle') {
+        const p = soloAt(minute, a)
+        out[a] = { spot: p.spot, pose: p.kind, face: p.face, quiet: true, label: `야간 당번 · ${p.label}` }
+        continue
+      }
       if (s.state === 'off') {
-        out[a] = { spot: 'door', pose: 'leave', label: '퇴근' }
+        if (s.night === 'sleep') out[a] = { spot: `work_${desk}`, pose: 'doze', label: '조는 중' }
+        else out[a] = { spot: `work_${desk}`, pose: 'idle', label: '자리에서 쉬는 중' }
         continue
       }
       if (s.state === 'working') {

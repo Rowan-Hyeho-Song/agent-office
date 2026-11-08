@@ -108,10 +108,16 @@ export function buildGraph(spots: NavSpot[], edges: [string, string][] = EDGES):
   return { spots: byId, adj }
 }
 
+/** the spots beside the desks: standing there reads as waking the sleeper */
+export const DESK_SIDES: ReadonlySet<string> = new Set(desks.map((i) => `desk_side_${i}`))
+
 export const dist = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z)
 
-/** Dijkstra over the spot graph: the spot ids from `from` to `to` (both included), or null if unreachable */
-export function shortestPath(g: NavGraph, from: string, to: string): string[] | null {
+/**
+ * Dijkstra over the spot graph: the spot ids from `from` to `to` (both included), or null if unreachable.
+ * `blocked` spots are not walked through (#110: the night-duty agent keeps clear of the sleepers' desk sides).
+ */
+export function shortestPath(g: NavGraph, from: string, to: string, blocked?: ReadonlySet<string>): string[] | null {
   if (!g.spots[from] || !g.spots[to]) return null
   if (from === to) return [from]
   const best: Record<string, number> = { [from]: 0 }
@@ -125,6 +131,7 @@ export function shortestPath(g: NavGraph, from: string, to: string): string[] | 
     if (cur === to) break
     done.add(cur)
     for (const n of g.adj[cur]) {
+      if (blocked?.has(n) && n !== to) continue // never pass through a blocked spot (the ends are always allowed)
       const d = best[cur] + dist(g.spots[cur], g.spots[n])
       if (best[n] === undefined || d < best[n]) {
         best[n] = d
@@ -153,11 +160,12 @@ export function routeFromEdge(
   a: string,
   b: string,
   to: string,
+  blocked?: ReadonlySet<string>,
 ): string[] | null {
   let best: string[] | null = null
   let bestLen = Infinity
   for (const via of [a, b]) {
-    const p = shortestPath(g, via, to)
+    const p = shortestPath(g, via, to, blocked)
     if (!p) continue
     const len = dist(pos, g.spots[via]) + pathLength(g, p)
     if (len < bestLen) {
