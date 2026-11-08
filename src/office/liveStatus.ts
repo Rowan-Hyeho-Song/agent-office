@@ -28,7 +28,12 @@ export interface StatusRow {
   task_private?: boolean | null
 }
 
-export const COLUMNS = 'seat,state,activity,since,updated_at,last_result_activity,last_result_ok,last_result_at,task_repo,task_issue,task_title,task_private'
+/**
+ * Every column: the task_* ones (#182) come from supabase/office.sql, applied apart from the deploy, and a select that
+ * names a column the table doesn't have yet fails with 400. The table holds nothing private and RLS lets visitors read
+ * all of it (the realtime rows carry every column too), so * is safe; without the columns there is simply no task.
+ */
+export const COLUMNS = '*'
 
 export const WORKING_FOR = 3 * 60_000
 export const WRAPPING_FOR = 2 * 60_000
@@ -128,7 +133,7 @@ export class LiveStatusSource implements StatusSource {
       this.error = '상태를 불러오지 못했어요'
       return
     }
-    for (const r of data as StatusRow[]) if (!this.rows.has(r.seat)) this.rows.set(r.seat, r)
+    for (const r of (data ?? []) as unknown as StatusRow[]) if (!this.rows.has(r.seat)) this.rows.set(r.seat, r)
     this.recompute()
   }
 

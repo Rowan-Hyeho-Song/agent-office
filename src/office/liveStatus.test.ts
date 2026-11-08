@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { liveStatusFor, OFF_AFTER, WORKING_FOR, WRAPPING_FOR, effective, toHandoff, toStatusMap, type EventRow, type StatusRow } from './liveStatus'
+import { COLUMNS, liveStatusFor, LiveStatusSource, OFF_AFTER, WORKING_FOR, WRAPPING_FOR, effective, toHandoff, toStatusMap, type EventRow, type StatusRow } from './liveStatus'
 
 const MIN = 60_000
 const NOW = Date.parse('2026-03-15T12:00:00.000Z')
@@ -204,5 +204,29 @@ describe('liveStatusFor', () => {
     const b = liveStatusFor(client, ['agent_0'])
     expect(b).toBe(a)
     expect(channels()).toBe(1)
+  })
+})
+
+describe('before supabase/office.sql adds the task columns (#182)', () => {
+  it('selects every column (no 400 for a missing one) and shows the status without a task', async () => {
+    const asked: string[] = []
+    const row = { seat: 0, state: 'working', activity: 'edit', since: new Date().toISOString(), updated_at: new Date().toISOString() }
+    const ch: Record<string, unknown> = { on: () => ch, subscribe: () => ch }
+    const client = {
+      channel: () => ch,
+      from: () => ({
+        select: async (cols: string) => {
+          asked.push(cols)
+          return { data: [row], error: null }
+        },
+      }),
+    }
+    const src = new LiveStatusSource(client as never, ['agent_0'])
+    await new Promise((r) => setTimeout(r, 0))
+    expect(asked).toEqual([COLUMNS])
+    expect(COLUMNS).toBe('*')
+    expect(src.error).toBeNull()
+    expect(src.getSnapshot().agent_0).toMatchObject({ state: 'working', activity: 'edit' })
+    expect(src.getSnapshot().agent_0).not.toHaveProperty('task')
   })
 })
