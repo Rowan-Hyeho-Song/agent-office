@@ -112,7 +112,7 @@ function Row({ p }: { p: Point }) {
       <time dateTime={p.at}>{p2(k.h)}:{p2(k.mi)}</time>
       <div className="top">
         <Glyph p={p} />
-        <span className="who">{whoName(p)}</span>
+        <span className="who">{isDeploy(p) ? '배포' : whoName(p)}</span>
         {kindWord(p) && <span className="kind">{kindWord(p)}</span>}
       </div>
       <div className="ttl">

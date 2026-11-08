@@ -279,7 +279,7 @@ export const isDeploy = (p: Point) => p.kind === 'deploy'
 
 /** `배포 #106 · dev → main` from the merge commit's title; `배포 · dev → main` when it names no PR */
 export function deployTitle(p: Point): string {
-  const pr = /#(d+)/.exec(p.title)?.[1] ?? (p.pr === null ? null : String(p.pr))
+  const pr = /#(\d+)/.exec(p.title)?.[1] ?? (p.pr === null ? null : String(p.pr))
   return `배포${pr ? ` #${pr}` : ''} · dev → main`
 }
 

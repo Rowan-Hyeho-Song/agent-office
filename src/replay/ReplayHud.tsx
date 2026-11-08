@@ -125,7 +125,8 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
     const near = n.d < 6 && lane >= 0 && lane < LANES.length && LANES[lane] === laneOf(replay.points[n.k])
     setHover(near ? n.k : -1)
   }
-  const onKey = (e: KeyboardEvent) => {
+  // WASD / R belong to the camera (#111), which acts only while focus is on the 3D view: hand the focus back to it
+  const replayKey = (e: { key: string; shiftKey: boolean; preventDefault(): void }) => {
     const k = e.key
     if (k === ' ') replay.toggle()
     else if (k === 'ArrowRight') e.shiftKey ? replay.dayStep(1) : replay.step(1)
@@ -136,6 +137,21 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
     else return
     e.preventDefault()
   }
+  const onKey = (e: KeyboardEvent) => {
+    if (/^Key[WASDR]$/.test(e.code)) return slider.current?.blur()
+    replayKey(e)
+  }
+  // after WASD the focus is on the 3D view: the replay's own keys still work there (not over a button or a field)
+  const keyRef = useRef(replayKey)
+  keyRef.current = replayKey
+  useEffect(() => {
+    const on = (e: globalThis.KeyboardEvent) => {
+      const a = document.activeElement
+      if ((a === document.body || a?.tagName === 'CANVAS') && !e.ctrlKey && !e.metaKey && !e.altKey) keyRef.current(e)
+    }
+    window.addEventListener('keydown', on)
+    return () => window.removeEventListener('keydown', on)
+  }, [])
 
   // a live signal arriving while the record plays: say so, never interrupt (plan 6.7)
   const live = useSyncExternalStore(world.source.subscribe, world.source.getSnapshot)

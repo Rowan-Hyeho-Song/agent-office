@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { conversations } from '../docs/library'
+import { setCameraKeysBlocked } from '../office/cameraRig'
 import { setClockClick, setClockTime } from '../office/clock'
 import { prefersReducedMotion, officeNow, type OfficeWorld } from '../office/world'
 import { atMs } from './engine'
@@ -29,6 +30,7 @@ export function ReplayDriver({ world }: { world: OfficeWorld }) {
       const k = anim.dur ? Math.min(1, (now - anim.start) / anim.dur) : 1
       const at = anim.from + (to - anim.from) * ease(k)
       if (k >= 1) {
+        setCameraKeysBlocked(false)
         const leaving = anim.to === null
         anim = null
         setClockTime(leaving ? null : new Date(target()))
@@ -40,6 +42,8 @@ export function ReplayDriver({ world }: { world: OfficeWorld }) {
     const animate = (from: number, to: number | null) => {
       cancelAnimationFrame(raf)
       anim = { from, to, start: performance.now(), dur: prefersReducedMotion() ? 0 : to === null ? EXIT_MS : ENTER_MS }
+      // the camera keys rest while the hands wind back on the way in (WASD works again right after, also during playback)
+      setCameraKeysBlocked(to !== null && anim.dur > 0)
       raf = requestAnimationFrame(frame)
     }
 
@@ -55,6 +59,7 @@ export function ReplayDriver({ world }: { world: OfficeWorld }) {
       } else if (was === 'office') {
         world.board.lock(null)
         world.meeting.stop()
+        setCameraKeysBlocked(false)
         animate(replay.point ? target() : Date.now(), null)
       }
       was = s.mode
@@ -88,6 +93,7 @@ export function ReplayDriver({ world }: { world: OfficeWorld }) {
     return () => {
       off.forEach((o) => o())
       cancelAnimationFrame(raf)
+      setCameraKeysBlocked(false)
       replay.hold = () => false
       setClockClick(null)
     }
