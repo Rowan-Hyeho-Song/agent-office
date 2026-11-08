@@ -150,3 +150,15 @@ describe('bubbles that hang below the head (a meeting before the whiteboard)', (
     expect(out.b.stack).toBeGreaterThan(0)
   })
 })
+
+describe('statusTag: another repository (#182 review)', () => {
+  it('gives the parts so the chip can shrink the repo name and keep the activity', () => {
+    const t = statusTag({ state: 'working', activity: 'edit', since: 0, task: { private: false, repo: 'rowansong.dev', issue: 12, title: null } })
+    expect(t?.other).toEqual({ repo: 'rowansong.dev', num: '#12', activity: '파일 편집 중' })
+    expect(t?.label).toBe('rowansong.dev#12 · 파일 편집 중')
+  })
+  it('none for this repo or a private task', () => {
+    expect(statusTag({ state: 'working', activity: 'edit', since: 0, task: { private: false, repo: 'agent-office', issue: 170, title: 'x' } })?.other).toBeUndefined()
+    expect(statusTag({ state: 'working', activity: 'edit', since: 0, task: { private: true, repo: null, issue: null, title: null } })?.other).toBeUndefined()
+  })
+})

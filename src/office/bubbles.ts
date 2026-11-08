@@ -193,6 +193,8 @@ export interface Tag {
   icon: string
   label: string
   private: boolean
+  /** #182, another repository's issue: drawn as parts so the repo name shrinks first and the activity stays readable */
+  other?: { repo: string; num: string; activity: string }
 }
 
 /** the icon of each activity the hook sends (the design's ACTIVITIES table) */
@@ -216,12 +218,13 @@ export function statusTag(status: AgentStatus | undefined): Tag | null {
   const task = taskOf(status)
   // #182: "#170 · 파일 편집 중" (other repo: "rowansong.dev#12 · …", private: "🔒 · …"); no title on the 3D chip
   const withTask = (label: string) => (task ? `${task.private ? '🔒' : taskNumber(task)} · ${label}` : label)
-  if (status.state === 'wrapping') return { icon: 'card', label: withTask('카드 정리 중'), private: false }
+  const other = (label: string) => (task && !task.private && !taskNumber(task).startsWith('#') ? { repo: task.repo, num: `#${task.issue}`, activity: label } : undefined)
+  if (status.state === 'wrapping') return { icon: 'card', label: withTask('카드 정리 중'), private: false, other: other('카드 정리 중') }
   if (status.state === 'off' && status.night === 'sleep') return { icon: 'sleep', label: '조는 중', private: false }
   if (status.state === 'idle' && status.night === 'duty') return { icon: 'coffee', label: '야간 당번', private: false }
   if (status.state !== 'working') return null
   const key = status.activity ?? 'other'
-  return { icon: ACTIVITY_ICON[key] ?? 'cmd', label: withTask(activityLabel(status.activity)), private: key === 'private' }
+  return { icon: ACTIVITY_ICON[key] ?? 'cmd', label: withTask(activityLabel(status.activity)), private: key === 'private', other: other(activityLabel(status.activity)) }
 }
 
 // ---- what the layer draws --------------------------------------------------------------------------------------------

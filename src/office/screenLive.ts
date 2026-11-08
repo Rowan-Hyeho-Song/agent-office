@@ -338,8 +338,15 @@ export class ScreenLive {
       } else {
         const num = taskNumber(task)
         const w = g.measureText(num).width
-        g.fillStyle = alpha(col, 0.2)
-        g.fillRect(x - 6, y - 10, w + 12, 20)
+        // the agent colour may be any CSS notation (it comes from --agent-n): 20% through globalAlpha, not a hex parse
+        g.save()
+        g.globalAlpha = 0.2
+        g.fillStyle = col
+        g.beginPath()
+        if (g.roundRect) g.roundRect(x - 6, y - 10, w + 12, 20, 6)
+        else g.rect(x - 6, y - 10, w + 12, 20)
+        g.fill()
+        g.restore()
         g.fillStyle = tk.text
         g.fillText(num, x, y)
         x += w + 14
