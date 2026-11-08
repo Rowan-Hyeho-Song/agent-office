@@ -120,6 +120,19 @@ describe('statusTag', () => {
   })
 })
 
+describe('status tag with the issue (#182)', () => {
+  const pub = { private: false, repo: 'agent-office', issue: 170, title: '제목' } as const
+  it('shows the number (no title) while working or wrapping', () => {
+    expect(statusTag({ state: 'working', activity: 'edit', since: 0, task: pub })?.label).toBe('#170 · 파일 편집 중')
+    expect(statusTag({ state: 'working', activity: 'edit', since: 0, task: { ...pub, repo: 'rowansong.dev', issue: 12 } })?.label).toBe('rowansong.dev#12 · 파일 편집 중')
+    expect(statusTag({ state: 'working', activity: 'edit', since: 0, task: { private: true, repo: null, issue: null, title: null } })?.label).toBe('🔒 · 파일 편집 중')
+    expect(statusTag({ state: 'wrapping', since: 0, task: pub })?.label).toBe('#170 · 카드 정리 중')
+  })
+  it('nothing extra when idle or off', () => {
+    expect(statusTag({ state: 'idle', since: 0, task: pub })).toBeNull()
+  })
+})
+
 describe('night tags (#110)', () => {
   it('sleepers and the night-duty agent get a tag', () => {
     expect(statusTag({ state: 'off', since: 0, night: 'sleep' })).toEqual({ icon: 'sleep', label: '조는 중', private: false })
@@ -135,5 +148,17 @@ describe('bubbles that hang below the head (a meeting before the whiteboard)', (
     expect(out.a.dir).toBe('down')
     expect(out.b.dir).toBe('down')
     expect(out.b.stack).toBeGreaterThan(0)
+  })
+})
+
+describe('statusTag: another repository (#182 review)', () => {
+  it('gives the parts so the chip can shrink the repo name and keep the activity', () => {
+    const t = statusTag({ state: 'working', activity: 'edit', since: 0, task: { private: false, repo: 'rowansong.dev', issue: 12, title: null } })
+    expect(t?.other).toEqual({ repo: 'rowansong.dev', num: '#12', activity: '파일 편집 중' })
+    expect(t?.label).toBe('rowansong.dev#12 · 파일 편집 중')
+  })
+  it('none for this repo or a private task', () => {
+    expect(statusTag({ state: 'working', activity: 'edit', since: 0, task: { private: false, repo: 'agent-office', issue: 170, title: 'x' } })?.other).toBeUndefined()
+    expect(statusTag({ state: 'working', activity: 'edit', since: 0, task: { private: true, repo: null, issue: null, title: null } })?.other).toBeUndefined()
   })
 })

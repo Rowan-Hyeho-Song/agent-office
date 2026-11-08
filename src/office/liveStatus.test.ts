@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { liveStatusFor, OFF_AFTER, WORKING_FOR, WRAPPING_FOR, effective, toHandoff, toStatusMap, type EventRow, type StatusRow } from './liveStatus'
+import { COLUMNS, liveStatusFor, LiveStatusSource, OFF_AFTER, WORKING_FOR, WRAPPING_FOR, effective, toHandoff, toStatusMap, type EventRow, type StatusRow } from './liveStatus'
 
 const MIN = 60_000
 const NOW = Date.parse('2026-03-15T12:00:00.000Z')
@@ -131,6 +131,25 @@ describe('effective lastResult (#44)', () => {
   })
 })
 
+describe('effective task (#182)', () => {
+  it('maps a public task, with or without a title', () => {
+    expect(effective(row({ state: 'working', activity: 'edit', task_repo: 'agent-office', task_issue: 170, task_title: '제목', task_private: false }), NOW).task).toEqual({
+      private: false, repo: 'agent-office', issue: 170, title: '제목',
+    })
+    expect(effective(row({ state: 'wrapping', task_repo: 'agent-office', task_issue: 170, task_title: null, task_private: false }), NOW).task).toEqual({
+      private: false, repo: 'agent-office', issue: 170, title: null,
+    })
+  })
+  it('maps a private task to no repo, number or title', () => {
+    expect(effective(row({ state: 'working', activity: 'edit', task_private: true }), NOW).task).toEqual({ private: true, repo: null, issue: null, title: null })
+  })
+  it('no task columns (or all null): no task; idle / off carry none', () => {
+    expect(effective(row({ state: 'working', activity: 'edit' }), NOW)).not.toHaveProperty('task')
+    expect(effective(row({ state: 'idle', task_repo: 'agent-office', task_issue: 1, task_private: false }), NOW)).not.toHaveProperty('task')
+    expect(effective(row({ state: 'off', task_private: true }), NOW)).not.toHaveProperty('task')
+  })
+})
+
 describe('toHandoff (#51)', () => {
   const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
   const ev = (over: Partial<EventRow> = {}): EventRow => ({ id: 7, seat: 0, kind: 'handoff', to_seat: 3, created_at: iso(NOW), ...over })
@@ -185,5 +204,29 @@ describe('liveStatusFor', () => {
     const b = liveStatusFor(client, ['agent_0'])
     expect(b).toBe(a)
     expect(channels()).toBe(1)
+  })
+})
+
+describe('before supabase/office.sql adds the task columns (#182)', () => {
+  it('selects every column (no 400 for a missing one) and shows the status without a task', async () => {
+    const asked: string[] = []
+    const row = { seat: 0, state: 'working', activity: 'edit', since: new Date().toISOString(), updated_at: new Date().toISOString() }
+    const ch: Record<string, unknown> = { on: () => ch, subscribe: () => ch }
+    const client = {
+      channel: () => ch,
+      from: () => ({
+        select: async (cols: string) => {
+          asked.push(cols)
+          return { data: [row], error: null }
+        },
+      }),
+    }
+    const src = new LiveStatusSource(client as never, ['agent_0'])
+    await new Promise((r) => setTimeout(r, 0))
+    expect(asked).toEqual([COLUMNS])
+    expect(COLUMNS).toBe('*')
+    expect(src.error).toBeNull()
+    expect(src.getSnapshot().agent_0).toMatchObject({ state: 'working', activity: 'edit' })
+    expect(src.getSnapshot().agent_0).not.toHaveProperty('task')
   })
 })

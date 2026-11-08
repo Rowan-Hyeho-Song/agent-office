@@ -23,6 +23,7 @@ export interface TagItem {
   icon: string
   label: string
   private: boolean
+  other?: { repo: string; num: string; activity: string }
 }
 
 export interface LayerView {
@@ -287,7 +288,7 @@ export class BubbleLayer {
     }
     for (const t of tags) {
       let live = this.tags.get(t.id)
-      const sig = `${t.icon}|${t.label}|${t.private}`
+      const sig = `${t.icon}|${t.label}|${t.private}|${t.other ? 'o' : ''}`
       if (!live || live.label !== sig) {
         live?.el.remove()
         const el = document.createElement('div')
@@ -295,7 +296,10 @@ export class BubbleLayer {
         el.dataset.agent = String(t.seat)
         if (t.private) el.dataset.kind = 'private'
         el.setAttribute('aria-hidden', 'true')
-        el.innerHTML = `<div class="ot-chip">${iconSvg(t.icon)}<span>${esc(t.label)}</span></div>`
+        if (t.other) el.dataset.other = ''
+        el.innerHTML = t.other
+          ? `<div class="ot-chip">${iconSvg(t.icon)}<span class="ot-repo">${esc(t.other.repo)}</span><span class="ot-num">${esc(t.other.num)}</span><span class="ot-act"> · ${esc(t.other.activity)}</span></div>`
+          : `<div class="ot-chip">${iconSvg(t.icon)}<span>${esc(t.label)}</span></div>`
         this.root.append(el)
         live = { el, label: sig, style: '' }
         this.tags.set(t.id, live)
