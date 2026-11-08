@@ -10,8 +10,8 @@ import type { ApprovalRequest, ApprovalResult, Minutes, Speaker } from './types.
 
 type Row = CoverSource & { body: string; data: Record<string, unknown>; source_url: string }
 
-const AO = 'owner/agent-office'
-const RD = 'owner/rowansong.dev'
+const AO = 'Rowan-Hyeho-Song/agent-office'
+const RD = 'Rowan-Hyeho-Song/rowansong.dev'
 const at = (day: number, h: number, m = 0) => new Date(2026, 10, day, h, m).toISOString()
 let nextId = 1
 

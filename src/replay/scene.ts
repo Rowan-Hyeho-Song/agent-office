@@ -23,11 +23,11 @@ export function replayGoals(status: StatusMap, spots: Record<string, string> = {
   return out
 }
 
-/** the door screen's line for the current point at `now` (performance.now), or null */
+/** the door screen's line for the current point at replay clock `now` (ms), or null */
 export function replayDoorLine(now: number): { text: string; masked: boolean } | null {
   const door = replay.scene()?.door
   if (!door) return null
-  const age = now - replay.landedAt
+  const age = now - replay.landedClock
   if (door.kind === 'deploy') return age < DEPLOY_MARK_MS ? { text: door.text, masked: false } : null
   return { text: [...door.text].slice(0, Math.floor(age / TYPE_MS) + 1).join(''), masked: false }
 }

@@ -115,3 +115,13 @@ describe('night tags (#110)', () => {
     expect(statusTag({ state: 'off', since: 0 })).toBeNull()
   })
 })
+
+describe('bubbles that hang below the head (a meeting before the whiteboard)', () => {
+  it('open downward even when there is room above, and stack downward without overlapping', () => {
+    const base = { w: 200, h: 60, prefSide: 'right' as const, pair: false, dim: false, down: true }
+    const out = placeBubbles([{ ...base, id: 'a', order: 0, x: 400, y: 400 }, { ...base, id: 'b', order: 1, x: 420, y: 400 }], { w: 1280, h: 800, narrow: false })
+    expect(out.a.dir).toBe('down')
+    expect(out.b.dir).toBe('down')
+    expect(out.b.stack).toBeGreaterThan(0)
+  })
+})

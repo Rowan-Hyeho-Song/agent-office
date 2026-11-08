@@ -255,6 +255,7 @@ export class BubbleLayer {
         prefSide: a && other ? pairSide(a.x, other.x) : 'right',
         pair: !!(a && other),
         dim: b.dim,
+        down: b.down,
       })
     }
     const placed = placeBubbles(inputs, view)

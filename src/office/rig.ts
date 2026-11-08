@@ -565,6 +565,14 @@ export class AgentRig {
   private nodKey = ''
   /** a point to turn the head to while resting (the coder's rubber duck when a test fails, #44) */
   watch: Vector3 | null = null
+  /** the timelapse at x16 (#158, timelapse.md): a gesture lasts at least this long on the scene clock (s; 0 = as designed) ... */
+  gestureMin = 0
+  /** where to draw the body when it is not where the plan puts it (the timelapse caps the screen speed); x, z stay the plan's */
+  drawAt: { x: number; z: number } | null = null
+  /** ... and the repeating ambient motion (bob, sway, typing flutter) is scaled by this (1 = on, 0 = off) */
+  ambient = 1
+  private cueMem: { kind: NonNullable<Sample['cue']>['kind']; dur: number; gesture: boolean; toward: { x: number; z: number } | null; startT: number } | null = null
+  private cueT = 0
   /** a short gesture set by the paper plane (#51): until = the scene clock time it ends */
   gesture: { kind: 'throw' | 'catch'; until: number; oneHand?: boolean; caught?: boolean } | null = null
 
@@ -765,15 +773,16 @@ export class AgentRig {
     this.surface = this.snap ? surfaceTarget : damp(this.surface, surfaceTarget, 6, dt)
     this.snap = false
     const motion = reduced ? 0.2 : 1
+    this.cueT = t
     const doze = resting && goal.pose === 'doze'
     this.dozing = damp(this.dozing, doze ? 1 : 0, 3, dt)
     // dozing breathes slowly (none with reduced motion) instead of the usual bob
     const dozeBob = -DOZE.lowerM + (reduced ? 0 : Math.sin(((t + this.phase) / DOZE.bobPeriodS) * Math.PI * 2) * DOZE.bobM)
-    const bob = MathUtils.lerp(Math.sin(t * 2.1 + this.phase) * 0.015 * motion, dozeBob, this.dozing)
+    const bob = MathUtils.lerp(Math.sin(t * 2.1 + this.phase) * 0.015 * motion * this.ambient, dozeBob, this.dozing)
 
     const { root, head, beam } = this.parts
     root.visible = !this.hidden
-    root.position.set(this.x, 0, this.z)
+    root.position.set(this.drawAt?.x ?? this.x, 0, this.drawAt?.z ?? this.z)
     root.rotation.set(0, this.heading, 0)
     root.updateMatrixWorld(true)
 
@@ -830,20 +839,45 @@ export class AgentRig {
       this.nod = reduced ? null : { t0: t, hand: g.hand }
     }
     const n = this.nod
-    if (!n || reduced || t - n.t0 > NOD_S) return 0
-    return Math.sin(((t - n.t0) / NOD_S) * Math.PI) * NOD_DEG * (Math.PI / 180)
+    const nodS = Math.max(NOD_S, this.gestureMin)
+    if (!n || reduced || t - n.t0 > nodS) return 0
+    return Math.sin(((t - n.t0) / nodS) * Math.PI) * NOD_DEG * (Math.PI / 180)
+  }
+
+  /**
+   * The yield / pass cue to draw. In the timelapse (gestureMin > 0) a cue shorter than gestureMin is played slower, and
+   * kept after the planner has dropped it, so it still shows for gestureMin of scene time.
+   */
+  private cue(): NonNullable<Sample['cue']> | null {
+    const live = this.track?.cue ?? null
+    if (this.gestureMin <= 0) return live
+    const t = this.cueT
+    if (live) {
+      if (!this.cueMem || this.cueMem.kind !== live.kind || t - this.cueMem.startT > Math.max(live.dur, this.gestureMin) * 1.01 + 1e-6 || live.age < 0.06)
+        this.cueMem = { kind: live.kind, dur: live.dur, gesture: live.gesture, toward: live.toward, startT: t - live.age }
+      else if (live.toward) this.cueMem.toward = live.toward
+    }
+    const m = this.cueMem
+    if (!m) return null
+    const s = Math.max(1, this.gestureMin / m.dur)
+    const el = t - m.startT
+    if (el >= m.dur * s) {
+      if (!live) this.cueMem = null
+      return null
+    }
+    return { kind: m.kind, age: el / s, dur: m.dur, gesture: m.gesture, toward: m.toward }
   }
 
   /** the angle from the body's heading to the other agent of the current yield / pass cue (positive = to the left) */
   private cueRel(): number {
-    const c = this.track?.cue
+    const c = this.cue()
     if (!c?.toward) return 0
     return wrap(Math.atan2(-(c.toward.x - this.x), -(c.toward.z - this.z)) - this.heading)
   }
 
   /** the designer's yield gestures (agents.md 2.8) as head motion; none with reduced motion (the step aside is the gesture) */
   private cueLook(reduced: boolean): { pitch: number; yaw: number; roll: number } | null {
-    const c = this.track?.cue
+    const c = this.cue()
     if (!c || reduced) return null
     const C = TRAFFIC.cue
     const D = Math.PI / 180
@@ -871,7 +905,7 @@ export class AgentRig {
   private headLook(pose: string, t: number, reduced: boolean, others: Record<string, AgentRig>) {
     const cue = this.cueLook(reduced)
     if (cue) return cue
-    const m = reduced ? 0.3 : 1
+    const m = reduced ? 0.3 : this.ambient
     const s = (f: number, o = 0) => Math.sin(t * f + this.phase + o) * m
     const idle = { pitch: 0, yaw: reduced ? 0 : s(0.35) * 0.25, roll: 0 }
     // looking at something on the desk (the duck): turn toward it and look down at it
@@ -919,7 +953,7 @@ export class AgentRig {
 
   /** each hand's target in the root's frame for this pose */
   private handPose(side: 'l' | 'r', pose: string, t: number, reduced: boolean): HandPose {
-    const m = reduced ? 0.3 : 1
+    const m = reduced ? 0.3 : this.ambient
     const s = (f: number, o = 0) => Math.sin(t * f + this.phase + o) * m
     const sx = side === 'l' ? -1 : 1
     const rest = this.parts.hands[side].restPos
@@ -938,7 +972,7 @@ export class AgentRig {
       return at(sx * (0.16 + (caught ? CAUGHT_OUT : 0)), 1.32 + sit, -0.32, NONE, caught ? PINCH_CURL : WAVE_CURL)
     }
     // the yield gesture: the hand on the passer's side opens palm up in front and sweeps toward them ("after you")
-    const cue = this.track?.cue
+    const cue = this.cue()
     if (cue && !reduced) {
       const C = TRAFFIC.cue
       if (cue.kind === 'yield' && cue.gesture && cue.age >= C.nodFromS && cue.age < C.followFromS && side === (this.cueRel() > 0 ? 'l' : 'r')) {
@@ -954,14 +988,14 @@ export class AgentRig {
       }
     }
     // the addressee's small reaction: the left hand lifts a few cm, its curl as at rest (#141)
-    if (this.nod?.hand && !reduced && side === 'l' && t - this.nod.t0 < NOD_HAND_S) return at(rest.x, rest.y + 0.07, rest.z + 0.1)
+    if (this.nod?.hand && !reduced && side === 'l' && t - this.nod.t0 < Math.max(NOD_HAND_S, this.gestureMin)) return at(rest.x, rest.y + 0.07, rest.z + 0.1)
     switch (pose) {
       case 'move':
         return at(rest.x, rest.y - 0.03, rest.z + 0.08)
       case 'type':
       case 'listen':
         // the fingers type now (#134), not the whole hand: it rests on the keys
-        return at(sx * 0.13, 0.81, -0.42, down, pose === 'type' && !reduced ? typing(t, side, this.phase) : TYPE_CURL)
+        return at(sx * 0.13, 0.81, -0.42, down, pose === 'type' && !reduced && this.ambient > 0 ? typing(t, side, this.phase) : TYPE_CURL)
       case 'talk':
         return at(sx * 0.24, 0.98 + sit + s(3, sx) * 0.05, -0.28, qy(-sx * 0.3), side === 'r' ? POINT_CURL : REST_CURL)
       case 'post':
