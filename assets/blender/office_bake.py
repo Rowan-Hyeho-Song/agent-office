@@ -24,7 +24,7 @@ Node contract (the app reads glTF extras):
                                    All extras wall = n
   slot_<name>                      empties: each object's footprint (#109, extras slot, size, wall); the app ignores them
   agent_<i>                        live "bot" empty on the floor: the agent's frame (front = -z)
-  agent_<i>_head, _hand_l|r, _hand_l|r_index|fingers|thumb, agent_0_postit_<k>
+  agent_<i>_head, _hand_l|r, _hand_l|r_f{1..4}_{1,2,3}, _hand_l|r_t_{1,2}, agent_0_postit_<k>
                                    live "bot": real-time lit parts with pivots (extras pivot_at); fingers bend on local x
   agent_<i>_glow|_beam|_floor, _hand_l|r_cuff, _tip, agent_1_orbit, agent_3_ear_glow, neon_desk_<i>, lamp_shade
                                    live "neon" emitters (hover light, wrist rings, state)
@@ -1195,7 +1195,8 @@ def build_door():
 #   agent_<i>_glow / _beam    thrust ring light / light beam (pivot at its top: the app stretches it in y)
 #   agent_<i>_floor           glow disc on the floor (UV 0..1 so the app can fade its edge)
 #   agent_<i>_hand_l|r        palm, rotated into the rest pose; children: _grip (empty, where a prop attaches)
-#   agent_<i>_hand_l|r_index|fingers|thumb   pivot at the root joint, bend = local x (+ = toward the palm)
+#   agent_<i>_hand_l|r_f{1..4}_{1,2,3}, _t_{1,2}   finger segments (#134), pivot at each root joint, bend = local x
+#                             (+ = toward the palm); _t_1 also opposes about local z
 #   agent_<i>_hand_l|r_cuff   the glowing wrist ring
 # Role parts that move on their own: agent_0_pen (prop), agent_0_postit_0..4, agent_1_orbit, agent_3_ear_glow;
 # agent_3_tip is the spinning loop ring (spin = local y).
@@ -1242,6 +1243,69 @@ def capsule(name, r, length, material, group, square=False):
         return [box(name, (2 * r, length, 2 * r), (0, length / 2, 0), material, group, bev=0.006, seg=1)]
     return [cyl(name, r, length - r, (0, (length - r) / 2, 0), material, group, 8),
             sphere(name, r, (0, length - r, 0), material, group, seg=8, rings=5)]
+
+
+# ---------------------------------------------------------------- hands (#134, docs/design/agents.md 2.7)
+# Hand frame: fingers = local +y, palm face = local +z (toward the body's centre line), back = -z. Right hand: index
+# on +x (the thumb's side); the left hand mirrors x (sx = -1).
+HAND_T = 0.045  # palm thickness
+FINGERS = [  # x at the palm's top edge (right hand), length, width, rest fan (deg, toward the thumb side +)
+    (0.030, 0.058, 0.017, 6.0),  # f1 index
+    (0.010, 0.062, 0.017, 2.0),  # f2 middle
+    (-0.010, 0.055, 0.016, -2.0),  # f3 ring
+    (-0.029, 0.046, 0.014, -6.0),  # f4 little: 4° between neighbours
+]
+SEG_RATIO = (0.45, 0.30, 0.25)
+FINGER_D = 0.016  # finger thickness
+GAP = 0.002  # between segments: the joint pin fills it
+
+
+def hand_palm(shell):
+    """palm 0.086 x 0.086 x 0.045 with rounded corners (r 0.022 seen from the back) and a soft edge, so its back is
+    flat for the panel: a 0.068 x 0.058 plate 1 mm proud with two horizontal panel lines (the band is the cuff's)"""
+    panel = plastic("#e8e3d8", 0.45, 0, 0.05, "hand_panel")
+    line = plastic("#8f8a80", 0.6, 0, 0.1, "hand_panel_line")
+    palm = rounded_slab("palm", 0.086, HAND_T, 0.086, 0.022, (0, 0, 0), shell, "export", seg=4, edge=0.004)
+    palm.rotation_euler = (math.pi / 2, 0, 0)  # the slab's thickness (web y) becomes the hand's z
+    back = -HAND_T / 2
+    parts = [palm, box("back_panel", (0.068, 0.058, 0.002), (0, 0.004, back - 0.001 + 0.0005), panel, "export", bev=0.0008, seg=1)]
+    for y in (0.016, -0.004):
+        parts.append(box("panel_line", (0.06, 0.002, 0.0006), (0, y, back - 0.0016), line, "export"))
+    return parts
+
+
+def hand_fingers(n, Mh, sx, shell, square=False):
+    """four fingers of three segments + a thumb of two, each segment its own node with pivot_at = its root joint
+    (bend = local x, + = toward the palm; the thumb's first segment also opposes about local z). The joint pin sits
+    at the root of each segment and turns with it; the tip segment carries a dark matte pad on its palm side.
+    LOOP (square): keycap-like tip segments (corner 0.006)."""
+    pin_m = plastic("#3a3f48", 0.45, 0.3, 0.05, "joint_pin")
+    pad_m = plastic("#2c3138", 0.9, 0, 0.2, "finger_pad")
+    out = []
+
+    def finger(name, F, lengths, width, depth):
+        joint = 0.0
+        for k, ln in enumerate(lengths):
+            w = width - 0.0006 * k
+            Mk = F @ Mx((0, joint, 0))
+            tip = k == len(lengths) - 1
+            bev = 0.006 if (tip and square) else 0.0015
+            seg_len = ln - GAP if not tip else ln - GAP / 2
+            parts = [box("seg", (w, seg_len, depth), (0, GAP / 2 + seg_len / 2, 0), shell, "export", bev=bev, seg=1),
+                     cyl("pin", 0.0045, w + 0.001, (0, 0, 0), pin_m, "export", 6, axis="x")]
+            if tip:  # the pad: 2/3 of the tip segment on the palm side, 1.5 mm
+                pl = seg_len * 0.67
+                parts.append(box("pad", (w * 0.86, pl, 0.0015), (0, GAP / 2 + seg_len - pl / 2 - 0.0015, depth / 2 + 0.00075), pad_m, "export"))
+            out.append(pivot(join(f"{name}_{k + 1}", place(parts, Mk)), Mk))
+            joint += ln
+
+    for f, (x, length, width, fan) in enumerate(FINGERS, start=1):
+        F = Mh @ Mx((sx * x, 0.043, 0.0)) @ Mx(rz=-sx * math.radians(fan))
+        finger(f"{n}_f{f}", F, [length * r for r in SEG_RATIO], width, FINGER_D)
+    # thumb: root beside the palm's lower corner, 35° out from the finger direction and 20° toward the palm
+    T = Mh @ Mx((sx * 0.04, -0.018, 0.0)) @ Mx(rz=-sx * math.radians(35)) @ Mx(rx=math.radians(20))
+    finger(f"{n}_t", T, [0.026, 0.020], 0.019, 0.017)
+    return out
 
 
 def lowrail(name, pts, r, material, group):
@@ -1395,26 +1459,22 @@ def build_agent(i, agent):
     floor = pivot(apply_all(place(disc(f"agent_{i}_floor", 0.26, soft_glow(col, 0.45, 1.2, f"floor_{i}"), "export"), F0)[0]), F0)
     neon.append(floor)
 
-    # -- hands (glove A: palm + index + three-finger block + thumb), wrist cuff, grip empty
-    square = i == 3
+    # -- hands (#134, agents.md 2.7): palm with a back panel, four fingers of three segments and a two-segment thumb,
+    #    graphite joint pins, dark fingertip pads; wrist cuff + back band (neon), grip empty
     for side, sx in (("l", -1), ("r", 1)):
         Mh = root @ hand_rest(side)
         n = f"agent_{i}_hand_{side}"
-        palm = box("palm", (0.086, 0.086, 0.045), (0, 0, 0), shell, G, bev=0.02, seg=3)
-        bot.append(pivot(join(n, place([palm], Mh)), Mh))
-        Mi = Mh @ Mx((sx * 0.027, 0.022, 0.0))
-        bot.append(pivot(join(f"{n}_index", place(capsule("index", 0.011, 0.07, shell, G, square), Mi)), Mi))
-        Mf = Mh @ Mx((-sx * 0.013, 0.02, 0.0))
-        blk = box("fingers", (0.046, 0.055, 0.04), (0, 0.0275, 0), shell, G, bev=0.006 if square else 0.015, seg=1 if square else 2)
-        bot.append(pivot(join(f"{n}_fingers", place([blk], Mf)), Mf))
-        Mt = Mh @ Mx((sx * 0.04, -0.018, 0.0)) @ Mx(rz=-sx * math.radians(35)) @ Mx(rx=math.radians(20))
-        bot.append(pivot(join(f"{n}_thumb", place(capsule("thumb", 0.012, 0.046, shell, G, square), Mt)), Mt))
+        palm_node = pivot(join(n, place(hand_palm(shell), Mh)), Mh)
+        bot.append(palm_node)
+        bot += hand_fingers(n, Mh, sx, shell, square=i == 3)
         cuff = [tube("cuff", 0.036, 0.023, (0, -0.05, 0), glow_m, "export", 16),
-                cyl("cuff_cap", 0.03, 0.006, (0, -0.06, 0), glow_m, "export", 12)]
+                cyl("cuff_cap", 0.03, 0.006, (0, -0.06, 0), glow_m, "export", 12),
+                # the back band: agent colour like the cuff (HUE's turns with it), on the back panel's lower edge
+                box("back_band", (0.04, 0.005, 0.0012), (0, -0.022, -HAND_T / 2 - 0.0023), glow_m, "export")]
         neon.append(pivot(join(f"{n}_cuff", place(cuff, Mh)), Mh))
         g = bpy.data.objects.new(f"{n}_grip", None)
         coll("export").objects.link(g)
-        g.parent = bot[-4]  # the palm node
+        g.parent = palm_node
         # 1.5 cm toward the fingers: at the palm center a held cup sank into the palm
         g.matrix_world = Matrix.Translation((Mh @ Mx((0, GRIP_Y, 0))).to_translation()) @ root.to_3x3().to_4x4() @ Mx(rx=GRIP_RX)
         g["grip_of"] = side
@@ -1641,12 +1701,37 @@ def move_agent(i, x, z, ry):
     bpy.context.view_layer.update()
 
 
-def curl(i, side, index=0.0, fingers=0.0, thumb=0.0):
-    """bend fingers about their local x (+ = toward the palm), degrees"""
-    for part, deg in (("index", index), ("fingers", fingers), ("thumb", thumb)):
-        o = bpy.data.objects[f"agent_{i}_hand_{side}_{part}"]
-        o.matrix_world = o.matrix_world @ Mx(rx=math.radians(deg))
+HAND_REST_M = {}  # node name -> its exported (straight) world matrix, for the preview poses
+
+
+def pose(i, side, c=(0.0, 0.0, 0.0, 0.0), thumb=(0.0, 0.0)):
+    """the designer's hand poses (agents.md 2.7, preview only): one bend value c per finger; segment angles are
+    root 75°·c, middle 90°·c, tip 60°·c about local x. thumb = (bend, opposition): first segment 55°·bend about x
+    and 60°·opposition about z (toward the palm), second 70°·bend. c = 0 is the exported straight hand."""
+    sx = -1 if side == "l" else 1
+    n = f"agent_{i}_hand_{side}"
+
+    palm = bpy.data.objects[n].matrix_world.copy()
+
+    def chain(prefix, angles):
+        names = [f"{prefix}_{k + 1}" for k in range(len(angles))]
+        for nm in names:  # rest = the straight segment relative to its palm (agents move between shots)
+            HAND_REST_M.setdefault(nm, palm.inverted() @ bpy.data.objects[nm].matrix_world)
+        M = None
+        for k, (nm, R) in enumerate(zip(names, angles)):
+            rest = palm @ HAND_REST_M[nm]
+            M = rest @ R if k == 0 else M @ (HAND_REST_M[names[k - 1]].inverted() @ HAND_REST_M[nm]) @ R
+            bpy.data.objects[nm].matrix_world = M
+
+    for f, cf in enumerate(c, start=1):
+        chain(f"{n}_f{f}", [Mx(rx=math.radians(a * cf)) for a in (75, 90, 60)])
+    b, o = thumb
+    chain(f"{n}_t", [Mx(rz=sx * math.radians(60 * o)) @ Mx(rx=math.radians(55 * b)), Mx(rx=math.radians(70 * b))])
     bpy.context.view_layer.update()
+
+
+GRIP_POSE = ((0.85, 0.88, 0.90, 0.92), (0.7, 1.0))
+REST_POSE = ((0.25, 0.25, 0.30, 0.35), (0.2, 0.0))
 
 
 def preview_glow_materials():
@@ -1824,27 +1909,46 @@ if PREVIEW:
     # 2) holding props by their #20 grip offsets on the new _grip empties (preview-only poses)
     saved = {n: bpy.data.objects[n].matrix_world.copy() for n in ("prop_paddle_a", "prop_cup_1")}
     hold(0, "r", "prop_paddle_a")
-    curl(0, "r", 70, 80, 40)
+    pose(0, "r", *GRIP_POSE)
     shoot("hold_paddle", (1.15, 1.15, 1.9), (0.45, 0.85, 1.2))
     hold(3, "r", "prop_cup_1", upright=True)
-    curl(3, "r", 60, 70, 30)
+    pose(3, "r", *GRIP_POSE)
     shoot("hold_cup", (1.15, 1.05, -2.6), (0.6, 0.86, -2.1))
     for n, M in saved.items():
         bpy.data.objects[n].matrix_world = M
-    curl(0, "r", -70, -80, -40)
-    curl(3, "r", -60, -70, -30)
-    # 3) the four in a row: front, back, at work
+    # 3) the four in a row: front, back, at work — hands in the designer's rest pose (#134)
+    for i in range(len(AGENTS)):
+        for s in "lr":
+            pose(i, s, *REST_POSE)
     XS = (-1.05, -0.35, 0.35, 1.05)
     LZ = -0.9
     for i, x in enumerate(XS):
         move_agent(i, x, LZ, math.pi)
     shoot("agents_front", (0, 1.45, 2.75), (0, 0.78, LZ))
     shoot("hands_rest", (XS[1], 1.05, -0.05), (XS[1], 0.87, LZ))
-    curl(3, "r", 0, 100, 60)  # pointing
-    curl(3, "l", 100, 100, 50)  # fist
+
+    def hand_close(name, i, side, back=True):
+        """close-up of one hand along its palm normal (back = from the back panel's side)"""
+        M = bpy.data.objects[f"agent_{i}_hand_{side}"].matrix_world
+        c = M.to_translation()
+        nz = (M.to_3x3() @ Vector((0, -1, 0))).normalized()  # the palm normal: hand web +z = Blender local -Y (basis())
+        cam_b = c + nz * (-0.3 if back else 0.2) + Vector((0, 0, 0.05))
+        shoot(name, (cam_b.x, cam_b.z, -cam_b.y), (c.x, c.z, -c.y))
+
+    # the outer hands of the lineup (MEMO right, LOOP left): an inner hand has the neighbour's hand in front of it
+    hand_close("hand_back_rest", 0, "r")
+    hand_close("hand_palm_rest", 0, "r", back=False)
+    pose(0, "r", *GRIP_POSE)
+    hand_close("hand_grip", 0, "r", back=False)
+    pose(0, "r", (0.0, 0.9, 0.92, 0.95), (0.6, 0.6))
+    hand_close("hand_point", 0, "r")
+    pose(0, "r", *REST_POSE)
+    hand_close("hand_loop_back", 3, "l")
+    pose(3, "r", (0.0, 0.9, 0.92, 0.95), (0.6, 0.6))  # pointing
+    pose(3, "l", *GRIP_POSE)  # grip / fist
     shoot("hands_pose", (XS[3], 1.05, -0.05), (XS[3], 0.87, LZ))
-    curl(3, "r", 0, -100, -60)
-    curl(3, "l", -100, -100, -50)
+    pose(3, "r", *REST_POSE)
+    pose(3, "l", *REST_POSE)
     for i, x in enumerate(XS):
         move_agent(i, x, LZ, 0.0)
     shoot("agents_back", (0, 1.45, 2.75), (0, 0.78, LZ))
