@@ -39,6 +39,10 @@ const EXIT_DEPTH = 0.9
 const EXIT = '__exit'
 /** hand spring (#28: critically damped, ω ≈ 12 → about 0.12 s behind the head) */
 const HAND_OMEGA = 12
+/** finger bends ease at this rate (1/s): ~95 % of a change in 120 ms (agents.md 2.7) */
+const FINGER_RATE = 25
+const X_AXIS = new Vector3(1, 0, 0)
+const Z_AXIS = new Vector3(0, 0, 1)
 const PROP_OMEGA = 14
 /** the planner's sticky notes shown (#28: = open issues, fixed until the count is wired, #44) */
 const POSTITS = 3
@@ -51,12 +55,19 @@ const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a))
 const damp = MathUtils.damp
 const UP = new Vector3(0, 1, 0)
 
+/** one finger joint (#134): the node and its rest rotation in its parent (bends are applied on top of it) */
+export interface Joint {
+  node: Object3D
+  rest: Quaternion
+}
+
 export interface Hand {
   node: Object3D
   grip: Object3D | undefined
-  index: Object3D | undefined
-  fingers: Object3D | undefined
-  thumb: Object3D | undefined
+  /** f[finger][knuckle]: index … little, root … tip (agent_i_hand_*_f{1..4}_{1,2,3}); missing nodes are null */
+  fingers: (Joint | null)[][]
+  /** the thumb's two segments (agent_i_hand_*_t_{1,2}) */
+  thumb: (Joint | null)[]
   /** the index and thumb tips in their own part's frame (the vertex farthest from the pivot), for the pinch */
   indexTip: Vector3 | null
   thumbTip: Vector3 | null
@@ -204,15 +215,27 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
   const rootQuatInv = root.getWorldQuaternion(new Quaternion()).invert()
   const hand = (side: 'l' | 'r'): Hand => {
     const node = n(`_hand_${side}`)
-    for (const s of ['_index', '_fingers', '_thumb', '_cuff']) if (n(`_hand_${side}${s}`)) node.attach(n(`_hand_${side}${s}`))
+    if (n(`_hand_${side}_cuff`)) node.attach(n(`_hand_${side}_cuff`))
+    // the finger chains (#134, Blender #148): each segment hangs off the one before, the first off the palm
+    const chain = (names: string[]): (Joint | null)[] => {
+      let parent = node
+      return names.map((s) => {
+        const part = n(`_hand_${side}_${s}`)
+        if (!part) return null
+        parent.attach(part)
+        parent = part
+        return { node: part, rest: part.quaternion.clone() }
+      })
+    }
+    const fingers = [1, 2, 3, 4].map((f) => chain([1, 2, 3].map((k) => `f${f}_${k}`)))
+    const thumb = chain(['t_1', 't_2'])
     return {
       node,
       grip: n(`_hand_${side}_grip`),
-      index: n(`_hand_${side}_index`),
-      fingers: n(`_hand_${side}_fingers`),
-      thumb: n(`_hand_${side}_thumb`),
-      indexTip: tipOf(n(`_hand_${side}_index`)),
-      thumbTip: tipOf(n(`_hand_${side}_thumb`)),
+      fingers,
+      thumb,
+      indexTip: tipOf(fingers[0][2]?.node),
+      thumbTip: tipOf(thumb[1]?.node),
       restPos: root.worldToLocal(node.getWorldPosition(new Vector3())),
       restQuat: rootQuatInv.clone().multiply(node.getWorldQuaternion(new Quaternion())),
       vel: new Vector3(),
@@ -405,34 +428,82 @@ interface HandPose {
   pos: Vector3
   /** extra rotation in the root's frame, applied before the rest rotation */
   turn: Quaternion
-  /** finger curls (+ = toward the palm); iz / tz turn the index / thumb sideways (the pinch) */
+  /** how the fingers bend */
   curl: HandShape
 }
 
+/**
+ * A hand shape (agents.md 2.7, #134): one bend value c per finger, index … little (0 = straight, 1 = fully bent; the
+ * knuckles turn root 75°·c, middle 90°·c, tip 60°·c toward the palm), and the thumb's bend and opposition (its root
+ * turns toward the palm by 60°·opposition; a negative one opens it outward, 메시's frame).
+ */
 export interface HandShape {
-  index: number
-  fingers: number
-  thumb: number
-  iz?: number
-  tz?: number
+  f: readonly [number, number, number, number]
+  thumb: readonly [bend: number, oppose: number]
 }
+
+const DEG = Math.PI / 180
+/** degrees per unit of c at the root, middle and tip knuckle */
+export const KNUCKLE_DEG = [75, 90, 60] as const
+/** the thumb: root bend, root opposition (about local z), tip bend, degrees per unit */
+export const THUMB_DEG = { bend1: 55, oppose: 60, bend2: 70 } as const
+
+/** the knuckle angles of a shape (radians): f[finger][knuckle] about local x; the thumb's root x / z and tip x */
+export function jointAngles(shape: HandShape, side: 'l' | 'r') {
+  const sx = side === 'l' ? -1 : 1
+  return {
+    f: shape.f.map((c) => KNUCKLE_DEG.map((d) => d * DEG * c)),
+    t1x: THUMB_DEG.bend1 * DEG * shape.thumb[0],
+    t1z: sx * THUMB_DEG.oppose * DEG * shape.thumb[1],
+    t2x: THUMB_DEG.bend2 * DEG * shape.thumb[0],
+  }
+}
+
+type Four = [number, number, number, number]
+const shape = (f: Four, thumb: [number, number]): HandShape => ({ f, thumb })
 
 const v = (x: number, y: number, z: number) => new Vector3(x, y, z)
 const qz = (a: number) => new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), a)
 const qy = (a: number) => new Quaternion().setFromAxisAngle(UP, a)
 const NONE = new Quaternion()
-const REST_CURL = { index: 0.15, fingers: 0.25, thumb: 0.1 }
-const HOLD_CURL = { index: 1.2, fingers: 1.35, thumb: 0.8 }
+/** the nine shapes of agents.md 2.7 (#134) */
+const REST_CURL = shape([0.25, 0.25, 0.3, 0.35], [0.2, 0])
+const TYPE_CURL = shape([0.35, 0.35, 0.35, 0.4], [0.3, 0.2])
+const HOLD_CURL = shape([0.85, 0.88, 0.9, 0.92], [0.7, 1])
 /**
- * thumb and index tips meet (#62). The glove's thumb is short and curls on the same axis as the index, so the
- * index folds well over (136°) onto the thumb pad and both turn in a little: an 'OK' ring, read as a pinch. The
- * other three fingers only half bend so they don't cover what's held. Angles from a search over the hand parts.
+ * the index and thumb tips meet (#62). Measured on the #148 hand: the table's values (index 0.55, thumb 0.6 / 0.9)
+ * leave the tips 5.9 cm apart; a fully bent index onto a straight, opposed thumb closes them to 5 mm (a search over
+ * index 0.2–1 × thumb bend 0–1.5 × opposition 0–1.5). The other three stay loose as at rest: an "OK" hand, not a fist
+ * (designer, #154), and they keep clear of the paper plane's wings.
  */
-const PINCH_CURL: HandShape = { index: 2.38, fingers: 0.8, thumb: 1.72, iz: -0.4, tz: -0.3 }
+const PINCH_CURL = shape([0.9, 0.25, 0.3, 0.35], [0, 0.7])
+const POINT_CURL = shape([0, 0.9, 0.92, 0.95], [0.6, 0.6])
+const WAVE_CURL = shape([0, 0, 0.02, 0.05], [0.1, 0])
+const FRAME_CURL = shape([0, 0.92, 0.94, 0.96], [0, -0.85])
+const STAMP_CURL = shape([0.1, 0.1, 0.1, 0.1], [0.1, 0])
+const YIELD_CURL = shape([0.05, 0.08, 0.1, 0.12], [0.15, 0])
+/** a loose hand (sofa, reading, the board-game hand at rest): between rest and hold */
+const LOOSE_CURL = shape([0.45, 0.5, 0.55, 0.6], [0.3, 0.2])
+/** typing (agents.md 2.7): each finger alternates 0.35 ↔ 0.5 four times a second, out of step with its neighbours */
+function typing(t: number, side: 'l' | 'r', phase: number): HandShape {
+  const o = side === 'l' ? 0 : Math.PI / 4
+  const f = TYPE_CURL.f.map((c, k) => c + 0.15 * (0.5 + 0.5 * Math.sin(t * Math.PI * 8 + phase + o + k * Math.PI * 0.5))) as Four
+  return shape(f, [TYPE_CURL.thumb[0], TYPE_CURL.thumb[1]])
+}
 /** how far the hand holding a caught plane moves out from the head's centre line, m (designer, #62) */
 const CAUGHT_OUT = 0.055
 /** named hand shapes, for anything that holds something (the plane's catch; later 휴's dropper, 메시's vertex pick) */
-export const HAND_SHAPES = { rest: REST_CURL, hold: HOLD_CURL, pinch: PINCH_CURL } as const satisfies Record<string, HandShape>
+export const HAND_SHAPES = {
+  rest: REST_CURL,
+  type: TYPE_CURL,
+  hold: HOLD_CURL,
+  pinch: PINCH_CURL,
+  point: POINT_CURL,
+  wave: WAVE_CURL,
+  frame: FRAME_CURL,
+  stamp: STAMP_CURL,
+  yield: YIELD_CURL,
+} as const satisfies Record<string, HandShape>
 /** how long the paper plane's gestures last, seconds (#51) */
 export const GESTURE_S = { throw: 0.7, catch: 1.6 }
 
@@ -479,7 +550,8 @@ export class AgentRig {
   /** 0 → 1 while dozing (#110): lowers the head, dims the beam */
   private dozing = 0
   private look = { pitch: 0, yaw: 0, roll: 0 }
-  private curls: Record<'l' | 'r', Required<HandShape>> = { l: { ...REST_CURL, iz: 0, tz: 0 }, r: { ...REST_CURL, iz: 0, tz: 0 } }
+  /** the current bends per hand (eased toward the pose's shape): four fingers, then the thumb's bend and opposition */
+  private curls: Record<'l' | 'r', number[]> = { l: [...REST_CURL.f, ...REST_CURL.thumb], r: [...REST_CURL.f, ...REST_CURL.thumb] }
   private spin = { orbit: 0, ring: 0 }
   private blinkAt = 0
   /** what it is holding this frame (read by the PropBank) */
@@ -839,7 +911,7 @@ export class AgentRig {
     if (g?.kind === 'catch' && (side === 'r' || !g.oneHand)) {
       // once caught, the pinching hand moves out a little so it doesn't cover the face screen (its reaction shows)
       const caught = side === 'r' && g.caught
-      return at(sx * (0.16 + (caught ? CAUGHT_OUT : 0)), 1.32 + sit, -0.32, NONE, caught ? PINCH_CURL : { index: 0.1, fingers: 0.3, thumb: 0.2 })
+      return at(sx * (0.16 + (caught ? CAUGHT_OUT : 0)), 1.32 + sit, -0.32, NONE, caught ? PINCH_CURL : WAVE_CURL)
     }
     // the yield gesture: the hand on the passer's side opens palm up in front and sweeps toward them ("after you")
     const cue = this.track?.cue
@@ -848,25 +920,24 @@ export class AgentRig {
       if (cue.kind === 'yield' && cue.gesture && cue.age >= C.nodFromS && cue.age < C.followFromS && side === (this.cueRel() > 0 ? 'l' : 'r')) {
         const k = (cue.age - C.nodFromS) / (C.followFromS - C.nodFromS)
         const sweep = Math.sin(k * Math.PI * 0.5 + 0.0) * C.handSweepM * (k < 0.7 ? k / 0.7 : 1)
-        return at(sx * (0.2 + sweep), 1.0 + sit, -0.15 - C.handForwardM, NONE, { index: 0, fingers: 0, thumb: C.handThumb })
+        return at(sx * (0.2 + sweep), 1.0 + sit, -0.15 - C.handForwardM, NONE, YIELD_CURL)
       }
       if (cue.kind === 'dest' && side === 'r') {
-        // a small impatient tap every 1.5 s: index, then the finger lump
-        const ph = (cue.age % C.destTapEveryS) / 0.4
-        const pulse = ph < 1 ? Math.sin(ph * Math.PI) * C.destTapCurl : 0
-        return at(rest.x, rest.y + 0.02, rest.z + 0.1, NONE, { index: REST_CURL.index + (ph < 0.5 ? pulse : 0), fingers: REST_CURL.fingers + (ph >= 0.5 ? pulse : 0), thumb: REST_CURL.thumb })
+        // a small impatient tap every 1.5 s: the fingers in turn, index to little, 0.1 s each (agents.md 2.8)
+        const ph = (cue.age % C.destTapEveryS) / 0.1
+        const f = REST_CURL.f.map((c, k) => c + (ph >= k && ph < k + 1 ? Math.sin((ph - k) * Math.PI) * C.destTapCurl : 0)) as Four
+        return at(rest.x, rest.y + 0.02, rest.z + 0.1, NONE, shape(f, [REST_CURL.thumb[0], REST_CURL.thumb[1]]))
       }
     }
     switch (pose) {
       case 'move':
         return at(rest.x, rest.y - 0.03, rest.z + 0.08)
       case 'type':
-      case 'listen': {
-        const tap = pose === 'type' ? Math.max(0, s(14, side === 'l' ? 0 : 1.6)) * 0.02 : 0
-        return at(sx * 0.13, 0.81 + tap, -0.42, down, { index: 0.5 + tap * 15, fingers: 0.6, thumb: 0.2 })
-      }
+      case 'listen':
+        // the fingers type now (#134), not the whole hand: it rests on the keys
+        return at(sx * 0.13, 0.81, -0.42, down, pose === 'type' && !reduced ? typing(t, side, this.phase) : TYPE_CURL)
       case 'talk':
-        return at(sx * 0.24, 0.98 + sit + s(3, sx) * 0.05, -0.28, qy(-sx * 0.3), side === 'r' ? { index: 0, fingers: 1.3, thumb: 0.6 } : REST_CURL)
+        return at(sx * 0.24, 0.98 + sit + s(3, sx) * 0.05, -0.28, qy(-sx * 0.3), side === 'r' ? POINT_CURL : REST_CURL)
       case 'post':
         return side === 'r' ? at(0.12, 1.42 + s(2.5) * 0.03, -0.32, qz(0.4), HOLD_CURL) : at(rest.x, rest.y, rest.z)
       case 'pingpong':
@@ -877,7 +948,7 @@ export class AgentRig {
         const reach = Math.max(0, s(1.4)) ** 4
         return side === 'r'
           ? at(0.1 - reach * 0.06, 0.84 + reach * 0.04, -0.34 - reach * 0.12, down, HOLD_CURL)
-          : at(-0.16, 0.8, -0.3, down, { index: 0.4, fingers: 0.5, thumb: 0.2 })
+          : at(-0.16, 0.8, -0.3, down, LOOSE_CURL)
       }
       case 'coffee':
         return side === 'l'
@@ -885,13 +956,13 @@ export class AgentRig {
           : at(rest.x, rest.y, rest.z)
       case 'doze':
         // both palms flat on the desk either side of the keyboard
-        return at(sx * DOZE.hands.x, SURFACE.work + DOZE.hands.aboveDeskM, DOZE.hands.z, down, REST_CURL)
+        return at(sx * DOZE.hands.x, SURFACE.work + DOZE.hands.aboveDeskM, DOZE.hands.z, down, STAMP_CURL)
       case 'sofa':
-        return at(sx * 0.22, 0.62, -0.08, down, { index: 0.6, fingers: 0.7, thumb: 0.3 })
+        return at(sx * 0.22, 0.62, -0.08, down, LOOSE_CURL)
       case 'water':
         return side === 'r' ? at(0.16, 0.86 + s(1.2) * 0.02, -0.42, NONE, HOLD_CURL) : at(rest.x, rest.y, rest.z)
       case 'books':
-        return side === 'r' ? at(0.14, 1.3 + Math.max(0, s(0.6)) * 0.12, -0.4, qz(0.3), { index: 0.2, fingers: 0.4, thumb: 0.2 }) : at(rest.x, rest.y, rest.z)
+        return side === 'r' ? at(0.14, 1.3 + Math.max(0, s(0.6)) * 0.12, -0.4, qz(0.3), LOOSE_CURL) : at(rest.x, rest.y, rest.z)
       default:
         return at(rest.x, rest.y + s(1.1, sx) * 0.01, rest.z)
     }
@@ -900,10 +971,12 @@ export class AgentRig {
   /** where a hand's index and thumb tips meet, in world space (the hand itself if it has no tips) */
   pinchPoint(side: 'l' | 'r', out = new Vector3()) {
     const h = this.parts.hands[side]
-    if (!h.index || !h.thumb || !h.indexTip || !h.thumbTip) return h.node.getWorldPosition(out)
+    const index = h.fingers[0][2]?.node
+    const thumb = h.thumb[1]?.node
+    if (!index || !thumb || !h.indexTip || !h.thumbTip) return h.node.getWorldPosition(out)
     h.node.updateWorldMatrix(true, true)
-    out.copy(h.indexTip).applyMatrix4(h.index.matrixWorld)
-    return out.add(this.tmpTip.copy(h.thumbTip).applyMatrix4(h.thumb.matrixWorld)).multiplyScalar(0.5)
+    out.copy(h.indexTip).applyMatrix4(index.matrixWorld)
+    return out.add(this.tmpTip.copy(h.thumbTip).applyMatrix4(thumb.matrixWorld)).multiplyScalar(0.5)
   }
 
   /** where a hand's fingers point, flattened to the floor (the way the agent faces if they point straight up / down) */
@@ -916,6 +989,8 @@ export class AgentRig {
   }
 
   private tmpTip = new Vector3()
+  private tmpBend = new Quaternion()
+  private tmpBend2 = new Quaternion()
   private tmpQuat2 = new Quaternion()
   private tmpPos = new Vector3()
   private tmpQuat = new Quaternion()
@@ -953,15 +1028,16 @@ export class AgentRig {
         }
         hand.node.quaternion.slerp(this.tmpQuat, k)
       }
+      // blend the bends over ~120 ms (agents.md 2.7); at once with reduced motion
       const c = this.curls[side]
-      c.index = damp(c.index, p.curl.index, 10, dt)
-      c.fingers = damp(c.fingers, p.curl.fingers, 10, dt)
-      c.thumb = damp(c.thumb, p.curl.thumb, 10, dt)
-      c.iz = damp(c.iz, p.curl.iz ?? 0, 10, dt)
-      c.tz = damp(c.tz, p.curl.tz ?? 0, 10, dt)
-      if (hand.index) hand.index.rotation.set(c.index, 0, c.iz)
-      if (hand.fingers) hand.fingers.rotation.x = c.fingers
-      if (hand.thumb) hand.thumb.rotation.set(c.thumb, 0, c.tz)
+      const want = [...p.curl.f, ...p.curl.thumb]
+      for (let k = 0; k < c.length; k++) c[k] = reduced || this.snapHands ? want[k] : damp(c[k], want[k], FINGER_RATE, dt)
+      const a = jointAngles(shape([c[0], c[1], c[2], c[3]], [c[4], c[5]]), side)
+      hand.fingers.forEach((chain, f) => chain.forEach((j, k) => j?.node.quaternion.copy(j.rest).multiply(this.tmpBend.setFromAxisAngle(X_AXIS, a.f[f][k]))))
+      const [t1, t2] = hand.thumb
+      // the thumb's root: opposition (local z), then the bend (local x): Rz · Rx
+      t1?.node.quaternion.copy(t1.rest).multiply(this.tmpBend.setFromAxisAngle(Z_AXIS, a.t1z)).multiply(this.tmpBend2.setFromAxisAngle(X_AXIS, a.t1x))
+      t2?.node.quaternion.copy(t2.rest).multiply(this.tmpBend.setFromAxisAngle(X_AXIS, a.t2x))
     }
     this.snapHands = false
   }
