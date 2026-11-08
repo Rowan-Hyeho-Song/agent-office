@@ -20,6 +20,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.119.0
         version: 2.119.0
+      galmuri:
+        specifier: 2.40.3
+        version: 2.40.3
       postprocessing:
         specifier: ^6.39.6
         version: 6.39.6(three@0.187.0)
@@ -546,6 +549,9 @@ packages:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
+
+  galmuri@2.40.3:
+    resolution: {integrity: sha512-eXflXih1AWy2J+jWeT5sGVj4PUCb1bMK7lnwKDKMzEd3lx+F6myuxqp6c0eZlD7EMXOicUYaM+FH7DAoQ7mWbw==}
 
   glsl-noise@0.0.0:
     resolution: {integrity: sha512-b/ZCF6amfAUb7dJM/MxRs7AetQEahYzJ8PtgfrmEdtw6uyGOr+ZSGtgjFm6mfsBkxJ4d2W7kg+Nlqzqvn3Bc0w==}
@@ -1348,6 +1354,8 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
+
+  galmuri@2.40.3: {}
 
   glsl-noise@0.0.0: {}
 

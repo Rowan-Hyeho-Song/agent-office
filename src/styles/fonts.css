@@ -1,0 +1,15 @@
+/* Galmuri11: pixel font with Korean, SIL Open Font License 1.1 (c) Lee Minseo, https://galmuri.quiple.dev
+   Self-hosted from the galmuri npm package like the desk room (rowansong.dev src/styles/global.css); only the two
+   weights the office uses (tokens.css --font-pixel). */
+@font-face {
+  font-family: 'Galmuri11';
+  font-weight: 400;
+  font-display: swap;
+  src: url('../../node_modules/galmuri/dist/Galmuri11.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Galmuri11';
+  font-weight: 700;
+  font-display: swap;
+  src: url('../../node_modules/galmuri/dist/Galmuri11-Bold.woff2') format('woff2');
+}

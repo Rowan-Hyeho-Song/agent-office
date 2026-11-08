@@ -316,3 +316,45 @@ describe('two quick clicks (#48)', () => {
     expect((await handle(post({ id: 7, result: '선택지 1' }), stale, NOW)).status).toBe(200)
   })
 })
+
+describe('an opinion is required where it sends the agent back (#64)', () => {
+  const publish = (d: ReturnType<typeof deps>) => d.approval.mockImplementation(async () => approval({ kind: '문서 공개', options: [] }))
+  const review = (d: ReturnType<typeof deps>) => d.approval.mockImplementation(async () => approval({ kind: '산출물 확인', options: [] }))
+
+  it.each([
+    ['문서 공개', '계속 SECRET', undefined],
+    ['문서 공개', '계속 SECRET', ''],
+    ['문서 공개', '계속 SECRET', ' \n\t '],
+    ['문서 공개', '고쳐서 공개', '   '],
+    ['산출물 확인', '반려', undefined],
+    ['산출물 확인', '반려', '   '],
+    ['결정 요청', '반려', ' \n '],
+  ])('%s · %s with opinion %j → 400, nothing posted, row never locked', async (kind, result, opinion) => {
+    const d = deps()
+    if (kind === '문서 공개') publish(d)
+    else if (kind === '산출물 확인') review(d)
+    const res = await handle(post({ id: 7, result, opinion }), d, NOW)
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'opinion required' })
+    expect(d.lock).not.toHaveBeenCalled()
+    expect(d.comment).not.toHaveBeenCalled()
+    expect(d.decide).not.toHaveBeenCalled()
+  })
+
+  it('계속 SECRET with an opinion goes through', async () => {
+    const d = deps()
+    publish(d)
+    const res = await handle(post({ id: 7, result: '계속 SECRET', opinion: '고객 이름이 들어 있어요' }), d, NOW)
+    expect(res.status).toBe(200)
+    expect(d.comment).toHaveBeenCalledTimes(1)
+  })
+
+  it('공개 and 승인 need none', async () => {
+    const d = deps()
+    publish(d)
+    expect((await handle(post({ id: 7, result: '공개' }), d, NOW)).status).toBe(200)
+    const e = deps()
+    review(e)
+    expect((await handle(post({ id: 7, result: '승인' }), e, NOW)).status).toBe(200)
+  })
+})

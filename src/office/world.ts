@@ -1,5 +1,9 @@
 // The office's shared runtime state: one per page. The 3D scene writes it every frame, the debug panel reads it.
 
+import type { ApprovalSource } from '../approvals/source'
+import { FakeApprovalSource } from '../approvals/fakeSource'
+import { supabaseSource } from './approval/supabaseSource'
+import { openApprovalBox } from './approval/panel'
 import { Director, type Goal } from './director'
 import { LiveStatusSource } from './liveStatus'
 import type { NavGraph } from './nav'
@@ -31,6 +35,10 @@ export interface OfficeWorld {
   /** the LIVE desk props' other inputs (#44); fakeProps is set alongside fake */
   props: PropsFeed
   fakeProps: FakePropsFeed | null
+  /** the approval box data (#64): Supabase, the debug fake, or null when the office is not configured */
+  approvals: ApprovalSource | null
+  /** set when approvals is the debug fake: window.__office.fakeApprovals.as('owner' | 'visitor'), .failNext(), .open() */
+  fakeApprovals: FakeApprovalSource | null
   director: Director
   /** debug only: shifts the play clock to preview later schedules */
   timeOffsetMs: number
@@ -53,8 +61,22 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
   const live = supabase && (!debug || query.has('live')) ? new LiveStatusSource(supabase, AGENTS) : null
   const fake = live ? null : new FakeStatusSource(AGENTS)
   const fakeProps = live ? null : new FakePropsFeed()
+  // the fake only under ?debug=1 (and not &live): the shipped page never gets it
+  const fakeApprovals = debug && !(live && supabase) ? new FakeApprovalSource() : null
+  const approvals = fakeApprovals ?? (supabase ? supabaseSource(supabase) : null)
+  if (fakeApprovals) {
+    fakeApprovals.openPanel = openApprovalBox
+    // ?debug=1&approvals=owner|visitor: start in that view with the panel open
+    const as = query.get('approvals')
+    if (as === 'owner' || as === 'visitor') {
+      fakeApprovals.as(as)
+      openApprovalBox()
+    }
+  }
   return {
     debug,
+    approvals,
+    fakeApprovals,
     source: (live ?? fake)!,
     fake,
     live,
