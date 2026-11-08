@@ -99,6 +99,7 @@ SOFA = (2.2, 2.6)
 GAME_TABLE = (-1.6, 2.2)
 SIDE_TABLE = (0.3, 2.6)  # a small round table in the open front middle (designer, #109): visitors' snacks and cheers later
 COUNTER = (HX - 0.32, -2.0, math.pi)  # against the right wall, its front (local +x) facing the room
+COFFEE_BUTTON = (0.146, 1.2, -0.02)  # #164: the brew button face, counter frame (front = local +x)
 SHELF_X = 3.75
 SHELF_W, SHELF_D = 1.1, 0.34  # the bookshelf against the back wall: width, depth
 PLANTS = [  # name, species, x, z (#126: one species each, office-quality.md 3; plant_boards left out, designer)
@@ -650,8 +651,7 @@ def desk_props_hue(G):
     s.append(cyl("fan_pin", 0.006, 0.02, (fx, h + 0.018, fz), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G, 10, axis="z"))
     # 2 pen tablet in the mouse spot (baked) + live active-area outline (glows while HUE edits)
     bx, bz = 0.36, 0.06
-    s += [rounded_slab("tablet", 0.20, 0.012, 0.14, 0.012, (bx, h + 0.006, bz), plastic("#22252c", 0.5, 0.1, 0.05, "tablet"), G),
-          segment("tablet_pen", (bx + 0.075, h + 0.017, bz - 0.06), (bx + 0.085, h + 0.017, bz + 0.065), 0.005, plastic("#1a1c21", 0.4, 0.2, 0, "pen_dark"), G, verts=10, r2=0.003)]
+    s += [rounded_slab("tablet", 0.20, 0.012, 0.14, 0.012, (bx, h + 0.006, bz), plastic("#22252c", 0.5, 0.1, 0.05, "tablet"), G)]  # its pen is prop_tablet_pen (#164)
     mag = emitter(AGENTS[2]["color"], 2.0, "tablet_area")
     aw, ad, t = 0.13, 0.09, 0.003
     area = [box("area", (aw, 0.001, t), (0, 0, -ad / 2), mag, "export"), box("area", (aw, 0.001, t), (0, 0, ad / 2), mag, "export"),
@@ -917,8 +917,7 @@ def build_wall_items():
          box("wb", (1.5, 1.0, 0.02), (wbx, 1.5, z + 0.01), board, G),
          box("wb_tray", (1.3, 0.025, 0.06), (wbx, 0.985, z + 0.03), frame_m, G)]
     # the cards and the visitor notes are the app's (surface_whiteboard / surface_bulletin): the boards stay empty
-    for k, col in enumerate(("#1f6feb", "#d64545", "#111111")):
-        p.append(cyl("marker", 0.008, 0.12, (wbx - 0.35 + k * 0.05, 1.0, z + 0.04), plastic(col, 0.4, 0, 0, f"marker_{k}"), G, 10, axis="x"))
+    # the markers on the tray are props (prop_marker_<k>, #164: MEMO writes with them)
     fp("whiteboard", p, "wall", "n")
     # bulletin board for visitor notes
     p += [box("cork_frame", (0.86, 0.96, 0.03), (BULLETIN_X, 1.45, z), plastic("#5a3d26", 0.6, 0, 0.3, "cork_frame"), G, bev=0.006),
@@ -1680,7 +1679,10 @@ def build_lounge():
     c += [box("counter", (0.6, 0.9, 0.7), (0, 0.45, 0), plastic("#2b2f3a", 0.6, 0, 0.2, "counter"), G, bev=0.01),
           box("counter_top", (0.64, 0.04, 0.74), (0, 0.92, 0), plastic("#e8e4dc", 0.3, 0, 0.3, "counter_top"), G, bev=0.006),
           box("machine", (0.28, 0.36, 0.3), (0, 1.12, -0.12), plastic("#1b1d22", 0.35, 0.6, 0.05, "machine"), G, bev=0.02),
-          box("spout", (0.06, 0.05, 0.08), (0.12, 1.02, -0.12), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G)]
+          box("spout", (0.06, 0.05, 0.08), (0.12, 1.02, -0.12), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G),
+          # #164: the brew button the index presses (coffee_button_contact_index), a chrome ring round it
+          cyl("coffee_btn", 0.011, 0.006, (COFFEE_BUTTON[0] - 0.003, COFFEE_BUTTON[1], COFFEE_BUTTON[2]), plastic("#2a2d33", 0.5, 0, 0.1, "coffee_btn"), G, 20, axis="x", bev=0.0015),
+          torus("coffee_btn_ring", 0.0125, 0.0015, (0.1405, COFFEE_BUTTON[1], COFFEE_BUTTON[2]), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G, axis="x", seg=20, rseg=6)]
     # the cup under the spout and one beside it are props (build_props); the stack stays baked
     for k in range(3):
         c.append(cyl("cup", 0.035, 0.08, (0.05, 0.98 + k * 0.08, 0.2), plastic("#f4f4f0", 0.4, 0, 0, "cup"), G, 16, r2=0.03))
@@ -1715,6 +1717,70 @@ def build_lounge():
 # cup and watering-can handle; ball and pieces at their center), exported at its home spot with extras:
 #   prop = kind,  home = {pos, rot} (web, Euler XYZ),  grip = {pos, rot} (offset from agent_i_hand_l|r)
 # They are left out of the bake (#43): a lifted prop would leave its shadow behind; the app can add a small contact shadow.
+#
+# #164 hand shapes per object (designer: docs/design/grips.md): empties the app fits the hand to
+#   <prop>_grip_r|l               where the hand's _grip frame sits while that hand holds the prop (hand_grip = this);
+#                                 only on the hands that really hold it
+#   <prop>_contact_<part>[_l]     the point a finger pad (thumb, index, middle, ring, little) or the palm touches;
+#                                 local +z = the surface's outward normal. _l = the left hand of a two-handed prop
+# Children of the prop (they move with it); on baked things (mouse, coffee button, bowls) they stand alone.
+# The hand's _grip frame, measured on the #134 hand (preview hold_piece prints it): fingers along its -y, the palm
+# facing -x (right hand) / +x (left hand).
+def child_empty(parent, name, M, extras=None):
+    e = bpy.data.objects.new(name, None)
+    coll("export").objects.link(e)
+    if parent:
+        e.parent = parent
+    e.matrix_world = M
+    for k, v in (extras or {}).items():
+        e[k] = v
+    NODES.append({"obj": e, "hand": name})
+    return e
+
+
+def wv(v):
+    """a web vector as a Blender one"""
+    return Vector((v[0], -v[2], v[1]))
+
+
+def grip_frame(pos, fingers, palm, side):
+    """the hand-grip frame (Blender matrix in the prop's frame) from the designer's spec: a position and the
+    directions the fingers reach and the palm faces (web, prop local)"""
+    ey = -Vector(fingers).normalized()
+    p = Vector(palm).normalized()
+    ex = (-p if side == "r" else p)
+    ex = (ex - ex.project(ey)).normalized()
+    ez = ex.cross(ey)
+    R = Matrix((wv(ex), wv(-ez), wv(ey))).transposed().to_4x4()  # columns: local x, y (= web -z), z (= web y)
+    return Matrix.Translation(W(*pos)) @ R
+
+
+def grip_at(o, side, pos, fingers, palm, M=None):
+    """<name>_grip_<side>; o = the prop (None for a baked thing: then M is its frame and the name is o's own)"""
+    base = o.matrix_world if hasattr(o, "matrix_world") else M
+    name = f"{o.name}_grip_{side}" if hasattr(o, "matrix_world") else f"{o}_grip_{side}"
+    return child_empty(o if hasattr(o, "matrix_world") else None, name, base @ grip_frame(pos, fingers, palm, side), {"grip_for": side})
+
+
+def contact(o, part, pos, normal, side="", M=None):
+    """<name>_contact_<part>[_side]: pos and the outward normal in the prop's frame (web); o = a prop, or a name
+    string for a baked thing (then M is its frame)"""
+    n = wv(normal).normalized()
+    R = n.to_track_quat("Z", "Y").to_matrix().to_4x4()
+    obj = hasattr(o, "matrix_world")
+    base = o.matrix_world if obj else M
+    name = (o.name if obj else o) + f"_contact_{part}" + (f"_{side}" if side else "")
+    return child_empty(o if obj else None, name, base @ Matrix.Translation(W(*pos)) @ R, {"contact": part})
+
+
+def tripod(o, tip_z, r, side="r"):
+    """a pen held in the tripod grip (grips.md): grip 3 cm up from the tip at -z, fingers 45° to the axis; thumb,
+    index and middle pads around the barrel 120° apart (index on top, +y)"""
+    z = tip_z + 0.03
+    grip_at(o, side, (0, 0, z), (0, -0.7071, -0.7071), (-1, 0, 0) if side == "r" else (1, 0, 0))
+    for part, deg in (("index", 90), ("thumb", 210), ("middle", 330)):
+        a = math.radians(deg)
+        contact(o, part, (r * math.cos(a), r * math.sin(a), z), (math.cos(a), math.sin(a), 0))
 
 
 def prop(name, kind, objs, home_pos, home_rot=(0.0, 0.0, 0.0), grip_pos=(0.0, 0.0, 0.0), grip_rot=(0.0, 0.0, 0.0)):
@@ -1867,7 +1933,98 @@ def build_props():
             sphere("stamp_knob", 0.02, (0, 0.05, 0), plastic("#c9a36b", 0.6, 0, 0.3, "handle"), G, seg=14, rings=8)]
     out.append(prop("prop_stamp", "stamp", objs, desk0(0.51, DESK_H + 0.0425, 0.12), (0.0, ry0, 0.0),
                     grip_pos=(0, -0.03, 0), grip_rot=(-math.pi / 2, 0, 0)))
+    # #164: things written with are props now (HUE draws with the tablet pen, MEMO writes with a marker). Pens lie
+    # along local z, the tip at -z, centre pivot; the old grip extras as MEMO's pen
+    PEN_GRIP = dict(grip_pos=(0, -0.04, 0), grip_rot=(math.pi / 2, 0, 0))
+    # HUE's tablet pen (a stylus: tapered barrel, rubber grip sleeve, nib, two side buttons, end cap), on the tablet
+    F2 = frame(AGENTS[2]["at"])
+    dark_p, rubber = plastic("#1a1c21", 0.4, 0.2, 0, "pen_dark"), plastic("#2a2d33", 0.85, 0, 0.3, "pen_rubber")
+    objs = [cyl("pen_barrel", 0.0055, 0.11, (0, 0, 0.005), dark_p, G, 16, axis="z", r2=0.0045),
+            cyl("pen_sleeve", 0.006, 0.035, (0, 0, -0.04), rubber, G, 16, axis="z", r2=0.0058),
+            cyl("pen_nib", 0.0045, 0.012, (0, 0, -0.064), plastic("#c8ccd4", 0.3, 0.6, 0, "chrome"), G, 12, axis="z", r2=0.0008),
+            cyl("pen_end", 0.0047, 0.006, (0, 0, 0.063), plastic(AGENTS[2]["color"], 0.4, 0, 0.05, "pen_end"), G, 16, axis="z", bev=0.001),
+            box("pen_button", (0.003, 0.002, 0.008), (0, 0.0058, -0.012), rubber, G, bev=0.0006, seg=1),
+            box("pen_button", (0.003, 0.002, 0.006), (0, 0.0058, -0.002), rubber, G, bev=0.0006, seg=1)]
+    t = (F2 @ Mx((0.44, DESK_H + 0.017, 0.0625))).to_translation()
+    out.append(prop("prop_tablet_pen", "tablet_pen", objs, (t.x, t.z, -t.y), (0.0, AGENTS[2]["at"][2] + math.pi + 0.08, 0.0), **PEN_GRIP))
+    # whiteboard markers on the tray (cap over the tip, white barrel with a colour band, colour end plug)
+    zb = -HZ + 0.02
+    for k, col in enumerate(("#1f6feb", "#d64545", "#111111")):
+        cm = plastic(col, 0.4, 0, 0, f"marker_{k}")
+        objs = [cyl("marker_body", 0.0075, 0.08, (0, 0, 0.015), plastic("#ebe8e1", 0.45, 0, 0.05, "marker_body"), G, 16, axis="z", bev=0.0008),
+                cyl("marker_cap", 0.0085, 0.035, (0, 0, -0.0425), cm, G, 16, axis="z", bev=0.001),
+                box("marker_clip", (0.003, 0.002, 0.022), (0, 0.0092, -0.04), cm, G, bev=0.0005, seg=1),
+                cyl("marker_band", 0.0077, 0.012, (0, 0, 0.03), cm, G, 16, axis="z"),
+                cyl("marker_plug", 0.006, 0.006, (0, 0, 0.058), cm, G, 12, axis="z", bev=0.001)]
+        out.append(prop(f"prop_marker_{k}", "marker", objs, (WHITEBOARD_X - 0.35 + k * 0.05, 0.9975 + 0.0085, zb + 0.04),
+                        (0.0, math.pi / 2, 0.0), **PEN_GRIP))
     return out
+
+
+def build_hands():
+    """#164: grips and contact points per object (grips.md); after every prop and agent is built"""
+    O = bpy.data.objects
+    R, L = "r", "l"
+    # mug (right hand; its mirror for the left): grip 1.5 cm out from the handle's outer middle, fingers through the
+    # loop, palm toward the body. Cup frame: handle loop in x-y around (-0.027, 0), body centre at x -0.072
+    for k in range(2):
+        o = O[f"prop_cup_{k}"]
+        for side, fz in ((R, -1.0), (L, 1.0)):
+            grip_at(o, side, (0.0225, 0, 0), (0, 0, fz), (-1, 0, 0))
+        for side in ("", L):
+            contact(o, "index", (-0.027, 0.0195, 0), (0, -1, 0), side)  # inside the loop, at its top
+            contact(o, "thumb", (-0.027, 0.0345, 0), (0, 1, 0), side)  # on top of the handle
+            contact(o, "ring", (-0.027, -0.04, 0), (1, 0, 0), side)  # the body's lower third, handle side
+    # paddles (right hand, shakehand): grip mid-handle, fingers wrapping front (red, +z) to back, palm to the axis
+    for e in "ab":
+        o = O[f"prop_paddle_{e}"]
+        grip_at(o, R, (0, 0.05, 0), (0, 0, -1), (-1, 0, 0))
+        contact(o, "index", (0.02, 0.115, -0.003), (0, 0, -1))  # the black face, low on the blade
+        contact(o, "thumb", (-0.01, 0.1, 0.003), (0, 0, 1))  # the red face where blade meets handle
+    # book (both hands, open): left palm under the spine, right palm under the right page; left thumb on the left
+    # page, the right index turns the top right corner. Book frame: spine on z, pages +x, open pages at y = 0
+    o = O["prop_book"]
+    grip_at(o, L, (0, -0.0125, 0), (-1, 0, 0), (0, 1, 0))
+    grip_at(o, R, (0.075, -0.0125, 0), (-1, 0, 0), (0, 1, 0))
+    contact(o, "thumb", (-0.075, 0, 0), (0, 1, 0), L)["state"] = "open"  # on the left page once open (check-glb skips it)
+    contact(o, "index", (0.14, 0, -0.1), (0, 1, 0))
+    # watering can (both): right fist round the top bar (palm down on it), left palm under the body's spout third
+    o = O["prop_watering_can"]
+    grip_at(o, R, (0, 0, 0), (0, 0, 1), (0, -1, 0))
+    grip_at(o, L, (0.04, -0.205, 0), (1, 0, 0), (0, 1, 0))
+    contact(o, "palm", (0, 0.007, 0), (0, 1, 0))
+    contact(o, "palm", (0.04, -0.2, 0), (0, -1, 0), L)
+    # omok: the hand dips into a bowl (3 cm below the mouth's centre); the stone in hand, go style: index on top,
+    # middle under it (the app sticks it to the fingers, agents.md 2.10)
+    for side in "bw":
+        x, y, z = OMOK_BOWLS[side]
+        contact(f"omok_bowl_{side}", "index", (0, 0, 0), (0, 1, 0), M=Mx((x, y - 0.002 - 0.03, z)))
+    for e in "ab":
+        o = O[f"prop_piece_{e}"]
+        contact(o, "index", (0, OMOK["stone_h"] / 2, 0), (0, 1, 0))
+        contact(o, "middle", (0, -OMOK["stone_h"] / 2, 0), (0, -1, 0))
+    # paper plane (OK pinch): index and thumb 2 cm from the tail (+z), on the top and bottom faces
+    o = O["prop_plane"]
+    lo, hi = [min(v.co[k] for v in o.data.vertices) for k in range(3)], [max(v.co[k] for v in o.data.vertices) for k in range(3)]
+    tail = -lo[1] - 0.02  # Blender local -y = web +z
+    contact(o, "index", (0, hi[2], tail), (0, 1, 0))
+    contact(o, "thumb", (0, lo[2], tail), (0, -1, 0))
+    # stamp: grip over the knob's head, fingers level, palm down
+    grip_at(O["prop_stamp"], R, (0, 0.08, 0), (0, 0, -1), (0, -1, 0))
+    contact(O["prop_stamp"], "palm", (0, 0.07, 0), (0, 1, 0))
+    # pens (tripod): MEMO's pen (tip = the capped end, -z), the tablet pen, the markers
+    tripod(O["agent_0_pen"], -0.085, 0.009)
+    tripod(O["prop_tablet_pen"], -0.07, 0.006)
+    for k in range(3):
+        tripod(O[f"prop_marker_{k}"], -0.06, 0.0085)
+    # baked things: the mouse (palm over it, index on the left button) and the coffee machine's button
+    for i, a in enumerate(AGENTS):
+        if i == 2:
+            continue
+        F = frame(a["at"])
+        grip_at(f"desk_{i}_mouse", R, (0.3, DESK_H + 0.04, 0.08), (0, -0.3, -1), (0, -1, 0), M=F)
+        contact(f"desk_{i}_mouse", "index", (0.29, DESK_H + 0.02, 0.04), (0, 1, 0), M=F)
+    contact("coffee_button", "index", COFFEE_BUTTON, (1, 0, 0), M=counter_frame())
 
 
 # ================================================================ EXIT DOOR (part of room atlas + live screen)
@@ -2408,6 +2565,7 @@ for i, a in enumerate(AGENTS):
         for o in bots + neons + [o for o, _ in others]:
             if o.type == "MESH":
                 print("   ", o.name, sum(len(p.vertices) - 2 for p in o.data.polygons))
+build_hands()  # #164: after every prop and agent
 build_nav()
 build_surfaces()
 build_hits()
@@ -2717,12 +2875,69 @@ if PREVIEW:
             n = f"agent_1_hand_{side}"
             q = bpy.data.objects[f"{n}_grip"].matrix_world.inverted() @ ((tip(f"{n}_f1_3") + tip(f"{n}_t_2")) / 2)
             print(f"pinch point, {side} grip frame (web):", [round(q.x, 4), round(q.z, 4), round(-q.y, 4)])
+            # #164: the hand's fingers and palm directions in its grip frame (web axes): straight hand, then curled
+            Gi = bpy.data.objects[f"{n}_grip"].matrix_world.inverted().to_3x3()
+            pose(1, side)
+            bpy.context.view_layer.update()
+            palm_at = bpy.data.objects[n].matrix_world.to_translation()
+            straight = tip(f"{n}_f2_3")
+            fingers = (Gi @ (straight - palm_at)).normalized()
+            pose(1, side, (1, 1, 1, 1))
+            bpy.context.view_layer.update()
+            curl = Gi @ (tip(f"{n}_f2_3") - straight)
+            palm = (curl - curl.project(fingers)).normalized()
+            print(f"hand axes, {side} grip frame (web): fingers", [round(fingers.x, 3), round(fingers.z, 3), round(-fingers.y, 3)],
+                  "palm", [round(palm.x, 3), round(palm.z, 3), round(-palm.y, 3)])
+            pose(1, side, *PINCH)
+            bpy.context.view_layer.update()
         hold(1, "l", "prop_piece_a")
         shoot("hold_piece", *near(1, "l", (-0.2, 0.08, 0.28)))
         shoot("hold_piece_in", *near(1, "l", (0.22, 0.02, 0.12)))
         shoot("hold_piece_top", *near(1, "l", (0.02, 0.3, 0.05)))
         for n, M in saved.items():
             bpy.data.objects[n].matrix_world = M
+    # #164, as the app will do it: the hand moved so its _grip sits on the prop's <prop>_grip_<side>, then posed
+    FITS = {  # shot: [(agent, side, grip empty, finger c, thumb)], the empty to aim at
+        "fit_cup": ([(3, "r", "prop_cup_1_grip_r", (0.7, 0.75, 0.85, 0.9), (0.4, 0.6))], "prop_cup_1"),
+        "fit_paddle": ([(0, "r", "prop_paddle_a_grip_r", (0.3, 0.85, 0.9, 0.92), (0.3, 0.4))], "prop_paddle_a"),
+        "fit_pen": ([(2, "r", "prop_tablet_pen_grip_r", (0.5, 0.6, 0.8, 0.85), (0.5, 0.8))], "prop_tablet_pen"),
+        "fit_can": ([(2, "r", "prop_watering_can_grip_r", GRIP_POSE[0], GRIP_POSE[1]),
+                     (2, "l", "prop_watering_can_grip_l", (0.2, 0.2, 0.25, 0.3), (0.1, 0))], "prop_watering_can"),
+        "fit_book": ([(1, "l", "prop_book_grip_l", (0.15, 0.15, 0.2, 0.25), (0.1, 0)),
+                      (1, "r", "prop_book_grip_r", (0.15, 0.15, 0.2, 0.25), (0.1, 0))], "prop_book"),
+        "fit_mouse": ([(0, "r", "desk_0_mouse_grip_r", (0.3, 0.35, 0.4, 0.45), (0.3, 0.2))], "desk_0_mouse_grip_r"),
+    }
+    if not want or any(n in want for n in FITS):
+        O = bpy.data.objects
+        moved = {}
+        for name, (fits, aim) in FITS.items():
+            if want and name not in want:
+                continue
+            lift = O.get(aim) if aim.startswith("prop_") else None  # lift the prop clear of its table (children follow)
+            if lift:
+                moved.setdefault(aim, lift.matrix_world.copy())
+                lift.matrix_world = Matrix.Translation(W(0, 0.3, 0)) @ lift.matrix_world
+                bpy.context.view_layer.update()
+            for i, side, g, c, th in fits:
+                n = f"agent_{i}_hand_{side}"
+                pose(i, side)  # records the rest frames before the palm moves
+                for m in (n, f"{n}_cuff"):
+                    moved.setdefault(m, O[m].matrix_world.copy())
+                rel = O[f"{n}_grip"].matrix_world.inverted() @ O[n].matrix_world
+                O[n].matrix_world = O[f"{n}_cuff"].matrix_world = O[g].matrix_world @ rel
+                bpy.context.view_layer.update()
+                pose(i, side, c, th)
+            if name == "fit_book":
+                book = O["prop_book"].matrix_world
+                O["prop_book_l"].matrix_world = book @ Mx(rz=math.pi)
+            at = O[aim].matrix_world.to_translation()
+            t = (at.x, at.z, -at.y)
+            shoot(name, (t[0] - 0.32, t[1] + 0.12, t[2] + 0.34), t)
+            if name == "fit_book":
+                O["prop_book_l"].matrix_world = O["prop_book"].matrix_world.copy()
+        for m, M in moved.items():
+            O[m].matrix_world = M
+        bpy.context.view_layer.update()
     # 3) the four in a row: front, back, at work — hands in the designer's rest pose (#134)
     for i in range(len(AGENTS)):
         for s in "lr":
