@@ -39,6 +39,7 @@ import { WATER_S } from './waterRun'
 import { type Place, SEQ, ease, followWeight, habitOf, placeSequence, swingTilt, swingTravel } from '../play/choreo'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
+import { Typist } from './typist'
 
 const UP = new Vector3(0, 1, 0)
 const DEG = Math.PI / 180
@@ -110,6 +111,10 @@ function mixVec(pre: readonly number[], hold: readonly number[], after: readonly
 }
 
 export class PlayStage {
+  /** the hands at the keyboard and the mouse (#225) */
+  readonly typist: Typist
+  /** the agents that typed this frame (the others' typing drive fades out) */
+  private typed = new Set<string>()
   /** the play sounds (#194 ②): one line at each event below */
   private sounds = new PlaySounds()
   private clocks = new Map<string, GripClock>()
@@ -165,6 +170,7 @@ export class PlayStage {
   ) {
     this.sceneRef = scene
     scene.updateMatrixWorld(true)
+    this.typist = new Typist(nodes)
     this.tableNode = scene.getObjectByName('pp_table') ?? undefined
     const ex = this.tableNode?.userData as { size?: number[]; net_h?: number } | undefined
     if (ex?.size) this.dims = dimsOf(ex.size, ex.net_h ?? 0.15)
@@ -375,6 +381,7 @@ export class PlayStage {
   update(inp: StageIn) {
     for (const node of this.forced) this.props.force(node, null)
     this.forced.clear()
+    this.typed.clear()
     this.tag = null
     for (const id in inp.rigs) {
       const r = inp.rigs[id]
@@ -409,6 +416,7 @@ export class PlayStage {
     for (const id of ids) if (inp.gripDemo?.agent !== id) this.solo(inp.rigs[id], inp.goals[id], inp, pp, og)
     this.demo(inp)
     this.putBack(inp)
+    for (const id of ids) if (!this.typed.has(id)) this.typist.fade(inp.rigs[id], inp.dt)
     for (const id of ids) {
       inp.rigs[id].applyDrive('l', inp.t, inp.reduced)
       inp.rigs[id].applyDrive('r', inp.t, inp.reduced)
@@ -910,13 +918,42 @@ export class PlayStage {
         const nib = new Vector3(c.x + 0.05 * Math.sin(sc * 1.1) + 0.02 * Math.sin(sc * 4), c.y + 0.005, c.z + 0.04 * Math.cos(sc * 0.8) + 0.02 * Math.cos(sc * 5))
         const held = this.writing(nib, fwd.clone().negate(), 0.071, 45 * DEG, 8 * DEG * Math.sin(sc * 5))
         this.grip(rig, 'r', 'tablet_pen', pen.node.name, true, held, inp)
-        // the other hand keeps typing (the pose); nothing more here
+        // the other hand keeps typing: the left types, the right holds the pen
+        if (goal.pose === 'type') this.typeAtDesk(rig, inp, seat, true)
       }
       return
     }
     if (goal.pose === 'idle' && resting && goal.spot === `work_${seat}` && (seat === 0 || seat === 1 || seat === 3 || seat === 4)) {
       this.grip(rig, 'r', 'mouse', `desk_${seat}_mouse`, true, null, inp)
     }
+    if (goal.pose === 'type' && resting) this.typeAtDesk(rig, inp, seat, false)
+  }
+
+  /**
+   * Working at the desk (#225): the hands type what the schedule says, the right hand now and then goes to the mouse (the grip stage of the
+   * mouse, blended with the keyboard hand), clicks and scrolls. `leftOnly`: the right hand holds the tablet pen.
+   */
+  private typeAtDesk(rig: AgentRig, inp: StageIn, seat: number, leftOnly: boolean) {
+    // a plane gesture owns the hands while it lasts
+    if (rig.gesture && inp.t < rig.gesture.until) return
+    const ty = this.typist
+    const t = ty.frozen[rig.id] ?? inp.t
+    const frame = ty.step(rig, seat, {
+      t,
+      dt: inp.dt,
+      reduced: inp.reduced,
+      activity: inp.status[rig.id]?.activity,
+      dilation: rig.gestureMin > 0 ? rig.gestureMin / 0.15 : 1,
+      still: rig.ambient === 0,
+      leftOnly,
+      hasMouse: seat !== 2,
+    })
+    if (!frame) return
+    this.typed.add(rig.id)
+    ty.warm(rig, seat, 1.5, inp.reduced)
+    if (leftOnly || seat === 2) return
+    this.grip(rig, 'r', 'mouse', `desk_${seat}_mouse`, frame.mouseWant, null, inp)
+    ty.mouseBlend(rig, seat, frame, rig.drive.r !== frame.kb ? rig.drive.r : null, t, inp.reduced)
   }
 
   /**

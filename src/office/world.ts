@@ -28,7 +28,7 @@ import type { TrafficPlanner } from './traffic'
 import type { DemoKind, DemoState } from './trafficDemo'
 import type { PaperPlanes } from './plane'
 import type { AgentRig } from './rig'
-import { makePlayTools, type GripDemo } from './debugPlay'
+import { makePlayTools, type makeTypingTools, type GripDemo } from './debugPlay'
 import type { PlaySession } from '../play/session'
 import { FakePropsFeed, LivePropsFeed, type PropsFeed } from './propsFeed'
 import { FakeStatusSource, type StatusSource } from './status'
@@ -135,6 +135,8 @@ export interface OfficeWorld {
   /** ?debug=1: window.__office.play.force(agent, kind) / .clear(); window.__office.grip.demo(agent, prop) / .stop() (see debugPlay.ts) */
   play: ReturnType<typeof makePlayTools>['play'] | null
   grip: ReturnType<typeof makePlayTools>['grip'] | null
+  /** ?debug=1: window.__office.typing.force(agent, activity) / .keys(agent) / .watch() / .log() (debugPlay.ts, #225) */
+  typing: ReturnType<typeof makeTypingTools> | null
   /** ?debug=1: window.__office.hand.pose(agent, side, poseId | null) forces a named hand pose (debugPlay.ts) */
   hand: ReturnType<typeof makePlayTools>['hand'] | null
   /** the planner's clock, s (accumulated frame time) */
@@ -221,6 +223,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     play: null,
     grip: null,
     hand: null,
+    typing: null,
     simTime: 0,
     demo: null,
     trafficDemo: (kind) => {

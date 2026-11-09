@@ -6,6 +6,7 @@
 import type { Role } from '../approvals/source.js'
 import { coverOf, ownerMeta, type CoverSource, type DocBody, type DocMeta } from './library.js'
 import type { DocsSource } from './source.js'
+import type { Progress } from './progress.js'
 import type { ApprovalRequest, ApprovalResult, Minutes, Speaker } from './types.js'
 
 type Row = CoverSource & { body: string; data: Record<string, unknown>; source_url: string }
@@ -62,13 +63,16 @@ const req28: ApprovalRequest = {
   recommended: 1,
   reason: '네 명 모두 손 버릇에 검지를 따로 쓰고, A는 부품 4조각으로 그걸 다 한다.',
 }
+const P = (stage: Progress['stage'], checks: [number, number] | null = null, pending = 0): Progress => ({ stage, checks: checks && { done: checks[0], total: checks[1] }, pending })
+const CHECKS4 = ['## 완료 기준', '- [ ] 모델', '- [ ] 배치', '- [ ] 그림자', '- [ ] 시험'].join('\n')
+const CHECKS3 = ['## 완료 기준', '- [x] 원인', '- [ ] 수정', '- [ ] 시험'].join('\n')
 const res = (result: string, option: number | null, opinion: string | null = null): ApprovalResult => ({ date: '2026-11-08', result, option, opinion })
 
 export const sampleRows = (): Row[] => {
   nextId = 1
   return [
     // agent-office #28: all four kinds, public
-    row({ kind: 'plan', folder: 28, title: T28, labels: ['design', 'asset', 'feature'], agents: [0, 1, 2, 3], created_at: at(5, 10), body:
+    row({ kind: 'plan', folder: 28, title: T28, labels: ['design', 'asset', 'feature'], agents: [0, 1, 2, 3], created_at: at(5, 10), progress: P('done', [3, 3]), body:
       '## 배경과 목표\n사용자 의견(2026-11-08, #26 결재 뒤): **몸통 없이 머리만 떠 있고, 손도 따로 떠다니는 느낌**이 더 멋있다. 지금 로봇(몸통 + 호버 포드 + 팔)을 머리 + 떠 있는 두 손으로 바꾼다.\n\n' +
       '## 범위\n- 기본 형태: 떠 있는 머리, 호버 빛, 떠 있는 두 손\n- 크기·높이: 손이 키보드(0.75 m)에 닿고 `#20` 소품을 들 수 있음\n- 역할 부품 다시 배치, 실루엣 시험\n\n' +
       '## 하지 않을 것\n- 이름·색 변경(결재 완료)\n- 3D 모델링(#27), 앱 애니메이션(코더)\n\n' +
@@ -88,7 +92,7 @@ export const sampleRows = (): Row[] => {
       '## 확인한 것\n| 확인 | 방법 | 결과 |\n|---|---|---|\n| 결재 반영 | #28 ✅ 두 건과 대조 | 손 모양 A, 형태·개성 승인 |\n| 실루엣 구분 | 시안 5절 실루엣 | 머리 위 모양으로 넷이 갈림 |\n| dev 병합 | `git merge origin/dev` | agents.* 두 파일만 충돌, 해결 |\n\n' +
       '## 전후\n![전](before.png)\n![후](after.png)' }),
     // agent-office #32: plan, minutes with the owner speaking, decision
-    row({ kind: 'plan', folder: 32, title: T32, agents: [0, 1, 2, 3], created_at: at(6, 14), body:
+    row({ kind: 'plan', folder: 32, title: T32, agents: [0, 1, 2, 3], created_at: at(6, 14), progress: P('review', [3, 3], 1), body:
       '## 배경과 목표\n각 에이전트가 **자기 책상을 어떻게 꾸미고 싶은지** 직접 정하고, 디자이너가 반영한다.\n\n## 완료 기준\n- [x] 네 에이전트의 꾸미기 댓글\n- [x] 시안·치수 표·LIVE 목록\n- [x] 🖊 결재 요청' }),
     row({ kind: 'minutes', folder: 32, title: T32, agents: [0, 1, 2], created_at: at(6, 15), data: { minutes: [
       minutes('2026-11-08', [
@@ -103,7 +107,7 @@ export const sampleRows = (): Row[] => {
       request: { ...req28, kind: '산출물 확인', content: '책상 소품 배치를 확인해 주세요.', options: [], recommended: null, reason: null },
     } }),
     // agent-office #18: plan + minutes only
-    row({ kind: 'plan', folder: 18, title: T18, labels: ['question'], agents: [0, 2, 3], created_at: at(5, 9), body: '## 배경과 목표\n방문자가 가장 많이 읽게 될 글자는 두 곳에 나온다: **말풍선**, 그리고 **모니터**와 **출입문 화면**.' }),
+    row({ kind: 'plan', folder: 18, title: T18, labels: ['question'], agents: [0, 2, 3], created_at: at(5, 9), progress: P('doing'), body: '## 배경과 목표\n방문자가 가장 많이 읽게 될 글자는 두 곳에 나온다: **말풍선**, 그리고 **모니터**와 **출입문 화면**.' }),
     row({ kind: 'minutes', folder: 18, title: T18, agents: [0, 2, 3], created_at: at(5, 12), data: { minutes: [
       minutes('2026-11-08', [[0, [2], '역할 확인 요청'], [2, [0], '그래픽 디자이너 세션 맞음'], [3, [2], '토큰 검토: 에이전트 번호를 0부터'], [2, [3], '두 가지 모두 반영']], '에이전트 색 토큰은 `--agent-0..3`.', '#26 결재 뒤 색 값이 바뀔 수 있음.'),
     ] } }),
@@ -118,7 +122,7 @@ export const sampleRows = (): Row[] => {
       ], '에코의 색은 #f2ffc4.', '코더가 소리 연동을 붙임.'),
     ] } }),
     // agent-office #40: a public plan with a SECRET (review) report: a mixed file
-    row({ kind: 'plan', folder: 40, title: T40, labels: ['enhancement'], agents: [2, 3], created_at: at(8, 13), body: '## 배경과 목표\n방문자와 주인이 서재에서 기획서 · 회의록 · 결정 · 보고서를 읽는다.\n\n## 범위\n- 파일철 목록\n- 회의록 대화' }),
+    row({ kind: 'plan', folder: 40, title: T40, labels: ['enhancement'], agents: [2, 3], created_at: at(8, 13), progress: P('doing', [2, 5]), body: '## 배경과 목표\n방문자와 주인이 서재에서 기획서 · 회의록 · 결정 · 보고서를 읽는다.\n\n## 범위\n- 파일철 목록\n- 회의록 대화' }),
     row({ kind: 'report', folder: 40, title: T40, agents: [3], grade: 'review', approved: false, created_at: at(8, 17), data: { pr: 80 }, body:
       '## 무엇을 했나\n서재 뷰어 첫 구현. 결재 전이라 방문자는 표지만 본다.\n\n## 확인한 것\n| 확인 | 방법 | 결과 |\n|---|---|---|\n| 방문자 응답 | 단위 시험 | 본문 없음 |' }),
     // rowansong.dev #3: SECRET (review)
@@ -127,8 +131,15 @@ export const sampleRows = (): Row[] => {
     row({ repo: RD, kind: 'minutes', folder: 3, title: T3, agents: [3, 0, 2], grade: 'review', approved: false, created_at: at(7, 17), data: { minutes: [
       minutes('2026-11-07', [[3, [0], '대사가 덮이는 순서를 바꾸면 새벽 인사가 지워지는 문제'], [0, [3], '먼저 말하는 쪽이 끝날 때까지 기다리게 해 주세요'], [2, [3], '말풍선 위치도 맞춰야 해요']], '대사가 끝날 때까지 다른 상호작용이 덮지 않게.', '루프가 고친다.'),
     ] } }),
+    // progress cuts (#241): a waiting plan with checkboxes and one without, a doing one with two requests pending, a finished one
+    // without checkboxes. #193 above has no plan, so it has no status at all
+    row({ kind: 'plan', folder: 44, title: '[기능] 책상 위 화분 놓기: 에이전트마다 작은 화분', labels: ['feature'], agents: [1, 2], created_at: at(9, 9), progress: P('waiting', [0, 4]), body: CHECKS4 }),
+    row({ kind: 'plan', folder: 45, title: '[문서] 배포 순서 정리', labels: ['docs'], agents: [0], created_at: at(9, 10), progress: P('waiting') }),
+    row({ kind: 'plan', folder: 46, title: '[버그] 말풍선이 모니터 화면과 겹쳐 보임', labels: ['bug'], agents: [3], created_at: at(9, 11), progress: P('doing', [1, 3], 2), body: CHECKS3 }),
+    row({ kind: 'plan', folder: 12, title: '[접근성] 키보드로 서재 열기', labels: ['accessibility'], agents: [3, 2], created_at: at(4, 15), progress: P('done'), body: '## 범위\n- 서재 열기 키' }),
     // private: no project, no number, no title, no body
     row({ repo: 'private/x', kind: 'minutes', folder: 9, title: '비공개 회의', agents: [0, 3], grade: 'private', approved: false, created_at: at(6, 20), body: 'never sent' }),
+    row({ repo: 'private/x', kind: 'plan', folder: 8, title: '비공개 계획', agents: [3], grade: 'private', approved: false, created_at: at(6, 21), progress: P('doing', [1, 4], 1), body: 'never sent' }),
     row({ repo: 'private/x', kind: 'report', folder: 9, title: '비공개 보고', agents: [3], grade: 'private', approved: false, created_at: at(5, 20), body: 'never sent' }),
   ]
 }

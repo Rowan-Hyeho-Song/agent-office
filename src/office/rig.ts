@@ -671,15 +671,6 @@ const PEN_POSE = POSES.tripod
 const DESK_HAND_MIN = 0.79
 /** a loose hand (sofa, reading, the board-game hand at rest): between rest and hold, still an old curl converted by hand-poses.md 3 */
 const LOOSE_POSE = shape([0.45, 0.5, 0.55, 0.6], [0.3, 0.2])
-/** typing (agents.md 2.7): on top of 타자, each finger alternates (MCP +12.75°, PIP +15° = the old c 0.35 ↔ 0.5) four times a second, out of step with its neighbours. A real key press (MCP +12 · PIP +8) is a later issue */
-function typing(t: number, side: 'l' | 'r', phase: number): HandAngles {
-  const o = side === 'l' ? 0 : Math.PI / 4
-  const f = TYPE_POSE.f.map((a, k) => {
-    const w = 0.5 + 0.5 * Math.sin(t * Math.PI * 8 + phase + o + k * Math.PI * 0.5)
-    return { ...a, mcp: a.mcp + 12.75 * w, pip: a.pip + 15 * w }
-  }) as unknown as HandAngles['f']
-  return { f, thumb: TYPE_POSE.thumb }
-}
 /** how far the hand holding a caught plane moves out from the head's centre line, m (designer, #62) */
 const CAUGHT_OUT = 0.055
 /** named hand poses, for anything that holds something (the plane's catch; later 휴's dropper, 메시's vertex pick) */
@@ -1475,8 +1466,8 @@ export class AgentRig {
         return { ...at(rest.x, rest.y, rest.z), walk: true }
       case 'type':
       case 'listen':
-        // the fingers type now (#134), not the whole hand: it rests on the keys
-        return at(sx * 0.13, 0.81, -0.42, down, pose === 'type' && !reduced && this.ambient > 0 ? typing(t, side, this.phase) : TYPE_POSE)
+        // the hand rests over the keys; the fingers' real key presses (#225) are the typist's drive (typist.ts), on top of this
+        return at(sx * 0.13, 0.81, -0.42, down, TYPE_POSE)
       case 'talk':
         return at(sx * 0.24, 0.98 + sit + s(3, sx) * 0.05, -0.28, qy(-sx * 0.3), side === 'r' ? POINT_POSE : REST_POSE)
       case 'post':
