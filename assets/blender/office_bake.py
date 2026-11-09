@@ -126,6 +126,10 @@ WHITEBOARD_X, BULLETIN_X = 1.1, 2.55
 # #195 (desks.md 2.1.2): one meeting circle almost square in front of the whiteboard; the board meeting and the floor
 # meeting stand on the same ring. Ring 0.9 + a body 0.26 = 1.16 kept free; ry = its 0 deg (toward the board)
 MEET_CENTER = (1.0, -1.57)
+# #195 (designer #249): the pod stands right under the work panel's middle and its oak tops and ivory caps baked
+# past white. Their two atlases are scaled down after the bake (linear, before the webp), the rest of the room as before
+ATLAS_GAIN = {"work": float(next((a.split("=")[1] for a in sys.argv if a.startswith("--gain-work=")), 0.27)),
+              "desk_props": float(next((a.split("=")[1] for a in sys.argv if a.startswith("--gain-desk=")), 0.27))}  # calibrated: tops linear ~(2.26, 1.91, 1.57) at 1.0
 MEET_RING, MEET_R, MEET_RY = 0.9, 1.16, math.radians(-3.0)
 CHAT_SPOTS = ((-1.45, -2.95), (-0.45, -2.95))  # the second conversation: two spots by the window, facing each other
 RUG_WORK = (-2.70, -0.92, 2.46, 4.24)  # x, z, width, depth (desks.md 2.1.5)
@@ -3324,6 +3328,35 @@ def disc(name, r, material, group, seg=32):
     return o
 
 
+def seam_split(o, z_web, gap):
+    """#166: cut a head's shell into front and back plates: delete the faces in a gap-wide band round the head at
+    web z = z_web (the graphite seam band inside shows through it)"""
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
+    yb = -z_web  # web z -> Blender -y
+    for c in (yb - gap / 2, yb + gap / 2):
+        bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], plane_co=(0, c, 0), plane_no=(0, 1, 0))
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if abs(f.calc_center_median().y - yb) < gap / 2 - 1e-6], context="FACES")
+    bm.to_mesh(o.data)
+    bm.free()
+
+
+def screw(center, axis, sgn, metal, dark, group, r=0.003):
+    """#166: a flat-head screw (6 mm) with a cross slot, its face toward web axis * sgn"""
+    x, y, z = center
+    k = {"x": 0, "y": 1, "z": 2}[axis]
+    d = [0.0, 0.0, 0.0]
+    d[k] = sgn * 0.0009
+    out = [cyl("screw", r, 0.0015, center, metal, group, 8, axis=axis)]
+    for rot in (0, 1):
+        size = [0.0, 0.0, 0.0]
+        size[k] = 0.0004
+        others = [j for j in range(3) if j != k]
+        size[others[rot]], size[others[1 - rot]] = r * 1.4, 0.0006
+        out.append(box("screw_slot", tuple(size), (x + d[0], y + d[1], z + d[2]), dark, group))
+    return out
+
+
 def hexdot(name, r, center, normal, material, group):
     """a flat dark hexagon (4 triangles) facing the web direction normal: grille and mic holes on a live head"""
     n = Vector(normal).normalized()
@@ -3354,12 +3387,16 @@ def soft_glow(h, alpha, strength, name):
 def build_agent(i, agent):
     G = "bot"
     col = agent["color"]
-    shell = plastic("#f6f3ec", 0.32, 0, 0.08, "bot_shell")
-    joint = plastic("#4a505c", 0.35, 0.35, 0.05, "bot_joint")
+    # #166 (robots.md 2.1): four materials for all five - matte ivory shell, graphite (seams, ears, bezel, plate), metal
+    # (screws, rims, collars); the face is the canvas slot (glass); the agent colour as before (emission 0.6)
+    shell = plastic("#e9e4d8", 0.55, 0, 0.08, "bot_shell")
+    graphite = plastic("#3a3f48", 0.6, 0, 0.05, "bot_graphite")
+    metal = plastic("#b9bec7", 0.35, 1.0, 0.03, "bot_metal")
+    joint = graphite
     accent = plastic(col, 0.4, 0, 0.05, f"bot_accent_{i}")
     ab = accent.node_tree.nodes["Principled BSDF"]
     ab.inputs["Emission Color"].default_value = rgba(col)
-    ab.inputs["Emission Strength"].default_value = 0.35
+    ab.inputs["Emission Strength"].default_value = 0.6
     glow_m = emitter(col, 6.0, f"glow_{i}")
     x, z, ry = SPAWN[i]
     root = Mx((x, 0, z), ry=ry)
@@ -3374,7 +3411,10 @@ def build_agent(i, agent):
     a["pivot_at"] = [round(x, 5), 0.0, round(z, 5)]
     bot.append(a)
 
-    # -- head: rounded box (MESH: chamfered, two chamfer faces glowing lavender), ears, vent, thrust housing
+    # -- head (#166 robots.md 2.1): front and back shells split at z = -0.02 by a 2 mm graphite seam, the face bezel,
+    #    four screws round it, ear modules, the service plate on the back (seams, screws, name plate RB-1i; inside:
+    #    MEMO the post-it clip, MESH/HUE/LOOP five vent slots, ECHO the grille), the thrust ring's metal rim + vents.
+    #    MESH keeps its chamfered head with two glowing facets
     if i == 1:
         head = box("head", HEAD, (0, 0, 0), shell, G, bev=0.06, seg=1)
         head = apply_all(head)
@@ -3383,60 +3423,114 @@ def build_agent(i, agent):
             n = p.normal
             if (abs(n.x + 0.7071) < 0.05 and abs(n.y - 0.7071) < 0.05) or (abs(n.x - 0.7071) < 0.05 and abs(n.y + 0.7071) < 0.05):
                 p.material_index = 1
+        r_in = 0.06
     else:
-        head = box("head", HEAD, (0, 0, 0), shell, G, bev=0.08, seg=3)
+        head = apply_all(box("head", HEAD, (0, 0, 0), shell, G, bev=0.08, seg=3))
+        r_in = 0.08
+    seam_split(head, -0.02, 0.002)
     hp = [head,
-          panel("face_bezel", 0.33, 0.21, 0.006, 0.03, (0, 0, -hd / 2 + 0.001), plastic("#111216", 0.3, 0.2, 0, "face_bezel"), G),
-          box("vent_plate", (0.24, 0.13, 0.006), (0, -0.01, hd / 2), joint, G)]
-    hp += [box("vent", (0.2, 0.012, 0.008), (0, -0.05 + k * 0.027, hd / 2 + 0.004), shell, G) for k in range(4)]
-    hp += [cyl("thrust", 0.105, 0.03, (0, -hh / 2 - 0.005, 0), joint, G, 16, r2=0.09)]
-    ears = {"l": True, "r": True}
-    if i == 0:  # MEMO: antenna (back), headset on the right ear (cup + boom + status mic)
-        ears["r"] = False
-        hp += [cyl("antenna", 0.01, 0.14, (0.08, hh / 2 + 0.07, 0.08), joint, G, 8),
-               box("headset", (0.064, 0.14, 0.06), (hw / 2 + 0.03, 0, 0), joint, G, bev=0.025, seg=2),
-               lowrail("boom", [(hw / 2 + 0.045, -0.05, -0.02), (hw / 2 + 0.01, -0.11, -0.15), (0.09, -0.13, -0.205)], 0.008, joint, G),
-               sphere("mic", 0.02, (0.09, -0.13, -0.205), accent, G, seg=10, rings=6)]
-    if i == 1:  # MESH: gizmo (stalk, three axis bars + ends; the center is the tip)
+          # the seam's floor: a graphite band 1.5 mm inside the shells, seen through the 2 mm gap
+          place([rounded_slab("seam", hw - 0.003, 0.004, hh - 0.003, r_in - 0.0015, (0, 0, 0), graphite, G, seg=3 if i != 1 else 1)],
+                Mx((0, 0, -0.02), rx=math.pi / 2))[0],
+          panel("face_bezel", 0.32, 0.20, 0.006, 0.025, (0, 0, -hd / 2 + 0.0015), graphite, G)]
+    for sx in (-1, 1):  # four screws 1.2 cm out of the bezel's corners, set into the front shell
+        for sy in (-1, 1):
+            hp += screw((sx * 0.172, sy * 0.112, -hd / 2 + 0.0105), "z", -1, metal, graphite, G)
+    # the service plate on the back: a 0.24 x 0.16 seam rectangle, corner screws, the name plate below
+    zb = hd / 2
+    for (w, h_, cx, cy) in ((0.24, 0.0015, 0, 0.08), (0.24, 0.0015, 0, -0.08), (0.0015, 0.16, 0.12, 0), (0.0015, 0.16, -0.12, 0)):
+        hp.append(box("plate_seam", (w, h_, 0.001), (cx, cy, zb + 0.0002), graphite, G))
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            hp += screw((sx * 0.105, sy * 0.066, zb + 0.0005), "z", 1, metal, graphite, G)
+    if i != 4:  # ECHO's grille covers the plate's middle
+        hp += [box("name_plate", (0.06, 0.016, 0.0015), (0, -0.062, zb + 0.0008), shell, G, bev=0.0005, seg=1),
+               text("name_plate_txt", f"RB-1{i}", 0.009, (0, -0.0655, zb + 0.0017), graphite, G, facing="+z", extrude=0.0)]
+    if i in (1, 2, 3):  # five vent slots inside the plate
+        hp += [box("plate_vent", (0.18, 0.004, 0.002), (0, -0.035 + k * 0.02, zb + 0.0002), graphite, G) for k in range(5)]
+    # thrust housing + its metal rim and six vent slots (the glow ring itself is agent_<i>_glow)
+    hp += [cyl("thrust", 0.105, 0.03, (0, -hh / 2 - 0.005, 0), graphite, G, 20, r2=0.09),
+           torus("thrust_rim", 0.103, 0.004, (0, -hh / 2 - 0.005, 0), metal, G, seg=24, rseg=4)]
+    for k in range(6):
+        a = 2 * math.pi * k / 6
+        hp += place([box("thrust_vent", (0.002, 0.016, 0.014), (0, 0, 0), plastic("#1d2127", 0.8, 0, 0, "bot_dark"), G)],
+                    Mx((0.0985 * math.cos(a), -hh / 2 - 0.006, 0.0985 * math.sin(a)), ry=-a))
+    ears = {"l": i not in (2, 3), "r": i not in (0, 3)}  # LOOP: the cups cover them; MEMO: the headset; HUE: the dropper (left)
+    for s, sx in (("l", -1), ("r", 1)):
+        if ears[s]:  # the ear module: graphite cap, an agent-colour band, three screws at 120 deg
+            hp += [cyl("ear_cap", 0.035, 0.035, (sx * (hw / 2 + 0.0175), 0, 0), graphite, G, 20, axis="x", bev=0.002),
+                   torus("ear_band", 0.035, 0.002, (sx * (hw / 2 + 0.03), 0, 0), accent, G, axis="x", seg=20, rseg=4)]
+            if i != 4:
+                for k in range(3):
+                    a = 2 * math.pi * k / 3 + math.pi / 2
+                    hp += screw((sx * (hw / 2 + 0.0355), 0.022 * math.sin(a), 0.022 * math.cos(a)), "x", sx, metal, graphite, G, r=0.0025)
+    if i == 0:  # MEMO: antenna (collar, three spring rings), headset (cushion cup, boom joint, grille mic), post-it clip
+        ax_, az_ = 0.08, 0.08
+        hp += [cyl("antenna", 0.008, 0.14, (ax_, hh / 2 + 0.07, az_), graphite, G, 8),
+               cyl("antenna_collar", 0.016, 0.014, (ax_, hh / 2 + 0.007, az_), metal, G, 12, bev=0.002)]
+        hp += [torus("antenna_spring", 0.0105, 0.0022, (ax_, hh / 2 + 0.04 + k * 0.03, az_), metal, G, seg=10, rseg=4) for k in range(3)]
+        hp += [box("headset", (0.06, 0.14, 0.06), (hw / 2 + 0.03, 0, 0), graphite, G, bev=0.025, seg=2),
+               box("headset_cushion", (0.008, 0.12, 0.05), (hw / 2 + 0.004, 0, 0), plastic("#26292f", 0.95, 0, 0.5, "bot_fabric"), G, bev=0.004, seg=1),
+               sphere("boom_joint", 0.012, (hw / 2 + 0.045, -0.05, -0.02), metal, G, seg=10, rings=6),
+               lowrail("boom", [(hw / 2 + 0.045, -0.05, -0.02), (hw / 2 + 0.01, -0.11, -0.15), (0.09, -0.13, -0.205)], 0.007, graphite, G),
+               sphere("mic", 0.02, (0.09, -0.13, -0.205), accent, G, seg=12, rings=8)]
+        hp += [torus("mic_grille", 0.0175 - k * 0.004, 0.0012, (0.09, -0.13, -0.205 - 0.006 - k * 0.004), graphite, G, axis="z", seg=12, rseg=3)
+               for k in range(3)]
+        hp += [box("postit_clip", (0.05, 0.012, 0.006), (0, 0.06, zb + 0.004), metal, G, bev=0.002, seg=1)]
+    if i == 1:  # MESH: gizmo (base joint, stalk, three bars ending in arrow cones; the centre sphere is the tip)
         cz = hh / 2 + 0.13
-        hp += [cyl("gizmo_stalk", 0.01, 0.11, (0, hh / 2 + 0.055, 0), joint, G, 8)]
+        hp += [sphere("gizmo_joint", 0.016, (0, hh / 2 + 0.004, 0), metal, G, seg=12, rings=6),
+               cyl("gizmo_stalk", 0.009, 0.11, (0, hh / 2 + 0.055, 0), graphite, G, 8)]
         for v, c in (((1, 0, 0), "#ff4d5e"), ((0, 1, 0), "#5dde7a"), ((0, 0, 1), "#4d8bff")):
             m = plastic(c, 0.4, 0, 0, f"gizmo_{c}")
-            end = (0.13 * v[0], cz + 0.13 * v[1], 0.13 * v[2])
-            hp += [segment("gizmo_bar", (0, cz, 0), end, 0.009, m, G, verts=8),
-                   sphere("gizmo_end", 0.026, end, m, G, seg=10, rings=6)]
-    if i == 2:  # HUE: a flat beret tilted -10° (band, dome, stalk)
+            end = (0.11 * v[0], cz + 0.11 * v[1], 0.11 * v[2])
+            hp.append(segment("gizmo_bar", (0, cz, 0), end, 0.008, m, G, verts=8))
+            tip_end = (0.155 * v[0], cz + 0.155 * v[1], 0.155 * v[2])
+            hp.append(segment("gizmo_arrow", end, tip_end, 0.02, m, G, verts=12, r2=0.0))  # the arrow cone
+    if i == 2:  # HUE: beret (band, inner band, dome with stitch lines, the tip is its button), palette pin, dropper
         fabric_m = plastic("#5a2147", 0.85, 0, 0.4, "beret")
+        stitch = plastic("#3d1630", 0.9, 0, 0, "beret_stitch")
         beret = [cyl("beret_band", 0.215, 0.035, (0, 0, 0), fabric_m, G, 32),
+                 cyl("beret_band_in", 0.212, 0.01, (0, -0.012, 0), stitch, G, 32),
                  sphere("beret_dome", 0.26, (0, 0.01, 0), fabric_m, G, scale=(1, 0.09 / 0.26, 1), half=True, seg=32, rings=10),
                  cyl("beret_stalk", 0.008, 0.03, (0, 0.11, 0), fabric_m, G, 8)]
+        beret += [torus("beret_stitch", r_, 0.0012, (0, 0.011 + 0.09 * math.sqrt(max(0.0, 1 - (r_ / 0.26) ** 2)), 0), stitch, G, seg=32, rseg=3)
+                  for r_ in (0.12, 0.2)]
         hp += place(beret, Mx((0, hh / 2 + 0.005, 0), rz=math.radians(-10)))
-    if i == 3:  # LOOP: headphones (cups at the ears + band over the top)
-        ears = {"l": False, "r": False}
+        pin = [sphere("palette_pin", 0.014, (0, 0, 0), plastic("#ece6d8", 0.5, 0, 0.1, "palette"), G, seg=14, rings=6, scale=(1, 0.7, 0.25))]  # flat toward local +z
+        for k, a_ in enumerate(AGENTS[:4]):
+            pin.append(sphere("palette_dot", 0.0035, (-0.006 + (k % 2) * 0.012, -0.004 + (k // 2) * 0.008, 0.0036),
+                              plastic(a_["color"], 0.4, 0, 0, f"swatch_{k}"), G, seg=8, rings=4))
+        hp += place(pin, Mx((0.19, hh / 2 - 0.02, -0.11), ry=math.atan2(0.19, -0.11)))  # pinned on the beret band's front right, facing out
+        dx_ = -(hw / 2 + 0.012)  # the dropper in its holder at the left ear: holder ring, glass tube, rubber bulb, band
+        hp += [cyl("dropper_holder", 0.02, 0.03, (dx_ - 0.006, 0, 0), graphite, G, 16, axis="x", bev=0.002),
+               cyl("dropper_glass", 0.0045, 0.05, (dx_ - 0.028, -0.015, 0), glass_mat("dropper_glass", "#e8f4ff", 0.35), G, 12),
+               sphere("dropper_bulb", 0.009, (dx_ - 0.028, 0.017, 0), graphite, G, seg=12, rings=6, scale=(1, 1.4, 1)),
+               cyl("dropper_band", 0.0055, 0.004, (dx_ - 0.028, 0.005, 0), accent, G, 12)]
+    if i == 3:  # LOOP: headphones (cups with cushions and swivel rings, padded band, a cable down the back)
+        fabric = plastic("#26292f", 0.95, 0, 0.5, "bot_fabric")
         for sx in (-1, 1):
-            hp.append(box("cup", (0.09, 0.18, 0.09), (sx * (hw / 2 + 0.045), 0, 0), joint, G, bev=0.03, seg=2))
+            hp += [box("cup", (0.09, 0.18, 0.09), (sx * (hw / 2 + 0.045), 0, 0), graphite, G, bev=0.03, seg=2),
+                   box("cup_cushion", (0.012, 0.15, 0.075), (sx * (hw / 2 + 0.004), 0, 0), fabric, G, bev=0.005, seg=1),
+                   torus("cup_swivel", 0.03, 0.004, (sx * (hw / 2 + 0.045), 0.09, 0), metal, G, axis="z", seg=16, rseg=4)]
         hp.append(lowrail("band", [(-(hw / 2 + 0.045), 0.09, 0), (-0.2, 0.22, 0), (0, hh / 2 + 0.1, 0), (0.2, 0.22, 0),
-                                (hw / 2 + 0.045, 0.09, 0)], 0.02, joint, G))
-    for s, sx in (("l", -1), ("r", 1)):
-        if ears[s]:
-            hp.append(cyl("ear", 0.04, 0.03, (sx * (hw / 2 + 0.012), 0, 0), accent, G, 16, axis="x"))
-    if i == 4:  # ECHO (agents.md 2.11, #193): a round speaker grille instead of the vent, mic capsules on the ears,
-        # the tuning fork's stem on the crown (the U itself and the light ring are live, below)
-        graphite, hole_m = plastic("#3a3f48", 0.5, 0.2, 0.05, "echo_grille"), plastic("#1d2127", 0.8, 0, 0, "echo_hole")
-        for o in [o for o in hp if o.name.startswith("vent")]:  # drop the vent (left in the scene it lay on the floor)
-            hp.remove(o)
-            bpy.data.objects.remove(o, do_unlink=True)
+                                (hw / 2 + 0.045, 0.09, 0)], 0.02, graphite, G))
+        hp.append(lowrail("band_pad", [(-0.12, hh / 2 + 0.06, 0), (0, hh / 2 + 0.085, 0), (0.12, hh / 2 + 0.06, 0)], 0.022, fabric, G))
+        hp.append(lowrail("cup_cable", [(-(hw / 2 + 0.06), -0.08, 0.02), (-(hw / 2 + 0.03), -0.14, 0.1), (-0.12, -0.16, 0.18)], 0.004, graphite, G))
+    if i == 4:  # ECHO (agents.md 2.11, #193): the round speaker grille on the plate, mic capsules on the ear modules,
+        # the tuning fork's stem on the crown (the U and the light ring are live)
+        hole_m = plastic("#1d2127", 0.8, 0, 0, "echo_hole")
         hp.append(cyl("grille", 0.11, 0.012, (0, 0, hd / 2 + 0.006), graphite, G, 32, axis="z"))
         for ring_r, n in ((0.0, 1), (0.026, 6), (0.05, 12), (0.074, 18), (0.096, 24)):  # holes: concentric hex rows
             for k in range(n):
                 a = 2 * math.pi * k / n
                 hp.append(hexdot("grille_hole", 0.0045, (ring_r * math.cos(a), ring_r * math.sin(a), hd / 2 + 0.0122), (0, 0, 1), hole_m, G))
         for sx in (-1, 1):
-            hp.append(cyl("mic", 0.03, 0.004, (sx * (hw / 2 + 0.029), 0, 0), graphite, G, 16, axis="x"))
+            hp.append(cyl("mic", 0.03, 0.004, (sx * (hw / 2 + 0.037), 0, 0), graphite, G, 16, axis="x"))
             for dy in (-0.011, 0.0, 0.011):
                 for dz in (-0.011, 0.0, 0.011):
-                    hp.append(hexdot("mic_hole", 0.0025, (sx * (hw / 2 + 0.0312), dy, dz), (sx, 0, 0), hole_m, G))
-        hp.append(cyl("fork_stem", 0.01, 0.05, (0, hh / 2 + 0.025, 0.02), plastic("#c9ccd1", 0.35, 0.8, 0.05, "fork"), G, 12))
+                    hp.append(hexdot("mic_hole", 0.0025, (sx * (hw / 2 + 0.0392), dy, dz), (sx, 0, 0), hole_m, G))
+        hp.append(cyl("fork_stem", 0.01, 0.05, (0, hh / 2 + 0.025, 0.02), metal, G, 12))
     bot.append(pivot(join(f"agent_{i}_head", place(hp, Hd)), Hd))
 
     # -- face slot (off screen material on export; the app draws the face)
@@ -3484,6 +3578,10 @@ def build_agent(i, agent):
     F0 = root @ Mx((0, 0.005, 0))
     floor = pivot(apply_all(place(disc(f"agent_{i}_floor", 0.26, soft_glow(col, 0.45, 1.2, f"floor_{i}"), "export"), F0)[0]), F0)
     neon.append(floor)
+    # #166 (robots.md 2.1): a thin light ring just outside the floor disc (r 0.28, 6 mm), additive like it; top-level
+    # with the disc's pivot (a child mesh would be flattened by rebase(); the app moves it with agent_<i>)
+    ring = torus(f"agent_{i}_floor_ring", 0.28, 0.003, (0, 0, 0), soft_glow(col, 0.6, 1.6, f"floor_ring_{i}"), "export", seg=48, rseg=3)
+    neon.append(pivot(apply_all(place([ring], F0 @ Mx((0, 0.001, 0)))[0]), F0))
 
     # -- hands (#134, agents.md 2.7): palm with a back panel, four fingers of three segments and a two-segment thumb,
     #    graphite joint pins, dark fingertip pads; wrist cuff + back band (neon), grip empty
@@ -3512,15 +3610,17 @@ def build_agent(i, agent):
         P = Hd @ pen_local
         pen_m = plastic("#2d3240", 0.4, 0.2, 0.05, "pen")
         pen = pivot(join("agent_0_pen", place([cyl("pen", 0.009, 0.15, (0, 0, 0.01), pen_m, G, 12, axis="z"),
-                                                cyl("pen_cap", 0.0095, 0.02, (0, 0, -0.075), accent, G, 12, axis="z")], P)), P)
+                                                cyl("pen_cap", 0.0095, 0.02, (0, 0, -0.075), accent, G, 12, axis="z"),
+                                                box("pen_clip", (0.003, 0.002, 0.05), (0, 0.0098, -0.045), metal, G, bev=0.0007, seg=1)], P)), P)
         pen["prop"] = "pen"
         pen["home_on"] = f"agent_{i}_head"
         pen["home"] = {"pos": [round(-(hw / 2 + 0.025), 4), 0.07, 0.0], "rot": [round(math.radians(25), 4), 0.0, 0.0]}
         pen["grip"] = {"pos": [0.0, -0.04, 0.0], "rot": [round(math.pi / 2, 4), 0.0, 0.0]}
         other.append((pen, "prop"))
-        spots = [(-0.03, 0.04, 9), (0.04, 0.015, -6), (-0.01, -0.03, 4), (0.05, -0.05, -9), (-0.05, -0.005, 7)]
+        # #166: the post-its hang from the clip at the top of the service plate (1 cm off it, a little fanned), not afloat
+        spots = [(-0.012, 0.012, 7), (0.01, 0.01, -5), (-0.004, 0.008, 3), (0.014, 0.006, -8), (-0.016, 0.004, 9)]
         for k, (dx, dy, rz) in enumerate(spots):
-            Pk = Hd @ Mx((dx, dy, hd / 2 + 0.06 + 0.008 * k), rz=math.radians(rz))
+            Pk = Hd @ Mx((dx, dy, hd / 2 + 0.01 + 0.0035 * k), rz=math.radians(rz))
             note = box("postit", (0.09, 0.09, 0.003), (0, 0, 0), plastic(POSTIT[k % 3], 0.85, 0, 0.2, f"postit_{k % 3}"), G)
             bot.append(pivot(join(f"agent_0_postit_{k}", place([note], Pk)), Pk))
     if i == 1:  # MESH: wireframe cube orbiting the head (pivot = orbit center, spin = local y)
@@ -3536,6 +3636,8 @@ def build_agent(i, agent):
                     s = [t, t, t]
                     s[ax] = e + t
                     bars.append(box("orbit_bar", tuple(s), tuple(c), orbit_m, "export"))
+        bars += [sphere("orbit_corner", 0.011, (u * e / 2, v * e / 2, w_ * e / 2), orbit_m, "export", seg=8, rings=4)  # #166
+                 for u in (-1, 1) for v in (-1, 1) for w_ in (-1, 1)]
         cube = place(bars, Mx((0.34, 0, 0), rx=0.6, ry=0.8))
         neon.append(pivot(join("agent_1_orbit", place(cube, Oc)), Oc))
     if i == 3:  # LOOP: ear-cup glow strips (lit while working)
@@ -3650,6 +3752,8 @@ def build_nav():
 def build_lights(lamp_pos):
     # soft overhead "ceiling" panels over the work corner and the lounge (the room has no ceiling)
     # #109: sized to the 9 x 7 room; power scaled with panel area so the light per m2 stays as it was
+    # #195: the pod now stands right under this panel's middle and its oak tops baked to (1, 1, 1) (designer #249); they
+    # come down by ATLAS_GAIN on their two atlases, not by this light, so the room around them stays as it was
     light("panel_work", "AREA", 160, "#dfe6ff", (-2.7, 3.2, -1.5), aim=(-2.7, 0, -1.5), size=3.6, size_y=3.6)
     light("panel_lounge", "AREA", 120, "#ffe2c4", (2.2, 3.2, 1.3), aim=(2.2, 0, 1.3), size=4.0, size_y=3.6)
     light("panel_mid", "AREA", 55, "#ece4dc", (-0.9, 3.2, 1.2), aim=(-0.9, 0, 1.2), size=2.8, size_y=2.6)
@@ -3680,7 +3784,8 @@ live(door_screen, "screen")
 work = []
 for i, a in enumerate(AGENTS):
     statics, near, lives, desk_live = build_desk(i, a)
-    work += statics
+    work.append(statics[0])  # the desk body
+    baked(statics[1], "room")  # #195: the agent pad on the floor in the room atlas (the work atlas gets ATLAS_GAIN)
     for o in near:  # #187: the kit and the owner's things, near-field
         baked(o, DESK_ATLAS)
     live(lives[0], "screen")
@@ -3914,6 +4019,24 @@ if PREVIEW:
         F = frame(a["at"])
         c, t = (F @ Mx((0, 1.85, 1.15))).to_translation(), (F @ Mx((0, 0.8, -0.08))).to_translation()
         shoot(f"desk_{i}", (c.x, c.z, -c.y), (t.x, t.z, -t.y))
+    if not want or any(w.startswith("robot") for w in want):
+        # #166: the five robots lined up on the open floor (preview only), facing north: each close front (its face,
+        # -z) and back (the service plate), then the row from the front and from behind
+        rows = []
+        for i in range(len(AGENTS)):
+            x, z, ry = SPAWN[i]
+            R_new = Mx((-1.2 + 0.6 * i, 0, 0.05))
+            M = R_new @ Mx((x, 0, z), ry=ry).inverted()
+            for o in agent_objs(i):
+                o.matrix_world = M @ o.matrix_world
+            rows.append(R_new)
+        for i, R0 in enumerate(rows):
+            t = (R0 @ Mx((0, HEAD_Y + 0.02, 0))).to_translation()
+            for tag, off in (("front", (0.3, HEAD_Y + 0.1, -0.9)), ("back", (-0.3, HEAD_Y + 0.15, 0.9))):
+                c = (R0 @ Mx(off)).to_translation()
+                shoot(f"robot_{i}_{tag}", (c.x, c.z, -c.y), (t.x, t.z, -t.y))
+        shoot("robots_front", (0.0, 1.45, -2.4), (0.0, 1.05, 0.05))
+        shoot("robots_back", (0.0, 1.55, 2.3), (0.0, 1.05, 0.05))
     # 1a) one 3/4 close-up per object, agents hidden, 800 x 600 (#108: "now" column of the quality table)
     QUALITY = {
         # #126: the plants where #109 put them
@@ -4243,6 +4366,23 @@ for name, entries in ({} if NO_BAKE else atlases).items():
     t0 = time.time()
     bpy.ops.object.bake(type="COMBINED")
     print(f"baked {name} ({len(entries)} nodes) in {time.time() - t0:.1f}s")
+    if name in ATLAS_GAIN:  # #195: a linear gain on the float bake (the pod's atlases), and the levels it lands at
+        import numpy as np
+        img = images[name]
+        a_ = np.empty(len(img.pixels), dtype=np.float32)
+        img.pixels.foreach_get(a_)
+        a_ = a_.reshape(-1, 4)
+        lum = a_[:, :3].mean(axis=1)
+        lit = lum[lum > 0.01]
+        if lit.size:
+            print(f"levels {name} (linear, before gain {ATLAS_GAIN[name]}): p50 {np.percentile(lit, 50):.3f} p90 "
+                  f"{np.percentile(lit, 90):.3f} p99 {np.percentile(lit, 99):.3f}, >1: {100 * (lum > 1).sum() / lit.size:.1f}%")
+        if name == "work":  # three points on the desk tops' islands (the layout #249 baked)
+            w_ = img.size[0]
+            for (u, v) in ((0.10, 0.535), (0.40, 0.58), (0.56, 0.95)):
+                print("top sample (linear):", [round(float(c), 3) for c in a_[int((1 - v) * (w_ - 1)) * w_ + int(u * (w_ - 1)), :3]])
+        a_[:, :3] *= ATLAS_GAIN[name]
+        img.pixels.foreach_set(a_.ravel())
     if DENOISE:
         try:
             denoise(images[name], os.path.join(OUT, f"{name}.webp"))
