@@ -38,6 +38,10 @@ Node contract (the app reads glTF extras):
                                    (extras prop, home, grip; the pen's home is on its head: extras home_on)
   prop_book_l|r                   live "bot" (#135): the book's halves, pivot on the spine axis (local z); the app
                                    attaches them to prop_book; _l opens by +180° about local z (lies flat at -x)
+  prop_shelfbook_<k>, _l|_r        (#199) k 0..4: books to take from the library shelves, built as prop_book (spine =
+                                   local z, pages +x, front cover +y); standing at the right end of shelves 1 . 2 . 3
+                                   (2 . 2 . 1). extras size [w, h, t], spine "z", cover, shelf_row (the real shelf, 0 =
+                                   bottom; not the binders' r), shelf_slot; children _grip_r, _contact_index|thumb|palm
   prop_watering_can_spout          empty, child of the can: the spout's end, local +z = the water's way out
   omok_board                       the 15 x 15 board and its two stone bowls (lounge atlas, 3x texels: the lines are baked)
   omok_grid                        empty at the (0, 0) intersection on the board top, +x = columns, +z = rows
@@ -355,8 +359,15 @@ def build_wall(side):
     p = [slab]
     p += [box(f"wall_{side}_skirt", *at(-WT - 0.001, 0.15, run, 0.3, 0.002), wall_low, G)]
     span = 2 * HX if along_x else 2 * HZ
-    p += [box(f"wall_{side}_rail", *at(0.015, 0.96, span, 0.03, 0.03), trim, G),
-          box(f"wall_{side}_base", *at(0.01, 0.04, span, 0.08, 0.02), trim, G),
+    if side == "n":  # #211: the rail (3 cm deep) stood 8 mm proud of the shelf's back panel: a black strip in each
+        # shelf at 0.96 m (designer: "a dashed seam"). It stops at the shelf's sides instead of running behind it
+        rs, (_, ry, rz) = at(0.015, 0.96, span, 0.03, 0.03)
+        a, b = SHELF_X - SHELF_W / 2 - 0.015, SHELF_X + SHELF_W / 2 + 0.015
+        for k, (x0, x1) in enumerate(((-HX, a), (b, HX))):
+            p.append(box(f"wall_{side}_rail_{k}", (x1 - x0, rs[1], rs[2]), ((x0 + x1) / 2, ry, rz), trim, G))
+    else:
+        p.append(box(f"wall_{side}_rail", *at(0.015, 0.96, span, 0.03, 0.03), trim, G))
+    p += [box(f"wall_{side}_base", *at(0.01, 0.04, span, 0.08, 0.02), trim, G),
           box(f"wall_{side}_cap", *at(-WT / 2, WALL_H + 0.015, run, 0.03, WT + 0.02), trim, G)]
     if side == "n":
         wx, wy, ww, wh = WINDOW_X, 1.72, 2.6, 1.05
@@ -941,7 +952,8 @@ def build_wall_items():
           box("shelf_back_r", (fw, sh, 0.012), (sx + sw / 2 - fw / 2, sh / 2, bz), shelf_m, G),
           box("shelf_back_b", (sw - 2 * fw, fw, 0.012), (sx, fw / 2, bz), shelf_m, G),
           box("shelf_back_t", (sw - 2 * fw, fw, 0.012), (sx, sh - fw / 2, bz), shelf_m, G),
-          box("shelf_back_panel", (sw - 2 * fw, sh - 2 * fw, 0.006), (sx, sh / 2, bz + 0.002), shelf_m, G)]
+          # flush with the frame at the front (a 1 mm step there read as a black dashed seam, designer #211)
+          box("shelf_back_panel", (sw - 2 * fw, sh - 2 * fw, 0.007), (sx, sh / 2, bz + 0.0025), shelf_m, G)]
     book_cols = ["#c0392b", "#2c3e50", "#d4a017", "#16a085", "#8e44ad", "#e67e22", "#ecf0f1", "#34495e", "#7f8c8d"]
     for s in range(5):
         y0 = 0.08 + s * 0.42
@@ -2162,20 +2174,39 @@ BOOK_HALVES = []  # live bot: prop_book_l, prop_book_r
 
 
 def build_book(G):
-    """book frame: origin on the spine axis at mid thickness, pages along +x (0.15), spine along z (0.22), thickness
-    along y; the lower half (_r) under y = 0, the upper half (_l) above. Home: lying on the side table"""
-    W_, H_, T = 0.15, 0.22, 0.025
-    cover = plastic("#2f6f9f", 0.6, 0, 0.3, "book_cover")  # a decorative-book blue from the shelf
+    """the book on the side table (#135)"""
+    sx2, sz2 = SIDE_TABLE
+    T = 0.025
+    return make_book("prop_book", 0.15, 0.22, T, "#2f6f9f", (sx2 - 0.235, 0.565 + T / 2, sz2 + 0.06), (0.0, 0.15, 0.0), G,
+                     ribbon=True)
+
+
+def make_book(name, W_, H_, T, cover_hex, home_pos, home_rot, G, ribbon=False):
+    """book frame: origin on the spine axis at mid thickness, pages along +x (W_), spine along z (H_), thickness
+    along y; the lower half (_r) under y = 0, the upper half (_l, the front cover) above. <name> = the spine's lower
+    half (a prop), <name>_l|_r = the halves (live bot, BOOK_HALVES)"""
+    cover = plastic(cover_hex, 0.6, 0, 0.3, f"book_cover_{cover_hex[1:]}")
     paper = plastic("#efe8d8", 0.9, 0, 0.1, "book_paper")
     leaf = plastic("#d9d2c2", 0.9, 0, 0.0, "book_leaf")  # the paper lines on the page block's three faces
-    groove = plastic("#285f88", 0.7, 0, 0.3, "book_groove")  # the cover blue, 15% darker
+    dk = [int(cover_hex[i:i + 2], 16) * 0.85 for i in (1, 3, 5)]
+    groove = plastic("#%02x%02x%02x" % tuple(int(c) for c in dk), 0.7, 0, 0.3, f"book_groove_{cover_hex[1:]}")  # the cover, 15% darker
     ink = plastic("#9a948a", 0.9, 0, 0.0, "book_ink")
     band = plastic("#a83232", 0.8, 0, 0.3, "book_band")
     gilt = plastic("#c9a465", 0.35, 0.9, 0.1, "book_gilt")
-    sx2, sz2 = SIDE_TABLE
-    H = Mx((sx2 - 0.235, 0.565 + T / 2, sz2 + 0.06), 0.0, 0.15, 0.0)
+    lt = [int(cover_hex[i:i + 2], 16) * 0.75 + 255 * 0.25 for i in (1, 3, 5)]
+    title = plastic("#%02x%02x%02x" % tuple(int(c) for c in lt), 0.6, 0, 0.3, f"book_title_{cover_hex[1:]}")  # 25% lighter
+    spine_gilt = plastic("#d9b56c", 0.45, 0, 0.1, "book_spine_gilt")
+    H = Mx(home_pos, *home_rot)
 
-    def half(name, sgn):
+    def spine_deco(sgn):
+        """#211 (designer): two 2 mm gilt bands 1.5 cm in from head and tail and a title line down the middle
+        (60% of the height, 3 mm wide), standing 0.2 mm proud of the spine; split at y = 0 like the spine itself"""
+        # not metallic: the books are PBR in the app with no environment map, where a metal gilt went dark brown
+        o = [box("spine_band", (0.0004, T / 2 - 0.0012, 0.002), (-0.0032, sgn * (T / 4 - 0.0004), sz * (H_ / 2 - 0.015)),
+                 spine_gilt, G) for sz in (-1, 1)]
+        return o + [box("spine_title", (0.0004, 0.0015, H_ * 0.6), (-0.0032, sgn * 0.00075, 0), title, G)]
+
+    def half(nm, sgn):
         """sgn = +1: the upper half (cover on top), -1: the lower one"""
         c = T / 2 - 0.001
         objs = [box("cover", (W_, 0.002, H_), (W_ / 2, sgn * c, 0), cover, G, bev=0.0008, seg=1),
@@ -2192,21 +2223,22 @@ def build_book(G):
             objs.append(box("headband", (0.004, T / 2 - 0.003, 0.002), (0.0025, sgn * (T / 4 - 0.0005), sz * (H_ / 2 - 0.006)), band, G, bev=0.0005, seg=1))
         if sgn > 0:  # the spine's upper half turns with this half (a whole spine would stand up between open pages)
             objs.append(box("spine", (0.003, T / 2, H_), (-0.0015, T / 4, 0), cover, G, bev=0.001, seg=2))
+            objs += spine_deco(1)
             # the front cover: a gilt rule by the spine and a cream title label
             objs += [box("groove", (0.0015, 0.0002, H_ - 0.012), (0.012, c + 0.0011, 0), groove, G),  # a shallow hinge groove
-                     box("label", (0.075, 0.0004, 0.034), (W_ / 2 + 0.008, c + 0.0012, -0.045), paper, G, bev=0.0002, seg=1),
-                     box("label_ink", (0.05, 0.0002, 0.004), (W_ / 2 + 0.008, c + 0.0015, -0.049), ink, G),
-                     box("label_ink", (0.032, 0.0002, 0.003), (W_ / 2 + 0.008, c + 0.0015, -0.039), ink, G)]
-        else:  # a ribbon bookmark slips out at the foot and lies on the table
+                     box("label", (W_ / 2, 0.0004, 0.034), (W_ / 2 + 0.008, c + 0.0012, -H_ * 0.2), paper, G, bev=0.0002, seg=1),
+                     box("label_ink", (W_ / 3, 0.0002, 0.004), (W_ / 2 + 0.008, c + 0.0015, -H_ * 0.2 - 0.004), ink, G),
+                     box("label_ink", (W_ / 4.7, 0.0002, 0.003), (W_ / 2 + 0.008, c + 0.0015, -H_ * 0.2 + 0.006), ink, G)]
+        elif ribbon:  # a ribbon bookmark slips out at the foot and lies on the table
             objs.append(box("ribbon", (0.005, 0.0005, 0.04), (0.055, -T / 2 + 0.0003, H_ / 2 + 0.012), band, G, rot_y=0.25))
         for k in range(8):  # a few grey lines of text on the inner page (seen when open)
             objs.append(box("line", (W_ - 0.04 - (0.03 if k % 3 == 2 else 0), 0.0002, 0.0025),
-                            (W_ / 2 - (0.015 if k % 3 == 2 else 0), -sgn * 0.0001, -0.075 + k * 0.02), ink, G))
-        return live(pivot(join(name, place(objs, H)), H), "bot")
+                            (W_ / 2 - (0.015 if k % 3 == 2 else 0), -sgn * 0.0001, -H_ * 0.34 + k * H_ * 0.09), ink, G))
+        return live(pivot(join(nm, place(objs, H)), H), "bot")
 
-    BOOK_HALVES.extend([half("prop_book_l", 1), half("prop_book_r", -1)])
-    spine = [box("spine", (0.003, T / 2, H_), (-0.0015, -T / 4, 0), cover, G, bev=0.001, seg=2)]  # the lower half of the spine
-    return prop("prop_book", "book", spine, (sx2 - 0.235, 0.565 + T / 2, sz2 + 0.06), (0.0, 0.15, 0.0),
+    BOOK_HALVES.extend([half(f"{name}_l", 1), half(f"{name}_r", -1)])
+    spine = [box("spine", (0.003, T / 2, H_), (-0.0015, -T / 4, 0), cover, G, bev=0.001, seg=2)] + spine_deco(-1)  # the lower half of the spine
+    return prop(name, "book", spine, home_pos, home_rot,
                 grip_pos=(0, -0.04, 0), grip_rot=(-math.pi / 2, 0, 0))
 
 
@@ -2400,6 +2432,29 @@ def build_props():
     # spine (the prop PropBank carries); its two halves are live bot nodes the app attaches to it and turns
     # about the spine (local z through the pivot): prop_book_l (the upper half) opens by +180° to lie flat at -x
     out.append(build_book(G))
+    # #199: five books to take from the library shelves (grips.md 2.1): on shelves 1 · 2 · 3 (the binders' rows), 2 · 2 · 1
+    # at the right end, past the binders, the bookend and the books lying flat. Standing, spine to the room: the book
+    # frame turned by (-90°, 0, 90°) (three.js XYZ) puts the spine axis (local z) up, the pages (+x) into the shelf
+    # and the front cover (+y) toward -x. A little lean on the outer one
+    SBRNG = random.Random(199)
+    COVERS = SBRNG.sample(["#c0392b", "#2c3e50", "#16a085", "#8e44ad", "#d4a017", "#34495e", "#e67e22"], 5)
+    right = SHELF_X + SHELF_W / 2 - 0.015 - 0.004  # the shelf's inner right face, a gap
+    k = 0
+    for row, n in ((1, 2), (2, 2), (3, 1)):
+        x = right
+        for slot in range(n):
+            T = SBRNG.uniform(0.026, 0.04)
+            H_ = SBRNG.uniform(0.22, 0.27)
+            W_ = SBRNG.uniform(0.16, 0.19)
+            col = COVERS[k]  # five different covers
+            x -= T / 2
+            pos = (x, shelf_top(row) + H_ / 2, SPINE_Z - 0.004)
+            o = make_book(f"prop_shelfbook_{k}", W_, H_, T, col, pos, (-math.pi / 2, 0.0, math.pi / 2), G)
+            o["size"], o["spine"], o["cover"] = [round(W_, 3), round(H_, 3), round(T, 3)], "z", col
+            o["shelf_row"], o["shelf_slot"] = row, n - 1 - slot  # from the left among the right-end books
+            out.append(o)
+            x -= T / 2 + 0.002
+            k += 1
     # MEMO's desk (seat 0) props, homes in world coordinates through the desk frame
     F0 = frame(AGENTS[0]["at"])
     ry0 = AGENTS[0]["at"][2]
@@ -2500,6 +2555,15 @@ def build_hands():
     tail = -lo[1] - 0.02  # Blender local -y = web +z
     contact(o, "index", (0, hi[2], tail), (0, 1, 0))
     contact(o, "thumb", (0, lo[2], tail), (0, -1, 0))
+    # shelf books (#199, grips.md 2.1): hook the index on the head 1 cm in from the spine, the thumb on the front cover
+    # by the spine, the palm on the spine (pushing it home); the right hand holds the spine, palm to it
+    for k in range(5):
+        o = O[f"prop_shelfbook_{k}"]
+        W_, H_, T = o["size"]
+        grip_at(o, R, (-0.012, 0, 0), (0, -1, 0), (1, 0, 0))
+        contact(o, "index", (0.01, 0, H_ / 2 - 0.005), (0, 0, 1))  # the page block's head (5 mm under the boards)
+        contact(o, "thumb", (0.012, T / 2, 0), (0, 1, 0))
+        contact(o, "palm", (-0.003, 0, 0), (-1, 0, 0))
     # stamp: grip over the knob's head, fingers level, palm down
     grip_at(O["prop_stamp"], R, (0, 0.08, 0), (0, 0, -1), (0, -1, 0))
     contact(O["prop_stamp"], "palm", (0, 0.07, 0), (0, 1, 0))
@@ -3265,6 +3329,8 @@ if PREVIEW:
         "q_door": ((-1.35, 1.45, 1.15), (-3.4, 1.1, 2.12)),
         "q_window": ((-1.2, 1.5, -0.55), (-1.8, 1.7, -2.75)),
         "q_rug": ((0.55, 2.7, -0.45), (0.55, 0.0, 1.5)),
+        "q_shelfbooks": ((3.35, 1.25, -2.1), (4.1, 1.0, -3.3)),  # #199: the three shelves' right ends
+        "q_shelfbook_close": ((3.92, 1.12, -2.78), (4.16, 1.02, -3.22)),
         "q_mug": ((3.62, 1.28, -1.62), (4.0, 0.96, -1.93)),  # #156: from above at a slant, the inside and the coffee
         "q_can": ((3.25, 0.62, 2.75), (3.78, 0.12, 3.3)),
         "q_omok": ((-1.6, 1.3, 2.62), (-1.6, 0.77, 2.2)),  # #135
@@ -3280,6 +3346,13 @@ if PREVIEW:
         scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage = 800, 600, 100
         for name, (pos, target) in QUALITY.items():
             shoot(name, pos, target)
+        if not want or "q_shelf_empty" in want:  # #199: one book taken out: the shelf baked empty behind it
+            gone = [o for o in bpy.data.objects if o.name.startswith("prop_shelfbook_3")]  # shelf 2, the left one
+            for o in gone:
+                o.hide_render = True
+            shoot("q_shelf_empty", (3.92, 1.12, -2.78), (4.16, 1.02, -3.22))
+            for o in gone:
+                o.hide_render = False
         # #135, as the app will do it: stones on the board (copies of the samples at grid points), the book open
         if not want or any(n in want for n in ("q_omok_game", "q_book_open")):
             grid = bpy.data.objects["omok_grid"].matrix_world
@@ -3524,7 +3597,7 @@ scene.render.bake.target = "IMAGE_TEXTURES"
 # when they leave (props too since #43: a lifted paddle left its shadow on the table; the binders since #67: the app
 # shows only as many as there are files)
 for n in NODES:
-    if n["obj"].name.startswith(("agent_", "shelf_r", "clock_", "window_", "prop_book_", "omok_stone_", "pp_ball")) or n.get("live") == "prop":
+    if n["obj"].name.startswith(("agent_", "shelf_r", "clock_", "window_", "prop_book_", "prop_shelfbook_", "omok_stone_", "pp_ball")) or n.get("live") == "prop":
         n["obj"].hide_render = True
 
 atlases = {}
