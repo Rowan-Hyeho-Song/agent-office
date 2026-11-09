@@ -107,7 +107,7 @@ SHELF_W, SHELF_D = 1.1, 0.34  # the bookshelf against the back wall: width, dept
 PLANTS = [  # name, species, x, z (#126: one species each, office-quality.md 3; plant_boards left out, designer)
     ("plant_desk", "sansevieria", 0.0, -3.2),  # between MESH's desk and the whiteboard: tall and narrow
     ("plant_corner", "fiddle_fig", 4.22, 3.18),  # its canopy (0.6 m) clears the floor lamp by 0.1 m
-    ("plant_sofa", "monstera", 0.925, 2.75),  # between the side table and the sofa: 0.44 m wide, leaves face the camera
+    ("plant_sofa", "monstera", 0.905, 2.75),  # between the side table and the sofa: 0.44 m wide (#156: leaves all round, short toward ±x)
 ]
 CLOCK_AT, CLOCK_S = (-HX + 0.02, 1.85, 1.6), 0.40  # wall clock face center (left wall, next to the door), size
 CLOCK_M = Mx((CLOCK_AT[0] + 0.01, CLOCK_AT[1], CLOCK_AT[2]), ry=math.pi / 2)  # the face front: local +z = web +x
@@ -1250,41 +1250,128 @@ def camera_side(x, z):
     return UP.cross(c).normalized(), c
 
 
+FIG_GREENS = ("#2f5a2e", "#5d8a4f", "#7fae55", "#a9c48a")  # top (leathery, a little gloss), underside, young top leaves (lime), veins
+
+
+def fig_outline(rng):
+    """a fiddle (violin) leaf in leaf units (#156, office-quality.md 0.5): narrow rounded base, a waist in the lower 40%,
+    the upper two thirds broad and round, a blunt tip; length : width about 1.4; the edge in a gentle wave (3–5 mm on
+    a 28 cm leaf). Midrib + 7 pairs of side veins curving up to the edge."""
+    def half(u):
+        w = 0.06 + 0.16 * math.sin(math.pi * min(1.0, u / 0.3) / 2) ** 0.8  # the base rounding out
+        w -= 0.05 * math.exp(-((u - 0.36) / 0.11) ** 2)  # the waist
+        w += 0.13 * math.exp(-((u - 0.72) / 0.19) ** 2)  # the broad top
+        w *= min(1.0, (1.0 - u) / 0.12) ** 0.55  # the blunt rounded tip
+        return max(0.0, w)
+    ph = rng.uniform(0, 6.28)
+    n = 28
+    us = [0.02 + 0.98 * k / n for k in range(n + 1)]
+    right = [Vector((u, half(u) * (1 + 0.04 * math.sin(u * 31 + ph)))) for u in us]
+    left = [Vector((u, -half(u) * (1 + 0.04 * math.sin(u * 29 + ph + 1.7)))) for u in us]
+    outer = [Vector((0.0, 0.0))] + right[:-1] + [Vector((1.0, 0.0))] + list(reversed(left[:-1]))
+    veins = [[Vector((0.02, 0.0)), Vector((0.95, 0.0))]]
+    for k in range(7):
+        u0 = 0.12 + 0.105 * k
+        for sgn in (1, -1):
+            u1 = min(0.95, u0 + 0.13)
+            veins.append([Vector((u0, 0.0)), Vector((u1, sgn * half(u1) * 0.8))])
+    return outer, [], veins
+
+
 def fiddle_fig(name, x, z, group):
-    """corner: fiddle-leaf fig 1.5 m; glazed charcoal pot (38 cm) with an unglazed foot band on a saucer, pebbles and
-    bark chips; trunk + two branches; 44 violin leaves 20–30 cm with a pale midrib, each on its own short petiole,
-    pointing into the room more than at the corner walls (#126, upper end of office-quality.md 3)"""
-    PRNG.seed(f"126:{name}")  # each plant its own stream: changing one leaves the others as they are
+    """corner: fiddle-leaf fig 1.5 m in a glazed charcoal pot (38 cm) with an unglazed foot band on a saucer, pebbles
+    and bark chips. #156 (user + designer, office-quality.md 0.5): a grey-brown trunk bare to 45% with leaf-scar
+    rings, splitting at about half height into three (the leader + two branches 30–45° out); on each stem's upper
+    half the leaves alternate in a spiral (137.5°): young lime leaves near upright at the top, the big leaves (25–30
+    cm) 30–60° up in the middle, the lower ones level or a little down; a pointed terminal bud on every tip. Violin
+    leaves on 2–4 cm petioles, cupped up, the tip dipping. Leaves toward the corner walls short and steep."""
+    PRNG.seed(f"156:{name}")  # each plant its own stream: changing one leaves the others as they are
     pot, sy = pot3(name, x, z, 0.02, 0.19, 0.15, 0.36, plastic("#33363d", 0.25, 0, 0.05, "pot_charcoal_glaze"), group,
                    saucer=True, pebbles=5, chips=8, foot=plastic("#8e8478", 0.9, 0, 0.3, "pot_bisque_dark"))
-    bark = plastic("#5a4632", 0.85, 0, 0.5, "bark")
-    trunk = [Vector((x, sy, z)), Vector((x - 0.02, 0.75, z - 0.01)), Vector((x - 0.05, 1.15, z - 0.03)), Vector((x - 0.04, 1.45, z - 0.05))]
-    br1 = [trunk[1] + Vector((0, 0.08, 0)), Vector((x - 0.14, 1.02, z - 0.06)), Vector((x - 0.21, 1.22, z - 0.1))]
-    br2 = [trunk[2], Vector((x + 0.02, 1.25, z - 0.14)), Vector((x + 0.01, 1.4, z - 0.2))]
-    stems = [lowrail(f"{name}_trunk", [tuple(p) for p in trunk], 0.018, bark, group),
-             lowrail(f"{name}_branch", [tuple(p) for p in br1], 0.011, bark, group),
-             lowrail(f"{name}_branch", [tuple(p) for p in br2], 0.011, bark, group)]
-    stalk = plastic(GREENS[1], 0.7, 0, 0.2, "fig_petiole")
-    fol = Foliage(f"{name}_leaves")
-    room = Vector((-0.55, 0.0, -1.0)).normalized()  # from the corner toward the room, a little away from the floor lamp (−x)
-    for path, count in ((trunk[1:], 20), (br1[1:], 12), (br2[1:], 12)):
+    bark = plastic("#6b5e52", 0.85, 0, 0.5, "fig_bark")
+    scar = plastic("#776a5d", 0.85, 0, 0.4, "fig_scar")  # the bark +10% (designer: not a white tape)
+    bud_m = plastic("#a7b97a", 0.7, 0, 0.3, "fig_bud")
+    stalk = plastic("#5d8a4f", 0.7, 0, 0.2, "fig_petiole")
+    H = 1.5
+    fork = Vector((x - 0.01, 0.74, z - 0.005))  # about half height
+    room = Vector((-0.3, 0.0, -1.0)).normalized()  # into the room, away from the corner walls and the floor lamp (−x)
+    walls = Vector((1.0, 0.0, 1.0)).normalized()  # toward the two walls (+x, +z)
+
+    def branch(az, spread, length):
+        d = Vector((math.cos(az), 0.0, math.sin(az)))
+        a = math.radians(spread)
+        mid = fork + (UP * math.cos(a * 0.6) + d * math.sin(a * 0.6)) * (length * 0.5)
+        return [fork, mid, mid + (UP * math.cos(a) + d * math.sin(a)) * (length * 0.5)]
+
+    leader = [Vector((x, sy, z)), Vector((x - 0.001, sy + 0.06, z)), fork, Vector((x - 0.03, 1.12, z - 0.03)), Vector((x - 0.04, H, z - 0.05))]
+    ra = math.atan2(room.z, room.x)
+    br1 = branch(ra - 0.55, 40, 0.62)
+    br2 = branch(ra + 0.75, 34, 0.56)
+    def tapered(nm, path, radii):
+        """a stem tapering along its points (radii in m; designer: the trunk 4.6 cm flaring at the soil, 4.2 cm, 3.0 cm
+        at the fork, 1.4 cm at the top; branches 2.0 -> 1.1 cm)"""
+        o = rail(nm, [tuple(p) for p in path], max(radii), bark, group)
+        o.data.resolution_u, o.data.bevel_resolution = 5, 2
+        for bp, r in zip(o.data.splines[0].bezier_points, radii):
+            bp.radius = r / max(radii)
+        return o
+
+    stems = [tapered(f"{name}_trunk", leader, (0.023, 0.021, 0.015, 0.011, 0.007)),
+             tapered(f"{name}_branch", br1, (0.01, 0.0078, 0.0055)),  # 0.65 x the fork
+             tapered(f"{name}_branch", br2, (0.0098, 0.0076, 0.0055))]
+    for k in range(6):  # leaf scars: fine rings a shade lighter than the bark, just proud of it
+        y = sy + 0.08 + (fork.y - sy - 0.12) * (k + PRNG.uniform(0.1, 0.6)) / 6
+        f = (y - sy) / (fork.y - sy)
+        stems.append(torus(f"{name}_scar", 0.021 - 0.006 * f, 0.0008, (x - 0.01 * f, y, z - 0.005 * f), scar, group, seg=16, rseg=4))
+    fol = Foliage(f"{name}_leaves", colors=FIG_GREENS, under=(1, 1, 2, 3))
+    fol.mats[0] = plastic(FIG_GREENS[0], 0.6, 0, 0.1, "fig_leaf_top")  # a little gloss (leathery)
+    # vein colours (designer #210): a quiet step lighter than the leaf, the midrib a little more (not a variegated leaf)
+    fol.vein = (plastic("#86ad6e", 0.85, 0, 0.1, "vein_fig_mid"), plastic("#6f9a5c", 0.85, 0, 0.1, "vein_fig_side"))
+    fol.vein_fol = Foliage(f"{name}_veins", colors=(), under=())
+    golden = math.radians(137.5)
+
+    def at_path(path, u):
+        seg = min(int(u * (len(path) - 1)), len(path) - 2)
+        f = u * (len(path) - 1) - seg
+        return path[seg].lerp(path[seg + 1], f), (path[seg + 1] - path[seg]).normalized()
+
+    # (stem, leaves, where the leafy part starts along the path)
+    for path, count, u0 in ((leader[2:], 15, 0.42), (br1, 15, 0.45), (br2, 14, 0.45)):  # the leader from the fork
+        phi = PRNG.uniform(0, 6.28)
         for k in range(count):
-            u = 0.15 + 0.85 * (k + PRNG.uniform(0.2, 0.8)) / count  # the upper part of each stem: bare low down
-            seg = min(int(u * (len(path) - 1)), len(path) - 2)
-            f = u * (len(path) - 1) - seg
-            at = path[seg].lerp(path[seg + 1], f)
-            yaw = PRNG.uniform(-1.6, 1.6)  # around the room direction: few leaves point into the corner
-            out = Vector((room.x * math.cos(yaw) - room.z * math.sin(yaw), 0.0, room.x * math.sin(yaw) + room.z * math.cos(yaw)))
-            elev = PRNG.uniform(0.45, 1.05)  # held up and out, as the fig does
-            d = (out * math.cos(elev) + UP * math.sin(elev)).normalized()
-            side = UP.cross(out).normalized()
-            roll = PRNG.uniform(-1.0, 1.0)  # turned about the midrib so the leaves face every way, not all flat
-            side = side * math.cos(roll) + d.cross(side) * math.sin(roll)
-            base = at + (out * 0.75 + UP * 0.65).normalized() * 0.035  # a 3.5 cm petiole from the stem
+            t = (k + PRNG.uniform(0.2, 0.8)) / count  # 0 = the lowest leaf on this stem, 1 = the tip
+            at, along = at_path(path, u0 + (0.97 - u0) * t)
+            phi += golden
+            out = Vector((math.cos(phi), 0.0, math.sin(phi)))
+            out = (out + room * 0.5).normalized()
+            wall = max(0.0, out.dot(walls))  # 1 = straight at the corner
+            if t > 0.76:  # top: young leaves, lime, near upright
+                size, up = PRNG.uniform(0.12, 0.18), PRNG.uniform(60, 88)
+                mi = 2
+            elif t > 0.33:  # middle: the big leaves, 30–60° up
+                size, up = PRNG.uniform(0.25, 0.3), PRNG.uniform(30, 60)
+                mi = 0
+            else:  # lower: level to 15° down
+                size, up = PRNG.uniform(0.22, 0.28), PRNG.uniform(-15, 5)
+                mi = 0
+            size *= (1.0 - 0.35 * wall) * (1.0 - 0.3 * max(0.0, out.x))  # toward the walls (the e wall is the nearer): shorter
+            up = up + (90 - up) * 0.5 * wall  # and steeper
+            plen = PRNG.uniform(0.02, 0.04)
+            pa = math.radians(PRNG.uniform(40, 60))  # the petiole leaves the stem at 40–60°
+            base = at + (along * math.cos(pa) + out * math.sin(pa)) * plen
             stems.append(petiole(f"{name}_petiole", at, base, stalk, group))
-            ribbed(fol, base, d, side, PRNG.uniform(0.21, 0.29), [(0.33, 0.28), (0.72, 0.34)],
-                   fold=0.15, droop=PRNG.uniform(0.1, 0.3), mi=fol.green())
-    return pot + stems + [fol.obj(group)]
+            laid_leaf(fol, base, out, -up, size, mi, fig_outline(PRNG), fold=PRNG.uniform(10, 15), droop=PRNG.uniform(8, 16),
+                      curve=0.3, sub=0.12, veins_w=((0.003, 0.003, 4), (0.002, 0.002, 2)))
+    for path in (leader, br1, br2):  # the terminal bud: a pointed sheath (stipule) on every tip
+        tip = path[-1]
+        d = (path[-1] - path[-2]).normalized()
+        stems.append(segment(f"{name}_bud", tuple(tip), tuple(tip + d * PRNG.uniform(0.03, 0.04)), 0.006, bud_m, group, verts=8, r2=0.0008))
+    leaves = fol.obj(group)
+    for p in leaves.data.polygons:
+        p.use_smooth = True
+    veins = fol.vein_fol.obj(group)
+    veins["vein_node"] = True
+    return pot + stems + [leaves, veins]
 
 
 def sansevieria(name, x, z, group):
@@ -1316,26 +1403,260 @@ def sansevieria(name, x, z, group):
     return pot + legs + [fol.obj(group)]
 
 
+MONSTERA_GREENS = ("#3f6e41", "#5a8a55", "#9ccc6e", "#7aa56a")  # top, underside, young leaf / shoot (lime), veins
+
+
+def heart_r(th):
+    """the monstera outline (#156, designer's sketch): radius from (0.42, 0) in leaf units (length 1) at angle th
+    (0 = the tip, pi = the petiole notch). A heart, length : width about 1.15, base lobes rounding back past the
+    notch, which dips in where the petiole joins."""
+    pts = [(0, 0.58), (30, 0.565), (60, 0.51), (90, 0.45), (120, 0.455), (145, 0.475), (162, 0.445), (172, 0.4),
+           (177, 0.37), (180, 0.4)]
+    d = math.degrees(th)
+    for (a0, r0), (a1, r1) in zip(pts, pts[1:]):
+        if d <= a1:
+            f = (d - a0) / (a1 - a0)
+            f = f * f * (3 - 2 * f)
+            return r0 + (r1 - r0) * f
+    return pts[-1][1]
+
+
+def leaf_outline(splits, holes, rng):
+    """2D outline of one leaf in leaf units: u along the midrib (0 = the petiole notch, 1 = the tip), v across.
+    Returns (outer loop, hole loops, vein polylines). Each side gets `splits` cuts: narrow gaps (2.5% of the leaf
+    width, rounded inner end) from the edge toward the midrib along the side-vein direction, 50–85% deep; the lobe
+    corners at a cut's mouth are rounded. holes: a row of long ellipses (3:1) beside the midrib, along the veins."""
+    C = Vector((0.42, 0.0))
+    W = 2 * heart_r(math.pi / 2)
+    gap = 0.025 * W
+    sides = {}
+    veins = [[Vector((0.02, 0.0)), Vector((0.96, 0.0))]]  # the midrib
+    hole_loops = []
+    for sgn in (1, -1):
+        ths = sorted(math.radians(18 + 128 * (j + rng.uniform(0.3, 0.7)) / splits) for j in range(splits)) if splits else []
+        depth = [rng.uniform(0.5, 0.85) for _ in ths]
+
+        def edge(th):
+            r = heart_r(th)
+            for tk in ths:  # round each lobe's corner at a cut's mouth
+                dd = abs(th - tk)
+                if dd < 0.16:
+                    r *= 1 - 0.07 * (1 - dd / 0.16) ** 2
+            return C + Vector((math.cos(th), sgn * math.sin(th) * 0.94)) * r  # length : width about 1.15
+
+        loop = []
+        steps = 72
+        cut_at = {}
+        for k in range(steps + 1):  # base notch (pi) to the tip (0)
+            th = math.pi * (1 - k / steps)
+            nxt = [i for i, tk in enumerate(ths) if abs(th - tk) < math.pi / steps / 2]
+            if nxt:
+                cut_at[nxt[0]] = len(loop)
+            loop.append(edge(th))
+        # insert the cuts, from the tip end back so indices hold
+        for i in sorted(cut_at, key=lambda i: -cut_at[i]):
+            j = cut_at[i]
+            E = edge(ths[i])
+            M = Vector((max(0.05, E.x - abs(E.y) * 0.75), 0.0))  # where its side vein leaves the midrib
+            ax = (M - E).normalized()
+            nrm = Vector((-ax.y, ax.x))
+            inner = E + (M - E) * depth[i]
+            # drop the edge samples inside the gap's mouth
+            mouth = [k for k in range(max(0, j - 2), min(len(loop), j + 3)) if (loop[k] - E).length < gap * 0.9]
+            lo, hi = (min(mouth), max(mouth)) if mouth else (j, j)
+            before = loop[lo - 1] if lo > 0 else loop[0]
+            # down the side the outline comes from (slightly wider at the edge), round the inner end, back up
+            s0 = 1.0 if (E + nrm * gap - before).length < (E - nrm * gap - before).length else -1.0
+            cut = []
+            for f in (0.0, 0.5, 1.0):
+                p = E.lerp(inner, f)
+                cut.append(p + nrm * (gap * (0.6 - 0.15 * f) * s0))
+            for a in range(1, 6):
+                ang = math.pi * a / 6
+                cut.append(inner + ax * (gap * 0.45 * math.sin(ang)) + nrm * (s0 * gap * 0.45 * math.cos(ang)))
+            for f in (1.0, 0.5, 0.0):
+                p = E.lerp(inner, f)
+                cut.append(p - nrm * (gap * (0.6 - 0.15 * f) * s0))
+            loop[lo:hi + 1] = cut
+        sides[sgn] = loop
+        # side veins: one per lobe, from the midrib to near the lobe's tip (the lobe's middle angle)
+        bounds = [math.pi * 0.97] + sorted(ths, reverse=True) + [0.12]
+        for a0, a1 in zip(bounds, bounds[1:]):
+            th = (a0 + a1) / 2
+            E = edge(th)
+            M = Vector((max(0.04, E.x - abs(E.y) * 0.75), 0.0))
+            veins.append([M, M.lerp(E, 0.86)])
+        if holes and ths:
+            for a0, a1 in zip(bounds[1:-1], bounds[2:]):  # between two cuts, by the midrib, along the vein
+                th = (a0 + a1) / 2
+                E = edge(th)
+                M = Vector((max(0.04, E.x - abs(E.y) * 0.75), 0.0))
+                ax = (E - M).normalized()
+                c = M + ax * 0.13
+                if c.x < 0.12 or c.x > 0.8:
+                    continue
+                nrm = Vector((-ax.y, ax.x))
+                a, b = 0.045, 0.014  # 3:1
+                hole_loops.append([c + ax * (a * math.cos(2 * math.pi * k / 12)) + nrm * (b * math.sin(2 * math.pi * k / 12)) for k in range(12)])
+    outer = sides[1] + list(reversed(sides[-1]))[1:-1]
+    return outer, hole_loops, veins
+
+
+def orient(pts, ids, up):
+    """a face winding that faces up (Foliage wants the front counter-clockwise)"""
+    a, b, c = pts[ids[0]], pts[ids[1]], pts[ids[2]]
+    return tuple(ids) if (b - a).cross(c - a).dot(up) >= 0 else tuple(reversed(ids))
+
+
+def monstera_leaf(fol, attach, out, tilt, size, mi, splits=0, holes=False, fold=12.0, droop=20.0, rng=None):
+    """a monstera leaf (#156): its 2D outline (leaf_outline) laid on a curved blade (laid_leaf); tilt = the blade's
+    angle below the horizontal (the droop adds the last 8°)"""
+    laid_leaf(fol, attach, out, max(15.0, tilt - 8.0), size, mi, leaf_outline(splits, holes, rng or PRNG), fold, droop)
+
+
+def laid_leaf(fol, attach, out, tilt, size, mi, outline, fold=12.0, droop=20.0, curve=0.55, sub=0.07, veins_w=((0.003, 0.003, 8), (0.002, 0.002, 4))):
+    """a leaf from a 2D outline (outer loop, hole loops, vein polylines; leaf units: u along the midrib from the
+    petiole 0 .. tip 1, v across), filled and subdivided, laid on a curved blade (#156). It leaves the petiole at
+    attach and runs outward (out, horizontal), `tilt` degrees below the horizontal (negative: above); V-folded along
+    the midrib (fold °) and rounded across (curve); the tip third droops in a curve (droop °). Smooth normals. Light
+    veins as strips just over the face: veins_w = (start width, end width in m, segments) for the midrib, then the rest."""
+    out = Vector((out.x, 0.0, out.z)).normalized()
+    side = UP.cross(out).normalized()
+    a = math.radians(tilt)
+    d0 = (out * math.cos(a) - UP * math.sin(a)).normalized()
+    n0 = side.cross(d0).normalized()
+    if n0.y < 0:
+        side, n0 = -side, -n0
+    # the midrib: straight, then the tip third bending back (droop), sampled finely
+    N = 40
+    cs, ds, ns = [attach.copy()], [d0], [n0]
+    for k in range(1, N + 1):
+        u = k / N
+        f = max(0.0, (u - 0.6) / 0.4)
+        ang = math.radians(droop) * f * f
+        d = (d0 * math.cos(ang) - n0 * math.sin(ang)).normalized()
+        cs.append(cs[-1] + d * size / N)
+        ds.append(d)
+        ns.append(side.cross(d).normalized())
+    tf = math.tan(math.radians(fold))
+
+    def P(u, v, lift=0.0):
+        """leaf units -> world: along the midrib curve, across, up off the face"""
+        if u <= 0:
+            c, d, n = cs[0] + ds[0] * (u * size), ds[0], ns[0]
+        else:
+            x = min(u, 1.0) * N
+            k = min(int(x), N - 1)
+            f = x - k
+            c, d, n = cs[k].lerp(cs[k + 1], f), ds[k].lerp(ds[k + 1], f).normalized(), ns[k].lerp(ns[k + 1], f).normalized()
+        w = abs(v)
+        h = w * tf - curve * w * w  # V at the midrib, rounding down toward the edge
+        return c + side * (v * size) + n * (h * size + lift)
+
+    outer, hole_loops, veins = outline
+    # fill the outline in 2D, then add interior points so the blade can curve
+    bm = bmesh.new()
+    edges = []
+    for loop in [outer] + hole_loops:
+        vs = [bm.verts.new((p.x, p.y, 0.0)) for p in loop]
+        edges += [bm.edges.new((vs[i], vs[(i + 1) % len(vs)])) for i in range(len(vs))]
+    bmesh.ops.triangle_fill(bm, use_beauty=True, use_dissolve=False, edges=edges)
+    # the fold runs along the midrib (v = 0): cut the mesh there so the crease is an edge. A triangle spanning it
+    # stood up to ~6 mm over the valley and buried the midrib and the inner half of every side vein (designer #210)
+    long = [e for e in bm.edges if e.calc_length() > sub and not e.is_boundary]
+    if long:
+        bmesh.ops.subdivide_edges(bm, edges=long, cuts=1, use_grid_fill=False)
+        bmesh.ops.triangulate(bm, faces=bm.faces[:])
+    bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], plane_co=(0, 0, 0), plane_no=(0, 1, 0))
+    bmesh.ops.triangulate(bm, faces=bm.faces[:])
+    crease = [e for e in bm.edges if abs(e.verts[0].co.y) < 1e-7 and abs(e.verts[1].co.y) < 1e-7]
+    bmesh.ops.beautify_fill(bm, faces=bm.faces[:], edges=[e for e in bm.edges if not e.is_boundary and e not in crease])
+    bm.verts.index_update()
+    pts = [P(v.co.x, v.co.y) for v in bm.verts]
+    faces = [orient(pts, [v.index for v in f.verts], n0) for f in bm.faces]
+    bm.free()
+    fol.surface(pts, faces, [mi] * len(faces), n0)
+    # veins: thin light strips 0.4 mm over the face
+    vf_target = getattr(fol, "vein_fol", None) or fol  # #156: veins in their own node (baked at VEIN_DENSITY)
+    vms = [vf_target.mat(m) for m in fol.vein] if hasattr(fol, "vein") else [mi, mi]  # (midrib, side veins)
+    for k, (A, B) in enumerate(veins):
+        w0, w1, segs = veins_w[0] if k == 0 else veins_w[1]
+        vm = vms[0] if k == 0 else vms[1]
+        if k:  # side veins stop 1 cm short of the edge (designer #210)
+            B = B - (B - A).normalized() * min(0.01 / size, (B - A).length * 0.5)
+        vp, vf = [], []
+        for s in range(segs + 1):
+            q = A.lerp(B, s / segs)
+            t = (B - A).normalized()
+            nn = Vector((-t.y, t.x)) * ((w0 + (w1 - w0) * s / segs) / size / 2)  # veins_w in m
+            # 1 mm up (closer, the strips z-fought and broke up), midrib 3 mm, side veins 2 mm (designer #210); enough
+            # segments to follow the folded blade (with two, the middle sank under it and the vein looked cut off)
+            vp += [P(q.x + nn.x, q.y + nn.y, 0.001), P(q.x - nn.x, q.y - nn.y, 0.001)]
+        for s in range(segs):
+            i = 2 * s
+            vf.append(orient(vp, [i, i + 2, i + 3, i + 1], n0))
+        vf_target.surface(vp, vf, [vm] * len(vf), n0)
+
+
 def monstera(name, x, z, group):
-    """by the sofa: a young monstera 0.9 m in terracotta (a darker water-stained foot band, pebbles, bark chips) on a
-    saucer; 7 split-heart leaves on long petioles, each petiole running from the soil into its leaf's base notch,
-    all facing the default camera, spread along z (the gap is narrow in x); undersides one green lighter"""
-    PRNG.seed(f"126:{name}")  # each plant its own stream: changing one leaves the others as they are
+    """by the sofa: a monstera 0.9 m in terracotta (a darker water-stained foot band, pebbles, bark chips) on a
+    saucer. #156 (designer, office-quality.md 0.4, the leaf sketch on #156): petioles rise straight from the soil and
+    arc outward 25–40° in their top third (0.3–0.58 m, each its own, tapering) to a thicker knee; there the blade
+    tips back, 30–55° below the horizontal, so the leaves look up and out, spread all round (2 face the camera).
+    Heart-shaped leaves cut by narrow gaps into broad round-tipped lobes, a row of long holes by the midrib on the
+    big ones, light veins. 3 large (0.3 m), 3 medium, 2 young (0.15 m, whole, lime) and a rolled new shoot."""
+    PRNG.seed(f"156:{name}")  # each plant its own stream: changing one leaves the others as they are
     pot, sy = pot3(name, x, z, 0.02, 0.14, 0.11, 0.26, plastic("#b5654a", 0.85, 0, 0.3, "terracotta"), group, saucer=True,
                    pebbles=4, chips=6, foot=plastic("#96523d", 0.9, 0, 0.3, "terracotta_dark"))
-    stem_m = plastic(GREENS[1], 0.7, 0, 0.2, "petiole")
+    stem_m = plastic("#5b8a4c", 0.7, 0, 0.2, "petiole_monstera")
     side, cam = camera_side(x, z)
-    fol = Foliage(f"{name}_leaves")
+    cam_a = math.atan2(cam.z, cam.x)
+    fol = Foliage(f"{name}_leaves", colors=MONSTERA_GREENS, under=(1, 1, 2, 3))
+    fol.vein = (plastic("#7aa56a", 0.85, 0, 0.1, "vein_monstera_mid"), plastic("#5f8d55", 0.85, 0, 0.1, "vein_monstera_side"))
+    fol.vein_fol = Foliage(f"{name}_veins", colors=(), under=())
     stems = []
-    for k, (dz, h, tilt) in enumerate(((-0.22, 0.62, 0.35), (-0.08, 0.84, 0.15), (0.06, 0.7, 0.25), (0.2, 0.88, 0.1),
-                                       (0.3, 0.55, 0.45), (-0.3, 0.5, 0.5), (0.12, 0.98, 0.05))):
-        attach = Vector((x + PRNG.uniform(-0.04, 0.04), h, z + dz))
-        mid = Vector((x, sy + (h - sy) * 0.55, z + dz * 0.4))
-        stems.append(lowrail(f"{name}_petiole", [(x + PRNG.uniform(-0.02, 0.02), sy, z + PRNG.uniform(-0.02, 0.02)), tuple(mid), tuple(attach)],
-                             0.006, stem_m, group))
-        d = (UP * math.cos(tilt) + cam * math.sin(tilt) * 0.6 + Vector((0, 0, dz)) * 0.8).normalized()  # up, a bit out
-        split_heart(fol, attach, d, side, PRNG.uniform(0.24, 0.3), fol.green())
-    return pot + stems + [fol.obj(group)]
+    # (azimuth from the camera direction °, petiole length m, arc °, blade tilt °, size m, cuts, holes)
+    LEAVES = [(-15, 0.52, 32, 38, 0.3, 6, True), (20, 0.44, 28, 45, 0.29, 7, True), (150, 0.58, 36, 34, 0.3, 5, True),
+              (75, 0.4, 38, 50, 0.22, 5, False), (-95, 0.47, 30, 42, 0.23, 6, False), (-150, 0.36, 40, 52, 0.21, 5, False),
+              (110, 0.3, 26, 30, 0.15, 0, False), (-55, 0.33, 30, 35, 0.15, 0, False)]
+    for az, length, arc, tilt, size, cuts, holes in LEAVES:
+        a = cam_a + math.radians(az + PRNG.uniform(-8, 8))
+        out = Vector((math.cos(a), 0.0, math.sin(a)))
+        f = abs(out.z)  # 1 = along the gap (z), 0 = toward the sofa / the side table (x)
+        reach = 0.1 + 0.9 * f
+        base = Vector((x, sy, z)) + out * 0.02 + side * PRNG.uniform(-0.015, 0.015)
+        arc_r = math.radians(arc)
+        # radial from the soil (designer: not a bamboo bundle): together for the first 5 cm, then each leans
+        # 10–25° off the vertical toward its leaf; the top third arcs on from there
+        # (in x, toward the sofa and the side table, the lean stays small: the gap is 0.45 m)
+        lean = math.radians(PRNG.uniform(10, 25))
+        lean_out = Vector((out.x * 0.3, 0.0, out.z))
+        pts = [base, base + UP * 0.05]
+        for frac in (0.3, 0.62):
+            pts.append(pts[1] + (UP * math.cos(lean) + lean_out * math.sin(lean)) * ((length - 0.05) * frac))
+        for k in (1, 2, 3):  # the top third arcs outward
+            ak = lean + arc_r * k / 3
+            pts.append(pts[-1] + (UP * math.cos(ak) + out * math.sin(ak) * reach) * (length * 0.38 / 3))
+        r = 0.0075 * (size / 0.3) ** 0.5
+        stem = rail(f"{name}_petiole", [tuple(q) for q in pts], r, stem_m, group)
+        stem.data.resolution_u, stem.data.bevel_resolution = 6, 2
+        for bp, rr in zip(stem.data.splines[0].bezier_points, (1.2, 1.1, 1.0, 0.92, 0.85, 0.8, 1.15)):  # tapering, a thicker knee
+            bp.radius = rr
+        stems.append(stem)
+        young = size < 0.2
+        monstera_leaf(fol, pts[-1], out, tilt + (1 - f) * 18, size * (0.52 + 0.48 * f), 2 if young else 0, splits=cuts,
+                      holes=holes, fold=PRNG.uniform(10, 15), droop=PRNG.uniform(15, 25))
+    # the new shoot: a rolled leaf, lime, standing up out of the middle on its own short petiole
+    tip = Vector((x, sy + 0.32, z)) + cam * 0.01
+    stems.append(lowrail(f"{name}_petiole", [(x, sy, z), (x, sy + 0.18, z), tuple(tip)], 0.005, stem_m, group))
+    stems.append(segment(f"{name}_shoot", tuple(tip), tuple(tip + (UP + cam * 0.15).normalized() * 0.11), 0.012,
+                         plastic(MONSTERA_GREENS[2], 0.8, 0, 0.2, "shoot"), group, verts=10, r2=0.002))
+    leaves = fol.obj(group)
+    for p in leaves.data.polygons:  # smooth shading across the curved blade (designer)
+        p.use_smooth = True
+    veins = fol.vein_fol.obj(group)
+    veins["vein_node"] = True
+    return pot + stems + [leaves, veins]
 
 
 def echeveria(name, x, y, z, group):
@@ -1423,7 +1744,9 @@ def plant_tris(name, objs):
 
 
 PLANT_BUILDERS = {"fiddle_fig": fiddle_fig, "sansevieria": sansevieria, "monstera": monstera}
-PLANT_NODES = []  # (node, name): each floor plant is its own baked node in the lounge atlas, leaves at half density
+PLANT_NODES = []  # (node, name): each floor plant is its own baked node in the lounge atlas
+VEIN_NODES = []  # #156: the light vein strips of the monstera and the fig, baked at VEIN_DENSITY
+VEIN_DENSITY = 4.0
 
 
 # ================================================================ LOUNGE (atlas: lounge)
@@ -1708,7 +2031,7 @@ def build_lounge():
     c += [box("counter", (0.6, 0.9, 0.7), (0, 0.45, 0), plastic("#2b2f3a", 0.6, 0, 0.2, "counter"), G, bev=0.01),
           box("counter_top", (0.64, 0.04, 0.74), (0, 0.92, 0), plastic("#e8e4dc", 0.3, 0, 0.3, "counter_top"), G, bev=0.006),
           box("machine", (0.28, 0.36, 0.3), (0, 1.12, -0.12), plastic("#1b1d22", 0.35, 0.6, 0.05, "machine"), G, bev=0.02),
-          box("spout", (0.06, 0.05, 0.08), (0.12, 1.02, -0.12), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G),
+          box("spout", (0.06, 0.05, 0.08), (0.12, 1.07, -0.12), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G),  # #156: 5 mm over the 9.5 cm mug
           # #164: the brew button the index presses (coffee_button_contact_index), a chrome ring round it
           cyl("coffee_btn", 0.011, 0.006, (COFFEE_BUTTON[0] - 0.003, COFFEE_BUTTON[1], COFFEE_BUTTON[2]), plastic("#2a2d33", 0.5, 0, 0.1, "coffee_btn"), G, 20, axis="x", bev=0.0015),
           torus("coffee_btn_ring", 0.0125, 0.0015, (0.1405, COFFEE_BUTTON[1], COFFEE_BUTTON[2]), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G, axis="x", seg=20, rseg=6)]
@@ -1721,8 +2044,14 @@ def build_lounge():
     # floor plants (#126): one species each, each its own node (PLANT_NODES) so its leaves can bake at half density
     for name, species, px, pz in PLANTS:
         objs = plant_tris(name, PLANT_BUILDERS[species](name, px, pz, G))
-        fp(name, objs, "decor")
-        PLANT_NODES.append(join(name, objs))
+        # #184: the grid blocks only the pot (core): the canopy is above head height in part, and a watering agent must
+        # reach the pot. The slot (overlap check) keeps the whole plant
+        pot_parts = [o for o in objs if o.name.split(".")[0] in {f"{name}_{p}" for p in ("body", "rim", "foot", "saucer", "leg", "ring")}]
+        fp(name, objs, "decor", core=pot_parts)
+        veins = [o for o in objs if o.get("vein_node")]
+        if veins:  # #156: the 3–9 mm vein strips got 1–2 px at the lounge density and baked dark: their own node
+            VEIN_NODES.append(join(f"{name}_veins", veins))
+        PLANT_NODES.append(join(name, [o for o in objs if not o.get("vein_node")]))
     # floor lamp by the sofa (its shade glows live)
     lx, lz = SOFA[0] + 1.3, SOFA[1] + 0.25
     p += [cyl("lamp_base", 0.14, 0.03, (lx, 0.015, lz), metal, G, 24),
@@ -1881,6 +2210,115 @@ def build_book(G):
                 grip_pos=(0, -0.04, 0), grip_rot=(-math.pi / 2, 0, 0))
 
 
+MUG_H, MUG_R = 0.095, 0.041
+
+
+def mug_home(C, bx, bz):
+    at = (C @ Mx((bx + 0.072, 0.94 + MUG_H / 2, bz))).to_translation()
+    return (at.x, at.z, -at.y), (0.0, COUNTER[2], 0.0)
+
+
+def mug_parts(k, G):
+    """a mug in the cup frame (origin on the handle side, body centre x -0.072, y 0 = half height)"""
+    cx, h2, R = -0.072, MUG_H / 2, MUG_R
+    glaze = plastic(("#efe8dc", "#3a3d42")[k], 0.3, 0, 0.05, f"mug_glaze_{k}")
+    inner = plastic("#efe8dc", 0.3, 0, 0.05, "mug_glaze_0")  # ivory inside (both)
+    foot = plastic("#d6cbb9", 0.85, 0, 0.3, "mug_foot")
+    coffee = plastic("#3d2416", 0.25, 0, 0.0, "coffee")
+    crema = plastic("#7a4d2e", 0.4, 0, 0.0, "crema")
+    y0 = -h2
+    lip_in = R - 0.0045
+    # one closed profile (foot ring 2 mm in, the outer wall a little narrower at the foot, a rounded lip, the inner
+    # wall, the cavity's floor under the coffee): the normals come out right; materials go on by where a face sits
+    prof = [(0.0, y0 + 0.002), (R - 0.0075, y0 + 0.002), (R - 0.0055, y0), (R - 0.0028, y0), (R - 0.002, y0 + 0.004),
+            (R - 0.0012, y0 + 0.03), (R, h2 - 0.004), (R - 0.0005, h2 - 0.001), (R - 0.0022, h2),
+            (lip_in + 0.0006, h2 - 0.0008), (lip_in, h2 - 0.003), (lip_in, h2 - 0.02), (0.0, h2 - 0.02)]
+    body = lathe("mug_body", prof, (cx, 0, 0), glaze, G, 40)
+    me = body.data
+    me.materials.append(inner)
+    me.materials.append(foot)
+    for f in me.polygons:
+        c = f.center  # Blender local: z = web y, (x, y) radial
+        r = (c.x * c.x + c.y * c.y) ** 0.5
+        if c.z < y0 + 0.0045 - 1e-4:
+            f.material_index = 2  # the unglazed foot
+        elif r < lip_in + 0.0007 and c.z > h2 - 0.0205:
+            f.material_index = 1  # inside: ivory (for the charcoal mug; the ivory one is the same colour)
+    parts = [body]
+    cy = h2 - 0.012  # the coffee 1.2 cm under the lip, a 3 mm crema ring round its edge (closed discs)
+    parts += [cyl("crema", lip_in - 0.0002, 0.0008, (cx, cy, 0), crema, G, 40),
+              cyl("coffee", lip_in - 0.003, 0.0008, (cx, cy + 0.0004, 0), coffee, G, 40)]
+    if k == 0:  # a gold band 3 mm under the lip (a closed ring)
+        parts.append(lathe("mug_band", [(R - 0.001, h2 - 0.007), (R + 0.0003, h2 - 0.007), (R + 0.0003, h2 - 0.004),
+                                        (R - 0.001, h2 - 0.004), (R - 0.001, h2 - 0.007)], (cx, 0, 0),
+                           plastic("#c9a46a", 0.3, 0.8, 0.05, "mug_gold"), G, 40))
+    # the C handle: from 1.5 cm under the lip to 2 cm over the foot, 6.8 cm outside; its section 0.9 across the loop,
+    # 1.4 along z; the opening ~3.8 cm high (2 robot fingers + 4 mm) and ~3.4 cm deep
+    xs = cx + R - 0.002
+    pts = [(xs, h2 - 0.015, 0), (xs + 0.03, h2 - 0.012, 0), (xs + 0.043, h2 - 0.03, 0), (xs + 0.043, y0 + 0.032, 0),
+           (xs + 0.028, y0 + 0.018, 0), (xs, y0 + 0.02, 0)]
+    hd = rail("mug_handle", pts, 0.0045, glaze, G)
+    hd.data.resolution_u, hd.data.bevel_resolution = 6, 2
+    hd.scale = (1.0, 0.007 / 0.0045, 1.0)  # Blender y = web -z: 1.4 cm across
+    parts.append(hd)
+    return parts
+
+
+CAN_Y_BOTTOM = -0.235  # the can's bottom under its origin (the handle's top run)
+
+
+def can_parts(G):
+    """the watering can in its frame: origin = the middle of the handle's top run, +x = toward the spout. Returns
+    (objects, the rose's centre, the water's direction) in that frame"""
+    paint = plastic("#5f7f62", 0.75, 0.1, 0.15, "can_paint")
+    band = plastic("#4b6650", 0.75, 0.1, 0.15, "can_band")
+    brass = plastic("#b08d57", 0.35, 0.85, 0.05, "can_brass")
+    dark = plastic("#1d2420", 0.9, 0, 0.0, "can_dark")
+    xb, yb = 0.035, CAN_Y_BOTTOM  # the body's axis and bottom
+    H, R0, R1 = 0.16, 0.075, 0.07  # 15 x 11 cm oval (x : z), 16 cm high, 1 cm narrower at the top
+    yt = yb + H
+    prof = [(0.0, 0.0), (R0 - 0.004, 0.0), (R0, 0.004), (R0 - 0.0008, 0.06), (R1, H - 0.008), (R1 - 0.006, H), (0.0, H)]
+    body = lathe("can_body", prof, (xb, yb, 0), paint, G, 40)
+    body.data.transform(Matrix.Diagonal((1.0, 0.11 / 0.15, 1.0, 1.0)))  # oval: Blender y = web -z
+    rim = lathe("can_band", [(R0 - 0.002, 0.0), (R0 + 0.0006, 0.0), (R0 + 0.0006, 0.01), (R0 - 0.002, 0.01), (R0 - 0.002, 0.0)],
+                (xb, yb, 0), band, G, 40)
+    rim.data.transform(Matrix.Diagonal((1.0, 0.11 / 0.15, 1.0, 1.0)))
+    seam = box("can_seam", (0.0012, H - 0.02, 0.0012), (xb, yb + H / 2, -(0.055 + 0.0004)), band, G)  # a side seam
+    # the filling hole: top back third, 6 cm, with a rolled lip and the dark inside
+    ox = xb - 0.04
+    hole = [torus("can_mouth", 0.03, 0.003, (ox, yt + 0.002, 0), paint, G, seg=28, rseg=6),
+            cyl("can_mouth_in", 0.0285, 0.002, (ox, yt + 0.0005, 0), dark, G, 24)]
+    # the handle: one arch from low on the back (4 cm up) up and over to the top's front third; Ø1.6 cm; a 10 cm
+    # level run on top (the grip, at the origin); room under it for four fingers
+    hp = [(xb - 0.069, yb + 0.04, 0), (xb - 0.1, yb + 0.1, 0), (xb - 0.09, -0.012, 0), (-0.05, 0.0, 0), (0.0, 0.0, 0),
+          (0.05, 0.0, 0), (xb + 0.04, -0.025, 0), (xb + 0.035, yt + 0.002, 0)]
+    handle = rail("can_handle", hp, 0.008, paint, G)
+    handle.data.resolution_u, handle.data.bevel_resolution = 5, 2
+    # the spout: from 2.5 cm over the bottom at the front, 38° up, 28 cm, Ø1.8 -> 1.0 cm; its tip 2 cm over the top
+    a = math.radians(38)
+    d = Vector((math.cos(a), math.sin(a), 0.0))
+    s0 = Vector((xb + R0 - 0.006, yb + 0.025, 0.0))
+    s1 = s0 + d * 0.28
+    spout = segment("can_spout", tuple(s0), tuple(s1), 0.009, paint, G, verts=16, r2=0.005)
+    # the rose: a brass disc 3.6 cm across on a short cone, turned 10° down from the spout; 19 holes
+    a2 = math.radians(38 - 10)
+    d2 = Vector((math.cos(a2), math.sin(a2), 0.0))
+    neck = segment("can_rose_neck", tuple(s1 - d * 0.004), tuple(s1 + d2 * 0.016), 0.0055, brass, G, verts=16, r2=0.016)
+    rc = s1 + d2 * 0.019
+    face = lathe("can_rose", [(0.0, -0.004), (0.016, -0.004), (0.018, -0.003), (0.018, 0.0), (0.0, 0.0)], (0, 0, 0), brass, G, 32)
+    face.matrix_world = Matrix.Translation(W(*rc)) @ wv(d2).to_track_quat("Z", "Y").to_matrix().to_4x4()  # geometry: lathe axis -> d2
+    holes = []
+    for k in range(19):  # 1 + 6 + 12 in rings
+        ring, j = (0, 0) if k == 0 else ((1, k - 1) if k < 7 else (2, k - 7))
+        rr = (0.0, 0.0065, 0.0125)[ring]
+        ang = 2 * math.pi * j / (1, 6, 12)[ring]
+        hdisc = cyl("can_hole", 0.0011, 0.0004, (0, 0, 0), dark, G, 8)
+        hdisc.matrix_world = face.matrix_world @ Matrix.Translation((rr * math.cos(ang), rr * math.sin(ang), 0.0003))
+        holes.append(hdisc)
+    objs = [body, rim, seam, handle, spout, neck, face] + hole + holes
+    return objs, tuple(rc + d2 * 0.002), tuple(d2)
+
+
 def build_props():
     G = "prop"
     out = []
@@ -1928,25 +2366,17 @@ def build_props():
         out.append(prop(f"prop_paddle_{end}", "paddle", objs, (hx, th + 0.003, bz), (-math.pi / 2, 0.0, rz),
                         grip_pos=(0, -0.02, 0), grip_rot=(math.pi, 0, 0)))
     # the ball is pp_ball now (build_play_lives): the app moves it, PropBank must not pick it up
-    # cups: origin at the handle (on local +x), body hanging beside it. Home on the counter, handle toward the room
+    # mugs (#156, designer: a 350 ml stoneware mug): origin at the handle side (local +x), the body centred at x -0.072.
+    # 8.2 cm across, 9.5 cm high, 4.5 mm wall with a rounded lip (the inner wall shows), coffee 1.2 cm under the lip
+    # with a crema ring, an unglazed foot ring, a C handle (1.4 x 0.9 cm section) whose opening fits two robot fingers.
+    # _0 ivory with a gold band, _1 charcoal with an ivory inside. Home on the counter, handle toward the room
     C = counter_frame()
     for k, (bx, bz) in enumerate(((0.14, -0.12), (0.19, 0.07))):  # counter frame: under the spout, and beside it
-        # 1.25x the baked mugs so a cup still reads in a robot hand
-        objs = [cyl("cup", 0.045, 0.105, (-0.072, 0, 0), plastic("#f4f4f0", 0.4, 0, 0, "cup"), G, 20),
-                torus("cup_handle", 0.027, 0.0075, (-0.027, 0.0, 0), plastic("#f4f4f0", 0.4, 0, 0, "cup"), G, axis="z", half=True, seg=16, rseg=6)]
-        at = (C @ Mx((bx + 0.072, 0.94 + 0.0525, bz))).to_translation()
-        out.append(prop(f"prop_cup_{k}", "cup", objs, (at.x, at.z, -at.y), (0.0, COUNTER[2], 0.0)))
-    # watering can: origin at the top of its carry handle; body, spout and rose below. Home on the floor by the
-    # front-right plant
-    green = plastic("#3fa36b", 0.45, 0.2, 0.1, "can")
-    objs = [cyl("can_body", 0.08, 0.14, (0, -0.13, 0), green, G, 28, bev=0.006),
-            cyl("can_lid", 0.05, 0.012, (0, -0.054, 0), green, G, 20),
-            box("can_post", (0.012, 0.06, 0.016), (-0.045, -0.03, 0), green, G),
-            box("can_post", (0.012, 0.06, 0.016), (0.045, -0.03, 0), green, G),
-            box("can_bar", (0.1, 0.014, 0.018), (0, 0, 0), green, G, bev=0.004, seg=2),
-            segment("can_spout", (0.07, -0.17, 0), (0.2, -0.07, 0), 0.012, green, G, r2=0.009),
-            cyl("can_rose", 0.022, 0.014, (0.205, -0.065, 0), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G, 16)]
-    can = prop("prop_watering_can", "watering_can", objs, (3.75, 0.2, 3.3), (0.0, 0.6, 0.0))
+        out.append(prop(f"prop_cup_{k}", "cup", mug_parts(k, G), *mug_home(C, bx, bz)))
+    # watering can (#156, designer: an indoor 1.5 L metal can): origin at the middle of the handle's top run (the grip),
+    # the oval body below, the long spout from low on the front, a brass rose. Home on the floor by the corner plant
+    objs, rose_at, rose_dir = can_parts(G)
+    can = prop("prop_watering_can", "watering_can", objs, (3.75, -CAN_Y_BOTTOM, 3.3), (0.0, 2.6, 0.0))  # spout to the room (it met the fig's saucer)
     out.append(can)
     # the spout's end (#135): where the water starts, local +z = along the spout (the app tilts the can to pour)
     a = math.atan2(0.10, 0.13)
@@ -1954,7 +2384,7 @@ def build_props():
     coll("export").objects.link(e)
     e.parent = can
     # local +z along the spout (up and out): from the direction itself (an Euler here lost the upward tilt, #184)
-    e.matrix_world = can.matrix_world @ Matrix.Translation(W(0.212, -0.06, 0.0)) @ web_z_along((math.cos(a), math.sin(a), 0.0))
+    e.matrix_world = can.matrix_world @ Matrix.Translation(W(*rose_at)) @ web_z_along(rose_dir)  # the rose's centre, the water's way
     NODES.append({"obj": e, "play": "spout"})
     # omok stones in the hand (#135: the chess pieces became go stones): a = black, b = white, home on the heap in
     # its bowl, next to the sample stone. Center pivot, held in the pinch ("OK hand", agents.md 2.7): the point where
@@ -2025,15 +2455,16 @@ def build_hands():
     O = bpy.data.objects
     R, L = "r", "l"
     # mug (right hand; its mirror for the left): grip 1.5 cm out from the handle's outer middle, fingers through the
-    # loop, palm toward the body. Cup frame: handle loop in x-y around (-0.027, 0), body centre at x -0.072
+    # loop, palm toward the body (#156: the new mug, handle loop out to x = -0.031 + 0.043 + 0.0045)
+    hx = -0.072 + MUG_R - 0.002
     for k in range(2):
         o = O[f"prop_cup_{k}"]
         for side, fz in ((R, -1.0), (L, 1.0)):
-            grip_at(o, side, (0.0225, 0, 0), (0, 0, fz), (-1, 0, 0))
+            grip_at(o, side, (hx + 0.043 + 0.0045 + 0.015, 0, 0), (0, 0, fz), (-1, 0, 0))
         for side in ("", L):
-            contact(o, "index", (-0.027, 0.0195, 0), (0, -1, 0), side)  # inside the loop, at its top
-            contact(o, "thumb", (-0.027, 0.0345, 0), (0, 1, 0), side)  # on top of the handle
-            contact(o, "ring", (-0.027, -0.04, 0), (1, 0, 0), side)  # the body's lower third, handle side
+            contact(o, "index", (hx + 0.018, MUG_H / 2 - 0.0125 - 0.0045, 0), (0, -1, 0), side)  # inside the loop, at its top
+            contact(o, "thumb", (hx + 0.018, MUG_H / 2 - 0.0125 + 0.0045, 0), (0, 1, 0), side)  # on top of the handle
+            contact(o, "ring", (-0.072 + MUG_R - 0.0012, -MUG_H / 2 + 0.03, 0), (1, 0, 0), side)  # the body's lower third
     # paddles (right hand, shakehand): grip mid-handle, fingers wrapping front (red, +z) to back, palm to the axis
     for e in "ab":
         o = O[f"prop_paddle_{e}"]
@@ -2047,12 +2478,13 @@ def build_hands():
     grip_at(o, R, (0.075, -0.0125, 0), (-1, 0, 0), (0, 1, 0))
     contact(o, "thumb", (-0.075, 0, 0), (0, 1, 0), L)["state"] = "open"  # on the left page once open (check-glb skips it)
     contact(o, "index", (0.14, 0, -0.1), (0, 1, 0))
-    # watering can (both): right fist round the top bar (palm down on it), left palm under the body's spout third
+    # watering can (both): right fist round the handle's top run (palm down on it, fingers wrapping), left palm up
+    # under the body's front (#156: the new can; its bottom at CAN_Y_BOTTOM)
     o = O["prop_watering_can"]
     grip_at(o, R, (0, 0, 0), (0, 0, 1), (0, -1, 0))
-    grip_at(o, L, (0.04, -0.205, 0), (1, 0, 0), (0, 1, 0))
-    contact(o, "palm", (0, 0.007, 0), (0, 1, 0))
-    contact(o, "palm", (0.04, -0.2, 0), (0, -1, 0), L)
+    grip_at(o, L, (0.08, CAN_Y_BOTTOM - 0.012, 0), (1, 0, 0), (0, 1, 0))
+    contact(o, "palm", (0, 0.008, 0), (0, 1, 0))
+    contact(o, "palm", (0.08, CAN_Y_BOTTOM, 0), (0, -1, 0), L)
     # omok: the hand dips into a bowl (3 cm below the mouth's centre); the stone in hand, go style: middle on top,
     # index under it (the app sticks it to the fingers, agents.md 2.10, #192)
     for side in "bw":
@@ -2601,8 +3033,10 @@ for o, kind in lib:
 print(f"library: {sum(len(p.vertices) - 2 for o, _ in lib for p in o.data.polygons)} triangles, {len(lib)} nodes")
 lounge, shade, lamp_pos = build_lounge()
 baked(lounge, "lounge")
-for o in PLANT_NODES:  # #126: leaves are near flat colour; half the texel density saves the atlas (office-quality.md 4)
-    baked(o, "lounge", density=0.5)
+for o in VEIN_NODES:
+    baked(o, "lounge", density=VEIN_DENSITY)
+for o in PLANT_NODES:  # #156: full texel density (half density left dark blotches on the leaves, office-quality.md 0)
+    baked(o, "lounge")
 live(shade, "neon")
 for o in OMOK_NODES:  # #135: the 1.2 mm grid lines need about 3x the lounge texels
     baked(o, "lounge", density=OMOK_DENSITY)
@@ -2813,8 +3247,12 @@ if PREVIEW:
         # #126: the plants where #109 put them
         # (seen along the default camera, as the visitor does: the monstera faces it)
         "q_plant_corner": ((2.7, 1.6, 1.9), (4.22, 0.95, 3.18)),
+        "q_fig_front": ((3.2, 1.25, 1.95), (4.15, 1.05, 3.05)),  # #156: level with the canopy
+        "q_fig_high": ((2.75, 2.7, 1.55), (4.12, 1.1, 3.05)),  # #156: from above, as the default camera
         "q_plant_desk": ((0.95, 1.35, -1.85), (0.0, 0.75, -3.2)),
         "q_plant_sofa": ((2.05, 1.35, 3.74), (0.925, 0.6, 2.75)),
+        "q_monstera_top": ((1.25, 1.75, 3.45), (0.905, 0.6, 2.75)),  # #156: from above and in front
+        "q_monstera_low": ((0.6, 0.85, 3.45), (0.925, 0.6, 2.75)),
         "q_vine": ((3.25, 2.25, -1.95), (4.0, 1.95, -3.2)),
         "q_succulent": ((-3.55, 1.15, -0.9), (-4.32, 0.8, -1.36)),
         "q_sofa": ((-0.75, 1.35, 0.85), (0.35, 0.4, 2.15)),
@@ -2827,6 +3265,8 @@ if PREVIEW:
         "q_door": ((-1.35, 1.45, 1.15), (-3.4, 1.1, 2.12)),
         "q_window": ((-1.2, 1.5, -0.55), (-1.8, 1.7, -2.75)),
         "q_rug": ((0.55, 2.7, -0.45), (0.55, 0.0, 1.5)),
+        "q_mug": ((3.62, 1.28, -1.62), (4.0, 0.96, -1.93)),  # #156: from above at a slant, the inside and the coffee
+        "q_can": ((3.25, 0.62, 2.75), (3.78, 0.12, 3.3)),
         "q_omok": ((-1.6, 1.3, 2.62), (-1.6, 0.77, 2.2)),  # #135
         "q_omok_side": ((-0.75, 1.15, 2.75), (-1.6, 0.76, 2.2)),
         "q_paddles": ((1.55, 1.3, 0.95), (1.75, 0.76, 0.0)),
