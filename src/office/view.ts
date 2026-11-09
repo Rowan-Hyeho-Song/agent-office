@@ -198,11 +198,15 @@ export function segmentHitsBox(a: V3, b: V3, box: Box): boolean {
   return true
 }
 
-/** the opacity an object wants: linear from 1 at near.start to minOpacity at near.end, on down to 0 at near.hide (fully hidden: no cut face can show); occluders are at the minimum until then */
-export function wantOpacity(dist: number, occluding: boolean): number {
+/**
+ * the opacity an object wants: linear from 1 at near.start to minOpacity at near.end, on down to 0 at near.hide (fully
+ * hidden: no cut face can show); occluders are at the minimum until then. `hide` false (the debug close-up and top view,
+ * where the camera is not kept clear): never below minOpacity, so a hand or monitor close-up keeps its desk (#164)
+ */
+export function wantOpacity(dist: number, occluding: boolean, hide = true): number {
   const n = VIEW.near
   const inner = n.minOpacity * clamp((dist - n.hide) / (n.end - n.hide), 0, 1)
-  if (dist < n.end) return inner
+  if (dist < n.end) return hide ? inner : n.minOpacity
   if (occluding) return n.minOpacity
   return 1 - (1 - n.minOpacity) * clamp((n.start - dist) / (n.start - n.end), 0, 1)
 }

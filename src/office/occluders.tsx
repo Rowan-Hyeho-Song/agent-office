@@ -19,7 +19,7 @@ interface State {
  * opacities are recomputed only when the camera or its target moved; the fade itself runs only while something is
  * still moving. Furniture with its back to a wall (`backTo`, the bookshelf) is also at 25% while that wall is lowered. Furniture with its back to a wall (`backTo`, the bookshelf) is also at 25% while that wall is lowered. Faded groups are listed in FADED so they stop taking clicks (walls.ts hitAllowed).
  */
-export function Occluders({ groups }: { groups: FadeGroup[] }) {
+export function Occluders({ groups, hide = true }: { groups: FadeGroup[]; hide?: boolean }) {
   const camera = useThree((s) => s.camera)
   const states = useMemo(() => groups.map((): State => ({ cur: 1, want: 1 })), [groups])
   const last = useRef('')
@@ -37,7 +37,7 @@ export function Occluders({ groups }: { groups: FadeGroup[] }) {
       const [a, b] = occlusionSegment(cam, t)
       groups.forEach((g, i) => {
         const box = { min: g.box.min.toArray() as [number, number, number], max: g.box.max.toArray() as [number, number, number] }
-        states[i].want = backToOpacity(wantOpacity(boxDistance(cam, box), segmentHitsBox(a, b, box)), g.backTo, WALL_HIDDEN)
+        states[i].want = backToOpacity(wantOpacity(boxDistance(cam, box), segmentHitsBox(a, b, box), hide), g.backTo, WALL_HIDDEN)
       })
     }
     groups.forEach((g, i) => {
