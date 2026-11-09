@@ -572,3 +572,41 @@ html[data-motion='reduce'] .dock-btn.sound-toggle.flash { animation: none; box-s
 .sound-debug .sd-why { padding: var(--space-1) var(--space-2); box-shadow: inset 0 0 0 1px var(--color-line); }
 .sound-debug .sd-why ul { margin: 2px 0; padding-left: 16px; color: var(--color-amber); }
 .sound-debug .sd-ok { color: var(--color-green); }
+
+/* the tour (#207, office-ui.md 10.4): the bar bottom centre, 40 px tall, max 480 px; it takes the WASD hint's place */
+.tour-bar {
+  position: fixed; z-index: 21; bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px)); left: 50%; translate: -50% 0;
+  display: flex; align-items: center; gap: 2px; box-sizing: border-box; height: 40px; width: min(480px, calc(100vw - 32px)); padding: 0 4px;
+  background: color-mix(in srgb, var(--color-surface) 90%, transparent); color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-line);
+  font-family: var(--font-pixel); font-size: var(--font-size-1);
+  animation: tour-in var(--dur-base) var(--ease-out);
+}
+@keyframes tour-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.tour-btn { flex: none; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; background: none; color: var(--color-text); cursor: pointer; }
+.tour-btn svg { width: 12px; height: 12px; }
+.tour-btn:hover:not(:disabled) { color: var(--color-cyan); }
+.tour-btn:disabled { color: var(--color-text-muted); opacity: 0.5; cursor: default; }
+.tour-btn:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: -2px; }
+.tour-stop { margin-left: 2px; box-shadow: -1px 0 0 var(--color-line); }
+.tour-now { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; margin: 0; padding: 0 6px; white-space: nowrap; overflow: hidden; }
+.tour-now i { flex: none; width: 8px; height: 8px; border-radius: 2px; }
+.tour-now b { flex: none; font-weight: 600; }
+.tour-chip { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--color-text-muted); }
+.tour-chip.tour-task { flex-shrink: 1; }
+.tour-chip.tour-doing { flex-shrink: 0; max-width: 60%; }
+.tour-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.tour-fade { position: fixed; inset: 0; z-index: 19; background: #000; opacity: 0; pointer-events: none; }
+body:has(.tour-bar) .cam-hint { display: none; }
+.agent-list .agent-name { all: unset; cursor: pointer; pointer-events: auto; }
+.agent-list .agent-name:hover b { color: var(--color-cyan); }
+.agent-list .agent-name:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+@media (max-width: 640px) {
+  /* a phone: above the dock row, 8 px over it; the arrows are 44 x 44 and the bar is 44 tall to hold them */
+  .tour-bar { bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px) + 44px + 8px); height: 44px; }
+  .tour-btn { width: 44px; height: 44px; }
+  body:has(.tour-bar) .hud, body:has(.tour-bar) .owner-tag { visibility: hidden; }
+  /* the one-time sound hint sits where the bar goes: above the bar while touring */
+  body:has(.tour-bar) .sound-hint { bottom: calc(100% + 8px + 44px + 8px); }
+}
+@media (prefers-reduced-motion: reduce) { .tour-bar { animation: none; } }
+html[data-motion='reduce'] .tour-bar { animation: none; }
