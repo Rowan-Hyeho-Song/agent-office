@@ -1,6 +1,7 @@
 import { DockSlot } from './CornerDock'
 import { SideSlot, useSidePanelOpen } from './SidePanel'
-import { setSideBack, setSideRaise } from './sidePanel/store'
+import { setSideBack, setSideRaise, setSideUnseen } from './sidePanel/store'
+import { clearFile, loadDocsSeen, reconcileDocs, saveDocsSeen, unreadFile, unreadFolder, type DocsSeen } from '../docs/unread'
 import { IssueReplayButton } from '../replay/IssueReplayButton'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
 import { fmtDay as fmtShortDay } from '../approvals/view'
@@ -39,6 +40,14 @@ export function DocsViewer({ world }: { world: OfficeWorld }) {
   return world.library && world.approvals ? <Viewer world={world} lib={world.library} /> : null
 }
 
+/** the 6 px ivory dot before a folder / file title that has new documents (read as words too) */
+const NewMark = () => (
+  <>
+    <i className="doc-dot" aria-hidden="true" />
+    <span className="sr-only">새 문서, </span>
+  </>
+)
+
 /** a number from a design token (tokens.css, unitless ms) */
 const tokenMs = (name: string) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || 0
 
@@ -67,6 +76,18 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
   selRef.current = sel
   const landed = useRef(0)
   const open = panel.open
+
+  // #240 new documents since the library was last opened: the dock / tab dot, and the dots in the list
+  const [seen, setSeen] = useState<DocsSeen>(loadDocsSeen)
+  const folded = useMemo(() => (snap.metas ? reconcileDocs(seen, snap.metas, Date.now(), open) : null), [seen, snap.metas, open])
+  useEffect(() => {
+    if (!folded || folded.seen === seen) return
+    saveDocsSeen(folded.seen)
+    setSeen(folded.seen)
+  }, [folded, seen])
+  const dot = folded?.dot ?? false
+  const fresh = folded?.fresh ?? 0
+  useEffect(() => void setSideUnseen('docs', dot ? fresh : 0), [dot, fresh])
 
   // an address in the page opens the viewer there, on load and when it changes
   useEffect(() => {
@@ -115,6 +136,15 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
     setSideRaise('docs', open && view === 'paper')
     return () => void setSideRaise('docs', false)
   }, [open, view])
+
+  // opening a file clears its dot (and only its)
+  useEffect(() => {
+    if (!open || view !== 'paper' || !file) return
+    const next = clearFile(seen, file)
+    if (next === seen) return
+    saveDocsSeen(next)
+    setSeen(next)
+  }, [open, view, file, seen])
 
   // the bodies of the readable documents shown now
   useEffect(() => {
@@ -177,9 +207,10 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
       </div>
       {!shown && (
         <DockSlot slot="docs">
-          <button type="button" className="dock-btn docs-launcher" aria-label="서재" aria-expanded={false} aria-controls="docs-box" onClick={toggleDocs}>
+          <button type="button" className="dock-btn docs-launcher" aria-label={dot ? `서재, 새 문서 ${fresh}건` : '서재'} aria-expanded={false} aria-controls="docs-box" onClick={toggleDocs}>
             <Icon name="publish" />
             <span className="dock-label">서재</span>
+            {dot && <i className="new-dot docs" aria-hidden="true" />}
           </button>
         </DockSlot>
       )}
@@ -230,6 +261,7 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
                   snap.folders.map((fo) => (
                     <button key={fo.key} type="button" className="doc-folder" aria-current={fo === folder} onClick={() => goFolder(fo)}>
                       <Icon name={fo.repo === null ? 'lock' : 'publish'} />
+                      {unreadFolder(fo, seen) && <NewMark />}
                       {fo.label}
                     </button>
                   ))}
@@ -238,6 +270,7 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
                   folder?.files.map((f) => (
                     <button key={f.key} type="button" className="doc-file" aria-current={f === file} onClick={() => goFile(f)}>
                       <span className="n">{f.n ? `#${f.n}` : '—'}</span>
+                      {unreadFile(f, seen) && <NewMark />}
                       <span>
                         {f.title ?? (
                           <>

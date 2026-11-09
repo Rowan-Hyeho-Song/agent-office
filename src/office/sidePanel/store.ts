@@ -17,11 +17,13 @@ export interface SideLayout {
   present: Tab | null
   /** waiting 결재함 items (for the tab label) */
   count: number | null
+  /** #240 new items the tab's dot stands for (결재함: unseen waiting approvals, 서재: documents new since it was opened); 0 = no dot */
+  unseen: Record<Tab, number>
   /** tabs reading one item: the phone sheet goes tall for them */
   raise: Record<Tab, boolean>
 }
 
-let layout: SideLayout = { open: false, width: 0, sheet: 'half', dragging: false, present: null, count: null, raise: { docs: false, approval: false } }
+let layout: SideLayout = { open: false, width: 0, sheet: 'half', dragging: false, present: null, count: null, unseen: { docs: 0, approval: 0 }, raise: { docs: false, approval: false } }
 const listeners = new Set<() => void>()
 
 export const getSideLayout = () => layout
@@ -50,6 +52,9 @@ const backs: Partial<Record<Tab, () => boolean>> = {}
 /** a tab registers its "one step back" (one paper -> the list): true when it stepped, false when it is already at the top. Esc calls it before closing the panel */
 export const setSideBack = (tab: Tab, fn: (() => boolean) | null) => void (fn ? (backs[tab] = fn) : delete backs[tab])
 export const getSideBack = (tab: Tab) => backs[tab]
+
+/** the tab's dot: how many new items it has not shown yet (0 = none) */
+export const setSideUnseen = (tab: Tab, n: number) => layout.unseen[tab] !== n && setSideLayout({ unseen: { ...layout.unseen, [tab]: n } })
 
 /** a tab reading one paper / one approval asks for the tall sheet on phones */
 export const setSideRaise = (tab: Tab, want: boolean) => layout.raise[tab] !== want && setSideLayout({ raise: { ...layout.raise, [tab]: want } })

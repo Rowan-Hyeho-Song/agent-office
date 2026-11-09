@@ -258,6 +258,13 @@ function Shell({ hasDocs }: { hasDocs: boolean }) {
             >
               {t === 'docs' ? '서재' : '결재함'}
               {t === 'approval' && !!count && <b>{count}</b>}
+              {/* #240 the dot is colour, so the words say it: the tab's name carries the new items */}
+              {present !== t && L.unseen[t] > 0 && (
+                <>
+                  <i className={`new-dot ${t}`} aria-hidden="true" />
+                  <span className="sr-only">{t === 'docs' ? `, 새 문서 ${L.unseen.docs}건` : `, 새 결재 ${L.unseen.approval}건`}</span>
+                </>
+              )}
             </button>
           ))}
         </div>

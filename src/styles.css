@@ -345,6 +345,18 @@ button.secret-cover:hover .bar { background: var(--color-line); }
 /* the waiting count on the icon-only 결재함 (under 360px): amber on ink like the button, hidden at 0 */
 .dock-badge { display: none; position: absolute; right: 3px; bottom: 3px; min-width: 14px; height: 14px; padding: 0 3px; place-items: center;
   font: 400 10px/14px var(--font-pixel); background: var(--approval-accent); color: var(--color-ink); box-shadow: 0 0 0 1px var(--color-ink); }
+/* #240 the new-item dot: 8 px, a 2 px ring in the surface colour so it stands off the button, a pop-in and a faint breath every 4 s (none under reduced motion) */
+.new-dot { position: absolute; top: 4px; right: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--approval-accent); box-shadow: 0 0 0 2px var(--color-ink); animation: dot-in 200ms var(--ease-out) both, dot-breath 4s ease-in-out 1s infinite; pointer-events: none; }
+.new-dot.docs { background: var(--ivory-dot); }
+.side-tabs button { position: relative; }
+.side-tabs .new-dot { position: static; display: inline-block; vertical-align: middle; margin-left: var(--space-1); box-shadow: 0 0 0 2px var(--color-surface); }
+.side-tabs .new-dot.approval { margin-left: 4px; }
+/* inside the list: 6 px, before the title, no ring and no motion */
+.doc-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--ivory-dot); }
+@keyframes dot-in { from { transform: scale(0.6); } to { transform: scale(1); } }
+@keyframes dot-breath { 0%, 20%, 100% { opacity: 1; } 10% { opacity: 0.6; } }
+@media (prefers-reduced-motion: reduce) { :root:not([data-motion='full']) .new-dot { animation: none; } }
+:root[data-motion='reduce'] .new-dot { animation: none; }
 .dock-btn.approval-launcher { background: var(--approval-accent); color: var(--color-ink); }
 .dock-btn.docs-launcher { background: var(--manila); color: var(--color-ink); }
 .dock-btn.replay-entry { background: var(--color-surface-alpha); color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-line); }

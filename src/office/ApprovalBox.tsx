@@ -1,8 +1,11 @@
 import { cue } from '../audio/cues'
+import { approvalsRefreshed, resetApprovalChime } from '../audio/notify'
 import { DockSlot } from './CornerDock'
 import { SideSlot, useSidePanelOpen } from './SidePanel'
-import { setSideBack, setSideLayout, setSideRaise } from './sidePanel/store'
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from 'react'
+import { setSideBack, setSideLayout, setSideRaise, setSideUnseen } from './sidePanel/store'
+import type { SignalHub } from './signal'
+import { ANNOUNCE_GROUP_MS, announceText, approvalName, arrivals, groupAnnouncements, loadSeenAt, saveSeenAt, seenNow, showDot, unseenOf, type Waiting } from '../approvals/unseen'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from 'react'
 import { renderMarkdown } from './approval/markdown'
 import { openApprovalBox, toggleApprovalBox, useApprovalBoxOpen } from './approval/panel'
 import type { ApprovalSource, Cover, DecidedCover, Role } from '../approvals/source'
@@ -20,7 +23,7 @@ import { AGENT_INFO, type OfficeWorld } from './world'
  */
 export function ApprovalBox({ world }: { world: OfficeWorld }) {
   const src = world.approvals
-  return src ? <Box src={src} /> : null
+  return src ? <Box src={src} signal={world.signal} /> : null
 }
 
 export const useRole = (src: ApprovalSource): Role => useSyncExternalStore(src.subscribe.bind(src), () => src.role())
@@ -35,21 +38,75 @@ function agentOf(seat: number | null, requester = '') {
   return { key: info ? String(seat) : 'x', label: info ? `${info.name} · ${info.role}` : other, first: info ? info.name.split(' ')[0] : other }
 }
 
-function Box({ src }: { src: ApprovalSource }) {
+function Box({ src, signal }: { src: ApprovalSource; signal: SignalHub | null }) {
   const role = useRole(src)
   const open = useApprovalBoxOpen()
   const [count, setCount] = useState<number | null>(null)
+  const [items, setItems] = useState<Waiting[]>([])
+  /** bumped on every re-read, so an open list re-reads with the box (the lists no longer poll on their own) */
+  const [version, setVersion] = useState(0)
+  /** #240 when the box was last open on this browser; none stored yet = a first visit, where nothing is new */
+  const [seenAt, setSeenAt] = useState<number | null>(() => loadSeenAt() ?? Date.now())
   const [live, setLive] = useState('')
   const [thud, setThud] = useState(false)
   const back = useRef<(() => void) | null>(null) // set by the owner view while one item is open
   const shown = useSidePanelOpen()
 
-  const refresh = useCallback(() => void src.count().then(setCount, () => {}), [src])
+  // the ids of the last look (null = the first look of this visit or role: nothing in it is news) and the 5 s grouping of what is read out
+  const known = useRef<Set<number> | null>(null)
+  const seq = useRef(0)
+  const grouper = useMemo(() => groupAnnouncements((got) => setLive(announceText(got)), ANNOUNCE_GROUP_MS), [])
+  useEffect(() => () => grouper.cancel(), [grouper])
+
+  // one re-read of the waiting count and list (the owner's rows with titles, a visitor's covers)
+  const refresh = useCallback(async () => {
+    const mine = ++seq.current
+    const asOwner = src.role() === 'owner'
+    try {
+      const [n, list] = await Promise.all([src.count(), asOwner ? src.pending() : src.covers()])
+      if (mine !== seq.current) return
+      const waiting: Waiting[] = asOwner
+        ? (list as StoredApproval[]).map((a) => ({ id: a.id, at: a.created_at, label: `${agentOf(a.requester_seat, a.requester).first}: ${a.title}` }))
+        : (list as Cover[]).map((c) => ({ id: c.id, at: c.created_at, label: null }))
+      const newestAt = waiting.reduce<string | null>((m, w) => (m === null || w.at > m ? w.at : m), null)
+      approvalsRefreshed(n, asOwner, newestAt)
+      grouper.add(arrivals(known.current, waiting))
+      known.current = new Set(waiting.map((w) => w.id))
+      setCount(n)
+      setItems(waiting)
+      setVersion((v) => v + 1)
+    } catch {
+      /* keep what is shown; the next signal or poll tries again */
+    }
+  }, [src, grouper])
+  // signed in or out: a different viewer, so the first look is a first look again (nothing is news, no chime)
   useEffect(() => {
-    refresh()
-    const timer = setInterval(refresh, 60_000)
-    return () => clearInterval(timer)
-  }, [refresh, role])
+    known.current = null
+    resetApprovalChime()
+    grouper.cancel()
+    void refresh()
+  }, [refresh, role, grouper])
+  // #240 the server's signal (and, for the owner, the table's own changes) re-read; the hub polls when the channel is down
+  useEffect(() => signal?.on('approvals', () => void refresh()), [signal, refresh])
+  useEffect(() => {
+    signal?.watchOwner(role === 'owner')
+    return () => signal?.watchOwner(false)
+  }, [signal, role])
+
+  // the dot: waiting items filed after the box was last open. Open, the box is being looked at: all of it counts as seen
+  const unseen = unseenOf(items, seenAt).length
+  const dot = showDot(count, unseen)
+  useEffect(() => {
+    if (!open) return
+    const at = seenNow(items, Date.now())
+    saveSeenAt(at)
+    setSeenAt(at)
+  }, [open, items])
+  useEffect(() => void setSideUnseen('approval', dot ? unseen : 0), [dot, unseen])
+  // a first visit stores its start, so what arrives before the next visit counts as new then
+  useEffect(() => {
+    if (loadSeenAt() === null && seenAt !== null) saveSeenAt(seenAt)
+  }, [seenAt])
 
   // ?owner opens the box for sign-in; becoming the owner opens it too (the way back from GitHub)
   useEffect(() => {
@@ -61,7 +118,7 @@ function Box({ src }: { src: ApprovalSource }) {
 
   // focus and the close button belong to the side panel (SidePanel.tsx); here: a fresh count when it opens, and the count for its tab
   useEffect(() => {
-    if (open) refresh()
+    if (open) void refresh()
   }, [open, refresh])
   useEffect(() => setSideLayout({ count }), [count])
 
@@ -93,13 +150,17 @@ function Box({ src }: { src: ApprovalSource }) {
           <button
             type="button"
             className="dock-btn approval-launcher"
-            aria-label={`결재함${count !== null ? ` · 대기 ${count}` : ''}`}
             aria-expanded={false}
             aria-controls="approval-box"
             onClick={toggleApprovalBox}
           >
             <Icon name="inbox" />
-            <span className="dock-label">결재함{count !== null && ` · 대기 ${count}`}</span>
+            {/* the name is words, the dot is not: `결재함, 대기 3건, 새 결재 1건` (#240) */}
+            <span className="sr-only">{approvalName(count, unseen)}</span>
+            <span className="dock-label" aria-hidden="true">
+              결재함{count !== null && ` · 대기 ${count}`}
+            </span>
+            {dot && <i className="new-dot approval" aria-hidden="true" />}
             {/* the count on the icon when the label is hidden (under 360px; the name and count are in aria-label) */}
             {!!count && (
               <b className="dock-badge" aria-hidden="true">
@@ -113,9 +174,9 @@ function Box({ src }: { src: ApprovalSource }) {
         <div id="approval-box" className="approval-box" role="tabpanel" aria-labelledby="side-tab-approval">
           <div className={`approval-body${thud ? ' thud' : ''}`}>
             {role === 'owner' ? (
-              <OwnerView src={src} announce={setLive} setThud={setThud} onChange={refresh} back={back} />
+              <OwnerView src={src} announce={setLive} setThud={setThud} onChange={() => void refresh()} version={version} back={back} />
             ) : (
-              <VisitorView src={src} role={role} count={count} back={back} />
+              <VisitorView src={src} role={role} count={count} version={version} back={back} />
             )}
           </div>
         </div>
@@ -124,21 +185,17 @@ function Box({ src }: { src: ApprovalSource }) {
   )
 }
 
-function VisitorView({ src, role, count, back }: { src: ApprovalSource; role: Role; count: number | null; back: RefObject<(() => void) | null> }) {
+function VisitorView({ src, role, count, version, back }: { src: ApprovalSource; role: Role; count: number | null; version: number; back: RefObject<(() => void) | null> }) {
   const [covers, setCovers] = useState<Cover[]>([])
   const [done, setDone] = useState<DecidedCover[]>([])
   const [cur, setCur] = useState<DecidedCover | null>(null)
   const lastId = useRef<number | null>(null)
   const list = useRef<HTMLDivElement>(null)
+  // re-read with every re-read of the box (a signal, the poll when the channel is down, opening it)
   useEffect(() => {
-    const load = () => {
-      void src.covers().then(setCovers, () => {})
-      void src.decidedCovers?.().then(setDone, () => {})
-    }
-    load()
-    const timer = setInterval(load, 60_000)
-    return () => clearInterval(timer)
-  }, [src])
+    void src.covers().then(setCovers, () => {})
+    void src.decidedCovers?.().then(setDone, () => {})
+  }, [src, version])
   // one decided cover open: Esc and the back button return to the list, the phone sheet goes tall (like the owner's detail)
   const toList = useCallback(() => setCur(null), [])
   useEffect(() => {
@@ -244,12 +301,14 @@ function OwnerView({
   announce,
   setThud,
   onChange,
+  version,
   back,
 }: {
   src: ApprovalSource
   announce: (s: string) => void
   setThud: (b: boolean) => void
   onChange: () => void
+  version: number
   back: RefObject<(() => void) | null>
 }) {
   const [pending, setPending] = useState<StoredApproval[] | null>(null)
@@ -270,7 +329,7 @@ function OwnerView({
       setError(true)
     }
   }, [src])
-  useEffect(() => void load(), [load])
+  useEffect(() => void load(), [load, version])
 
   const toList = useCallback(() => setCur(null), [])
   // one approval open: the phone sheet goes tall
