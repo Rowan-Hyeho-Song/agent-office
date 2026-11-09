@@ -165,7 +165,97 @@ def seat_memo(G):
     return s, L, P
 
 
-SEATS = [seat_memo]
+# ================================================================ MESH (seat 1)
+def plaster(name):
+    """plaster study shapes: matte off-white with fine pits (baked)"""
+    return plastic("#ece9e2", 0.95, 0, 0.35, name)
+
+
+def seat_mesh(G):
+    """desk-props.md 3 MESH: a turntable (round base 0.2, a platter that turns, a front button, a cable behind,
+    four rubber feet), a ring light (a 0.25 ring with a phone clamp in the middle, an angle knob, a telescoping pole
+    with height collars, a base, a cable), plaster study shapes (sphere, cone, cylinder) and one lavender torus
+    (the 3D program's default shape - MESH's joke), the colour checker, MESH's mug (#156 shape, red glaze)"""
+    h = DESK_H
+    s, L, P = [], [], []
+    black = plastic("#1d1f24", 0.55, 0.3, 0.05, "tt_black")
+    rubber = plastic("#0e0f12", 0.9, 0, 0.3, "rubber_foot")
+    cable_m = plastic("#16171b", 0.85, 0, 0.4, "cable")
+    lav_hex = AGENTS[1]["color"]
+    # 1 turntable (live platter + rim + cube: spins about local y while MESH bakes)
+    tx, tz = -0.43, -0.18
+    s.append(lathe("tt_base", [(0, 0.003), (0.097, 0.003), (0.1, 0.006), (0.1, 0.015), (0.097, 0.018), (0, 0.018)], (tx, h, tz), black, G, seg=30))
+    for k in range(4):
+        a = math.pi / 4 + k * math.pi / 2
+        s.append(cyl("tt_foot", 0.008, 0.003, (tx + 0.07 * math.cos(a), h + 0.0015, tz + 0.07 * math.sin(a)), rubber, G, 10))
+    s += [cyl("tt_button_ring", 0.0065, 0.002, (tx, h + 0.0105, tz + 0.1005), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G, 14, axis="z"),
+          cyl("tt_button", 0.0045, 0.003, (tx, h + 0.0105, tz + 0.1015), emitter(lav_hex, 1.2, "tt_button"), G, 14, axis="z")]
+    tc = rail("tt_cable", [(tx, h + 0.008, tz - 0.098), (tx + 0.005, h + 0.003, tz - 0.12), (tx + 0.02, h + 0.003, -0.29), (tx + 0.025, h - 0.01, -0.315)], 0.002, cable_m, G)
+    tc.data.resolution_u, tc.data.bevel_resolution = 4, 0
+    s.append(tc)
+    lav = plastic(lav_hex, 0.4, 0, 0.05, "turntable_rim")
+    lb = lav.node_tree.nodes["Principled BSDF"]
+    lb.inputs["Emission Color"].default_value = rgba(lav_hex)
+    lb.inputs["Emission Strength"].default_value = 0.5
+    Tt = Mx((tx, h + 0.018, tz))
+    tt = [lathe("tt_platter", [(0, 0), (0.078, 0), (0.08, 0.002), (0.08, 0.008), (0.078, 0.01), (0, 0.01)], (0, 0, 0),
+                plastic("#5a5f68", 0.45, 0.4, 0.05, "platter"), G, seg=30),
+          torus("tt_rim", 0.08, 0.0022, (0, 0.006, 0), lav, G, seg=30, rseg=4),
+          box("tt_cube", (0.05, 0.05, 0.05), (0, 0.035, 0), plaster("plaster"), G, bev=0.003, seg=1, rot_y=0.4)]
+    L.append(LIVE("desk_1_turntable", "bot", place(tt, Tt), Tt))
+    # 2 colour checker on the monitor base (as before; black card = the borders between the chips)
+    chips = ["#735244", "#c29682", "#627a9d", "#576c43", "#8580b1", "#67bdaa", "#d67e2c", "#505ba6", "#c15a63", "#5e3c6c",
+             "#9dbc40", "#e0a32e", "#383d96", "#469449", "#af363c", "#e7c71f", "#bb5695", "#0885a1", "#f3f3f2", "#c8c8c8",
+             "#a0a0a0", "#7a7a79", "#555555", "#343434"]
+    card = [box("checker", (0.15, 0.10, 0.003), (0, 0.05, 0), plastic("#111216", 0.6, 0, 0, "checker"), G, bev=0.0008, seg=1)]
+    for k, c in enumerate(chips):
+        col, row = k % 6, k // 6
+        card.append(box("chip", (0.019, 0.019, 0.001), (-0.0575 + col * 0.023, 0.085 - row * 0.023, 0.002), plastic(c, 0.7, 0, 0, f"chip_{c[1:]}"), G))
+    s += place(card, Mx((0.15, h, -0.09), rx=-math.radians(20)))
+    # 3 ring light (0.25): base, a two-stage pole with height collars, an angle knob, the ring (black housing baked,
+    # the diffuser live: lights up, flashes once when a bake ends), a phone clamp in the middle on a cross bar
+    rx_, rz_ = 0.46, -0.20
+    s += [lathe("rl_base", [(0, 0), (0.058, 0), (0.06, 0.003), (0.06, 0.01), (0.055, 0.013), (0.012, 0.016), (0, 0.016)], (rx_, h, rz_), black, G, seg=28),
+          cyl("rl_pole", 0.008, 0.15, (rx_, h + 0.016 + 0.075, rz_), black, G, 10),
+          cyl("rl_collar", 0.0105, 0.012, (rx_, h + 0.166, rz_), black, G, 12, bev=0.001),
+          cyl("rl_pole2", 0.0058, 0.11, (rx_, h + 0.166 + 0.055, rz_), plastic("#9aa0a8", 0.35, 0.8, 0.08, "rl_alu"), G, 10),
+          cyl("rl_collar", 0.008, 0.008, (rx_, h + 0.276, rz_), black, G, 12, bev=0.001),
+          cyl("rl_knob", 0.011, 0.012, (rx_ + 0.012, h + 0.29, rz_), black, G, 14, axis="x", bev=0.001)]
+    for k in range(2):  # the knob's grip ridges
+        s.append(cyl("rl_knob_rib", 0.0118, 0.0012, (rx_ + 0.0085 + k * 0.003, h + 0.29, rz_), black, G, 14, axis="x"))
+    R = 0.125 - 0.012
+    Rc = Mx((rx_, h + 0.29 + R + 0.012, rz_))  # ring centre; the ring faces the agent (+z)
+    s += place([torus("rl_housing", R, 0.012, (0, 0, 0), black, G, axis="z", seg=40, rseg=4),
+                box("rl_yoke", (0.012, 0.016, 0.014), (0, -R - 0.006, 0), black, G, bev=0.001, seg=1),
+                box("rl_bar", (0.006, R * 2 - 0.01, 0.005), (0, 0, -0.006), black, G),
+                box("rl_clamp", (0.05, 0.012, 0.012), (0, 0.035, 0.0), black, G, bev=0.002, seg=1),
+                box("rl_clamp", (0.05, 0.012, 0.012), (0, -0.035, 0.0), black, G, bev=0.002, seg=1),
+                box("rl_clamp_pad", (0.04, 0.003, 0.008), (0, 0.0275, 0.002), rubber, G),
+                box("rl_clamp_pad", (0.04, 0.003, 0.008), (0, -0.0275, 0.002), rubber, G)], Rc)
+    rlc = rail("rl_cable", [(rx_, h + 0.02, rz_ - 0.05), (rx_ - 0.01, h + 0.003, rz_ - 0.07), (rx_ - 0.03, h + 0.003, -0.29), (rx_ - 0.035, h - 0.01, -0.315)], 0.0018, cable_m, G)
+    rlc.data.resolution_u, rlc.data.bevel_resolution = 4, 0
+    s.append(rlc)
+    ring = torus("ringlight", R, 0.0085, (0, 0, 0.006), emitter("#f4f0ff", 3.0, "ringlight"), "export", axis="z", seg=40, rseg=4)
+    L.append(LIVE("desk_1_ringlight", "neon", place([ring], Rc), Rc))
+    # 4 plaster study shapes + the lavender default torus
+    px, pz = -0.42, 0.15
+    s += [sphere("prim_sphere", 0.03, (px - 0.06, h + 0.03, pz - 0.03), plaster("plaster"), G, seg=18, rings=10),
+          lathe("prim_cone", [(0, 0), (0.03, 0), (0.0, 0.065)], (px + 0.02, h, pz + 0.035), plaster("plaster"), G, seg=20),
+          lathe("prim_cylinder", [(0, 0), (0.024, 0), (0.024, 0.055), (0, 0.055)], (px + 0.04, h, pz - 0.035), plaster("plaster"), G, seg=20),
+          torus("prim_torus", 0.033, 0.011, (px - 0.065, h + 0.011, pz + 0.075), plastic("#b9a6e6", 0.85, 0, 0.1, "prim_torus"), G, seg=22, rseg=8)]
+    # 5 MESH's mug (#156 shape, red glaze #b83a3a) left of the keyboard, the handle toward the agent's right
+    red = plastic("#b83a3a", 0.3, 0, 0.05, "mug_glaze_red")
+    mug = mug_parts(1, G)
+    for o in mug:
+        for k, m in enumerate(o.data.materials):
+            if m and m.name.startswith("mug_glaze_1"):
+                o.data.materials[k] = red
+    mx, mz, ry = -0.43, -0.01, -0.6  # the body's centre; the cup frame's origin is 7.2 cm toward the handle
+    s += place(mug, Mx((mx + 0.072 * math.cos(ry), h + MUG_H / 2, mz - 0.072 * math.sin(ry)), ry=ry))
+    return s, L, P
+
+
+SEATS = [seat_memo, seat_mesh]
 SEAT_SHOTS = {
     0: (("seat0_overview", (0.75, 1.35, 0.95), (0.0, 0.8, -0.12)),
         ("seat0_tray", (0.2, 1.02, 0.22), (0.44, 0.82, -0.16)),
@@ -173,6 +263,12 @@ SEAT_SHOTS = {
         ("seat0_stamp", (0.32, 0.88, 0.33), (0.47, 0.765, 0.12)),
         ("seat0_calendar", (-0.1, 0.95, 0.15), (-0.3, 0.8, -0.16)),
         ("seat0_hourglass", (-0.35, 0.9, -0.02), (-0.5, 0.8, -0.22))),
+    1: (("seat1_overview", (0.75, 1.35, 0.95), (0.0, 0.8, -0.12)),
+        ("seat1_turntable", (-0.2, 0.95, 0.12), (-0.43, 0.77, -0.16)),
+        ("seat1_ringlight", (0.22, 1.05, 0.35), (0.46, 0.95, -0.2)),
+        ("seat1_ringlight_back", (0.75, 1.1, -0.65), (0.46, 0.95, -0.2)),
+        ("seat1_shapes", (-0.2, 0.92, 0.42), (-0.42, 0.76, 0.12)),
+        ("seat1_checker", (0.25, 0.88, 0.15), (0.15, 0.78, -0.09))),
 }
 
 if __name__ == "__main__":
