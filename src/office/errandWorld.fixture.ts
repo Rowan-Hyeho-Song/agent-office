@@ -25,7 +25,7 @@ if (!g.document) {
   g.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ctx }) }
 }
 
-export const IDS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
+export const IDS = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
 
 export async function world() {
   const { scene, nodes } = await loadOffice()

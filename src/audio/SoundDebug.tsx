@@ -115,7 +115,7 @@ export function SoundDebug() {
       }
     }
   }
-  // #194 thock2 A/B: the same typing, 3 s each, 지금 thock → 도각 합성 → 녹음, with the name of the one sounding
+  // #194 A/B: the same typing, 3 s each, 녹음 (the sound) → 합성 도각 (its fallback), with the name of the one sounding
   const [abNow, setAbNow] = useState<string | null>(null)
   const abCompare = async () => {
     start()
@@ -123,7 +123,7 @@ export function SoundDebug() {
     if (!g) return
     await loadKeySample(g.ctx)
     const keep = getKeyVoice()
-    const order: KeyVoice[] = ['thock', 'thock2', 'sample']
+    const order: KeyVoice[] = ['sample', 'thock2']
     order.forEach((v, i) => {
       setKeyVoice(v) // cue() reads the voice when it schedules, so each 3 s slot keeps its own
       typeDemo(1, 3, i * 3.5)
@@ -296,13 +296,13 @@ export function SoundDebug() {
         </div>
         <div>
           <button type="button" onClick={() => void abCompare()}>
-            연달아 비교 (지금 → 도각 → 녹음, 3초씩)
+            연달아 비교 (녹음 → 합성, 3초씩)
           </button>{' '}
           <span aria-live="polite">{abNow ? `지금: ${abNow}` : ''}</span>
         </div>
         <small>
-          고른 소리와 위 keys 버스 크기가 맨 아래 복사 줄에 들어가요. "녹음"은 실제 키보드 녹음(CC0, 61 KB 파일)이라, 쓰려면 "음원 파일 0" 원칙을 바꾸는
-          결정이 필요해요.
+          고른 소리와 위 keys 버스 크기가 맨 아래 복사 줄에 들어가요. 키 소리는 실제 키보드 녹음(Rainy 75, CC0, 61 KB)이고, 합성 도각은 파일이 오기 전에 대신
+          나요.
         </small>
       </section>
 

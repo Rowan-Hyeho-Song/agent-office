@@ -44,7 +44,7 @@ export interface BoardState {
 export const emptyBoard = (): BoardState => ({ doing: [], review: [], done: [], decisions: [] })
 
 const newestFirst = (a: { at: string }, b: { at: string }) => b.at.localeCompare(a.at)
-const SEATS = [0, 1, 2, 3] as const
+const SEATS = [0, 1, 2, 3, 4] as const
 export const asSeat = (s: number | null | undefined): Seat | null => SEATS.find((x) => x === s) ?? null
 
 /** "결정: 보충" -> big line + supplement (first ": " only) */

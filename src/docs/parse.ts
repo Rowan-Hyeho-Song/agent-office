@@ -1,7 +1,7 @@
 // Parsers for the agents' structured GitHub comments (plan.md 6.2, 6.5). Pure functions: markdown in, structure out.
 import type { ApprovalRequest, ApprovalResult, Minutes, MinutesRow, Speaker } from './types.js'
 
-type Seat = 0 | 1 | 2 | 3
+type Seat = 0 | 1 | 2 | 3 | 4
 
 // role words -> seat. ASCII words match case-insensitively on word edges (agentsIn); Korean words match as written.
 const SEAT_WORDS: [Seat, string[]][] = [
@@ -9,6 +9,7 @@ const SEAT_WORDS: [Seat, string[]][] = [
   [1, ['Blender', '3D', '메시', 'MESH']],
   [2, ['디자이너', '디자인', '휴', 'HUE']],
   [3, ['코더', '루프', 'LOOP']],
+  [4, ['사운드', '에코', 'ECHO']],
 ]
 const OWNER_WORDS = ['사용자', '사람', '주인', 'rowan']
 
