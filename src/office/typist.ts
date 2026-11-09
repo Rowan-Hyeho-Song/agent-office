@@ -9,6 +9,7 @@
 //  - the input bus (inputEvents.ts): the events of the schedule as the clock passes them.
 // Nothing here allocates per frame (a chunk, once per 12 s, and a fitted key, once per key, are the exceptions).
 import {
+  Box3,
   Matrix4,
   Quaternion,
   Vector3,
@@ -17,7 +18,7 @@ import {
   type Object3D,
   type WebGLProgramParametersWithUniforms,
 } from 'three'
-import { DIP_K, POSES } from './handPose'
+import { DIP_K, POSES, blendAngles, toVec } from './handPose'
 import { clampJoints, tipAtJoints, type FingerModel } from './grip'
 import { fingerModelOf, palmDown, type AgentRig, type HandDrive } from './rig'
 import { emitInput, hasInputListeners } from './inputEvents'
@@ -30,8 +31,10 @@ import {
   PRESS_OUT_S,
   chunkIndexAt,
   pressAt,
+  TAP_S,
   type Chunk,
   type Episode,
+  type Gesture,
   type Hand,
   type KeyPress,
   type SchedEvent,
@@ -46,7 +49,7 @@ const HOVER_KEY = 0.006
 const SHIFT_SHARE = 0.5
 const SHIFT_MAX = 0.03
 /** the most the hand moves from home to reach a key, m */
-const SHIFT_REACH = 0.06
+const SHIFT_REACH = 0.08
 /** the hand turns in at most this much about the vertical (wrists out, fingertips in), degrees */
 const YAW_MAX = 20
 /** the weight of the hands' typing drive ramps in / out this long, s */
@@ -283,7 +286,7 @@ export function fitKey(hs: HandSolve, kb: Keyboard, finger: number, code: string
   }
   let best: KeyFit | null = null
   // a finger that cannot get there bends as far as it goes and the hand follows what is left (flat), a few rounds
-  for (let round = 0; round < 4; round++) {
+  for (let round = 0; round < 8; round++) {
     origin.copy(hs.pos).add(shift)
     const hover = solveTip(m, at(HOVER_KEY), prior)
     const downTarget = at(-travel + 0.0005)
@@ -291,9 +294,10 @@ export function fitKey(hs: HandSolve, kb: Keyboard, finger: number, code: string
     if (!best || down.err < best.err) best = { hover: hover.joints, down: down.joints, shift: shift.clone(), err: down.err }
     if (down.err < 0.0015 || reduced) break
     const rest = downTarget.sub(tipAtJoints(m, down.joints)).applyQuaternion(hs.quat)
-    rest.y = 0
+    rest.y = Math.max(-0.02, Math.min(0.02, rest.y))
     shift.addScaledVector(rest, 0.9)
     if (shift.length() > SHIFT_REACH) shift.multiplyScalar(SHIFT_REACH / shift.length())
+    shift.y = Math.max(-0.02, Math.min(0.02, shift.y))
   }
   return best
 }
@@ -329,6 +333,9 @@ interface AgentState {
   drive: Record<Side, HandDrive>
   tmp: Record<Side, Float64Array>
   mouseHold: boolean
+  /** the index tip of the pointing pose in each hand's frame (head tap) */
+  tapTip: Record<Side, Vector3 | null | undefined>
+  ear: readonly number[] | null
   /** the chunk's press lists per hand: all keys of the hand in time order (built once per chunk) */
   byHand: { chunk: Chunk | null; l: KeyPress[]; r: KeyPress[] }
   lastSeen: number
@@ -375,6 +382,8 @@ export class Typist {
   private readonly shift = new Vector3()
   private readonly shiftB = new Vector3()
   private readonly scl = new Vector3()
+  private readonly v3 = new Vector3()
+  private readonly q3 = new Quaternion()
 
   constructor(private readonly nodes: Record<string, Object3D>) {
     // ?debug=1&typing=off: no typing at all (the frame-cost baseline)
@@ -465,7 +474,7 @@ export class Typist {
     let a = this.agents.get(id)
     if (!a) {
       const mk = (): HandDrive => ({ target: new Matrix4(), w: 0, curl: null, angles: new Array(20).fill(0), wc: 0, spread: null })
-      a = { ramp: 0, lastT: -1, sent: -Infinity, drive: { l: mk(), r: mk() }, tmp: { l: new Float64Array(5 * 4), r: new Float64Array(5 * 4) }, mouseHold: false, byHand: { chunk: null, l: [], r: [] }, lastSeen: -1, cur: null }
+      a = { ramp: 0, lastT: -1, sent: -Infinity, drive: { l: mk(), r: mk() }, tmp: { l: new Float64Array(5 * 4), r: new Float64Array(5 * 4) }, mouseHold: false, tapTip: { l: undefined, r: undefined }, ear: null, byHand: { chunk: null, l: [], r: [] }, lastSeen: -1, cur: null }
       this.agents.set(id, a)
     }
     void rig
@@ -518,6 +527,13 @@ export class Typist {
         if (info) kb.set(info.idx, pressAt(k, t, d))
       }
     }
+    if (live) {
+      for (const side of SIDES) {
+        if (side === 'r' && o.leftOnly) continue
+        const ge = this.gestureOf(chunk, side, t)
+        if (ge) this.gesture(rig, s, a, side, ge, t, d, o.reduced)
+      }
+    }
     if (s.mouse) this.mouseVisual(s, chunk, t, o.dt, live)
     let mouseWant = false
     if (live && hasMouse && !o.reduced) for (let i = 0; i < chunk.episodes.length; i++) if (t >= chunk.episodes[i].t0 && t <= chunk.episodes[i].t1) mouseWant = true
@@ -525,6 +541,87 @@ export class Typist {
     rig.drive.l = a.drive.l
     if (!o.leftOnly) rig.drive.r = a.drive.r
     return { mouseWant, chunk, kb: a.drive.r }
+  }
+
+  private gestureOf(chunk: Chunk, side: Side, t: number): Gesture | null {
+    for (let i = 0; i < chunk.gestures.length; i++) {
+      const g = chunk.gestures[i]
+      if (g.hand === side && t >= g.t0 && t <= g.t1) return g
+    }
+    return null
+  }
+
+  /**
+   * A think habit of the free hand in a long pause (typing.md): the chin rest (the hand under the chin, fingers 0.7 of the wrap, the head leans 3
+   * degrees toward it) or the head tap (the index tip just over the ear, two taps of 0.15 s). It takes the hand's drive over from the keyboard pose
+   * by the move's weight (0.3 s up, 0.3 s down; the stretch of a timelapse makes it longer). Reduced motion: no tap, no lean.
+   */
+  private gesture(rig: AgentRig, s: SeatState, a: AgentState, side: Side, ge: Gesture, t: number, d: number, reduced: boolean) {
+    if (reduced && ge.kind === 'tap') return
+    const dv = a.drive[side]
+    const hand = rig.parts.hands[side]
+    const sx = side === 'l' ? -1 : 1
+    const ramp = 0.3 * d
+    const w = smooth((t - ge.t0) / ramp) * (1 - smooth((t - (ge.t1 - ramp)) / ramp))
+    if (w <= 0) return
+    const head = rig.parts.head
+    head.updateWorldMatrix(true, false)
+    rig.parts.root.getWorldQuaternion(this.q2)
+    let pose: number[]
+    if (ge.kind === 'chin') {
+      this.v2.set(sx * CHIN_LOCAL[0], CHIN_LOCAL[1], CHIN_LOCAL[2]).applyMatrix4(head.matrixWorld)
+      this.q2.multiply(this.q3.setFromAxisAngle(AXIS_Z, -sx * CHIN_ROLL)).multiply(hand.restQuat)
+      pose = CHIN_ANGLES
+      if (!reduced) rig.headExtra.roll += -sx * LEAN * w
+    } else {
+      // two taps: the tip goes down to the ear and back, 0.15 s each
+      const tap = (t - ge.t0 - ramp) / (TAP_S * d)
+      const pulse = tap >= 0 && tap < 2 ? Math.sin(Math.PI * (tap - Math.floor(tap))) : 0
+      const ear = this.earOf(rig, a)
+      this.v2.set(sx * ear[0], ear[1] + TAP_ABOVE * (1 - pulse), ear[2]).applyMatrix4(head.matrixWorld)
+      this.q2.multiply(this.q3.setFromAxisAngle(AXIS_X, TAP_PITCH)).multiply(hand.restQuat)
+      pose = TAP_ANGLES
+      const tip = this.tapTip(rig, a, side)
+      if (tip) this.v2.sub(this.v3.copy(tip).applyQuaternion(this.q2))
+    }
+    if (ge.kind === 'chin') {
+      const g = hand.grip
+      if (g) this.v2.sub(this.v3.copy(g.position).applyQuaternion(this.q2))
+    }
+    // from the keyboard pose to this one
+    dv.target!.decompose(this.v1, this.q1, this.scl)
+    this.v1.lerp(this.v2, w)
+    this.q1.slerp(this.q2, w)
+    dv.target!.compose(this.v1, this.q1, this.ones)
+    const ang = dv.angles as number[]
+    for (let i = 0; i < 20; i++) ang[i] += (pose[i] - ang[i]) * w
+    void s
+  }
+
+  /** the ear in the head's frame: the top of its ear cup when the agent has one (the coder's), else a default on the head's side */
+  private earOf(rig: AgentRig, a: AgentState): readonly number[] {
+    if (!a.ear) {
+      a.ear = EAR_LOCAL
+      const ear = rig.parts.ear
+      if (ear) {
+        rig.parts.head.updateWorldMatrix(true, true)
+        const box = new Box3().setFromObject(ear).applyMatrix4(new Matrix4().copy(rig.parts.head.matrixWorld).invert())
+        if (Number.isFinite(box.max.y)) a.ear = [Math.max(0.2, box.max.x * 0.95), box.max.y, (box.min.z + box.max.z) / 2]
+      }
+    }
+    return a.ear
+  }
+
+  /** the index tip in the hand's frame for the pointing pose (once per hand) */
+  private tapTip(rig: AgentRig, a: AgentState, side: Side): Vector3 | null {
+    let v = a.tapTip[side]
+    if (v === undefined) {
+      const m = fingerModelOf(rig.parts.hands[side], 0, side)
+      const p = POSES.point.f[0]
+      v = m ? tipAtJoints(m, [p.mcp, p.pip, p.abd]) : null
+      a.tapTip[side] = v
+    }
+    return v
   }
 
   /** the agent is not typing this frame: let the drive's weight go down (rig.drive is the caller's) */
@@ -608,7 +705,10 @@ export class Typist {
     if (j < 0) return
     const k = list[j]
     const hs = s.hands[side]
-    shiftFor(hs, s.kb, k.finger, k.code, this.shiftB)
+    // the shift the key was fitted with (the finger's reach decided it), not the first guess
+    const fk = this.fit(s, side, k.finger, k.code, k.fid, false)
+    if (fk) this.shiftB.copy(fk.shift)
+    else shiftFor(hs, s.kb, k.finger, k.code, this.shiftB)
     const rel = k.t + k.hold + PRESS_OUT_S * d
     const next = list[j + 1]
     // before it: from where the one before left it (0 after a long stop)
@@ -616,7 +716,9 @@ export class Typist {
     if (j > 0) {
       const p = list[j - 1]
       if (k.t - (p.t + p.hold) < 0.5 * d) {
-        shiftFor(hs, s.kb, p.finger, p.code, this.v2)
+        const fp = this.fit(s, side, p.finger, p.code, p.fid, false)
+        if (fp) this.v2.copy(fp.shift)
+        else shiftFor(hs, s.kb, p.finger, p.code, this.v2)
         from = 1
       }
     }
@@ -867,6 +969,14 @@ export class Typist {
     return this.agents.get(agent)?.lastT ?? 0
   }
 
+  /** debug: the think gestures of an agent from time t */
+  upcomingGestures(agent: string, activity: string | undefined, t: number, seconds: number) {
+    const out: { t0: number; t1: number; kind: string; hand: string }[] = []
+    for (let ci = chunkIndexAt(t, 1); ci <= chunkIndexAt(t + seconds, 1); ci++)
+      for (const g of this.cache.get(agent, activity, ci, { dilation: 1, mouse: agent !== 'agent_2' }).gestures) if (g.t1 >= t && g.t0 <= t + seconds) out.push({ t0: +g.t0.toFixed(3), t1: +g.t1.toFixed(3), kind: g.kind, hand: g.hand })
+    return out
+  }
+
   /** debug: the mouse acts of an agent from time t */
   upcomingMouse(agent: string, activity: string | undefined, t: number, seconds: number) {
     const out: { t: number; kind: string; button: string }[] = []
@@ -886,6 +996,18 @@ export class Typist {
 }
 
 const AXIS_X = new Vector3(1, 0, 0)
+const AXIS_Z = new Vector3(0, 0, 1)
+/** the chin rest, head frame (x toward the hand's side, y up, z back; the face is at -z): under the chin, a little to the hand's side and in front; the palm tilted up (rad) */
+const CHIN_LOCAL = [0.05, -0.17, -0.17]
+const CHIN_ROLL = 1.2
+/** the wrap pose scaled toward rest */
+const CHIN_ANGLES = toVec(blendAngles(POSES.rest, POSES.wrap, 0.7))
+const LEAN = 3 * DEG
+/** the head tap: the ear, the tip's height over it at rest, the hand pitched up (rad) */
+const EAR_LOCAL = [0.26, 0.05, 0.0]
+const TAP_ABOVE = 0.02
+const TAP_PITCH = 1.1
+const TAP_ANGLES = toVec(POSES.point)
 const EMPTY: readonly KeyPress[] = []
 /** the keys fitted ahead of time (the ones the schedule uses most) */
 const WARM_CODES = [

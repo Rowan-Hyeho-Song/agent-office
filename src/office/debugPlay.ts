@@ -75,6 +75,10 @@ export function makeTypingTools(world: OfficeWorld, typist: Typist) {
       if (t === null) delete typist.frozen[a]
       else typist.frozen[a] = t
     },
+    gestures(agent: number | string, seconds = 40) {
+      const a = id(agent)
+      return typist.upcomingGestures(a, typist.forced[a], typist.lastT(a), seconds)
+    },
     now: (agent: number | string) => typist.lastT(id(agent)),
     mouse(agent: number | string, seconds = 8) {
       const a = id(agent)

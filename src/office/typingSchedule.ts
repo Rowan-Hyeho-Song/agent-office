@@ -174,7 +174,23 @@ export interface Chunk {
   mouse: MouseAct[]
   episodes: Episode[]
   events: SchedEvent[]
+  /** the stops of the typing longer than 1.5 s (a thinking pause, a rest), and what the free hand does in some of them */
+  pauses: { t0: number; t1: number }[]
+  gestures: Gesture[]
 }
+
+/** a think habit (typing.md): a hand to the chin, or a finger tapping the head above the ear; `t0`..`t1` is the whole move (up, held, back) */
+export interface Gesture {
+  kind: 'chin' | 'tap'
+  hand: Hand
+  t0: number
+  t1: number
+}
+/** the share of long pauses with a gesture, and each person's chance of the chin rest over the head tap (the rest tap) */
+export const GESTURE_RATE = 0.3
+export const CHIN_PREFER: Record<string, number> = { agent_0: 0.25, agent_1: 0.75, agent_2: 0.75, agent_3: 0.25, agent_4: 0.75 }
+export const GESTURE_MIN_PAUSE_S = 1.5
+export const TAP_S = 0.15
 
 export const CHUNK_S = 12
 
@@ -231,6 +247,7 @@ interface Builder {
   over: boolean
   /** words until the next thinking pause / the next line end (kept over the segments of a chunk) */
   pauseIn: number
+  pauses: { t0: number; t1: number }[]
   enterIn: number
 }
 
@@ -327,6 +344,7 @@ function typeWords(b: Builder, o: { until: number; words: number; endEnter?: boo
       const pause = (0.8 + rng() * 1.7) * p.pauseMul
       // a pause is a thinking stop inside the typing, not the last thing before the hand leaves
       if (b.at + pause + 0.6 < o.until) {
+        b.pauses.push({ t0: b.at, t1: b.at + pause + 0.28 })
         b.at += pause
         b.pauseIn = 4 + Math.floor(rng() * 5)
       }
@@ -389,6 +407,7 @@ function plan(b: Builder, mode: Mode, mouse: boolean) {
   const room = () => LAST_KEY_AT - b.at
   b.at = 0.3 + rng() * 0.6
   const rest = (s: number) => {
+    b.pauses.push({ t0: b.at, t1: b.at + s })
     b.at += s
   }
   let guard = 0
@@ -439,12 +458,29 @@ export function makeChunk(agent: string, index: number, activity: string | undef
   const d = Math.max(1, o.dilation ?? 1)
   const mouse = o.mouse ?? true
   const mode = modeOf(activity)
-  const b: Builder = { rng: rngOf(seedOf(`${agent}|${index}|${mode}|${mouse ? 'm' : 'k'}`)), p: personaOf(agent), keys: [], mouse: [], episodes: [], at: 0, last: {}, prev: null, over: false, pauseIn: 0, enterIn: 0 }
+  const b: Builder = { rng: rngOf(seedOf(`${agent}|${index}|${mode}|${mouse ? 'm' : 'k'}`)), p: personaOf(agent), keys: [], mouse: [], episodes: [], at: 0, last: {}, prev: null, over: false, pauseIn: 0, enterIn: 0, pauses: [] }
   b.pauseIn = 2 + Math.floor(b.rng() * 6)
   b.enterIn = 1 + Math.floor(b.rng() * 20)
   plan(b, mode, mouse)
   const t0 = index * CHUNK_S * d
   const at = (s: number) => t0 + s * d
+  // the gestures: its own random stream, so they never move a key
+  const g = rngOf(seedOf(`${agent}|${index}|${mode}|${mouse ? 'm' : 'k'}|gesture`))
+  const gestures: Gesture[] = []
+  const longPauses = b.pauses.filter((q) => q.t1 - q.t0 >= GESTURE_MIN_PAUSE_S)
+  for (const q of longPauses) {
+    const hit = g() < GESTURE_RATE
+    const chin = g() < (CHIN_PREFER[agent] ?? 0.5)
+    let hand: Hand = g() < 0.5 ? 'l' : 'r'
+    if (!hit) continue
+    const s = q.t0 + 0.15
+    const e = q.t1 - 0.4
+    const len = chin ? Math.min(e - s, 4) : 0.3 + 2 * TAP_S + 0.3
+    if (e - s < (chin ? 1 : len)) continue
+    // the right hand may be needed on the mouse: then the left one thinks
+    if (b.episodes.some((ep) => ep.t0 < s + len + 0.7 && ep.t1 > s - 0.7)) hand = 'l'
+    gestures.push({ kind: chin ? 'chin' : 'tap', hand, t0: at(s), t1: at(s + len) })
+  }
   const keys = b.keys.map((k) => ({ ...k, t: at(k.t), hold: k.hold * d, fid: `${k.hand}${k.finger}${k.code}` }))
   const mice = b.mouse.map((m) => ({ ...m, t: at(m.t) }))
   const episodes = b.episodes.map((e) => ({ ...e, t0: at(e.t0), t1: at(e.t1) }))
@@ -457,7 +493,7 @@ export function makeChunk(agent: string, index: number, activity: string | undef
   }
   for (const m of mice) events.push({ t: m.t, type: 'mouse', kind: m.kind, button: m.button, ...(m.kind === 'wheel' ? { ticks: m.ticks ?? 1, dir: m.dir ?? 1 } : {}) })
   events.sort((a, c) => a.t - c.t)
-  return { agent, index, mode, dilation: d, t0, t1: t0 + CHUNK_S * d, keys, byFinger, mouse: mice, episodes, events }
+  return { agent, index, mode, dilation: d, t0, t1: t0 + CHUNK_S * d, keys, byFinger, mouse: mice, episodes, events, pauses: longPauses.map((q) => ({ t0: at(q.t0), t1: at(q.t1) })), gestures }
 }
 
 export const chunkIndexAt = (t: number, dilation = 1) => Math.floor(t / (CHUNK_S * Math.max(1, dilation)))
