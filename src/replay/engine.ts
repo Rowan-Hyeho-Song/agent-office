@@ -228,7 +228,7 @@ export function shelfAt(points: readonly Point[], i: number): ShelfLayout {
     const docFiles: DocFile[] = [...files].map(([n, f]) => {
       const key = `${repo}#${n}`
       seats.set(key, f.seat)
-      return { key, repo, n, docs: [], title: f.title, secret: null, seats: f.seat === null ? [] : [f.seat], topics: [], date: f.at }
+      return { key, repo, n, docs: [], title: f.title, secret: null, seats: f.seat === null ? [] : [f.seat], topics: [], progress: null, date: f.at }
     })
     const latest = docFiles.reduce((m, f) => (f.date > m ? f.date : m), '')
     return { key: repo, repo, label: shortName(repo), files: docFiles, latest }

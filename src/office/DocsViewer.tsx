@@ -26,7 +26,10 @@ import { renderMarkdown } from './approval/markdown'
 import { useRole } from './ApprovalBox'
 import { Icon } from './ApprovalIcons'
 import { TopicBadges } from './TopicBadges'
+import { PendingChip, ProgressBar, StageChip } from './ProgressMarks'
 import { shownTitle } from '../docs/topics'
+import { SORTS, STAGE_FILTERS, loadView, saveView, stageCounts, viewFiles, type ListView, type SortKey, type StageFilter } from '../docs/progressList'
+import { STAGE_NAME } from '../docs/progress'
 import { closeDocs, openFromHash, toggleDocs, useDocsPanel } from './docs/panel'
 import { AGENT_INFO, type OfficeWorld } from './world'
 
@@ -72,6 +75,15 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
   const [live, setLive] = useState('')
   const [peeling, setPeeling] = useState<ReadonlySet<number>>(new Set())
   const [stage, setStage] = useState<Stage>('files')
+  // the file list's filter and sort (#241), remembered in the browser
+  const [listView, setListView] = useState<ListView>(loadView)
+  const changeView = useCallback((patch: Partial<ListView>) => {
+    setListView((v) => {
+      const next = { ...v, ...patch }
+      saveView(next)
+      return next
+    })
+  }, [])
   const shown = useSidePanelOpen()
   const viewer = useRef<HTMLDivElement>(null)
   const selRef = useRef(sel)
@@ -268,9 +280,11 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
                     </button>
                   ))}
                 {view === 'files' && <h4>파일철</h4>}
+                {view === 'files' && folder && <ListControls files={folder.files} value={listView} onChange={changeView} />}
                 {view === 'files' &&
-                  folder?.files.map((f) => (
-                    <button key={f.key} type="button" className="doc-file" aria-current={f === file} onClick={() => goFile(f)}>
+                  folder &&
+                  viewFiles(folder.files, listView).map((f) => (
+                    <button key={f.key} type="button" className="doc-file" data-stage={f.progress?.stage} aria-current={f === file} onClick={() => goFile(f)}>
                       <span className="l1">
                         <span className="n">{f.n ? `#${f.n}` : '—'}</span>
                         {unreadFile(f, seen) && <NewMark />}
@@ -283,24 +297,37 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
                           )}
                         </span>
                         {f.secret && <span className="sec">{f.secret === 'review' ? `SECRET ${f.docs.filter((d) => !d.approved).length}` : 'SECRET'}</span>}
+                        {f.repo !== null && <span className="date">{fmtDocDay(f.date)}</span>}
                       </span>
-                      {(f.repo !== null || f.seats.length > 0) && (
+                      {(f.progress || f.topics.length > 0 || f.seats.length > 0) && (
                         <span className="l2">
-                          <TopicBadges topics={f.topics} fold />
-                          {f.repo !== null && <span>{fmtDocDay(f.date)}</span>}
-                          {f.seats.length > 0 && (
-                            <span className="who">
-                              {f.seats.map((s) => (
-                                <i key={s} data-seat={s}>
-                                  {seatFirst(s)}
-                                </i>
-                              ))}
-                            </span>
-                          )}
+                          <span className="l2-main">
+                            {f.progress && <StageChip stage={f.progress.stage} />}
+                            <PendingChip progress={f.progress} />
+                            <TopicBadges topics={f.topics} fold />
+                            {f.seats.length > 0 && (
+                              <span className="who">
+                                {f.seats.map((s) => (
+                                  <i key={s} data-seat={s}>
+                                    {seatFirst(s)}
+                                  </i>
+                                ))}
+                              </span>
+                            )}
+                          </span>
+                          <ProgressBar progress={f.progress} />
                         </span>
                       )}
                     </button>
                   ))}
+                {view === 'files' && folder && folder.files.length > 0 && viewFiles(folder.files, listView).length === 0 && (
+                  <p className="doc-note">
+                    이 조건에 맞는 파일철이 없어요.{' '}
+                    <button type="button" className="btn-ghost" onClick={() => changeView({ stage: 'all', pendingOnly: false })}>
+                      모두 보기
+                    </button>
+                  </p>
+                )}
                 {snap.layout.note && <p className="doc-note">{snap.layout.note}</p>}
                 {snap.metas?.length === 0 && <p className="doc-note">아직 문서가 없어요.</p>}
               </nav>
@@ -328,6 +355,12 @@ function DocPath({ folder, file, onRoot, onFolder }: { folder: DocFolder; file: 
           </button>
           <span aria-hidden="true">›</span>
           <span aria-current="location">파일철 {priv ? <Bar w={30} /> : `#${file.n}`}</span>
+          {file.progress && (
+            <span className="doc-path-progress">
+              <StageChip stage={file.progress.stage} />
+              <ProgressBar progress={file.progress} />
+            </span>
+          )}
         </>
       ) : (
         <span aria-current="location">{folder.label}</span>
@@ -348,7 +381,14 @@ function FileHead({ file }: { file: DocFile }) {
           </>
         )}
       </h4>
-      <TopicBadges topics={file.topics} />
+      {(file.progress || file.topics.length > 0) && (
+        <div className="doc-status">
+          {file.progress && <StageChip stage={file.progress.stage} />}
+          <PendingChip progress={file.progress} />
+          <TopicBadges topics={file.topics} />
+        </div>
+      )}
+      <ProgressBar progress={file.progress} variant="wide" />
       {file.seats.length > 0 && (
         <div className="doc-who">
           참여{' '}
@@ -360,6 +400,46 @@ function FileHead({ file }: { file: DocFile }) {
         </div>
       )}
       {!priv && file.repo && file.n !== null && <IssueReplayButton repo={file.repo} n={file.n} />}
+    </div>
+  )
+}
+
+/** the filter chips, the 결재 대기만 toggle and the sort of the file list (#241): arrows move between the chips, Tab leaves the group */
+function ListControls({ files, value, onChange }: { files: readonly DocFile[]; value: ListView; onChange: (patch: Partial<ListView>) => void }) {
+  const counts = stageCounts(files, value)
+  const group = useRef<HTMLDivElement>(null)
+  const label = (f: StageFilter) => (f === 'all' ? '전체' : STAGE_NAME[f])
+  const onKey = (e: KeyboardEvent) => {
+    const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
+    if (!step) return
+    e.preventDefault()
+    const next = STAGE_FILTERS[(STAGE_FILTERS.indexOf(value.stage) + step + STAGE_FILTERS.length) % STAGE_FILTERS.length]
+    onChange({ stage: next })
+    requestAnimationFrame(() => group.current?.querySelector<HTMLElement>(`[data-filter="${next}"]`)?.focus())
+  }
+  return (
+    <div className="doc-filter">
+      <div className="doc-chips" role="radiogroup" aria-label="상태로 거르기" ref={group} onKeyDown={onKey}>
+        {STAGE_FILTERS.map((f) => (
+          <button key={f} type="button" role="radio" className="doc-chip" data-filter={f} aria-checked={value.stage === f} tabIndex={value.stage === f ? 0 : -1} onClick={() => onChange({ stage: f })}>
+            {label(f)}
+            <span className="cnt"> {counts[f]}</span>
+          </button>
+        ))}
+      </div>
+      <button type="button" className="doc-chip toggle" aria-pressed={value.pendingOnly} onClick={() => onChange({ pendingOnly: !value.pendingOnly })}>
+        결재 대기만
+      </button>
+      <label className="doc-sort">
+        <span>정렬</span>
+        <select value={value.sort} onChange={(e) => onChange({ sort: e.target.value as SortKey })}>
+          {SORTS.map((o) => (
+            <option key={o.key} value={o.key}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
     </div>
   )
 }

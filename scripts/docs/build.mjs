@@ -6,6 +6,7 @@
 //   comment "### ✅ 결재" answering a 결정 요청     → decision  (the 🖊 request body rides along in meta.request)
 //   merged pull request                           → report    (file = the issue it closes, else the PR)
 // Comments on pull requests and every other comment are not documents.
+// A plan carries meta.progress (#241): stage (waiting / doing / review / done), 완료 기준 checkbox count, pending 🖊 count.
 //
 // Who may file (#38): this is a public repo, so anyone with a GitHub account can open issues and comment.
 // Only the owner's and collaborators' items become documents; approvals (🖊 requests, ✅ results) only the
@@ -45,9 +46,10 @@ const isDecisionRequest = (body) => /\*\*종류\*\*\s*:?\s*결정 요청/.test(b
 /**
  * @param {any} issue  GitHub issue object (REST or event payload)
  * @param {string} repo  "owner/name"
+ * @param {Progress} [progress]  progressFor(...) of this issue; a plan without it shows no status in the library
  * @returns {DocInput | null}
  */
-export function docForIssue(issue, repo) {
+export function docForIssue(issue, repo, progress) {
   if (!issue || issue.pull_request || !trusted(issue)) return null
   return {
     kind: 'plan',
@@ -63,8 +65,112 @@ export function docForIssue(issue, repo) {
       state: issue.state,
       closed_at: issue.closed_at ?? null,
       labels: (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name)),
+      ...(progress ? { progress } : {}),
     },
   }
+}
+
+// ---- progress (#241, docs/design/docs-ui.md 2.5) -------------------------------------------------------------------
+
+/** @typedef {{ stage: 'waiting' | 'doing' | 'review' | 'done', checks: { done: number, total: number } | null, pending: number }} Progress */
+
+/** the 완료 기준 task-list items of an issue body: `- [ ]` / `- [x]` (also `*`, `+`, `1.`), nested too; not those in code fences or HTML comments */
+export function countChecks(body) {
+  const text = String(body ?? '').replace(/\r\n?/g, '\n').replace(/<!--[\s\S]*?-->/g, '')
+  let done = 0
+  let total = 0
+  let fence = null
+  for (const line of text.split('\n')) {
+    const f = /^\s{0,3}(`{3,}|~{3,})/.exec(line)
+    if (f) {
+      if (!fence) fence = f[1][0]
+      else if (f[1][0] === fence) fence = null
+      continue
+    }
+    if (fence) continue
+    const m = /^\s*(?:[-*+]|\d+[.)])\s+\[([ xX])\]\s+\S/.exec(line)
+    if (!m) continue
+    total++
+    if (m[1] !== ' ') done++
+  }
+  return total ? { done, total } : null
+}
+
+/** how many 🖊 requests of the owner have no ✅ yet (the pairing of requestAnswered: a result takes the oldest request still waiting) */
+export function pendingApprovals(comments) {
+  const timeline = ownerApprovals(comments).filter((c) => ['request', 'result'].includes(commentKind(c.body)))
+  timeline.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0))
+  let waiting = 0
+  for (const c of timeline) {
+    if (commentKind(c.body) === 'request') waiting++
+    else if (waiting) waiting--
+  }
+  return waiting
+}
+
+const globalRe = (re) => new RegExp(re.source, 'gi')
+/** every issue number a PR body names with a closing keyword / with Refs */
+export function mentions(body) {
+  const text = String(body ?? '')
+  const nums = (re) => [...text.matchAll(globalRe(re))].map((m) => Number(m[1]))
+  return { closes: nums(CLOSES), refs: nums(REFS) }
+}
+/** the issue number in a branch name like `feature/241-library-progress` */
+export const branchIssue = (name) => {
+  const m = /^[\w.-]+\/(\d+)-/.exec(String(name ?? ''))
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * Which of the repo's pull requests belong to issue n: the body has a closing keyword or Refs for it, or the head
+ * branch is `<type>/<n>-…`. Only the owner's and collaborators' PRs count: a stranger's "Closes #n" cannot move the stage.
+ * @returns {{ pr: any, closes: boolean }[]}
+ */
+export function linkedPulls(n, prs) {
+  const out = []
+  for (const pr of prs ?? []) {
+    if (!pr || !trusted(pr)) continue
+    const m = mentions(pr.body)
+    const byBranch = branchIssue(pr.head?.ref) === n
+    if (m.closes.includes(n) || m.refs.includes(n) || byBranch) out.push({ pr, closes: m.closes.includes(n) || byBranch })
+  }
+  return out
+}
+
+/**
+ * The stage of an issue and how far along it is. Pure.
+ *   done    the issue is closed; or a linked PR that closes it (closing keyword, or its own branch) is merged
+ *   review  an open linked PR that is not a draft. A draft is still being worked on, so it counts as doing
+ *   doing   a branch `<type>/<n>-…` exists, or an open draft PR, or a merged PR that only refs it
+ *   waiting otherwise
+ * A work-issue declaration (#182) is a file on the session's PC, invisible to GitHub, so it is not read here.
+ * An open review PR beats an earlier merged one (the issue got a second PR); a closed issue beats everything.
+ * @param {any} issue
+ * @param {{ prs?: any[], branches?: (string | { name: string })[], comments?: any[] }} [ctx]  every PR of the repo (any state), the branch names, the issue's comments
+ * @returns {Progress}
+ */
+export function progressFor(issue, { prs = [], branches = [], comments = [] } = {}) {
+  const n = issue.number
+  const linked = linkedPulls(n, prs)
+  const open = linked.filter((l) => l.pr.state === 'open' && !l.pr.merged_at)
+  const merged = linked.filter((l) => l.pr.merged_at)
+  const hasBranch = branches.some((b) => branchIssue(typeof b === 'string' ? b : b?.name) === n)
+  let stage = 'waiting'
+  if (issue.state === 'closed') stage = 'done'
+  else if (open.some((l) => !l.pr.draft)) stage = 'review'
+  else if (merged.some((l) => l.closes)) stage = 'done'
+  else if (hasBranch || open.length || merged.length) stage = 'doing'
+  return { stage, checks: countChecks(issue.body), pending: pendingApprovals(comments) }
+}
+
+/** what progressFor needs for one issue, from GitHub (three list calls) */
+export async function progressOf(gh, repo, issue, comments) {
+  const [prs, branches, all] = await Promise.all([
+    gh.all(`/repos/${repo}/pulls?state=all`),
+    gh.all(`/repos/${repo}/branches`),
+    comments ?? gh.all(`/repos/${repo}/issues/${issue.number}/comments`),
+  ])
+  return progressFor(issue, { prs, branches, comments: all })
 }
 
 /**

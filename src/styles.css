@@ -407,6 +407,46 @@ html[data-motion='reduce'] .corner-dock { transition: none; }
 .doc-file[aria-current='true'] { background: var(--surface-raised); border-left-color: var(--color-amber); }
 .doc-file .n { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); flex: none; }
 .doc-file .sec { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-ink); background: var(--manila); padding: 0 var(--space-1); flex: none; margin-left: auto; }
+/* progress (#241, docs/design/docs-ui.md 2.5): the status chip has no box (the topic badge is the boxed one), the bar is square */
+.stage { --c: var(--stage-doing); flex: none; display: inline-flex; align-items: center; gap: var(--space-1); font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: 18px; white-space: nowrap; color: var(--c); }
+.stage svg { width: 12px; height: 12px; flex: none; }
+.stage[data-stage='waiting'] { --c: var(--stage-waiting); }
+.stage[data-stage='review'] { --c: var(--stage-review); }
+.stage[data-stage='done'] { --c: var(--stage-done); }
+.stage[data-stage='pending'] { --c: var(--stage-pending); }
+.pbar { flex: none; display: inline-flex; align-items: center; gap: var(--space-2); }
+.pbar-track { position: relative; flex: none; width: 48px; height: 4px; background: var(--color-line); }
+.pbar-track i { position: absolute; inset: 0 auto 0 0; background: var(--stage-doing); }
+.pbar[data-stage='done'] .pbar-track i { background: var(--stage-done); }
+.pbar-num { font-family: var(--font-pixel); font-size: 11px; line-height: 16px; color: var(--color-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pbar[data-full] .pbar-num { color: var(--stage-done); }
+.pbar.wide { display: flex; margin: var(--space-2) 0 var(--space-3); }
+.pbar.wide .pbar-track { flex: 1; width: auto; height: 6px; }
+.doc-file .l1 .ttl { flex: 1 1 auto; }
+.doc-file .l1 .sec { margin-left: 0; }
+.doc-file .date { flex: none; margin-left: var(--space-1); font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.doc-file .l2 { flex-wrap: nowrap; align-items: flex-start; }
+.doc-file .l2-main { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.doc-file .l2 .pbar { margin-left: auto; align-self: center; }
+.doc-file[data-stage='done'] .ttl { color: var(--color-text-muted); }
+@container docfile (max-width: 380px) { .doc-file .pbar-track { display: none; } }
+.doc-path .pbar-track { display: none; }
+.doc-path-progress { margin-left: auto; display: inline-flex; align-items: center; gap: var(--space-2); }
+.doc-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: var(--space-1) 0; }
+.doc-status .topics { margin: 0; }
+.doc-filter { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: 0 0 var(--space-2); }
+.doc-chips { display: flex; gap: var(--space-1); flex: none; }
+.doc-chip { flex: none; white-space: nowrap; box-sizing: border-box; height: 24px; padding: 0 var(--space-2); font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: 22px; color: var(--color-text-muted); background: none; border: 1px solid var(--color-line); cursor: pointer; }
+.doc-chip:hover { background: var(--surface-raised); }
+.doc-chip[aria-checked='true'] { color: var(--color-text); background: var(--surface-raised); border-color: var(--color-text-muted); }
+.doc-chip.toggle[aria-pressed='true'] { color: var(--stage-pending); background: var(--surface-raised); border-color: var(--stage-pending); }
+.doc-chip:focus-visible, .doc-sort select:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+.doc-chip .cnt { font-variant-numeric: tabular-nums; }
+.doc-sort { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: var(--space-1); font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.doc-sort select { height: 24px; font: inherit; color: var(--color-text); background: var(--surface-raised); border: 1px solid var(--color-line); padding: 0 var(--space-1); }
+@media (max-width: 380px) {
+  .doc-filter { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+}
 .doc-note { margin: var(--space-3) 0 0; font-size: 12px; line-height: 1.5; color: var(--color-text-muted); }
 .doc-empty { padding: var(--space-4); }
 .doc-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }

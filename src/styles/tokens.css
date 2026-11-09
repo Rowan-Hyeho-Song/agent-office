@@ -124,6 +124,12 @@
   --topic-ui: #c8b6f0; /* 10.5:1 */
   --topic-a11y: #f0c49a; /* 12.0:1 */
   --topic-sound: #dfe8b0; /* 15.0:1 */
+  /* 서재 진행 상황(#241, docs/design/docs-ui.md 2.5): 상태는 색이 아니라 원의 채움 + 글자로 읽힌다. 완료만 옅은 초록 회색, 결재 대기는 결재의 호박 */
+  --stage-waiting: #a39d90; /* 7.2:1 */
+  --stage-doing: #f3ead8; /* 16.2:1 */
+  --stage-review: #f3ead8; /* 16.2:1 */
+  --stage-done: #c9d6c4; /* 12.8:1 */
+  --stage-pending: #ffb347; /* 10.9:1 */
   --stamp-red: #ff5a5f; /* 어두운 판 위 결재 도장 6.3:1 */
   --approval-stamp-ms: 400; /* 도장 쾅 */
   --approval-next-ms: 1200; /* 도장 뒤 다음 건으로 */

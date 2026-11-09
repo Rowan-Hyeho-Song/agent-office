@@ -22,6 +22,7 @@ SQL Editor에서 **이 순서로** 한 번씩 실행합니다. 모두 다시 실
 
 - [ ] `supabase/office.sql`: `agents`(이름·색 시드), `agent_status`, `agent_events`(마지막 test·build 결과 칸 포함, #44), Realtime (#1)
 - [ ] `supabase/docs.sql`: `docs`, `projects`, `docs_cover` 뷰, Realtime (#24)
+  - 서재 진행 상황(#241): `docs_cover` 뷰에 `progress` 열이 더해졌다. 이 파일을 다시 실행한 뒤 `node scripts/docs/backfill.mjs <owner/name>`으로 기존 이슈의 단계를 채운다(안 채우면 칩이 없을 뿐 서재는 그대로 열린다). 워크플로는 PR · 브랜치 이벤트도 받는다(`.github/workflows/docs.yml`).
 - [ ] `supabase/approvals.sql`: `office_owner`, `is_owner()`, `approvals`, `approvals_pending` 뷰, 주인의 문서 읽기 정책, Realtime (#25)
 - [ ] 주인 등록(한 줄): `insert into public.office_owner (github_id) values ('<내 GitHub 숫자 ID>') on conflict do nothing;`
 - [ ] Authentication → Providers → GitHub 켜기(0단계 OAuth 앱의 Client ID·Secret)

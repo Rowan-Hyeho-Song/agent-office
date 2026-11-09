@@ -65,6 +65,7 @@ describe('what a visitor and the owner may see (mirrors docs_cover)', () => {
       'id',
       'kind',
       'labels',
+      'progress',
       'readable',
       'repo',
       'title',
@@ -83,9 +84,45 @@ describe('docs_cover view in supabase/docs.sql', () => {
     // labels are topic info like the title: given out only where the title is, and only the labels of the document's data
     expect(view).toMatch(/case when grade = 'public' and approved then coalesce\(data->'labels', '\[\]'::jsonb\) else '\[\]'::jsonb end as labels/)
     expect(view).not.toMatch(/\bbody\b|source_url|summary/)
-    expect(view.replace(/data->'labels'/g, '')).not.toMatch(/\bdata\b/)
-    // Postgres can only append columns to a view: labels is the last one
-    expect(view.trimEnd().split('\n').slice(-2)[0]).toMatch(/as labels$/)
+    // the rest of the document's data stays in the table: only labels and progress are read from it
+    expect(view.replace(/data->'labels'|data->'progress'(->'stage')?/g, '')).not.toMatch(/\bdata\b/)
+  })
+  it('progress (#241): all of it, SECRET included; a private row only the stage; appended last', () => {
+    const sql = docsSql.replace(/\r\n/g, '\n')
+    const view = sql.slice(sql.indexOf('create or replace view public.docs_cover'), sql.indexOf('grant select on public.docs_cover'))
+    expect(view).toMatch(/case when grade = 'private' then jsonb_build_object\('stage', data->'progress'->'stage'\) else data->'progress' end as progress/)
+    // Postgres can only append columns to a view: progress is the last one, after labels
+    expect(view.trimEnd().split('\n').slice(-2)[0]).toMatch(/as progress$/)
+    expect(view.indexOf('as labels')).toBeGreaterThan(-1)
+    expect(view.indexOf('as labels')).toBeLessThan(view.indexOf('as progress'))
+  })
+})
+
+describe('progress on the cover (#241)', () => {
+  const progress = { stage: 'review', checks: { done: 3, total: 5 }, pending: 1 }
+  it('public and SECRET (review) rows carry all of it, for a visitor and for the owner', () => {
+    for (const r of [row({ id: 1, progress }), row({ id: 2, grade: 'review', approved: false, progress })]) {
+      expect(coverOf(r).progress).toEqual(progress)
+      expect(ownerMeta(r).progress).toEqual(progress)
+    }
+  })
+  it('a private row only the stage, for both', () => {
+    const p = row({ id: 3, grade: 'private', approved: false, progress })
+    for (const m of [coverOf(p), ownerMeta(p)]) expect(m.progress).toEqual({ stage: 'review', checks: null, pending: 0 })
+  })
+  it('a row without it (the view not run again, or a document that has none) has none', () => {
+    expect(coverOf(row({ id: 4 })).progress).toBeNull()
+    expect(ownerMeta(row({ id: 5, progress: null })).progress).toBeNull()
+  })
+  it('nonsense is dropped, not drawn', () => {
+    for (const bad of [{ stage: 'blocked' }, { stage: 'doing', checks: { done: 6, total: 5 } }, { stage: 'doing', pending: -1 }, { stage: 'doing', checks: { done: 1.5, total: 2 } }, 'doing', []]) {
+      expect(coverOf(row({ id: 6, progress: bad })).progress).toBeNull()
+    }
+  })
+  it('a file takes the progress of its plan; a file without a plan has none', () => {
+    const files = groupLibrary([meta({ id: 10, kind: 'plan', folder: 1, progress }), meta({ id: 11, kind: 'minutes', folder: 1 }), meta({ id: 12, kind: 'minutes', folder: 2 })]).flatMap((f) => f.files)
+    expect(files.find((f) => f.n === 1)?.progress).toEqual(progress)
+    expect(files.find((f) => f.n === 2)?.progress).toBeNull()
   })
 })
 
