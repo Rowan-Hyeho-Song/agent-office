@@ -25,7 +25,8 @@ import {
 } from 'three'
 import type { Goal } from './director'
 import type { GripDemo } from './debugPlay'
-import { GRIPS, GripClock, STONE_H, STONE_PITCH, STONE_PITCH_FLAT, handFor, stoneGrip, stoneRoll, tipAt, type Curl, type StoneGrip } from './grip'
+import { GRIPS, GripClock, STONE_H, STONE_PITCH, STONE_PITCH_FLAT, handFor, stoneGrip, stoneRoll, tipAt, type StoneGrip } from './grip'
+import { DIP_K, fingerFromC } from './handPose'
 import { contactNormal, fitFingers, handGripMatrix, offsetOf, resolveTarget, type GripTarget } from './gripTargets'
 import { fingerModelOf, type AgentRig, type PropBank } from './rig'
 import { noteTourEvent } from './tourEvents'
@@ -94,6 +95,18 @@ const blend = (a: Matrix4, b: Matrix4, k: number, out = new Matrix4()) => {
 /** a frame from three axes (columns) and an origin */
 const frame = (x: Vector3, y: Vector3, z: Vector3, o: Vector3) => new Matrix4().makeBasis(x, y, z).setPosition(o)
 
+/** a finger's [MCP, PIP, total abduction] into a 20-angle vector (DIP follows the PIP, k · PIP) */
+function setFingerJoints(vec: number[], k: number, j: readonly number[]) {
+  vec[k * 4] = j[0]
+  vec[k * 4 + 1] = j[1]
+  vec[k * 4 + 2] = DIP_K[k] * j[1]
+  vec[k * 4 + 3] = j[2]
+}
+/** pre-grip / closed / after as 20-angle vectors, weighted by the grip stage's mix */
+function mixVec(pre: readonly number[], hold: readonly number[], after: readonly number[], mix: readonly number[]) {
+  return pre.map((x, i) => x * mix[0] + hold[i] * mix[1] + after[i] * mix[2])
+}
+
 export class PlayStage {
   /** the play sounds (#194 ②): one line at each event below */
   private sounds = new PlaySounds()
@@ -101,7 +114,7 @@ export class PlayStage {
   /** when each hand was last driven by grip() (the scene clock, s) */
   private lastGripT = new Map<string, number>()
   private targets = new Map<string, GripTarget | null>()
-  private fits = new Map<string, { curl: number[]; spread: number[] } | null>()
+  private fits = new Map<string, { hold: number[] } | null>()
   private lastHand = new Map<string, Matrix4>()
   private forced = new Set<Object3D>()
   /** the object pose the last grip() call placed the hand from (the partner hand of a two-handed hold follows it) */
@@ -238,26 +251,22 @@ export class PlayStage {
     return this.targets.get(key)!
   }
 
-  /** the finger values at the closed stage for this hand and object: the table's, each touching finger bent onto its contact */
+  /**
+   * The fingers at the closed stage for this hand and object, as 20 joint angles (handPose.toVec): the table's hold (hand-poses.md 3), each
+   * touching finger replaced by the joints that put its tip on its contact (grip.ts fitContact: a finger MCP / PIP / abduction, the thumb
+   * CMC flex / abduct / MCP / IP). What is fitted is exactly what the rig shows.
+   */
   private holdFit(rig: AgentRig, side: 'l' | 'r', t: GripTarget) {
     const seat = Number(rig.id.split('_')[1])
     const key = `${t.key}:${seat}`
     if (!this.fits.has(key)) {
       const spec = GRIPS[t.kind][side]!
-      const curl = [...spec.hold]
-      const spread = [0, 0, 0, 0]
-      const fits = fitFingers(t, rig.parts.hands[side], offsetOf(t.key, seat))
-      for (const f of fits) {
-        const k = ['index', 'middle', 'ring', 'little'].indexOf(f.finger)
-        if (f.finger === 'thumb') {
-          curl[4] = f.a
-          curl[5] = f.b
-        } else {
-          curl[k] = f.a
-          spread[k] = f.b
-        }
+      const hold = rig.curlVec(side, spec.hold)
+      for (const f of fitFingers(t, rig.parts.hands[side], offsetOf(t.key, seat))) {
+        if (f.finger === 'thumb') hold.splice(16, 4, ...f.joints)
+        else setFingerJoints(hold, ['index', 'middle', 'ring', 'little'].indexOf(f.finger), f.joints)
       }
-      this.fits.set(key, { curl, spread })
+      this.fits.set(key, { hold })
     }
     return this.fits.get(key)!
   }
@@ -300,9 +309,7 @@ export class PlayStage {
     } else if (out.stage !== 'rest') this.lastHand.set(lastKey, target.clone())
     if (out.stage === 'rest') return false
     const fit = this.holdFit(rig, side, tgt)
-    const hold = fit.curl as unknown as Curl
-    const curl = [0, 1, 2, 3, 4, 5].map((k) => spec.pre[k] * out.mix[0] + hold[k] * out.mix[1] + spec.after[k] * out.mix[2])
-    rig.drive[side] = { target, w: out.wHand, curl, wc: out.wCurl, spread: fit.spread.map((s) => s * out.mix[1]) }
+    rig.drive[side] = { target, w: out.wHand, curl: null, angles: mixVec(rig.curlVec(side, spec.pre), fit.hold, rig.curlVec(side, spec.after), out.mix), wc: out.wCurl, spread: null }
     if (tgt.obj && info) {
       rig.want = { kind, side: 'r' === side || kind !== 'book' ? side : side, prefer: prefer ?? objName, attached: out.attached }
       if (out.attached) {
@@ -399,8 +406,8 @@ export class PlayStage {
     this.demo(inp)
     this.putBack(inp)
     for (const id of ids) {
-      inp.rigs[id].applyDrive('l')
-      inp.rigs[id].applyDrive('r')
+      inp.rigs[id].applyDrive('l', inp.t, inp.reduced)
+      inp.rigs[id].applyDrive('r', inp.t, inp.reduced)
     }
     this.book(inp)
     this.water(inp)
@@ -745,15 +752,38 @@ export class PlayStage {
     const spec = GRIPS.piece.r!
     // the fingers: pre-grip → the 바둑식 grip as the stone is picked, each letting go when it should
     const free = (k: number) => (k === 0 ? p.freeIndex : k === 1 ? p.freeMiddle : p.freeRest)
+    const fan = rig.fanOf(side)
+    const curlJ = (k: number, c: number) => {
+      const f = fingerFromC(k, c, fan[k])
+      return [f.mcp, f.pip, f.abd]
+    }
     const curl = [0, 1, 2, 3, 4, 5].map((k) => {
-      const held = k === 0 ? mix(sf[f0].index.a, sf[f0 + 1].index.a) : k === 1 ? mix(sf[f0].middle.a, sf[f0 + 1].middle.a) + 0.02 * p.press : spec.hold[k]
+      const held = k === 5 || k === 4 ? spec.hold[k] : k < 2 ? spec.hold[k] : spec.hold[k]
       // the pick is a thumb + index pinch; the arc re-grips it into the go grip
       const pinch = [0.6, 0.25, 0.3, 0.35, 0.15, 0.7][k]
       const grip = pinch + (held - pinch) * p.regrip
       const closed = spec.pre[k] + (grip - spec.pre[k]) * p.close
       return closed + (spec.after[k] - closed) * free(k === 5 || k === 4 ? 2 : k)
     })
-    rig.drive[side] = { target: hand, w: p.w, curl, wc: p.w, spread: [mix(sf[f0].index.b, sf[f0 + 1].index.b) * p.close * (1 - p.freeRest), mix(sf[f0].middle.b, sf[f0 + 1].middle.b) * p.close * (1 - p.freeMiddle), 0, 0] }
+    const angles = rig.curlVec(side, curl)
+    // the index and the middle finger: full joints (MCP, PIP, abduction) from the stone fits, blended pre-grip → pinch → go grip → after like the curls above
+    for (const k of [0, 1]) {
+      const held = [0, 1, 2].map((i) => mix(sf[f0][k === 0 ? 'index' : 'middle'].j[i], sf[f0 + 1][k === 0 ? 'index' : 'middle'].j[i]))
+      if (k === 1) {
+        held[0] += 1.7 * p.press
+        held[1] += 2 * p.press
+      }
+      const pinch = curlJ(k, [0.6, 0.25][k])
+      const pre = curlJ(k, spec.pre[k])
+      const after = curlJ(k, spec.after[k])
+      const j = [0, 1, 2].map((i) => {
+        const grip = pinch[i] + (held[i] - pinch[i]) * p.regrip
+        const closed = pre[i] + (grip - pre[i]) * p.close
+        return closed + (after[i] - closed) * free(k)
+      })
+      setFingerJoints(angles, k, j)
+    }
+    rig.drive[side] = { target: hand, w: p.w, curl: null, angles, wc: p.w, spread: null }
     // the stone: the prop piece, in the hand until it lands; the board's own instance shows from the landing
     if (stone) {
       rig.want = { kind: 'piece', side, prefer: `prop_piece_${wantColor === 1 ? 'a' : 'b'}`, attached: p.attached }
@@ -939,9 +969,8 @@ export class PlayStage {
     const hand = rig.parts.hands[side]
     const seat = Number(rig.id.split('_')[1])
     const target = handFor(objPose, tgt.pg, handGripMatrix(hand)).multiply(offsetOf(tgt.key, seat))
-    const fit = tgt.contacts.length ? this.holdFit(rig, side, tgt) : { curl: [...spec.hold], spread: [0, 0, 0, 0] }
-    const curl = [0, 1, 2, 3, 4, 5].map((k) => spec.pre[k] * out.mix[0] + fit.curl[k] * out.mix[1] + spec.after[k] * out.mix[2])
-    rig.drive[side] = { target, w: out.wHand * scale, curl, wc: out.wCurl * scale, spread: fit.spread.map((x) => x * out.mix[1]) }
+    const hold = tgt.contacts.length ? this.holdFit(rig, side, tgt).hold : rig.curlVec(side, spec.hold)
+    rig.drive[side] = { target, w: out.wHand * scale, curl: null, angles: mixVec(rig.curlVec(side, spec.pre), hold, rig.curlVec(side, spec.after), out.mix), wc: out.wCurl * scale, spread: null }
   }
   private rightHand(rig: AgentRig, kind: string, tgt: GripTarget, objPose: Matrix4) {
     this.partner(rig, kind, 'r', tgt, objPose, 'l')

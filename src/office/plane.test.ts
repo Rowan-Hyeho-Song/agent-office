@@ -45,12 +45,12 @@ describe('HAND_POSES (#62, #134, #282)', () => {
     expect(HAND_POSES.rest).toBe(POSES.rest)
     expect(HAND_POSES.hold).toBe(POSES.wrap)
     expect(HAND_POSES.pinch).toBe(POSES.ok)
-    expect(HAND_POSES.frame.thumb).toEqual({ cmcFlex: -15, cmcAbd: 60, mcp: 0, ip: 0 })
+    expect(HAND_POSES.frame.thumb).toEqual({ cmcFlex: -15, cmcAbd: 10, mcp: 0, ip: 0 })
   })
   it('pinch: 끝 집기, the index bent onto the opposed thumb, the other three stretched', () => {
     const { pinch } = HAND_POSES
     expect(pinch.f[0].mcp).toBeGreaterThanOrEqual(40)
     expect(pinch.f[1].mcp).toBeLessThan(20)
-    expect(pinch.thumb.cmcAbd).toBeGreaterThan(30)
+    expect(pinch.thumb.ip).toBe(20)
   })
 })

@@ -123,19 +123,19 @@ const all4 = (f: F): [F, F, F, F] => [f, f, f, f]
 /** hand-poses.md 2: the 14 named poses, exactly as tabled (unclamped; clampAngles at the rig reports what the limits cut) */
 export const POSES = {
   /** 1 쉼 */
-  rest: pose([[20, 30], [25, 35], [30, 40], [35, 45]], [6, 0, 4, 9], [10, 25, 10, 10]),
+  rest: pose([[20, 30], [25, 35], [30, 40], [35, 45]], [6, 0, 4, 9], [10, 5, 10, 10]),
   /** 2 펼침 */
-  spread: pose(all4([0, 5]), [15, 0, 10, 20], [-10, 50, 0, 0]),
+  spread: pose(all4([0, 5]), [15, 0, 10, 20], [-15, 10, 0, 0]),
   /** 3 감아 쥐기 */
   wrap: pose([[70, 90], [75, 95], [80, 95], [85, 95]], [-2, 0, -2, -3], [30, 40, 35, 30]),
   /** 4 주먹 (DIP 70 on every finger) */
   fist: pose(all4([90, 100, 70]), [0, 0, 0, 0], [40, 15, 45, 40]),
   /** 5 끝 집기 (OK) */
-  ok: pose([[45, 60, 45], [10, 15], [12, 18], [15, 20]], [-3, 0, 6, 12], [25, 45, 20, 25]),
+  ok: pose([[55, 70, 54], [10, 15], [12, 18], [15, 20]], [-3, 0, 6, 12], [15, 10, 40, 20]),
   /** 6 세 손가락 집기 (펜) */
-  tripod: pose([[40, 45, 25], [45, 55], [55, 75], [60, 80]], [0, 0, 2, 4], [30, 40, 15, 20]),
+  tripod: pose([[55, 70, 54], [55, 70, 54], [55, 75], [60, 80]], [0, 0, 2, 4], [35, 10, 30, 20]),
   /** 7 옆 집기 (열쇠) */
-  key: pose([[60, 70], [65, 75], [70, 80], [75, 85]], [0, 0, 0, 0], [15, 10, 15, 10]),
+  key: pose([[60, 70], [65, 75], [70, 80], [75, 85]], [0, 0, 0, 0], [40, 5, 0, 20]),
   /** 8 가리키기 */
   point: pose([[0, 5, 0], [85, 100], [90, 100], [90, 100]], [5, 0, 0, 0], [35, 15, 40, 30]),
   /** 9 누르기 (한 손가락) */
@@ -143,13 +143,13 @@ export const POSES = {
   /** 10 타자 */
   type: pose([[30, 50], [30, 52], [32, 52], [35, 50]], [0, 0, 2, 4], [5, 30, 10, 15]),
   /** 11 받치기 */
-  support: pose(all4([5, 10]), [3, 0, 3, 5], [0, 20, 5, 5]),
+  support: pose(all4([5, 10]), [3, 0, 3, 5], [0, 5, 5, 5]),
   /** 12 펴서 받기 (바구니) */
   basket: pose([[20, 25], [20, 25], [22, 28], [25, 30]], [10, 0, 8, 15], [10, 50, 15, 15]),
   /** 13 엄지 척 */
-  thumbsUp: pose(all4([90, 100]), [0, 0, 0, 0], [-10, 30, 0, -10]),
+  thumbsUp: pose(all4([90, 100]), [0, 0, 0, 0], [35, 0, 0, -10]),
   /** 14 쓸어 주기 */
-  sweep: pose([[5, 8], [6, 10], [8, 12], [10, 14]], [4, 0, 4, 7], [5, 25, 8, 8]),
+  sweep: pose([[5, 8], [6, 10], [8, 12], [10, 14]], [4, 0, 4, 7], [5, 5, 8, 8]),
 } as const satisfies Record<string, HandAngles>
 
 export type PoseId = keyof typeof POSES
@@ -172,9 +172,9 @@ export const POSE_NAMES: Record<PoseId, string> = {
   sweep: '쓸어 주기',
 }
 
-/** the two variants of hand-poses.md 2: the ㄱ자 frame (pointing, thumb −15 / 60 / 0 / 0) and the palm stamp (support, placed palm down: the same angles) */
+/** the two variants of hand-poses.md 2: the ㄱ자 frame (pointing, thumb −15 / 10 / 0 / 0, the same as spread's) and the palm stamp (support, placed palm down: the same angles) */
 export const VARIANTS = {
-  frame: { f: POSES.point.f, thumb: { cmcFlex: -15, cmcAbd: 60, mcp: 0, ip: 0 } },
+  frame: { f: POSES.point.f, thumb: { cmcFlex: -15, cmcAbd: 10, mcp: 0, ip: 0 } },
   stamp: POSES.support,
 } as const satisfies Record<string, HandAngles>
 
@@ -192,7 +192,7 @@ export function fingerFromC(finger: number, c: number, abd = 0): FingerAngles {
 export function thumbFromCurl(b: number, o: number): ThumbAngles {
   return o >= 0
     ? { cmcFlex: 35 * o, cmcAbd: 20 + 30 * o, mcp: 50 * b, ip: 70 * b }
-    : { cmcFlex: -15 * -o, cmcAbd: 20 + 40 * -o, mcp: 50 * b, ip: 70 * b }
+    : { cmcFlex: -15 * -o, cmcAbd: 10, mcp: 50 * b, ip: 70 * b }
 }
 
 /**

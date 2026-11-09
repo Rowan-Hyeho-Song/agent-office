@@ -104,8 +104,8 @@ export function composeOffset(v: readonly number[]): Matrix4 {
 
 export interface FitResult {
   finger: Exclude<Finger, 'palm'>
-  a: number
-  b: number
+  /** the fitted joint angles, degrees: a finger [MCP, PIP, total abduction], the thumb [CMC flex, CMC abduct, MCP, IP] (grip.ts fitContact) */
+  joints: number[]
   /** tip-to-contact distance, m, and how far the tip stands off the surface along the normal (negative = through it) */
   err: number
   off: number
@@ -116,6 +116,6 @@ export function fitFingers(t: GripTarget, hand: Hand, offset: Matrix4): FitResul
   const inv = new Matrix4().copy(offset).invert()
   return contactsInHand(t, hand).map((c) => {
     const f = fitContact(c.model, c.p.clone().applyMatrix4(inv), c.n.clone().transformDirection(inv), c.a0, c.b0)
-    return { finger: c.finger, a: f.a, b: f.b, err: f.err, off: f.off }
+    return { finger: c.finger, joints: f.joints, err: f.err, off: f.off }
   })
 }

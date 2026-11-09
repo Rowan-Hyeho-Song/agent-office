@@ -138,6 +138,8 @@ export interface HandDrive {
   target: Matrix4 | null
   w: number
   curl: readonly number[] | null
+  /** the fingers as 20 joint angles (handPose.toVec), already mixed by the caller: used instead of `curl` + `spread` when given (the contact fit carries full per-joint angles) */
+  angles?: readonly number[] | null
   wc: number
   spread: readonly number[] | null
 }
@@ -1551,7 +1553,11 @@ export class AgentRig {
   private anglesOf(side: 'l' | 'r', pose: PoseSpec): HandAngles {
     return isAngles(pose) ? pose : fromCurl([...pose.f, ...pose.thumb], undefined, this.fanOf(side))
   }
-  private fanOf(side: 'l' | 'r'): number[] {
+  /** an old curl (six numbers) as this hand's 20 joint angles (handPose.toVec), keeping the fan its mesh bakes in */
+  curlVec(side: 'l' | 'r', curl: readonly number[]): number[] {
+    return toVec(fromCurl(curl, undefined, this.fanOf(side)))
+  }
+  fanOf(side: 'l' | 'r'): number[] {
     return this.parts.hands[side].fingers.map((c, f) => c[0]?.restAbd ?? DEFAULT_FAN[f])
   }
 
@@ -1634,14 +1640,17 @@ export class AgentRig {
    * from the same pose): the place blended over the pose's by w, the fingers over the pose's curls by wc. The spring keeps its
    * own state (restored at the start of the next update), so letting go fades back with no jump.
    */
-  applyDrive(side: 'l' | 'r') {
+  applyDrive(side: 'l' | 'r', t?: number, reduced?: boolean) {
     const dv = this.drive[side]
     const hand = this.parts.hands[side]
-    if (dv?.curl && dv.wc > 0) {
+    // the scene clock of this frame: the stage passes it, so the fingers' staggered closing does not depend on update() having run
+    if (t !== undefined) this.clockT = t
+    if (reduced !== undefined) this.reducedNow = reduced
+    if ((dv?.angles || dv?.curl) && dv.wc > 0) {
       const base = this.curls[side]
       const fan = this.fanOf(side)
-      // the drive's curl as angles: the fan the mesh bakes in plus each finger's fitted swing (rad → deg)
-      const drv = toVec(fromCurlWithSwing(dv.curl, fan, dv.spread))
+      // the drive's fingers as angles: given as they are, or from the curl (the fan the mesh bakes in plus each finger's swing, rad → deg)
+      const drv = dv.angles ? [...dv.angles] : toVec(fromCurlWithSwing(dv.curl!, fan, dv.spread))
       const w = this.fingerWeights(side, dv.wc)
       const vec = base.map((x, k) => x + (drv[k] - x) * w[k < 16 ? k >> 2 : 4])
       this.setFingers(side, vec, this.drift[side].map((d) => d * (1 - dv.wc)))

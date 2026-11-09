@@ -20,8 +20,8 @@ import {
 } from './handPose'
 import { loadOffice, stubCanvas } from './glbLoad'
 import { RIG_CURLS, buildRig, fingerModelOf, type RigParts } from './rig'
-import { tipAt } from './grip'
-import { fingerFromC, thumbFromCurl } from './handPose'
+import { clampJoints, fitContact, tableJoints, tipAt, tipAtJoints } from './grip'
+import { clampFinger, fingerFromC, thumbFromCurl } from './handPose'
 import { fingerRootQuat, readJoint, segmentQuat, thumbRootQuat } from './handPose'
 
 stubCanvas()
@@ -35,14 +35,17 @@ describe('POSES: hand-poses.md 2, as tabled', () => {
     const r = POSES.rest
     expect(r.f.map((x) => [x.mcp, x.pip])).toEqual([[20, 30], [25, 35], [30, 40], [35, 45]])
     expect(r.f.map((x) => x.abd)).toEqual([6, 0, 4, 9])
-    expect(r.thumb).toEqual({ cmcFlex: 10, cmcAbd: 25, mcp: 10, ip: 10 })
+    expect(r.thumb).toEqual({ cmcFlex: 10, cmcAbd: 5, mcp: 10, ip: 10 })
     expect(POSES.fist.f.every((x) => x.mcp === 90 && x.pip === 100 && x.dip === 70)).toBe(true)
     expect(POSES.point.f[0]).toEqual({ mcp: 0, pip: 5, dip: 0, abd: 5 })
-    expect(POSES.ok.f[0].dip).toBe(45)
-    expect(POSES.tripod.f[0].dip).toBe(25)
+    expect(POSES.ok.f[0]).toMatchObject({ mcp: 55, pip: 70, dip: 54 })
+    expect(POSES.tripod.f[1]).toMatchObject({ mcp: 55, pip: 70, dip: 54 })
+    expect(POSES.ok.thumb).toEqual({ cmcFlex: 15, cmcAbd: 10, mcp: 40, ip: 20 })
+    expect(POSES.tripod.thumb).toEqual({ cmcFlex: 35, cmcAbd: 10, mcp: 30, ip: 20 })
+    expect(POSES.key.thumb).toEqual({ cmcFlex: 40, cmcAbd: 5, mcp: 0, ip: 20 })
     expect(POSES.press.f[0].dip).toBe(10)
-    expect(POSES.thumbsUp.thumb).toEqual({ cmcFlex: -10, cmcAbd: 30, mcp: 0, ip: -10 })
-    expect(VARIANTS.frame.thumb).toEqual({ cmcFlex: -15, cmcAbd: 60, mcp: 0, ip: 0 })
+    expect(POSES.thumbsUp.thumb).toEqual({ cmcFlex: 35, cmcAbd: 0, mcp: 0, ip: -10 })
+    expect(VARIANTS.frame.thumb).toEqual({ cmcFlex: -15, cmcAbd: 10, mcp: 0, ip: 0 })
     expect(VARIANTS.frame.f).toBe(POSES.point.f)
     expect(VARIANTS.stamp).toBe(POSES.support)
   })
@@ -107,7 +110,7 @@ describe('fromCurl (hand-poses.md 3)', () => {
   })
   it('thumb opposition: o ≥ 0 and o < 0', () => {
     expect(fromCurl([0, 0, 0, 0, 0, 1]).thumb).toMatchObject({ cmcFlex: 35, cmcAbd: 50 })
-    expect(fromCurl([0, 0, 0, 0, 0, -0.85]).thumb).toMatchObject({ cmcFlex: -12.75, cmcAbd: 54 })
+    expect(fromCurl([0, 0, 0, 0, 0, -0.85]).thumb).toMatchObject({ cmcFlex: -12.75, cmcAbd: 10 })
   })
   it('without a spacing the baked fan stays', () => {
     expect(fromCurl([0, 0, 0, 0, 0, 0]).f.map((f) => f.abd)).toEqual([6, 2, 2, 6])
@@ -181,6 +184,8 @@ describe('on the baked hand', async () => {
       expect(h.thumb.length).toBe(3)
       expect(h.thumb[0]!.spec?.twist).toBeTruthy()
       expect(h.thumb[1]!.node.parent).toBe(h.thumb[0]!.node)
+      // the re-baked thumb (#292) names its rotation order in the extras; the engine reads it
+      expect(h.thumb[0]!.spec?.order).toEqual(['flex', 'abduct', 'twist'])
       expect(h.fingers[0][0]!.restAbd).toBe(6)
       expect(h.fingers[0][0]!.spec?.abduct).toBeTruthy()
     }
@@ -202,16 +207,66 @@ describe('on the baked hand', async () => {
     expect(worst).toBeLessThan(0.001)
   })
 
-  it('pinch distance index tip ↔ thumb tip in ok and tripod (spec ≤ 5 mm; the re-bake of the thumb is the fix when it misses)', () => {
-    const d = (id: PoseId) => {
-      const t = tips(rig, 'r', POSES[id])
-      return { index: t.f[0].distanceTo(t.thumb) * 1000, middle: t.f[1].distanceTo(t.thumb) * 1000 }
+  /** the 3D artist's fingertip: the vertex of the last segment farthest along its local +y (flat tips: the centre of the ties) */
+  const yTip = (node: Object3D) => {
+    node.updateWorldMatrix(true, true)
+    const inv = new Matrix4().copy(node.matrixWorld).invert()
+    const rel = new Matrix4()
+    const v = new Vector3()
+    const all: Vector3[] = []
+    node.traverse((o) => {
+      const pos = (o as unknown as { geometry?: { getAttribute(n: string): { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number } } }).geometry?.getAttribute('position')
+      if (!pos) return
+      rel.multiplyMatrices(inv, o.matrixWorld)
+      for (let i = 0; i < pos.count; i++) all.push(v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(rel).clone())
+    })
+    const top = Math.max(...all.map((p) => p.y))
+    const ties = all.filter((p) => p.y > top - 2e-5)
+    return ties.reduce((m, p) => m.add(p), new Vector3()).multiplyScalar(1 / ties.length)
+  }
+  /** the artist's tips in the hand frame after a pose */
+  function pinchTips(side: 'l' | 'r', pose: HandAngles) {
+    tips(rig, side, pose)
+    const h = rig.hands[side]
+    const inv = new Matrix4().copy(h.node.matrixWorld).invert()
+    const at = (node: Object3D) => yTip(node).applyMatrix4(node.matrixWorld).applyMatrix4(inv)
+    return { index: at(h.fingers[0][2]!.node), middle: at(h.fingers[1][2]!.node), thumb: at(h.thumb[2]!.node) }
+  }
+  /** the nearest vertex of the index's middle segment to a point (the key pinch's thumb-side face, approximated by its vertices) */
+  function nearestOnIndexMiddle(side: 'l' | 'r', p: Vector3) {
+    const h = rig.hands[side]
+    const node = h.fingers[0][1]!.node
+    node.updateWorldMatrix(true, true)
+    const inv = new Matrix4().copy(h.node.matrixWorld).invert()
+    let best = Infinity
+    const v = new Vector3()
+    node.traverse((o) => {
+      if (o !== node && o.parent !== node) return
+      const pos = (o as unknown as { geometry?: { getAttribute(n: string): { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number } } }).geometry?.getAttribute('position')
+      if (!pos || o.name.includes('_f1_3')) return
+      for (let i = 0; i < pos.count; i++) best = Math.min(best, v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(o.matrixWorld).applyMatrix4(inv).distanceTo(p))
+    })
+    return best
+  }
+
+  it('pinch (spec: tips within 5 mm; the artist measured ok 2.1, tripod 0.8, key 1.4 in Blender): thumb tip to the index tip / the index-middle midpoint / the index middle segment', () => {
+    const mm = (x: number) => +(x * 1000).toFixed(2)
+    const ok = pinchTips('r', POSES.ok)
+    const tri = pinchTips('r', POSES.tripod)
+    const key = pinchTips('r', POSES.key)
+    const res = {
+      ok: mm(ok.index.distanceTo(ok.thumb)),
+      tripod: mm(tri.thumb.distanceTo(tri.index.clone().add(tri.middle).multiplyScalar(0.5))),
+      tripodIndex: mm(tri.thumb.distanceTo(tri.index)),
+      tripodMiddle: mm(tri.thumb.distanceTo(tri.middle)),
+      key: mm(nearestOnIndexMiddle('r', key.thumb)),
     }
-    const ok = d('ok')
-    const tri = d('tripod')
-    process.stdout.write(`\nPINCH ok index-thumb ${ok.index.toFixed(1)} mm; tripod index-thumb ${tri.index.toFixed(1)} mm, middle-thumb ${tri.middle.toFixed(1)} mm\n`)
-    // TODO(#282 thumb re-bake, PR #292): expect(ok.index).toBeLessThanOrEqual(5) on the new thumb
-    expect(ok.index).toBeLessThan(80)
+    const left = { ok: mm(pinchTips('l', POSES.ok).index.distanceTo(pinchTips('l', POSES.ok).thumb)) }
+    process.stdout.write(' PINCH-NEW ' + JSON.stringify(res) + ' left ok ' + left.ok + ' ')
+    // the designer's pinch values (#296): the artist measured ok 1.2, tripod 0.7, key 3.8 mm
+    expect(res.ok).toBeLessThanOrEqual(5)
+    expect(res.tripod).toBeLessThanOrEqual(5)
+    expect(res.key).toBeLessThanOrEqual(5)
   })
 
   it('fist: the tips curl into the palm side; point: the index stays straight, the rest curl', () => {
@@ -236,7 +291,8 @@ describe('on the baked hand', async () => {
     const width = (t: ReturnType<typeof tips>) => Math.max(...t.f.map((p) => Math.abs(p.x)))
     expect(width(spread)).toBeGreaterThan(width(fist) * 0.9)
     const up = tips(rig, 'r', POSES.thumbsUp)
-    expect(up.thumb.x).toBeGreaterThan(Math.max(...fist.f.map((p) => p.x)) + 0.015)
+    // the thumb stands along the side of the fist, in the finger direction (hand-poses.md 2, 13): its tip is above the fist's tips
+    expect(up.thumb.y).toBeGreaterThan(fist.f[0].y + 0.01)
   })
 
   it('no fingertip goes through the palm box in any pose (approximate, informational: prints the tips inside the palm bounding box)', () => {
@@ -305,5 +361,49 @@ describe('on the baked hand', async () => {
     }
     process.stdout.write(' CONSISTENCY tipAt vs rig worst ' + (worst * 1000).toFixed(4) + ' mm ')
     expect(worst).toBeLessThan(0.00005)
+  })
+
+  it('free joints: tipAtJoints matches the posed tip for a finger (MCP, PIP, total abduction) and the thumb (4 angles), both hands', () => {
+    let worst = 0
+    for (const side of ['l', 'r'] as const) {
+      for (let k = 0; k < 4; k++) {
+        const m = fingerModelOf(rig.hands[side], k, side)!
+        for (const j of [[20, 50, 4], [70, 30, -2], [45, 80, 9]]) {
+          const f = clampFinger({ mcp: j[0], pip: j[1], abd: j[2] }, k)
+          const pose: HandAngles = { ...POSES.rest, f: POSES.rest.f.map((x, q) => (q === k ? { mcp: f.mcp, pip: f.pip, abd: f.abd } : x)) as unknown as HandAngles['f'] }
+          worst = Math.max(worst, tips(rig, side, pose).f[k].distanceTo(tipAtJoints(m, j)))
+        }
+      }
+      const m = fingerModelOf(rig.hands[side], 'thumb', side)!
+      for (const j of [[-10, 16, 46, 6], [21, 8, 12, 50], [4, 7, 50, 23]]) {
+        worst = Math.max(worst, tips(rig, side, { ...POSES.rest, thumb: { cmcFlex: j[0], cmcAbd: j[1], mcp: j[2], ip: j[3] } }).thumb.distanceTo(tipAtJoints(m, j)))
+      }
+    }
+    expect(worst).toBeLessThan(0.00005)
+  })
+
+  it('fitContact: reaches a point the joints can reach (finger 3 DOF, thumb 4 DOF) inside the limits, and a table value that already fits stays', () => {
+    for (const side of ['l', 'r'] as const) {
+      for (const k of [0, 1, 2, 3, 'thumb'] as const) {
+        const m = fingerModelOf(rig.hands[side], k, side)!
+        const j = k === 'thumb' ? [12, 18, 30, 40] : [55, 60, k === 3 ? 12 : 3]
+        const goal = tipAtJoints(m, j)
+        const n = new Vector3(0, 0, 1)
+        const fit = fitContact(m, goal.clone().addScaledVector(n, -0.0003), n, 0.4, 0.1)
+        expect(fit.err, side + ' ' + k).toBeLessThan(0.0015)
+        expect(fit.off).toBeGreaterThanOrEqual(-1e-4)
+        if (k !== 'thumb') {
+          const r = abdRange(k, fit.joints[0])
+          expect(fit.joints[2]).toBeGreaterThanOrEqual(r.min - 1e-6)
+          expect(fit.joints[2]).toBeLessThanOrEqual(r.max + 1e-6)
+        }
+        // a value that already fits is kept
+        const t = tableJoints(m, 0.5, 0.05)
+        const at = tipAtJoints(m, clampJoints(m, t))
+        const keep = fitContact(m, at.clone().addScaledVector(n, -0.0003), n, 0.5, 0.05)
+        const base = clampJoints(m, t)
+        keep.joints.forEach((x, q) => expect(Math.abs(x - base[q]), side + ' ' + k + ' joint ' + q).toBeLessThan(2))
+      }
+    }
   })
 })
