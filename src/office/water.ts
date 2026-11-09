@@ -34,14 +34,15 @@ export const STANDS: Record<string, { x: number; z: number }> = {
   plant_sofa: { x: 1.13, z: 2.35 }, // 0.45 m, between the side table and the sofa's front
   plant_desk: { x: -3.75, z: -2.7 }, // 0.50 m, in front of the stand (found by scanning the walkable footprint, stream error < 0.7 soil radius)
   succulent: { x: -3.84, z: -1.21 }, // 0.50 m, at HUE's desk side
-  // the can's own stand (#228): where the agent takes the can up and puts it back. The can rests at CAN_HOME in the corner behind the fig, inside
-  // the wall margin of the walkable grid, so this is the nearest floor the planner can walk to (0.66 m in front of it, within arm's reach; the grid's next row, 2.65 m and further, is wall margin)
-  watering_can: { x: 3.82, z: 2.64 },
+  // the can's own stand (#228, #259): where the agent takes the can up and puts it back. Since #259 the can rests on its low stand in front of the
+  // fig (CAN_HOME), 0.46 m from the fig's own stand: the same floor, within arm's reach of both (watering.md 1.1). So watering the fig is turning
+  // to the can, lifting it, turning back to the pot, pouring and putting it back without a step; for the other plants it is taken from here
+  watering_can: { x: 4.14, z: 2.59 },
   vine: { x: 4.0, z: -2.86 }, // 0.50 m in front of the shelf; the vine's soil is at 2.2 m, so the can is raised to it (not on the schedule)
 }
 export const standOf = (p: Plant) => STANDS[p.name]
 /** where the watering can rests (office_bake.py: prop_watering_can; docs/design/watering.md) and the stand to take it from / put it back on */
-export const CAN_HOME = { x: 3.75, z: 3.3 }
+export const CAN_HOME = { x: 3.68, z: 2.65, y: 0.595 } // on its stand in front of the fig, spout south-west (#259, office.glb prop_watering_can)
 export const canStand = () => STANDS.watering_can
 /**
  * How far from its body an agent can take hold of or carry something (m, horizontal, from the body's centre). The hands' own poses
