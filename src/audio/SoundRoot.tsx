@@ -1,14 +1,15 @@
 import { useFrame } from '@react-three/fiber'
-import { useEffect } from 'react'
-import { Vector3 } from 'three'
+import { useEffect, useRef } from 'react'
+import { Frustum, Matrix4, Vector3 } from 'three'
 import { kstMinutes } from '../office/kst'
 import { officeNow, type OfficeWorld } from '../office/world'
 import { replay } from '../replay/store'
 import { ROOM_MODE, onDeskAudio, onEntered, onLeaveStart, postToParent } from '../room/link'
 import { setAmbienceMinute, startAmbience } from './ambience'
-import { setCueSpeed } from './cues'
-import { ensureAudio, fadeRoom, setListener } from './engine'
+import { cue, setCueSpeed } from './cues'
+import { audioGraph, ensureAudio, fadeRoom, setListener } from './engine'
 import { getSetting, setSetting, subscribe } from './settings'
+import { keysBetween, type TypeState } from './typing'
 
 // Wires the office's sound to the page (docs/design/sound.md 2): the first gesture, the room door, the desk's
 // setting, the clock for the room tone, and the replay speed. Renders nothing.
@@ -78,12 +79,39 @@ export function SoundRoot({ world }: { world: OfficeWorld }) {
 const fwd = new Vector3()
 const up = new Vector3()
 
-/** inside the canvas: the listener is the camera */
-export function SoundListener() {
+const frustum = new Frustum()
+const viewProj = new Matrix4()
+const head = new Vector3()
+
+/**
+ * inside the canvas: the listener is the camera, and the typing sound (#194 ②): agents at their desk, typing, on
+ * screen (busywork off-camera stays silent, sound.md 6), with the ambient motion on (off at the timelapse's ×16)
+ */
+export function SoundListener({ world }: { world: OfficeWorld }) {
+  const typing = useRef(new Map<string, TypeState | null>())
   useFrame(({ camera }) => {
     camera.getWorldDirection(fwd)
     up.set(0, 1, 0).applyQuaternion(camera.quaternion)
     setListener(camera.position, fwd, up)
+
+    const g = audioGraph()
+    if (!g || g.ctx.state !== 'running' || getSetting().muted) return
+    const t = g.ctx.currentTime
+    viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
+    frustum.setFromProjectionMatrix(viewProj)
+    for (const id in world.rigs) {
+      const r = world.rigs[id]
+      r.parts.head.getWorldPosition(head)
+      const on = r.visible && r.ambient > 0 && r.doing === 'type' && frustum.containsPoint(head)
+      if (!on) {
+        typing.current.set(id, null)
+        continue
+      }
+      const { keys, next } = keysBetween(typing.current.get(id) ?? null, t)
+      typing.current.set(id, next)
+      // the keyboard is in front of and below the head (agents.md 2.1: hands at 0.80 m, 0.32 m ahead)
+      for (const k of keys) cue('type', { pos: { x: head.x, y: head.y - 0.35, z: head.z }, agent: id, at: Math.max(0, k - t) })
+    }
   })
   return null
 }

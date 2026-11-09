@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useState, useSyncExternalStore } from 'react'
 import { PERIODS } from '../office/outside'
 import { passCar, setAmbienceOverride, startAmbience } from './ambience'
-import { CUES, CUE_NAMES, cue, type CueName } from './cues'
+import { CUES, CUE_NAMES, cue, cueCounts, type CueName } from './cues'
 import { BUS_LEVEL, audioDebug, audioGraph, ensureAudio, getBusLevel, meter, setBusLevel, testTone, type Bus, type Vec } from './engine'
 import { silenceReasons } from './audible'
 import { measureCue, type Level } from './levels'
@@ -63,7 +63,7 @@ export function SoundDebug() {
 
   // debug only: lets level-check scripts drive the mix (like the desk room's window.__audio)
   useEffect(() => {
-    ;(window as unknown as { __sound: unknown }).__sound = { audioGraph, ensureAudio, setBusLevel, getBusLevel, cue, setMusicState, startAmbience, setAmbienceOverride, meter, setSetting }
+    ;(window as unknown as { __sound: unknown }).__sound = { audioGraph, ensureAudio, setBusLevel, getBusLevel, cue, cueCounts, setMusicState, startAmbience, setAmbienceOverride, meter, setSetting }
   }, [])
 
   const [tonePeak, setTonePeak] = useState<number | null>(null)
