@@ -1166,8 +1166,12 @@ export class AgentRig {
         return side === 'l'
           ? at(-0.13 - (wb?.kind === 'push' ? Math.sin(wb.u * Math.PI) * 0.1 : 0), 0.82, -0.42, down, STAMP_CURL)
           : at(0.14 + 0.012 * Math.sin(t * 9) * stroke, 0.83, -0.41 + 0.01 * Math.sin(t * 6.5 + 1) * stroke, down, PEN_CURL)
-      case 'carry':
-        return at(rest.x, rest.y, rest.z)
+      case 'carry': {
+        // the free hand (designer, #217): at the resting height 0.86 m, not hanging below the desk; it swings ±8 cm back and
+        // forth with the walk (a stride a second), still when standing by the board
+        const walk = MathUtils.clamp(this.speed / 0.5, 0, 1) * m
+        return at(rest.x, 0.86 + sit, rest.z - 0.08 * walk * Math.sin(t * Math.PI * 2 + this.phase))
+      }
       case 'cardpost': {
         if (side === 'l') return at(rest.x, rest.y, rest.z)
         const u = wb?.u ?? 0
