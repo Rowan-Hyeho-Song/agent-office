@@ -17,6 +17,9 @@ export const LOOK_S = 1.5
 export const FADE_S = 0.3
 /** reduced motion: it fades in in the receiver's hand (paper-pass.md 5) */
 export const REDUCED_IN_S = 0.12
+/** after the catch it turns its side to the receiver's face over this long, nose this far up (paper-pass.md 5, #273) */
+const TURN_TO_FACE_S = 0.3
+const LOOK_PITCH = MathUtils.degToRad(25)
 /** the catch gesture lasts as long as the plane is in the hand */
 const HOLD_S = LOOK_S + FADE_S
 /**
@@ -131,6 +134,7 @@ export class PaperPlanes {
   private ay = new Vector3()
   private az = new Vector3()
   private wob = new Quaternion()
+  private look = new Quaternion()
 
   /**
    * the plane pinched in the receiver's right hand: the pinch spot where the index and thumb tips meet, nose 30°
@@ -278,12 +282,31 @@ export class PaperPlanes {
         }
         break
       }
-      case 'held':
+      case 'held': {
         // in the receiver's hand: looked at for LOOK_S, then it fades out there. It never travels anywhere (#267)
         this.pinched(receiver, t, f.since, reduced, plane.node.position, plane.node.quaternion)
+        // looked at (paper-pass.md 5, #273): turned over 0.3 s so its side faces the face, nose 25 degrees up
+        const head = receiver.parts.head
+        if (head) {
+          const k = reduced ? 1 : Math.min(1, age / TURN_TO_FACE_S)
+          const at = receiver.pinchPoint('r', this.p)
+          const face = head.getWorldPosition(this.s)
+          this.ax.set(face.x - at.x, 0, face.z - at.z)
+          if (this.ax.lengthSq() > 1e-8) {
+            this.ax.normalize()
+            // the nose (local -z) runs across the line to the face, raised 25 degrees; the wings (x) point at the face
+            this.az.crossVectors(this.ax, this.up).normalize()
+            this.az.applyAxisAngle(this.ax, LOOK_PITCH)
+            this.ay.crossVectors(this.az, this.ax)
+            this.look.setFromRotationMatrix(this.m.makeBasis(this.ax, this.ay, this.az))
+            plane.node.quaternion.slerp(this.look, k)
+            plane.node.position.copy(this.pinchLocal).applyQuaternion(plane.node.quaternion).negate().add(at)
+          }
+        }
         this.setOpacity(reduced && age < REDUCED_IN_S ? age / REDUCED_IN_S : 1 - Math.max(0, Math.min(1, (age - LOOK_S) / FADE_S)))
         if (age >= LOOK_S + FADE_S) this.finish()
         break
+      }
       case 'landed': {
         // only when the receiver isn't in: it glided onto its desk, lies there, then fades out where it lies
         this.restPoint(graph, f.to, plane.node.position)

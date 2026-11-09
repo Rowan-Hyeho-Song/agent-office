@@ -37,6 +37,8 @@ const CORNER_SPEED = 0.32 // through a sharp turn
 const TURN_RATE = 4.5 // rad/s
 // a meeting listener's nod (#141): how long it takes, how far the head dips, how long the addressee's hand stays up
 const NOD_S = 0.5
+/** where a caught paper / plane is held to be looked at, from the head (paper-pass.md 5, #273) */
+export const LOOK_AT = { ahead: 0.22, down: 0.1, side: 0.06 }
 /** a received plane / toss: how long the eyes stay wide before the nod (paper-pass.md 4) */
 const PAPER_SURPRISE_S = 1.2
 const NOD_DEG = 5
@@ -377,7 +379,7 @@ class FaceScreen {
       // aiming: narrowed eyes; a plane coming: wide ones
       if (mood === 'open') g.roundRect(x - 16 + dx, 60 + dy, 32, 60, 12)
       else if (mood === 'focus') g.roundRect(x - 18 + dx, 78 + dy, 36, 26, 10)
-      else if (mood === 'wide') g.roundRect(x - 19 + dx, 50 + dy, 38, 80, 14)
+      else if (mood === 'wide') g.roundRect(x - 20 + dx, 48 + dy, 40, 84, 14) // 1.25 x 1.4 the open bar, same centre (#273)
       if (mood === 'open' || mood === 'focus' || mood === 'wide') g.fill()
       else if (mood === 'blink' || mood === 'sleep' || mood === 'doze') (g.moveTo(x - 20, 95), g.lineTo(x + 20, 95), g.stroke())
       else if (mood === 'happy') (g.moveTo(x - 22, 102), g.lineTo(x, 80), g.lineTo(x + 22, 102), g.stroke())
@@ -1232,7 +1234,8 @@ export class AgentRig {
     const sx = side === 'l' ? -1 : 1
     const sit = this.seat
     const rest = this.parts.hands[side].restPos
-    const gesturing = g.kind === 'throw' ? side === 'r' : side === 'r' || !g.oneHand
+    // once caught only the pinching (right) hand holds it; the other one rests (paper-pass.md 5, #273)
+    const gesturing = g.kind === 'throw' ? side === 'r' : g.caught ? side === 'r' : side === 'r' || !g.oneHand
     // seated at a desk the hands never go below the desk top + 5 cm (designer, #226 ④): the throw's follow-through stops there
     const floor = this.stance.seated ? DESK_HAND_MIN : -Infinity
     const lift = (p: Vector3) => ((p.y = Math.max(p.y, floor)), p)
@@ -1250,14 +1253,24 @@ export class AgentRig {
     } else {
       // the usual catching place in front, drifting to the plane's side as the angle grows
       const caught = side === 'r' && g.caught
-      // (the pinching hand a little further out so it doesn't cover the face screen; designer #226 ③: 6 cm more)
-      const outCaught = caught ? CAUGHT_OUT + 0.06 : 0
-      const front = v(sx * (0.16 + outCaught), 1.32 + sit, -0.32)
-      // (the hands flank the line to the plane)
-      const off = sx * (0.12 + outCaught)
-      const out = v(-sin * 0.42 + off * cos, 1.3 + sit, -cos * 0.42 - off * sin)
-      target = front.lerp(out, MathUtils.clamp(Math.abs(a.handAngle) / 0.5, 0, 1))
-      curl = caught ? PINCH_CURL : WAVE_CURL
+      if (caught) {
+        // looking at what was caught (paper-pass.md 5, #273): in front of the face screen and below it, so neither the hand
+        // nor the plane covers the screen: 0.22 ahead, 0.10 down, 0.06 to the holding hand's side, in the head's frame
+        const head = this.parts.head.position
+        const yaw = a.head
+        const ox = sx * LOOK_AT.side
+        const oz = -LOOK_AT.ahead
+        target = v(head.x + ox * Math.cos(yaw) + oz * Math.sin(yaw), head.y - LOOK_AT.down, head.z - ox * Math.sin(yaw) + oz * Math.cos(yaw))
+        curl = PINCH_CURL
+      } else {
+        // the usual catching place in front, drifting to the plane's side as the angle grows
+        const front = v(sx * 0.16, 1.32 + sit, -0.32)
+        // (the hands flank the line to the plane)
+        const off = sx * 0.12
+        const out = v(-sin * 0.42 + off * cos, 1.3 + sit, -cos * 0.42 - off * sin)
+        target = front.lerp(out, MathUtils.clamp(Math.abs(a.handAngle) / 0.5, 0, 1))
+        curl = WAVE_CURL
+      }
     }
     if (!base) return { pos: lift(target), turn: NONE, curl }
     return { pos: lift(base.pos.clone().lerp(target, a.arm)), turn: a.arm > 0.3 ? NONE : base.turn, curl: a.arm > 0.3 ? curl : base.curl }
