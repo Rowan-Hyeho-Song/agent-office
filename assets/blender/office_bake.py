@@ -11,9 +11,31 @@ Run:  blender --background --factory-startup --python office_bake.py -- <out_dir
 Same pipeline as the rowansong.dev desk (bakekit.py), so the two rooms read as one world.
 
 Node contract (the app reads glTF extras):
-  atlases room, walls_nw, walls_se, work, wall_items, lounge (6 webp) -> MeshBasicMaterial + atlas. Baked nodes:
-  room                             the floor, carpet, rug, base edges; extras room = [HX, HZ, WALL_H] (#109: the app
-                                   reads the room size here)
+  atlases room, walls_nw, walls_se, work, wall_items, lounge, desk_props (7 webp) -> MeshBasicMaterial + atlas. Baked:
+  room                             the floor, the three rugs (#195: work, meeting, lounge), base edges; extras room =
+                                   [HX, HZ, WALL_H] (#109: the app reads the room size here)
+  desk_<i>                         (work) the desk body (#187 kit: oak top, graphite band, legs, cable tray); i 0..4,
+                                   the five desks stand as one island (#195 plan 2, slot_pod)
+  desk_<i>_props                   (desk_props, #187) the common kit (keyboard case, monitor, mouse body + pad, cables)
+                                   and the owner's things (seat_*), extras desk
+  kb_<i>_caps                      (desk_props, #225) the 87 keycaps as one mesh, frame = the keyboard plate (pivot_at);
+                                   point attribute _KEY (three: _key) = key 0..86; extras keys [{code, pivot, top, size,
+                                   w}] in that frame, key_travel_m (press = local -y)
+  desk_<i>_mouse_l|_r|_wheel       live "bot" (#225): the mouse's button shells (pivot on the hinge, press = local x
+                                   -2 deg) and wheel (pivot on its axle, rolls about local x); no desk_2 mouse (tablet)
+  desk_4_spk_l|_r, desk_4_knob_<k>, desk_4_fader_<k>
+                                   live "bot" (#193 ECHO): woofer cones (extras travel, axis z), gain knobs (axis y),
+                                   faders (extras travel 0.045, axis -z, zero); desk_4_spk_led, desk_4_meter_0..7 neon
+  prop_duck, prop_keycap_0, prop_headphones
+                                   live "prop" (#187 desk-props.md 5)
+  <book>_page                      live "bot" (#231): a page to turn per book (prop_book, prop_shelfbook_<k>): two
+                                   sheets back to back, 16 x 4, attributes _PAGE_U (spine 0 -> fore-edge 1), _PAGE_V
+                                   (bottom 0 -> top 1); pivot = the spine axis; extras page_w, page_h, turn_axis, turn_dir
+  nav_meet_center                  (#195) the one meeting circle: extras ry (0 deg = toward the board), ring 0.9, r 1.16
+  nav_chat_0|_1                    (#195) the second conversation's two spots by the window, facing each other
+  <plant>_tip_0..2                 empties (#185 watering.md): leaf tips where a drop forms, extras tip_of
+  agent_4_fork, agent_4_ring       (#193 ECHO) live "bot" tuning fork U (pivot = the stem's top; tines shake about
+                                   local x), live "neon" light ring round the back grille
   wall_n|e|s|w                     the four walls (#111), pivot_at at the wall's foot (floor, middle of the wall),
                                    extras wall; the app lowers the camera-side ones. n carries the window frame
   door, boards, wallclock          hung on a wall: extras wall (w, n, w). shelf, lounge, desk_<i>, pad_<i>: on the floor
@@ -65,7 +87,8 @@ Node contract (the app reads glTF extras):
   clock_hand_h, clock_hand_m, clock_hub
                                    live "bot": the wall clock (#91), pivot_at = face center, local +y = 12 o'clock,
                                    local +z = out of the face; both hands export at 12, clockwise = negative turn about z
-Seats 0..3 = MEMO amber, MESH lavender, HUE magenta, LOOP cyan (#26); their forms: docs/design/agents.md 2 (#28).
+Seats 0..4 = MEMO amber, MESH lavender, HUE magenta, LOOP cyan (#26), ECHO phosphor (#193); their forms:
+docs/design/agents.md 2 (#28).
 """
 import os
 import random

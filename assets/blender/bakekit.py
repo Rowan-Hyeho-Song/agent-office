@@ -690,7 +690,7 @@ def denoise(image, path):
 def save(image, path):
     s = scene.render.image_settings
     s.file_format = "WEBP"
-    s.quality = 92
+    s.quality = 85  # #195: 92 -> 85 (models 3.83 -> ~3.2 MB with the desk_props atlas; the 3.5 MB cap, desk-props.md 1)
     s.color_mode = "RGB"
     s.color_management = "FOLLOW_SCENE"
     image.save_render(path, scene=scene)
