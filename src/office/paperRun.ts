@@ -6,7 +6,7 @@
 // The frame of the sheet (paperProp.ts): x the short side, z the long side, +y the text side. +z is the text's TOP edge: the edge the
 // receiver takes and holds it by, so the sheet reads the right way up where it is looked at (paper-pass.md 5: 0.22 ahead of the face
 // screen, 0.10 below it, top edge in the hand, tilted 25 degrees back, the text side toward the face and up).
-import { MathUtils, Matrix4, Quaternion, Vector3 } from 'three'
+import { DoubleSide, MathUtils, Matrix4, Quaternion, Vector3 } from 'three'
 import { cue } from '../audio/cues'
 import { HAND_POSES, type AgentRig, type PropBank } from './rig'
 import { POSES, toVec, type HandAngles } from './handPose'
@@ -120,7 +120,12 @@ export class PaperPasses {
       this.home.quat.copy(p.node.quaternion)
       props.borrowed.add(p.node)
       // its own materials: fading never touches anything else
-      for (const m of p.meshes) m.material = (m.material as import('three').Material).clone()
+      // (both sides: the receiver holds it text side to its face, so everybody else sees the back)
+      for (const m of p.meshes) {
+        const mat = (m.material as import('three').Material).clone()
+        mat.side = DoubleSide
+        m.material = mat
+      }
       this.hide()
     }
   }

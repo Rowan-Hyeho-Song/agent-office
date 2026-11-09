@@ -103,3 +103,49 @@ describe('paper passes (#262): the stages', () => {
     expect(fast.frames.length).toBeLessThan(slow.frames.length)
   })
 })
+
+describe('the baked sheet (#262, #310)', () => {
+  it('paperOf finds every node and empty by its name, with the baked frame and fold signs', async () => {
+    const w = await world()
+    const p = (await import('./paperProp')).paperOf(w.nodes)!
+    expect(p.node.name).toBe('prop_paper')
+    expect(p.a.userData.fold).toEqual({ axis: 'x', sign: 1 })
+    expect(p.b.userData.fold).toEqual({ axis: 'x', sign: -1 })
+    for (const n of ['grip_r', 'grip_r_far', 'contact_palm', 'contact_thumb_near', 'contact_thumb_far', 'contact_index_near', 'contact_index_far']) expect(w.nodes[`prop_paper_${n}`], n).toBeDefined()
+    expect(p.gripNear.z).toBeCloseTo(-0.1335, 4)
+    expect(p.gripFar.z).toBeCloseTo(0.1335, 4)
+    expect(p.node.userData.prop).toBe('paper')
+    expect(p.meshes.length).toBeGreaterThan(0)
+    // a is the near half (z < 0 in the sheet's frame), b the far half
+    const box = (n: typeof p.a) => new Box3().setFromObject(n)
+    p.node.updateWorldMatrix(true, true)
+    const inv = p.node.matrixWorld.clone().invert()
+    const za = box(p.a).applyMatrix4(inv)
+    const zb = box(p.b).applyMatrix4(inv)
+    expect(za.max.z).toBeLessThanOrEqual(0.001)
+    expect(zb.min.z).toBeGreaterThanOrEqual(-0.001)
+  })
+  it('it is hidden from load, every idle frame, and shows only while a pass runs', async () => {
+    const w = await world()
+    const planes = new PaperPlanes(w.props, w.nodes)
+    const nodes = [w.nodes['prop_paper'], w.nodes['prop_paper_a'], w.nodes['prop_paper_b']]
+    expect(nodes.map((n) => n.visible)).toEqual([false, false, false])
+    const walk = new Walk(w)
+    for (const id of IDS) walk.status[id] = { state: 'working', activity: 'test', since: 0 }
+    walk.before = (t) => planes.update(t, GRAPH, w.rigs, false)
+    for (let k = 0; k < 250; k++) {
+      walk.step(0.02)
+      expect(nodes.some((n) => n.visible), 'idle frame ' + k).toBe(false)
+    }
+    planes.pass('agent_2', 'agent_1', 'hand')
+    let shown = 0
+    for (let k = 0; k < 300; k++) {
+      walk.step(0.02)
+      if (nodes.some((n) => n.visible)) shown++
+      expect(nodes[0].visible).toBe(nodes[1].visible)
+    }
+    expect(shown).toBeGreaterThan(100)
+    expect(nodes.some((n) => n.visible)).toBe(false)
+    expect(nodes[0].position.distanceTo(new Vector3(-2.94, 0.835, -1.972))).toBeLessThan(0.001)
+  })
+})

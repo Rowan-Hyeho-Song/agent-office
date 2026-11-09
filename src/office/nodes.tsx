@@ -19,7 +19,6 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { assetUrl } from '../room/base'
 import type { NavKind, NavSpot } from './nav'
 import { setRoomFromExtras } from './room'
-import { ensurePaper } from './paperProp'
 import { prepareView } from './walls'
 
 // The office from assets/blender/office_bake.py: one glb + six baked atlases (same contract as the
@@ -159,8 +158,6 @@ export function prepare(scene: Object3D, atlases: Texture[]): OfficeNodes {
     })
     for (const o of gone) o.removeFromParent()
   }
-  // the loose sheet (#262): built in code until the glb carries prop_paper (paperProp.ts)
-  ensurePaper(scene, nodes)
   return nodes
 }
 
