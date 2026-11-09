@@ -234,6 +234,33 @@ describe('PlayStage', () => {
     expect(seen.size).toBe(2)
   }, 60000)
 
+  it('omok: seated mid-move (the first frame is already past the pick), the stone is never taken from anywhere but where it rests', async () => {
+    const s = findSession('boardgame')
+    let attachedFrames = 0
+    for (let off = 0; off < 9000; off += 450) {
+      const w = await world()
+      const goals = seat(w.rigs, s)
+      const stones = ['prop_piece_a', 'prop_piece_b'].map((n) => w.nodes[n])
+      const home = stones.map((n) => n.position.clone())
+      const had = new Set<string>()
+      for (let k = 0; k < 120; k++) {
+        const now = s.startMs + 15_000 + off + k * 40
+        w.stage.update(inp(w, goals, now, k * 0.04))
+        w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
+        w.props.update(0.04)
+        stones.forEach((n, i) => {
+          const holder = Object.values(w.rigs).find((r) => r.want?.attached && r.want.prefer === n.name)
+          if (!holder) return
+          attachedFrames++
+          // the frame a hand takes it: it is where it rested, give or take the first 40 ms frame of the lift (2.4 cm at most; a late take was 20 cm away)
+          if (!had.has(n.name)) expect(n.position.distanceTo(home[i]), `offset ${off} frame ${k}: ${n.name} taken away from where it rests`).toBeLessThanOrEqual(0.05)
+          had.add(n.name)
+        })
+      }
+    }
+    expect(attachedFrames).toBeGreaterThan(10)
+  }, 120000)
+
   it('nobody seated: the ball waits on the table', async () => {
     const w = await world()
     const s = findSession('pingpong')
