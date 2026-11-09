@@ -83,6 +83,8 @@ BLENDER="/c/Program Files/Blender Foundation/Blender 5.2/blender.exe" ./build-of
 - 짝 테스트: `src/office/handFrame.test.ts`("hand frame (#178)")가 glb의 손 회전으로 이 표를 검사한다. 손을 다시 구우면 이 테스트가 통과하는지 본다.
 - 소품 `<prop>_grip_r|l`(#164)은 쥘 때 손 `_grip` 틀이 놓일 자리다. 디자이너가 "위치 · 손가락 방향 · 손바닥 방향"으로 주면 위 `_grip` 축으로 바꾼다(`grip_frame()`).
 
+**책장 번호**(#67 · #199). 책장 선반은 다섯 개다(0 = 맨 아래 … 4 = 맨 위). 문서철(`shelf_r<r>_b<k>`)의 r 0–2는 가운데 선반 1–3이다. 집는 책 `prop_shelfbook_<k>`의 extras `shelf_row`는 **실제 선반 번호**(1–3)라서 r과 다른 수다. 책은 문서철 10칸 · 북엔드 · 눕힌 책 다음, 각 선반 오른쪽 끝에 선다.
+
 **빈 노드.**
 - `nav_<id>`(extras `nav`, `ry`): 동선
 - `surface_<name>`(`w`, `h`, `normal`): 앱이 붙이는 면
