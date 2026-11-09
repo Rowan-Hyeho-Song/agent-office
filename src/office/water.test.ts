@@ -6,7 +6,7 @@ import { loadOffice } from './glbLoad'
 import { PlayStage } from './playStage'
 import { AgentRig, PropBank, buildRig } from './rig'
 import { stubCanvas } from './glbLoad'
-import { WATERED, WATER_PLANTS, plantsFrom, standOf, canPose, headingTo, landing, plantAhead, solvePour, spoutOf, type Plant } from './water'
+import { CAN_HOME, POUR_S, REACH, STAND_BLOCKERS, STANDS, WATER_PLANTS, canStand, plantsFrom, pourAt, pourTotal, standOf, canPose, headingTo, landing, plantAhead, solvePour, spoutOf, type Plant } from './water'
 import { playAt } from './play'
 
 stubCanvas()
@@ -53,41 +53,53 @@ describe('watering lands on the soil (#184)', () => {
     expect(found?.stand).toEqual(standOf(plant))
   })
 
-  it('in the running stage the stream lands on the soil for each agent\'s own hands', async () => {
+  it('in the pour stage the stream lands on the soil of each plant for each agent (the can is in its hand; the stage time drives the tilt)', async () => {
     const { scene, nodes } = await loadOffice()
     const props = new PropBank(scene, nodes)
     const rigs = Object.fromEntries([0, 1, 2, 3].map((i) => [`agent_${i}`, new AgentRig(`agent_${i}`, i, buildRig(scene, nodes, i), '#ffffff')]))
     const stage = new PlayStage(scene, nodes, props)
-    const st = standOf(WATERED)
-    const heading = headingTo(st.x, st.z, WATERED.x, WATERED.z)
-    for (const [id, r] of Object.entries(rigs)) {
-      r.at = 'hall_lounge'
-      r.x = st.x
-      r.z = st.z
-      r.heading = heading
-      r.parts.root.position.set(st.x, 0, st.z)
-      r.parts.root.rotation.set(0, heading, 0)
-      r.parts.root.updateMatrixWorld(true)
-      const goals = Object.fromEntries(Object.keys(rigs).map((k) => [k, { spot: k === id ? 'hall_lounge' : 'work_0', pose: k === id ? 'water' : 'idle', label: '' }]))
-      let worst = 0
-      let seen = 0
-      for (let k = 0; k < 500; k++) {
-        stage.update({ now: 0, t: k * 0.02, dt: 0.02, reduced: false, replaying: false, rigs, goals: goals as never, status: {}, tablet: false, stamp: false, colors: {} })
-        props.hold(new Map(Object.values(rigs).map((x) => [x, x.want])))
-        props.update(0.02)
-        const sp = nodes.prop_watering_can_spout
-        if (!sp || !r.want?.attached) continue
-        scene.updateMatrixWorld(true)
-        const tip = sp.getWorldPosition(new Vector3())
-        const dir = new Vector3(0, 0, 1).transformDirection(sp.matrixWorld)
-        const l = landing(tip, dir, WATERED.soilY)
-        if (!l || k < 75 || k > 100) continue
-        worst = Math.max(worst, Math.hypot(l.at.x - WATERED.x, l.at.z - WATERED.z))
-        seen++
+    for (const plant of WATER_PLANTS) {
+      const st = standOf(plant)
+      const heading = headingTo(st.x, st.z, plant.x, plant.z)
+      for (const [id, r] of Object.entries(rigs)) {
+        r.at = 'water_' + plant.name
+        r.x = st.x
+        r.z = st.z
+        r.heading = heading
+        r.parts.root.position.set(st.x, 0, st.z)
+        r.parts.root.rotation.set(0, heading, 0)
+        r.parts.root.updateMatrixWorld(true)
+        let worst = 0
+        let seen = 0
+        for (let k = 0; k < 500; k++) {
+          const u = 0.02 * k
+          const goals = Object.fromEntries(Object.keys(rigs).map((o) => [o, o === id ? { spot: 'water_' + plant.name, pose: 'water', water: { stage: 'pour', plant: plant.name, u }, label: '' } : { spot: 'work_0', pose: 'idle', label: '' }]))
+          stage.update({ now: 0, t: u, dt: 0.02, reduced: false, replaying: false, rigs, goals: goals as never, status: {}, tablet: false, stamp: false, colors: {} })
+          props.hold(new Map(Object.values(rigs).map((x) => [x, x.want])))
+          props.update(0.02)
+          scene.updateMatrixWorld(true)
+          const { tilt } = pourAt(plant.name, u)
+          const sp = nodes.prop_watering_can_spout
+          if (!sp || !r.want?.attached || tilt < 0.999) continue
+          const tip = sp.getWorldPosition(new Vector3())
+          const dir = new Vector3(0, 0, 1).transformDirection(sp.matrixWorld)
+          const l = landing(tip, dir, plant.soilY)
+          expect(l, id + ' ' + plant.name).toBeTruthy()
+          worst = Math.max(worst, Math.hypot(l!.at.x - plant.x, l!.at.z - plant.z))
+          seen++
+        }
+        expect(seen, id + ' ' + plant.name).toBeGreaterThan(0)
+        if (LOG) appendFileSync(LOG, 'water in stage ' + id + ' ' + plant.name + ' worst landing ' + (worst * 1000).toFixed(1) + ' mm over ' + seen + ' frames\n')
+        expect(worst, id + ' ' + plant.name).toBeLessThan(plant.r)
+        // the next rig starts from its own seat: let go of the can first
+        const off = Object.fromEntries(Object.keys(rigs).map((o) => [o, { spot: 'work_0', pose: 'idle', label: '' }]))
+        for (let k = 0; k < 60; k++) {
+          stage.update({ now: 0, t: 11 + k * 0.02, dt: 0.02, reduced: false, replaying: false, rigs, goals: off as never, status: {}, tablet: false, stamp: false, colors: {} })
+          props.hold(new Map(Object.values(rigs).map((x) => [x, x.want])))
+          props.update(0.02)
+        }
+        r.at = null
       }
-      expect(seen, id).toBeGreaterThan(0)
-      if (LOG) appendFileSync(LOG, 'water in stage ' + id + ' worst landing ' + (worst * 1000).toFixed(1) + ' mm over ' + seen + ' frames\n')
-      expect(worst, id).toBeLessThan(WATERED.r)
     }
   })
 })
@@ -123,3 +135,51 @@ describe('where the watering agent stands (#184)', () => {
 
 const PLANTS_FOR_STANDS = (scene: Parameters<typeof plantsFrom>[0]) => plantsFrom(scene).filter((p) => p.name in STANDS_KEYS)
 const STANDS_KEYS: Record<string, true> = { plant_corner: true, plant_sofa: true, plant_desk: true, succulent: true, vine: true }
+
+describe('the can\'s own stand (#228)', () => {
+  it('a walkable floor cell the planner reaches, in arm\'s reach of the can, with the can behind it; the stands another agent can block are named', async () => {
+    const { nodes, scene } = await spoutLocal()
+    const { meshesOf } = await import('./nodes')
+    const { rasterFootprint } = await import('./floorMask')
+    const { buildGrid, cellAt, findPath, decodeFootprint } = await import('./grid')
+    const { FOOTPRINT_DATA } = await import('./footprint.data')
+    const { GRAPH } = await import('./navSpots.fixture')
+    const { TRAFFIC } = await import('./traffic')
+    const grids = [buildGrid(rasterFootprint(Object.values(nodes).filter((m) => m.userData.atlas).flatMap(meshesOf), 0.05, scene), GRAPH), buildGrid(decodeFootprint(FOOTPRINT_DATA), GRAPH)]
+    const st = canStand()
+    for (const grid of grids) {
+      const c = cellAt(grid, st.x, st.z)
+      expect(c).toBeGreaterThanOrEqual(0)
+      expect(grid.blocked[c], 'can stand is walkable').toBeFalsy()
+      expect(findPath(grid, { x: -1, z: -0.6 }, st), 'reachable').toBeTruthy()
+    }
+    // the can's home in the model is CAN_HOME, and the stand is within REACH of it, facing it
+    const can = nodes.prop_watering_can.getWorldPosition(new Vector3())
+    expect(Math.hypot(can.x - CAN_HOME.x, can.z - CAN_HOME.z)).toBeLessThan(0.01)
+    expect(Math.hypot(st.x - CAN_HOME.x, st.z - CAN_HOME.z)).toBeLessThanOrEqual(REACH)
+    // a stand listed as blockable really is within two body radii of the spot it names
+    for (const [plant, spots] of Object.entries(STAND_BLOCKERS)) {
+      for (const spot of spots) {
+        const sp = GRAPH.spots[spot]
+        expect(Math.hypot(sp.x - STANDS[plant].x, sp.z - STANDS[plant].z), `${plant} stand vs ${spot}`).toBeLessThan(2 * TRAFFIC.bodyR + TRAFFIC.planGap)
+      }
+    }
+  }, 60000)
+
+  it('the pour is continuous: from the carrying hold to the pour hold, tipped and back, in the timeline of every plant', () => {
+    for (const p of WATER_PLANTS) {
+      let prev = pourAt(p.name, 0)
+      expect(prev).toEqual({ hold: 0, tilt: 0 })
+      const total = pourTotal(p.name)
+      for (let u = 0.01; u <= total + 1; u += 0.01) {
+        const cur = pourAt(p.name, u)
+        // at most 8 % of the way per 10 ms frame: the can never jumps
+        expect(Math.abs(cur.hold - prev.hold), p.name + ' hold ' + u.toFixed(2)).toBeLessThan(0.08)
+        expect(Math.abs(cur.tilt - prev.tilt), p.name + ' tilt ' + u.toFixed(2)).toBeLessThan(0.08)
+        prev = cur
+      }
+      expect(prev, p.name + ' ends at the carrying hold').toEqual({ hold: 0, tilt: 0 })
+      expect(pourAt(p.name, POUR_S.settle + POUR_S.up + 0.1).tilt).toBe(1)
+    }
+  })
+})
