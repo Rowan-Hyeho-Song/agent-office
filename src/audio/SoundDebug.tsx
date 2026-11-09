@@ -7,7 +7,10 @@ import { silenceReasons } from './audible'
 import { measureCue, type Level } from './levels'
 import { LAYERS, TEMPOS, getMusicState, getTempo, isLayerMuted, setMusicState, setTempo, toggleLayer, type MusicState, type Tempo } from './music'
 import { getSetting, setSetting, subscribe } from './settings'
+import { faderLevels, forceMusic, forcedMusic, getMusicDist, setMusicDist, speakerCells, speakerCone, speakerForMe, toggleSpeakerForMe, type MusicDist } from './speaker'
 import { midi, tone } from './synth'
+import { KEY_VOICES, KEY_VOICE_LABEL, getKeyVoice, loadKeySample, setKeyVoice, type KeyKind, type KeyVoice } from './keys'
+import { keysBetween } from './typing'
 
 // ?debug=1 sound panel (docs/design/sound.md 8.1): where the user listens and judges, since the session can't hear.
 // Top to bottom (designer): meter → master → buses → position → cues (good / loud / quiet + a copy line) → room tone
@@ -16,9 +19,10 @@ import { midi, tone } from './synth'
 type Verdict = '좋음' | '크다' | '작다'
 type Where = 'near' | 'far' | 'left' | 'right'
 const WHERE: Record<Where, string> = { near: '가까이', far: '멀리', left: '왼쪽', right: '오른쪽' }
-const BUSES: Bus[] = ['music', 'sfx', 'voice', 'ambience']
+const BUSES: Bus[] = ['music', 'sfx', 'keys', 'voice', 'ambience']
 const PERIOD_NAMES = ['새벽', '낮', '저녁', '밤']
 const STATE_NAMES: Record<MusicState, string> = { off: '끔', work: '일할 때 (−12 dB)', break: '쉴 때' }
+const DIST_NAMES: Record<MusicDist, string> = { room: '방 어디서나 같게', near: '가까이 크게 · 멀리 작게' }
 
 /** a point relative to the listener (the camera) */
 function placeOf(w: Where): Vec | undefined {
@@ -63,7 +67,7 @@ export function SoundDebug() {
 
   // debug only: lets level-check scripts drive the mix (like the desk room's window.__audio)
   useEffect(() => {
-    ;(window as unknown as { __sound: unknown }).__sound = { audioGraph, ensureAudio, setBusLevel, getBusLevel, cue, cueCounts, setMusicState, startAmbience, setAmbienceOverride, meter, setSetting }
+    ;(window as unknown as { __sound: unknown }).__sound = { audioGraph, ensureAudio, setBusLevel, getBusLevel, cue, cueCounts, setMusicState, forceMusic, setMusicDist, startAmbience, setAmbienceOverride, meter, setSetting }
   }, [])
 
   const [tonePeak, setTonePeak] = useState<number | null>(null)
@@ -95,7 +99,43 @@ export function SoundDebug() {
   // bus faders move in dB around the defaults; any change goes into the copy line so a "louder/quieter" comes back as numbers
   const busDb = (b: Bus) => Math.round(20 * Math.log10(Math.max(1e-6, getBusLevel(b) / BUS_LEVEL[b])))
   const busLine = BUSES.filter((b) => busDb(b) !== 0).map((b) => `bus.${b}=${busDb(b) > 0 ? '+' : ''}${busDb(b)}dB`)
-  const copyLine = [...Object.entries(verdicts).map(([k, v]) => `${k}=${v}`), ...busLine].join(' ')
+  const copyLine = [...Object.entries(verdicts).map(([k, v]) => `${k}=${v}`), ...busLine, `keys.voice=${getKeyVoice()}`, `music.dist=${getMusicDist()}`].join(' ')
+  // keyboard demo: one agent typing a few seconds with the live rhythm, or several at once, or one special key
+  const typeDemo = (typists: number, seconds = 4, offset = 0) => {
+    start()
+    const g = audioGraph()
+    if (!g) return
+    for (let a = 0; a < typists; a++) {
+      // start typing at once, and step through in small slices (a jump over 1 s is a fresh start with no keys)
+      let s = { ...keysBetween(null, 0).next, next: 0.05 + a * 0.07, burstEnd: seconds }
+      for (let t = 0.05; t <= seconds; t += 0.05) {
+        const r = keysBetween(s, t)
+        r.keys.forEach((k, i) => cue('type', { agent: `agent_${a}`, at: offset + k, keyKind: r.kinds[i] }))
+        s = r.next
+      }
+    }
+  }
+  // #194 A/B: the same typing, 3 s each, 녹음 (the sound) → 합성 도각 (its fallback), with the name of the one sounding
+  const [abNow, setAbNow] = useState<string | null>(null)
+  const abCompare = async () => {
+    start()
+    const g = audioGraph()
+    if (!g) return
+    await loadKeySample(g.ctx)
+    const keep = getKeyVoice()
+    const order: KeyVoice[] = ['sample', 'thock2']
+    order.forEach((v, i) => {
+      setKeyVoice(v) // cue() reads the voice when it schedules, so each 3 s slot keeps its own
+      typeDemo(1, 3, i * 3.5)
+      setTimeout(() => setAbNow(KEY_VOICE_LABEL[v]), i * 3500)
+    })
+    setTimeout(() => setAbNow(null), order.length * 3500)
+    setKeyVoice(keep)
+  }
+  const oneKey = (k: KeyKind) => {
+    start()
+    cue('type', { agent: 'agent_3', keyKind: k })
+  }
   const measureAll = async () => {
     const out: Partial<Record<CueName, Level>> = {}
     for (const n of CUE_NAMES) out[n] = await measureCue(n)
@@ -216,6 +256,56 @@ export function SoundDebug() {
         ))}
       </fieldset>
 
+      <section aria-label="키보드 소리">
+        <b>키보드 소리</b>
+        <div>
+          {KEY_VOICES.map((v) => (
+            <label key={v} style={{ marginRight: 8 }}>
+              <input
+                type="radio"
+                name="sd-keys"
+                checked={getKeyVoice() === v}
+                onChange={() => {
+                  setKeyVoice(v)
+                  tick()
+                }}
+              />{' '}
+              {KEY_VOICE_LABEL[v]}
+            </label>
+          ))}
+        </div>
+        <div>
+          <button type="button" onClick={() => typeDemo(1)}>
+            한 명 4초 치기
+          </button>
+          <button type="button" onClick={() => typeDemo(5)}>
+            다섯 명 동시에
+          </button>{' '}
+          <button type="button" onClick={() => oneKey('char')}>
+            키
+          </button>
+          <button type="button" onClick={() => oneKey('space')}>
+            스페이스
+          </button>
+          <button type="button" onClick={() => oneKey('enter')}>
+            엔터
+          </button>
+          <button type="button" onClick={() => oneKey('backspace')}>
+            백스페이스
+          </button>
+        </div>
+        <div>
+          <button type="button" onClick={() => void abCompare()}>
+            연달아 비교 (녹음 → 합성, 3초씩)
+          </button>{' '}
+          <span aria-live="polite">{abNow ? `지금: ${abNow}` : ''}</span>
+        </div>
+        <small>
+          고른 소리와 위 keys 버스 크기가 맨 아래 복사 줄에 들어가요. 키 소리는 실제 키보드 녹음(Rainy 75, CC0, 61 KB)이고, 합성 도각은 파일이 오기 전에 대신
+          나요.
+        </small>
+      </section>
+
       <section aria-label="효과음">
         <div className="sd-head">
           <b>효과음</b> <button type="button" onClick={() => void measureAll()}>전부 재기</button>
@@ -276,21 +366,65 @@ export function SoundDebug() {
 
       <section aria-label="스피커 음악">
         <b>스피커 음악</b>
-        <p className="sd-note">아직 에이전트 상태와 이어지지 않았어요(③). 여기서 "쉴 때"를 누르면 쉬는 시간 음악, "일할 때"를 누르면 작게 깔리는 음악을 들을 수 있어요.</p>{' '}
+        <p className="sd-note">
+          에코 책상 스피커에서 나요. 에이전트 둘 이상이 쉬면 "쉴 때", 아니면 "일할 때", 밤에는 꺼져요(8초 지켜본 뒤 바뀜). 탁구 중에는 4 dB 낮아져요. 아래 버튼은 상태를 고정해 들어 보는
+          것이고, "에이전트 따라"로 돌아가요.
+        </p>{' '}
+        <button
+          type="button"
+          aria-pressed={forcedMusic() === null}
+          onClick={() => {
+            start()
+            forceMusic(null)
+            tick()
+          }}
+        >
+          에이전트 따라 ({STATE_NAMES[getMusicState()]})
+        </button>
         {(Object.keys(STATE_NAMES) as MusicState[]).map((st) => (
           <button
             type="button"
             key={st}
-            aria-pressed={getMusicState() === st}
+            aria-pressed={forcedMusic() === st}
             onClick={() => {
               start()
-              setMusicState(st)
+              forceMusic(st)
               tick()
             }}
           >
             {STATE_NAMES[st]}
           </button>
         ))}
+        <div>
+          거리{' '}
+          {(Object.keys(DIST_NAMES) as MusicDist[]).map((d) => (
+            <button
+              type="button"
+              key={d}
+              aria-pressed={getMusicDist() === d}
+              onClick={() => {
+                setMusicDist(d)
+                tick()
+              }}
+            >
+              {DIST_NAMES[d]}
+            </button>
+          ))}{' '}
+          <button
+            type="button"
+            onClick={() => {
+              start()
+              toggleSpeakerForMe()
+              tick()
+            }}
+          >
+            스피커 누르기 ({speakerForMe() ? '켜짐' : '나에게만 꺼짐'})
+          </button>
+          <small>
+            {' '}
+            미터 {speakerCells()}/8 · 콘 {speakerCone().toFixed(2)} · 페이더 {faderLevels().map((v) => v.toFixed(2)).join(' ')}
+          </small>
+        </div>
         <div>
           템포{' '}
           {TEMPOS.map((t: Tempo) => (

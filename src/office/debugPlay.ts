@@ -1,5 +1,6 @@
 // ?debug=1 tools for close-ups (#184): put an agent into a play / prop scene right now, or loop the three grip stages in place.
-//   window.__office.play.force(agent, kind)   kind: water | books | coffee | pingpong | boardgame (a pair game takes the next agent too)
+//   window.__office.play.force(agent, kind, plant?, reduced?)   kind: water | books | coffee | pingpong | boardgame (a pair game takes the next agent too);
+//                                             water sends the agent for the can (the whole errand, waterRun.ts); plant: plant_corner | plant_sofa | plant_desk
 //   window.__office.play.clear()
 //   window.__office.grip.demo(agent, prop)    prop: marker | pen | stamp | mouse | cup | paddle | can | book: walks the agent to it and
 //                                             repeats reach, pre-grip, close, hold, put back, after, every 6 s
@@ -9,10 +10,10 @@
 
 import type { Goal } from './director'
 import { standSlot } from './director'
-import { WATER_PLANTS, standOf } from './water'
+import { CAN_HOME, WATER_PLANTS, canStand } from './water'
 import { hash } from './play'
 import { SETTLE_MS, type PlaySession } from '../play/session'
-import type { OfficeWorld } from './world'
+import { officeNow, type OfficeWorld } from './world'
 
 export interface GripDemo {
   agent: string
@@ -24,10 +25,8 @@ export interface GripDemo {
 }
 
 const BOOK = { stand: { x: 0.07, z: 2.0 }, face: { x: 0.065, z: 2.66 } }
-const waterGoal = (): Partial<Goal> => {
-  const p = WATER_PLANTS[0]
-  return { spot: 'hall_lounge', face: { x: p.x, z: p.z }, ...standSlot({ stand: standOf(p), face: { x: p.x, z: p.z } }) }
-}
+// the grip demo takes the can where it rests: from its own stand
+const waterGoal = (): Partial<Goal> => ({ spot: 'water_can', face: CAN_HOME, ...standSlot({ stand: canStand(), face: CAN_HOME }) })
 
 const DEMOS: Record<string, (seat: number) => Omit<GripDemo, 'agent'>> = {
   marker: () => ({ kind: 'marker', obj: 'prop_marker_0', side: 'r', goal: { spot: 'whiteboard' } }),
@@ -42,7 +41,7 @@ const DEMOS: Record<string, (seat: number) => Omit<GripDemo, 'agent'>> = {
 
 export function makePlayTools(world: OfficeWorld) {
   const play = {
-    force(agent: string, kind: string) {
+    force(agent: string, kind: string, plant?: string, reduced = false) {
       const ids = Object.keys(world.rigs)
       world.forceGoal = world.forceGoal ?? {}
       // everyone else goes to their own desk, so nobody else is sent to the same spots by the schedule
@@ -56,9 +55,12 @@ export function makePlayTools(world: OfficeWorld) {
         players.forEach((id, i) => (world.forceGoal![id] = { spot: spots[i], pose: kind }))
         return
       }
+      if (kind === 'water') {
+        world.director.forceWater(agent, WATER_PLANTS.find((p) => p.name === plant)?.name ?? WATER_PLANTS[0].name, officeNow(world), reduced)
+        return
+      }
       const goals: Record<string, Partial<Goal>> = {
         coffee: { spot: 'coffee', pose: 'coffee' },
-        water: { pose: 'water', ...waterGoal() },
         books: { spot: 'shelf', pose: 'books', face: BOOK.face, ...standSlot(BOOK) },
       }
       if (goals[kind]) world.forceGoal[agent] = goals[kind]
@@ -67,6 +69,7 @@ export function makePlayTools(world: OfficeWorld) {
       world.forceGoal = null
       world.forcedSessions = []
       world.gripDemo = null
+      world.director.clearWater()
     },
   }
   const grip = {

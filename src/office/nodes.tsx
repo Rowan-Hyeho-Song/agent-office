@@ -29,8 +29,15 @@ import { prepareView } from './walls'
 //   nav:   "<kind>"  empties: where agents go and which way they face (navigation graph: nav.ts)
 
 export const MODEL_URL = assetUrl('models/office.glb')
-export const ATLASES = ['room', 'walls_nw', 'walls_se', 'work', 'wall_items', 'lounge'] as const
+export const ATLASES = ['room', 'walls_nw', 'walls_se', 'work', 'wall_items', 'lounge', 'desk_props'] as const
 const ATLAS_URLS = ATLASES.map((a) => assetUrl(`models/${a}.webp`))
+
+/**
+ * Seats of the model that have no agent in the app yet: the glb carries agent_<i>_* for them, but no rig is built, so a loose beam / glow / floor
+ * would show in the aisle. Their nodes are taken out of the scene (the `nodes` map still has them), so neither the footprint, the camera
+ * clearance nor the occluders ever see them (the desk, props and nav spot of the seat are not affected). Empty since #193 2/2: echo (seat 4) has a rig.
+ */
+export const HIDDEN_AGENTS: readonly number[] = []
 
 /** runtime glow per live kind (the bake used its own strengths for the light the emitters cast) */
 export const GLOW: Record<string, number> = { screen: 1.1, face: 1.4, neon: 2.6, door: 1.0 }
@@ -116,6 +123,7 @@ export function prepare(scene: Object3D, atlases: Texture[]): OfficeNodes {
   if (scene.userData.nodes) return scene.userData.nodes as OfficeNodes
   const nodes: OfficeNodes = {}
   scene.userData.nodes = nodes
+  const hide = new RegExp(`^agent_(${HIDDEN_AGENTS.join('|')})(_|$)`)
   const byName = Object.fromEntries(ATLASES.map((a, i) => [a, atlases[i]]))
   // the glb is flat: every exported node sits at the top level (nav empties carry no atlas / live)
   const top = scene.children.filter((o) => o.userData.atlas || o.userData.live)
@@ -142,6 +150,13 @@ export function prepare(scene: Object3D, atlases: Texture[]): OfficeNodes {
     node.traverse((o) => {
       if (o.name && !nodes[o.name]) nodes[o.name] = o // a primitive may repeat its node's name
     })
+  }
+  if (HIDDEN_AGENTS.length) {
+    const gone: Object3D[] = []
+    scene.traverse((o) => {
+      if (hide.test(o.name)) gone.push(o)
+    })
+    for (const o of gone) o.removeFromParent()
   }
   return nodes
 }

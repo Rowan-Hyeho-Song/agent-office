@@ -186,9 +186,9 @@ describe('traffic planner on the grid', () => {
     p.place('a', req('work_0'), 0, 0)
     p.place('b', req('work_1'), 0, 1)
     p.update(0)
-    const slot = { x: 0.2, z: -0.2, ry: 1 }
+    const slot = { x: -0.6, z: 0.9, ry: 1 }
     p.request('a', req('ring_0', { slot }), 0)
-    p.request('b', req('ring_1', { slot: { x: 0.5, z: -0.2, ry: -1 } }), 0)
+    p.request('b', req('ring_1', { slot: { x: -0.3, z: 0.9, ry: -1 } }), 0)
     const min = run(p, ['a', 'b'], 0, 60)
     expect(min).toBeGreaterThanOrEqual(R2)
     const a = p.sample('a', 60)
@@ -226,5 +226,65 @@ describe('traffic planner on the grid', () => {
       expect(p.sample('b', 40).arrived).toBe(second)
       expect(p.sample('a', 40).arrived).toBe(first)
     }
+  })
+  // desks.md 2.1 (#251): the window strip behind 메모's seat is not a lane for others, but it is 메모's own way out when someone stands
+  // at chat_0 (the head desk's north-east corner to a body on chat_0 is 0.39 m). The grid only treats seated bodies as obstacles, so the
+  // strip opens as soon as 메모 gets up; this checks it with a talk going on at both chat spots and the whole pod seated
+  for (const to of ['meet_center', 'board_tray'])
+    it(`메모 leaves its seat while two talk at chat_0 / chat_1 and reaches ${to} within 60 s; never closer than 2R`, () => {
+      const p = office()
+      const seated = ['work_1', 'work_2', 'work_3', 'work_4']
+      p.place('memo', req('work_0'), 0, 0)
+      p.place('c0', req('chat_0'), 0, 1)
+      p.place('c1', req('chat_1'), 0, 2)
+      seated.forEach((s, i) => p.place(s, req(s), 0, 3 + i))
+      p.update(0)
+      p.request('memo', req(to), 0)
+      const ids = ['memo', 'c0', 'c1', ...seated]
+      const min = run(p, ids, 0, 60)
+      expect(min).toBeGreaterThanOrEqual(R2 - 1e-6)
+      expect(p.sample('memo', 60).arrived).toBe(to)
+      // the talkers and the seated ones never moved
+      for (const [id, spot] of [['c0', 'chat_0'], ['c1', 'chat_1'], ...seated.map((s) => [s, s])]) expect(p.sample(id, 60).arrived).toBe(spot)
+    })
+})
+
+describe('a quiet (night-duty) agent standing at a desk side (#193)', () => {
+  it('walks out of it: the side it stands at is not avoided for the way out, the others still are', () => {
+    const grid = buildGrid(decodeFootprint(FOOTPRINT_DATA), GRAPH)
+    const avoid = new Set(['desk_side_0', 'desk_side_1', 'desk_side_2', 'desk_side_3', 'desk_side_4'])
+    for (const dest of ['coffee', 'chat_0', 'sofa_1']) {
+      const p = new TrafficPlanner(grid, GRAPH)
+      p.place('night', req('desk_side_0', { avoid }), 0, 1)
+      p.place('memo', req('work_0'), 0, 0)
+      p.update(0)
+      p.request('night', req(dest, { avoid }), 1, 1)
+      for (let t = 1; t < 90; t += 0.1) p.update(t)
+      expect(p.sample('night', 90).arrived, dest).toBe(dest)
+    }
+  })
+})
+
+describe('a newcomer beside a resting agent (#193)', () => {
+  it('walks in to the next sofa seat while the sleeper on the first keeps its seat: no reorder loop that sends the sleeper away', () => {
+    const grid = buildGrid(decodeFootprint(FOOTPRINT_DATA), GRAPH)
+    const p = new TrafficPlanner(grid, GRAPH)
+    p.place('sleeper', req('sofa_0'), 0, 1)
+    p.place('walker', req('work_2'), 0, 2)
+    p.place('reader', { ...req('shelf'), slot: { x: 0.07, z: 2.0, ry: 3.14 } }, 0, 3)
+    p.update(0)
+    p.request('walker', req('sofa_1'), 1, 2)
+    p.request('reader', { ...req('water_can'), slot: { x: 3.82, z: 2.64, ry: 0 } }, 1, 3)
+    let minPair = Infinity
+    let sleeperMoved = 0
+    for (let t = 1; t < 80; t += 0.1) {
+      p.update(t)
+      const s = ['sleeper', 'walker', 'reader'].map((i) => p.sample(i, t))
+      for (const [a, b] of [[0, 1], [0, 2], [1, 2]]) minPair = Math.min(minPair, Math.hypot(s[a].x - s[b].x, s[a].z - s[b].z))
+      if (Math.hypot(s[0].x - 1.67, s[0].z - 2.73) > 0.05) sleeperMoved++
+    }
+    expect(p.sample('walker', 80).arrived).toBe('sofa_1')
+    expect(sleeperMoved).toBe(0)
+    expect(minPair).toBeGreaterThanOrEqual(0.47) // the designed sofa pair is 0.53 m
   })
 })

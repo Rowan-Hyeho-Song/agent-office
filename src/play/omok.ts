@@ -89,6 +89,7 @@ export const PERSONALITIES: Record<string, Personality> = {
   agent_1: { name: '메시', aggr: 1, defn: 1.1, noise: 0.1, slip: 0.04, think: [900, 2200] }, // defensive
   agent_2: { name: '휴', aggr: 1, defn: 0.9, noise: 0.6, slip: 0.25, think: [900, 2200] }, // creative, random-ish
   agent_3: { name: '루프', aggr: 1.35, defn: 0.8, noise: 0.1, slip: 0.08, think: [600, 1400] }, // aggressive, quick
+  agent_4: { name: '에코', aggr: 0.95, defn: 1, noise: 0.1, slip: 0.06, think: [900, 2000] }, // listens for the stone's click: average, steady
 }
 /** think time of the AI against a visitor (#137): not bound by the agent-vs-agent clock */
 export const VISITOR_THINK: [number, number] = [600, 1400]

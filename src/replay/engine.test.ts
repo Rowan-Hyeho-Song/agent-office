@@ -90,6 +90,10 @@ describe('the office at a point', () => {
     expect(w.agent_0.state).toBe('idle')
     expect(Object.values(statusAt(ok)).every((s) => s.state === 'idle')).toBe(true)
     expect(statusAt(pt(1, { secret: true, title: '' })).agent_3.activity).toBe('private')
+    // five agents (#193): echo is on the map and can be the one working
+    expect(Object.keys(w)).toEqual(['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4'])
+    expect(statusAt(pt(1, { agent: 4 })).agent_4).toMatchObject({ state: 'working', activity: 'edit' })
+    expect(statusAt(pt(1, { agent: 4 })).agent_3.state).toBe('idle')
     expect(Object.values(statusAt(pt(1, { kind: 'deploy', agent: null }))).every((s) => s.state === 'idle')).toBe(true)
   })
   it('is a pure function of (points, index): the way there does not matter', () => {

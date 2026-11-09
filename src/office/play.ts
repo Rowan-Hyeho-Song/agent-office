@@ -38,6 +38,8 @@ export const LIKES: Record<string, Partial<Record<PlayKind, number>>> = {
   agent_0: { boardgame: 3, pingpong: 0.4 },
   agent_1: { boardgame: 3, pingpong: 0.4 },
   agent_3: { pingpong: 3 },
+  // echo (#193): drums along to the rally rather than playing it, and likes the click of the omok stones
+  agent_4: { boardgame: 2, pingpong: 0.5 },
 }
 const like = (agent: string, kind: PlayKind) => LIKES[agent]?.[kind] ?? 1
 
@@ -52,6 +54,8 @@ export interface PlayAssignment {
   partner?: string
   face?: { x: number; z: number }
   stand?: { x: number; z: number }
+  /** water: the plant's name (water.ts); the Director runs it as an errand (waterRun.ts, #228) */
+  plant?: string
 }
 
 /** small fast PRNG (mulberry32): same seed, same sequence, in every browser */
@@ -89,7 +93,7 @@ export const blockOf = (minute: number) => Math.floor(minute / BLOCK_MINUTES)
  * @param agents  the roster (order does not matter)
  * @param busy    agents that are not free to play right now
  */
-export function playAt(minute: number, agents: string[], busy: ReadonlySet<string> = new Set()): Record<string, PlayAssignment> {
+export function playAt(minute: number, agents: string[], busy: ReadonlySet<string> = new Set(), depth = 1): Record<string, PlayAssignment> {
   const roster = [...agents].sort()
   const block = blockOf(minute)
   const rand = rng(hash(`${block}|${roster.join(',')}`))
@@ -101,10 +105,23 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
     ;[order[i], order[j]] = [order[j], order[i]]
   }
 
+  // the block before (the same draw, one level shallower): who stood where, so that two agents never have to change places along the aisle
+  const before = depth > 0 ? playAt(minute - BLOCK_MINUTES, agents, new Set(), depth - 1) : {}
+  const readerBefore = Object.values(before).some((o) => o.kind === 'books')
   const used = new Set<string>() // spots taken
   const taken = new Set<PlayKind>() // pair activities already running (one table each)
   const out: Record<string, PlayAssignment> = {}
   const freeSpot = (p: PlayDef) => p.spots.find((s) => !used.has(s))
+  /**
+   * Reading at the side table (the shelf stand, 0.07 m / 2.0 m) and a ping-pong game never share a block (#193, five agents): the reader closes the
+   * aisle south of the table and the east player the one round its end, so whoever naps on the sofa or comes back from the plants would be walled
+   * in for the whole block (the day simulation found waits of up to 3 minutes).
+   */
+  /**
+   * Nor does someone who napped on the sofa take up reading the block after somebody else read there: the reader would go to the sofa the way the
+   * sleeper comes, head on, in an aisle that is one body wide (the day simulation: 0.2 m apart).
+   */
+  const clashes = (p: PlayDef, agent?: string) => (p.kind === 'books' && agent !== undefined && readerBefore && before[agent]?.kind === 'sofa') || (p.kind === 'books' && [...taken].includes('pingpong')) || (p.kind === 'pingpong' && Object.values(out).some((o) => o.kind === 'books'))
 
   // a pair game is as likely as both players like it
   const weight = (p: PlayDef, agent: string, partner?: string) =>
@@ -121,11 +138,13 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
 
   const assign = (agent: string, p: PlayDef, spot: string, partner?: string) => {
     used.add(spot)
+    let plantName: string | undefined
     if (p.kind === 'water') {
       const plant = WATER_PLANTS[hash(`${block}|water|${agent}`) % WATER_PLANTS.length]
       p = { ...p, face: { x: plant.x, z: plant.z }, stand: standOf(plant) }
+      plantName = plant.name
     }
-    out[agent] = { kind: p.kind, label: p.label, spot, ...(partner ? { partner } : {}), ...(p.face ? { face: p.face } : {}), ...(p.stand ? { stand: p.stand } : {}) }
+    out[agent] = { kind: p.kind, label: p.label, spot, ...(plantName ? { plant: plantName } : {}), ...(partner ? { partner } : {}), ...(p.face ? { face: p.face } : {}), ...(p.stand ? { stand: p.stand } : {}) }
   }
 
   const solos = PLAYS.filter((p) => !p.pair)
@@ -133,8 +152,8 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
     const agent = order[i]
     if (out[agent]) continue
     const partner = order.slice(i + 1).find((a) => !out[a])
-    const open = PLAYS.filter((p) => (p.pair ? partner && !taken.has(p.kind) : freeSpot(p)))
-    const p = pick(open.length ? open : solos, agent, partner)
+    const open = PLAYS.filter((p) => !clashes(p, agent) && (p.pair ? partner && !taken.has(p.kind) : freeSpot(p)))
+    const p = pick(open.length ? open : solos.filter((q) => !clashes(q, agent)), agent, partner)
     if (p.pair && partner) {
       taken.add(p.kind)
       assign(agent, p, p.spots[0], partner)
@@ -155,7 +174,7 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
     if (!as.partner || out[as.partner]) continue
     used.delete(as.spot)
     delete out[a]
-    const solo = solos.slice(Math.floor(rand() * solos.length)).concat(solos).find((p) => freeSpot(p))
+    const solo = solos.slice(Math.floor(rand() * solos.length)).concat(solos).find((p) => freeSpot(p) && !clashes(p, a))
     if (solo) assign(a, solo, freeSpot(solo)!)
   }
   return out

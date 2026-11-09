@@ -5,6 +5,7 @@
 [data-seat='1'] { --agent: var(--agent-1); --agent-ink: var(--agent-1-ink); }
 [data-seat='2'] { --agent: var(--agent-2); --agent-ink: var(--agent-2-ink); }
 [data-seat='3'] { --agent: var(--agent-3); --agent-ink: var(--agent-3-ink); }
+[data-seat='4'] { --agent: var(--agent-4); --agent-ink: var(--agent-4-ink); }
 [data-seat='o'] { --agent: var(--color-text); --agent-ink: var(--color-text); }
 [data-seat='n'] { --agent: var(--color-text-muted); --agent-ink: var(--color-text-muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

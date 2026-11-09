@@ -12,15 +12,27 @@
 import { getSetting, subscribe } from './settings'
 import { makeEcho } from './synth'
 
-export type Bus = 'music' | 'sfx' | 'voice' | 'ambience'
+export type Bus = 'music' | 'sfx' | 'voice' | 'ambience' | 'keys'
 
 /**
  * base bus gains (sound.md 2.2), set from the live output.
  * - #205: the room tone masked every cue at 0.1 → 0.009; music matched to the desk room (RMS −39).
  * - #194 louder (user, 2026-11-10: "거의 안 들려"): music and sfx/voice +6 dB. The room tone stays (it must not mask).
+ * - #194 thock (user: "타이핑 소리는 살짝 작아져도. 너무 저 소리만 들린다"): typing has its own bus, 5 dB under sfx,
+ *   through a compressor so five typists together don't add up (KEYS_GLUE).
+ * - #194 keys sample (user: "타이핑 사운드 아주 살짝만 더 높여"): keys +2 dB (0.62 → 0.78), 3 dB under sfx.
  * The desk room: music 0.14, sfx 0.55.
  */
-export const BUS_LEVEL: Record<Bus, number> = { music: 0.48, sfx: 1.1, voice: 1.0, ambience: 0.009 }
+export const BUS_LEVEL: Record<Bus, number> = { music: 0.48, sfx: 1.1, voice: 1.0, ambience: 0.009, keys: 0.78 }
+
+/** the keys bus glue: a firm compressor so the sum of many typists stays near one typist's level */
+export const KEYS_GLUE = { threshold: -34, knee: 6, ratio: 8, attack: 0.002, release: 0.15 }
+/**
+ * Chrome adds its own make-up gain to a DynamicsCompressor: with KEYS_GLUE every signal under the threshold comes out
+ * +16.7 dB (measured offline, a 300 Hz sine from −60 to −34 dBFS). Taken back right after it, so a single key passes at
+ * its own level and only a pile of typists is squeezed.
+ */
+export const KEYS_GLUE_MAKEUP_DB = 16.7
 
 /**
  * the default camera is 11–20 m from the room's corners (room.ts DEFAULT_CAMERA (8.5, 8, 9.5) → the far corner
@@ -86,7 +98,17 @@ export function ensureAudio(): Graph | null {
     for (const b of Object.keys(BUS_LEVEL) as Bus[]) {
       bus[b] = ctx.createGain()
       bus[b].gain.value = busLevel[b]
-      bus[b].connect(room)
+      if (b === 'keys') {
+        const glue = ctx.createDynamicsCompressor()
+        glue.threshold.value = KEYS_GLUE.threshold
+        glue.knee.value = KEYS_GLUE.knee
+        glue.ratio.value = KEYS_GLUE.ratio
+        glue.attack.value = KEYS_GLUE.attack
+        glue.release.value = KEYS_GLUE.release
+        const trim = ctx.createGain()
+        trim.gain.value = Math.pow(10, -KEYS_GLUE_MAKEUP_DB / 20)
+        bus[b].connect(glue).connect(trim).connect(room)
+      } else bus[b].connect(room)
     }
     const echo = makeEcho(ctx, bus.sfx)
     g = { ctx, master, room, bus, echo, analyser }
@@ -120,22 +142,41 @@ export function fadeRoom(to: number, sec: number) {
   p.linearRampToValueAtTime(to, t + Math.max(0.01, sec))
 }
 
+/** a held duck per bus (music under a ping-pong rally, ③): the bus rests this many dB down until it's let go (0) */
+const held: Record<Bus, number> = { music: 0, sfx: 0, voice: 0, ambience: 0, keys: 0 }
+/** the deeper of a duck and the held one wins: they don't add up (speech −6 over ping-pong −4 = −6) */
+export const duckDb = (db: number, heldDb: number) => Math.min(db, heldDb)
+const ducked = (b: Bus, db = 0) => busLevel[b] * Math.pow(10, duckDb(db, held[b]) / 20)
+
 /** a bus's base level (debug faders) */
 export function setBusLevel(b: Bus, v: number) {
   busLevel[b] = v
-  if (g) g.bus[b].gain.setTargetAtTime(v, g.ctx.currentTime, 0.02)
+  if (g) g.bus[b].gain.setTargetAtTime(ducked(b), g.ctx.currentTime, 0.02)
 }
 export const getBusLevel = (b: Bus) => busLevel[b]
 
-/** duck a bus by `db` for a while (music under speech, sound.md 2.2) */
+/** duck a bus by `db` for a while (music under speech, sound.md 2.2); it comes back to the held level */
 export function duck(b: Bus, db: number, down = 0.15, up = 0.6) {
   if (!g) return
   const p = g.bus[b].gain
   const t = g.ctx.currentTime
   p.cancelScheduledValues(t)
-  p.setTargetAtTime(busLevel[b] * Math.pow(10, db / 20), t, down / 3)
-  p.setTargetAtTime(busLevel[b], t + down + 0.4, up / 3)
+  p.setTargetAtTime(ducked(b, db), t, down / 3)
+  p.setTargetAtTime(ducked(b), t + down + 0.4, up / 3)
 }
+
+/** hold a bus `db` down (0 = let go): down over `down` s, back up over `up` s */
+export function holdDuck(b: Bus, db: number, down = 0.5, up = 1.5) {
+  if (held[b] === db) return
+  const deeper = db < held[b]
+  held[b] = db
+  if (!g) return
+  const p = g.bus[b].gain
+  const t = g.ctx.currentTime
+  p.cancelScheduledValues(t)
+  p.setTargetAtTime(ducked(b), t, (deeper ? down : up) / 3)
+}
+export const heldDuck = (b: Bus) => held[b]
 
 // ─── 3D: the listener is the camera (sound.md 1, 6) ───
 

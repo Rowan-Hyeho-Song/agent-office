@@ -3,13 +3,17 @@
 // (its click is 0.04, its success 0.05). Pitched cues stay in A minor pentatonic so they sit on the music.
 
 import { MAX_SFX, audioGraph, duck, panner, type Bus, type Vec } from './engine'
+import { keyVoice, type KeyKind } from './keys'
 import { getSetting } from './settings'
 import { knock, midi, noise, tone, type Out } from './synth'
 
 /** repeat = background busywork (dropped when fast or off-camera), event = something happened, ui = the visitor did it */
 type Kind = 'repeat' | 'event' | 'ui'
 
-type CueVars = { agent?: string; dur?: number; pitch: number }
+type CueVars = { agent?: string; dur?: number; pitch: number; keyKind?: KeyKind }
+
+/** most keys sounding at once across all typists (#194 thock: five typists must not pile up) */
+export const MAX_KEYS = 4
 
 type CueDef = {
   label: string
@@ -40,16 +44,14 @@ function dark(o: Out, cutoff: number): Out {
 export const CUES = {
   // ── 1차 묶음 (sound.md 4.1) ──
   type: {
-    label: '타자 딸깍',
+    label: '타자 (키보드 소리는 위에서 고름)',
     kind: 'repeat',
-    bus: 'sfx',
+    bus: 'keys',
     spatial: true,
     gap: 38,
-    length: 0.03,
-    play: (o, v) => {
-      noise(o, 0.025, { freq: 3200 * v.pitch, q: 1.4, level: 0.03 })
-      tone(o, 1500 * v.pitch, 0.02, { type: 'triangle', level: 0.006 })
-    },
+    length: 0.1,
+    // each seat's keyboard is a little different, half as far apart as their voices (±7%)
+    play: (o, v) => keyVoice(o, v.keyKind ?? 'char', 1 + (v.pitch - 1) * 0.5),
   },
   'plane.throw': {
     label: '종이비행기 슉',
@@ -70,6 +72,57 @@ export const CUES = {
     play: (o) => {
       noise(o, 0.05, { freq: 2600, q: 0.8, level: 0.07 })
       noise(o, 0.03, { kind: 'pink', filter: 'lowpass', freq: 900, level: 0.04 })
+    },
+  },
+  // ── #262 종이 전달 (거리에 따라): 셋 다 종이비행기보다 작고 짧다. 가까이서 일어나는 작은 일이다 ──
+  'handoff.give': {
+    label: '건네기 종이 스침',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 200,
+    length: 0.22,
+    // two soft brushes of paper on paper, the second a little brighter (the receiving hand takes it)
+    play: (o) => {
+      noise(o, 0.12, { freq: 3200, to: 4200, q: 0.7, level: 0.038, shape: 'swell' })
+      noise(o, 0.07, { freq: 5000, q: 0.9, level: 0.026, at: 0.11 })
+    },
+  },
+  'handoff.slide': {
+    label: '밀어 주기 책상 위 미끄러짐',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 150,
+    length: 0.5,
+    // paper on oak: low-ish friction that slows down (the band falls), as long as it slides (dur, 0.15–1.2 s)
+    play: (o, v) => {
+      const d = Math.max(0.15, Math.min(1.2, v.dur ?? 0.45))
+      noise(o, d, { kind: 'pink', freq: 1500, to: 650, q: 0.9, level: 0.04, attack: 0.03, shape: 'flat' })
+      noise(o, d * 0.8, { freq: 3800, to: 2400, q: 1.2, level: 0.012, attack: 0.03, shape: 'swell' })
+    },
+  },
+  'handoff.toss': {
+    label: '툭 던지기 휙',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 200,
+    length: 0.16,
+    // the plane's whoosh, shorter and lower: a folded sheet, not a glider
+    play: (o) => noise(o, 0.16, { kind: 'pink', freq: 700, to: 1700, q: 1.1, level: 0.085, shape: 'swell' }),
+  },
+  'handoff.catch': {
+    label: '툭 던지기 받는 톡',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 200,
+    length: 0.05,
+    // into a hand, not onto a desk: softer and duller than plane.land
+    play: (o) => {
+      noise(o, 0.04, { freq: 2000, q: 0.8, level: 0.065 })
+      noise(o, 0.03, { kind: 'pink', filter: 'lowpass', freq: 600, level: 0.04 })
     },
   },
   stamp: {
@@ -209,6 +262,26 @@ export const CUES = {
       tone(d, midi(56), 0.2, { type: 'square', level: 0.025, at: 0.12 })
     },
   },
+  'approval.new': {
+    // #240: a new approval arrived. A small bell "띵-동" falling a fourth (G6 → D6, both in the pentatonic), so it reads
+    // apart from the stamp (a low thud), the paper plane (air) and the approve chime (a rising triangle arpeggio).
+    // A bell = a sine plus an inharmonic partial (×2.76) that dies sooner, with a short echo tail.
+    label: '결재함 새 항목 띵동',
+    kind: 'ui',
+    bus: 'sfx',
+    spatial: false,
+    gap: 5000, // several within 5 s = one (docs-ui.md 1.6)
+    length: 0.9,
+    play: (o) => {
+      for (const [n, at] of [
+        [91, 0],
+        [86, 0.16],
+      ] as const) {
+        tone(o, midi(n), 0.55, { type: 'sine', level: 0.038, at, attack: 0.002, echo: true })
+        tone(o, midi(n) * 2.76, 0.18, { type: 'sine', level: 0.01, at, attack: 0.001 })
+      }
+    },
+  },
   // ── 화면 UI (책상 방과 같은 소리) ──
   'ui.hover': {
     label: 'UI 호버',
@@ -308,6 +381,8 @@ export type CueOpts = {
   key?: string
   /** internal: already waited once for the context to start */
   retried?: boolean
+  /** typing: which key (#225 kinds); char when not given */
+  keyKind?: KeyKind
 }
 
 // ── replay speed (sound.md 6): ×1 as is, ×4 half the busywork and events −3 dB, ×16 events only at −6 dB ──
@@ -338,7 +413,12 @@ const gapKey = (name: CueName, agent?: string) => ((name === 'type' || name === 
 /** how many times each cue has sounded (?debug level scripts read it through window.__sound) */
 export const cueCounts = new Map<CueName, number>()
 const lastPitch = new Map<CueName, number>()
-let active: number[] = [] // end times (ctx seconds) of sounding sfx
+/** sounding (or scheduled) voices as [start, end] in ctx seconds, sfx and keys apart: the caps count overlap at a cue's own time */
+type Span = [number, number]
+let active: Span[] = []
+let activeKeys: Span[] = []
+/** how many spans overlap [t, t + len) (pure, tested) */
+export const overlapping = (spans: Span[], t: number, len: number) => spans.filter(([s, e]) => s < t + len && e > t).length
 
 /** play a cue now. Returns whether it sounded (for tests and the debug panel). */
 export function cue(name: CueName, opts: CueOpts = {}): boolean {
@@ -355,15 +435,19 @@ export function cue(name: CueName, opts: CueOpts = {}): boolean {
   }
   const def = CUES[name] as CueDef
   const now = performance.now()
-  if (now - (lastAt.get(gapKey(name, opts.agent)) ?? -1e9) < def.gap) return false
+  // the gap is measured on the scheduled time, so a run of keys booked ahead (at) keeps its rhythm
+  const when = (g.ctx.currentTime + (opts.at ?? 0)) * 1000
+  if (Math.abs(when - (lastAt.get(gapKey(name, opts.agent)) ?? -1e9)) < def.gap) return false
   // the "every other one" at ×4 is decided by the event's key when there is one, so a replayed scene sounds the same
   const k = speedRule(def.kind, speed, opts.key !== undefined ? keyRoll(opts.key) : Math.random())
   if (k === 0) return false
 
   const t = g.ctx.currentTime + (opts.at ?? 0)
-  active = active.filter((e) => e > g.ctx.currentTime)
-  if (def.bus === 'sfx' && def.kind !== 'ui' && active.length >= MAX_SFX) return false
-  lastAt.set(gapKey(name, opts.agent), now)
+  active = active.filter(([, e]) => e > g.ctx.currentTime)
+  if (def.bus === 'sfx' && def.kind !== 'ui' && overlapping(active, t, def.length) >= MAX_SFX) return false
+  activeKeys = activeKeys.filter(([, e]) => e > g.ctx.currentTime)
+  if (def.bus === 'keys' && overlapping(activeKeys, t, def.length) >= MAX_KEYS) return false
+  lastAt.set(gapKey(name, opts.agent), when)
 
   // a repeat within a second wobbles ±3% so it doesn't sound like a machine gun
   const base = seatPitch(opts.agent)
@@ -376,8 +460,9 @@ export function cue(name: CueName, opts: CueOpts = {}): boolean {
   trim.connect(dest)
   dest = trim
   if (def.spatial && opts.pos) dest = panner(g.ctx, opts.pos, trim)
-  def.play({ c: g.ctx, dest, echo: g.echo, t }, { agent: opts.agent, dur: opts.dur, pitch: base * wobble })
-  active.push(t + def.length)
+  def.play({ c: g.ctx, dest, echo: g.echo, t }, { agent: opts.agent, dur: opts.dur, pitch: base * wobble, keyKind: opts.keyKind })
+  if (def.bus === 'keys') activeKeys.push([t, t + def.length])
+  else active.push([t, t + def.length])
   cueCounts.set(name, (cueCounts.get(name) ?? 0) + 1)
   if (def.bus === 'voice') duck('music', -6)
   // let go of the per-cue nodes once it's over
@@ -390,8 +475,8 @@ export function cue(name: CueName, opts: CueOpts = {}): boolean {
 }
 
 /** play a cue into any context (the debug level check renders into an OfflineAudioContext) */
-export function playInto(c: BaseAudioContext, dest: AudioNode, name: CueName, t = 0, agent?: string) {
+export function playInto(c: BaseAudioContext, dest: AudioNode, name: CueName, t = 0, agent?: string, keyKind?: KeyKind) {
   const def = CUES[name] as CueDef
-  def.play({ c, dest, t }, { agent, pitch: seatPitch(agent) })
+  def.play({ c, dest, t }, { agent, pitch: seatPitch(agent), keyKind })
   return def.length
 }

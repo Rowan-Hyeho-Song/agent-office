@@ -11,9 +11,31 @@ Run:  blender --background --factory-startup --python office_bake.py -- <out_dir
 Same pipeline as the rowansong.dev desk (bakekit.py), so the two rooms read as one world.
 
 Node contract (the app reads glTF extras):
-  atlases room, walls_nw, walls_se, work, wall_items, lounge (6 webp) -> MeshBasicMaterial + atlas. Baked nodes:
-  room                             the floor, carpet, rug, base edges; extras room = [HX, HZ, WALL_H] (#109: the app
-                                   reads the room size here)
+  atlases room, walls_nw, walls_se, work, wall_items, lounge, desk_props (7 webp) -> MeshBasicMaterial + atlas. Baked:
+  room                             the floor, the three rugs (#195: work, meeting, lounge), base edges; extras room =
+                                   [HX, HZ, WALL_H] (#109: the app reads the room size here)
+  desk_<i>                         (work) the desk body (#187 kit: oak top, graphite band, legs, cable tray); i 0..4,
+                                   the five desks stand as one island (#195 plan 2, slot_pod)
+  desk_<i>_props                   (desk_props, #187) the common kit (keyboard case, monitor, mouse body + pad, cables)
+                                   and the owner's things (seat_*), extras desk
+  kb_<i>_caps                      (desk_props, #225) the 87 keycaps as one mesh, frame = the keyboard plate (pivot_at);
+                                   point attribute _KEY (three: _key) = key 0..86; extras keys [{code, pivot, top, size,
+                                   w}] in that frame, key_travel_m (press = local -y)
+  desk_<i>_mouse_l|_r|_wheel       live "bot" (#225): the mouse's button shells (pivot on the hinge, press = local x
+                                   -2 deg) and wheel (pivot on its axle, rolls about local x); no desk_2 mouse (tablet)
+  desk_4_spk_l|_r, desk_4_knob_<k>, desk_4_fader_<k>
+                                   live "bot" (#193 ECHO): woofer cones (extras travel, axis z), gain knobs (axis y),
+                                   faders (extras travel 0.045, axis -z, zero); desk_4_spk_led, desk_4_meter_0..7 neon
+  prop_duck, prop_keycap_0, prop_headphones
+                                   live "prop" (#187 desk-props.md 5)
+  <book>_page                      live "bot" (#231): a page to turn per book (prop_book, prop_shelfbook_<k>): two
+                                   sheets back to back, 16 x 4, attributes _PAGE_U (spine 0 -> fore-edge 1), _PAGE_V
+                                   (bottom 0 -> top 1); pivot = the spine axis; extras page_w, page_h, turn_axis, turn_dir
+  nav_meet_center                  (#195) the one meeting circle: extras ry (0 deg = toward the board), ring 0.9, r 1.16
+  nav_chat_0|_1                    (#195) the second conversation's two spots by the window, facing each other
+  <plant>_tip_0..2                 empties (#185 watering.md): leaf tips where a drop forms, extras tip_of
+  agent_4_fork, agent_4_ring       (#193 ECHO) live "bot" tuning fork U (pivot = the stem's top; tines shake about
+                                   local x), live "neon" light ring round the back grille
   wall_n|e|s|w                     the four walls (#111), pivot_at at the wall's foot (floor, middle of the wall),
                                    extras wall; the app lowers the camera-side ones. n carries the window frame
   door, boards, wallclock          hung on a wall: extras wall (w, n, w). shelf, lounge, desk_<i>, pad_<i>: on the floor
@@ -65,7 +87,8 @@ Node contract (the app reads glTF extras):
   clock_hand_h, clock_hand_m, clock_hub
                                    live "bot": the wall clock (#91), pivot_at = face center, local +y = 12 o'clock,
                                    local +z = out of the face; both hands export at 12, clockwise = negative turn about z
-Seats 0..3 = MEMO amber, MESH lavender, HUE magenta, LOOP cyan (#26); their forms: docs/design/agents.md 2 (#28).
+Seats 0..4 = MEMO amber, MESH lavender, HUE magenta, LOOP cyan (#26), ECHO phosphor (#193); their forms:
+docs/design/agents.md 2 (#28).
 """
 import os
 import random
@@ -73,6 +96,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bakekit import *  # noqa: E402,F401,F403
+import desk_kit as KIT  # noqa: E402  (#187: the common desk kit, docs/design/desk-props.md 2)
+from mathutils import Color  # noqa: E402
 
 RNG = random.Random(7)
 DRNG = random.Random(43)  # desk props (#43): their own sequence, so the rest of the room keeps its randomness
@@ -87,21 +112,32 @@ WALL_H = 2.6
 WT = 0.14
 WORK_Z = 0.5  # where an agent hovers in front of its desk (from the desk center): hands reach the keyboard
 
-AGENTS = [  # desk frame (x, z, ry): the agent sits on local +z and faces local -z (the monitor / the wall)
-    {"color": "#ffb347", "at": (-2.8, -3.07, 0.0)},  # 0 MEMO amber (its back edge just clear of the window sill)
-    {"color": "#8f9bff", "at": (-1.0, -3.07, 0.0)},  # 1 MESH lavender
-    {"color": "#ff3ea5", "at": (-4.14, -1.12, math.pi / 2)},  # 2 HUE magenta (0.6 m clear of MEMO's spot)
-    {"color": "#4df3ff", "at": (-4.14, 0.68, math.pi / 2)},  # 3 LOOP cyan
+AGENTS = [  # desk frame (x, z, ry): the agent sits on local +z and faces local -z (the monitor)
+    # #195 plan 2 (desks.md 2.1.3): an island pod, two rows of two back to back running north-south (west row x -3.01,
+    # east row x -2.39, desks 1.2 long), MEMO's head desk across their north end in front of the window
+    {"color": "#ffb347", "at": (-2.50, -2.12, math.pi)},  # 0 MEMO amber: head desk, faces south
+    {"color": "#8f9bff", "at": (-2.81, -0.01, -math.pi / 2)},  # 1 MESH lavender: west row south, faces east
+    {"color": "#ff3ea5", "at": (-2.81, -1.21, -math.pi / 2)},  # 2 HUE magenta: west row north, faces east
+    {"color": "#4df3ff", "at": (-2.19, -1.21, math.pi / 2)},  # 3 LOOP cyan: east row north, faces west
+    {"color": "#f2ffc4", "at": (-2.19, -0.01, math.pi / 2)},  # 4 ECHO phosphor (#193): east row south, faces west
 ]
 WINDOW_X = -1.9  # the window over desks 0-1 (2.6 m wide)
 WHITEBOARD_X, BULLETIN_X = 1.1, 2.55
-# meeting centers (#147): 1.3 m in front of the whiteboard's face, and the open floor between the work corner and the
-# lounge (the old meet_a/b middle). MEET_R = 0.75 m ring + 0.25 m body
-MEET_CENTERS = (("meet_center_board", WHITEBOARD_X, -HZ + 0.02 + 1.3), ("meet_center_floor", -1.0, -0.6))
-MEET_R = 1.0
+# #195 (desks.md 2.1.2): one meeting circle almost square in front of the whiteboard; the board meeting and the floor
+# meeting stand on the same ring. Ring 0.9 + a body 0.26 = 1.16 kept free; ry = its 0 deg (toward the board)
+MEET_CENTER = (1.0, -1.57)
+# #195 (designer #249): the pod stands right under the work panel's middle and its oak tops and ivory caps baked
+# past white. Their two atlases are scaled down after the bake (linear, before the webp), the rest of the room as before
+ATLAS_GAIN = {"work": float(next((a.split("=")[1] for a in sys.argv if a.startswith("--gain-work=")), 0.27)),
+              "desk_props": float(next((a.split("=")[1] for a in sys.argv if a.startswith("--gain-desk=")), 0.27))}  # calibrated: tops linear ~(2.26, 1.91, 1.57) at 1.0
+MEET_RING, MEET_R, MEET_RY = 0.9, 1.16, math.radians(-3.0)
+CHAT_SPOTS = ((-1.45, -2.95), (-0.45, -2.95))  # the second conversation: two spots by the window, facing each other
+RUG_WORK = (-2.50, -0.92, 2.46, 4.24)  # x, z, width, depth (desks.md 2.1.5)
+RUG_LOUNGE = (2.2, 2.55, 2.5, 1.3)
+RUG_MEET_D = 2.92
 DOOR_Z = 2.6
-PINGPONG = (2.2, 0.0)
-SOFA = (2.2, 2.6)
+PINGPONG = (2.15, 0.97)
+SOFA = (2.2, 2.785)
 GAME_TABLE = (-1.6, 2.2)
 SIDE_TABLE = (0.3, 2.6)  # a small round table in the open front middle (designer, #109): visitors' snacks and cheers later
 COUNTER = (HX - 0.32, -2.0, math.pi)  # against the right wall, its front (local +x) facing the room
@@ -109,7 +145,7 @@ COFFEE_BUTTON = (0.146, 1.2, -0.02)  # #164: the brew button face, counter frame
 SHELF_X = 3.75
 SHELF_W, SHELF_D = 1.1, 0.34  # the bookshelf against the back wall: width, depth
 PLANTS = [  # name, species, x, z (#126: one species each, office-quality.md 3; plant_boards left out, designer)
-    ("plant_desk", "sansevieria", 0.0, -3.2),  # between MESH's desk and the whiteboard: tall and narrow
+    ("plant_desk", "sansevieria", -3.75, -3.2),  # #195: the window's west end (the chat spots took its old place)
     ("plant_corner", "fiddle_fig", 4.22, 3.18),  # its canopy (0.6 m) clears the floor lamp by 0.1 m
     ("plant_sofa", "monstera", 0.905, 2.75),  # between the side table and the sofa: 0.44 m wide (#156: leaves all round, short toward ±x)
 ]
@@ -202,23 +238,17 @@ def build_room():
     carpet = plastic("#1d2a3d", 0.98, 0, 0.9, "carpet")
     rug = plastic("#5a2f45", 0.97, 0, 0.9, "rug")
     floor = apply_all(box("floor", (2 * HX + 2 * WT, 0.12, 2 * HZ + 2 * WT), (0, -0.06, 0), floor_wood, G, bev=0.01))
-    cx0, cx1, cz0, cz1 = -HX, -HX + 4.3, -HZ, -HZ + 4.8  # the work corner carpet
     tile(floor, axes="xz")
-    bm = bmesh.new()  # also cut along the carpet's two open edges, then drop the floor top under it
-    bm.from_mesh(floor.data)
-    for k, c in ((0, cx1), (1, -cz1)):
-        no, co = Vector((0, 0, 0)), Vector((0, 0, 0))
-        no[k], co[k] = 1.0, c
-        bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], plane_co=co, plane_no=no)
-    bm.to_mesh(floor.data)
-    bm.free()
-    drop_faces_in(floor, cx0 - 0.5, cx1, cz0 - 0.5, cz1, 0.0)
-    parts = [
-        floor,
-        # work corner carpet, lounge rug
-        box("carpet", (cx1 - cx0, 0.01, cz1 - cz0), ((cx0 + cx1) / 2, 0.005, (cz0 + cz1) / 2), carpet, G),
-        rounded_slab("rug", 2.8, 0.01, 1.4, 0.25, (SOFA[0], 0.006, SOFA[1] - 1.05), rug, G),
-    ]
+    # #195 (desks.md 2.1.5): one rug per zone, none touching another. Work: the pod + its chair room, 0.61 beyond the
+    # desks (0.30 from a wall wins); meeting: round, the standing circle + 0.30; lounge: the mat in front of the sofa,
+    # 0.30 wider each side, 0.45 in front of it, 0.30 off the south wall
+    rugs = (("rug_work", RUG_WORK, carpet), ("rug_lounge", RUG_LOUNGE, rug))
+    parts = [floor] + [rounded_slab(n, w, 0.01, d, 0.06 if n == "rug_work" else 0.2, (x, 0.005, z), m, G) for n, (x, z, w, d), m in rugs]
+    parts.append(cyl("rug_meet", RUG_MEET_D / 2, 0.01, (MEET_CENTER[0], 0.005, MEET_CENTER[1]), plastic("#33404c", 0.97, 0, 0.9, "rug_meet"), G, 56))
+    for n, (x, z, w, d), _m in rugs:
+        fp_box(n, "rug", (x - w / 2, 0.0, z - d / 2), (x + w / 2, 0.01, z + d / 2))
+    r = RUG_MEET_D / 2
+    fp_box("rug_meet", "rug", (MEET_CENTER[0] - r, 0.0, MEET_CENTER[1] - r), (MEET_CENTER[0] + r, 0.01, MEET_CENTER[1] + r))
     # floor edge trim on all four sides: the cut-away faces read as a model base
     L, D = 2 * HX + 2 * WT, 2 * HZ + 2 * WT
     for name, size, c, n_in, ax in (("edge_n", (L, 0.12, 0.02), (0, -0.06, -D / 2 - 0.01), (0, 0, 1), "x"),
@@ -461,58 +491,67 @@ def build_window_view():
 
 
 # ================================================================ WORK AREA (atlas: work)
+SEAT_PROPS = {}  # #187: prop name -> (its parts in the prop frame or None, home matrix in the world): build_props
+DESK_ATLAS = "desk_props"  # #187: the kit and the owners' things, near-field (>= 500 px/m, desk-props.md 1)
+
+
 def build_desk(i, agent):
+    """the desk body (work atlas: oak top, graphite band, legs, cable tray) and, in the desk_props atlas, the common
+    kit (#187: keyboard case, monitor, mouse + pad, cables) with its owner's things (SEATS); the 87 caps as one node
+    kb_<i>_caps (#225: _KEY, extras keys); the mouse buttons and wheel live (#225)"""
     G = "work"
     F = frame(agent["at"])
-    top = plastic("#c9b89a", 0.55, 0, 0.35, "desk_top")
-    metal = plastic("#2a2c31", 0.35, 0.8, 0.03, "desk_metal")
-    dark = plastic("#16181d", 0.5, 0.3, 0.05, "monitor")
-    w, d, h = 1.2, 0.62, 0.74
-    p = [rounded_slab("desk_top", w, 0.035, d, 0.02, (0, h - 0.0175, 0), top, G, edge=0.004),
-         box("modesty", (w - 0.1, 0.38, 0.02), (0, h - 0.24, -d / 2 + 0.05), metal, G)]
-    for sx in (-w / 2 + 0.05, w / 2 - 0.05):
-        p += [box("leg", (0.04, h - 0.035, 0.04), (sx, (h - 0.035) / 2, -d / 2 + 0.05), metal, G),
-              box("leg", (0.04, h - 0.035, 0.04), (sx, (h - 0.035) / 2, d / 2 - 0.05), metal, G),
-              box("foot", (0.05, 0.03, d - 0.05), (sx, 0.015, 0), metal, G)]
-    # monitor on an arm, keyboard, mouse; the rest of the desk is its owner's (#43: desk_props_*)
-    mon = rounded_slab("mon_body", 0.62, 0.04, 0.38, 0.015, (0, 0, 0), dark, G, edge=0.004)
-    mon.rotation_euler = (math.pi / 2, 0, 0)  # monitor body stands up
-    mon.location = W(0, h + 0.36, -0.2)
-    p += [box("mon_base", (0.2, 0.015, 0.16), (0, h + 0.0075, -0.18), dark, G, bev=0.004),
-          box("mon_neck", (0.04, 0.22, 0.03), (0, h + 0.12, -0.21), dark, G),
-          mon,
-          rounded_slab("kb", 0.42, 0.018, 0.13, 0.01, (0, h + 0.009, 0.06), plastic("#2c3038", 0.6, 0, 0.1, "kb"), G, edge=0.003)]
+    w, d, h = KIT.DESK_W, KIT.DESK_D, DESK_H
+    body = KIT.kit_desk(G)
+    GP = DESK_ATLAS
+    kit, _ = KIT.kit_keyboard(GP, agent["color"], caps=False)
+    mon = KIT.kit_monitor(GP)
+    nz = [o for o in mon if o.name.startswith("mon_neck")][0].location
+    kit += mon + KIT.kit_cables(GP, mon_nz=-nz.y)
+    mouse_live = []
     if i != 2:  # HUE has a pen tablet in the mouse spot
-        p.append(rounded_slab("mouse", 0.06, 0.02, 0.1, 0.025, (0.3, h + 0.01, 0.07), plastic("#2c3038", 0.4, 0, 0.1, "kb"), G))
-    if i == 1:  # only MESH kept the mug
-        p.append(cyl("mug", 0.04, 0.09, (-0.42, h + 0.045, -0.05), plastic("#d64545", 0.4, 0, 0.1, "mug_1"), G, 20))
-    if i % 2 == 0:  # the old plants drew from RNG: keep its sequence so the rest of the room stays as it was
+        m_parts, mouse_live = KIT.kit_mouse(GP, split=True)
+        kit += m_parts + KIT.kit_pad(GP)
+    if i in (0, 2):  # the old plants drew from RNG: keep its sequence so the rest of the room stays as it was (desks 0, 2 only)
         for _ in range(5 * 4):
             RNG.uniform(0, 1)
-    statics, desk_live = DESK_PROPS[i](G)
-    if "--tris" in ARGS:  # what the owner's things add (modifiers and text evaluated)
+    statics, desk_live, props = SEATS[i](GP)
+    for name, objs, home in props:
+        SEAT_PROPS[name] = (objs, F @ home)
+    for suf, objs, M in mouse_live:
+        desk_live.append(LIVE(f"desk_{i}_{suf}", "bot", objs, M))
+    if "--tris" in ARGS:  # what the kit and the owner's things add (modifiers and text evaluated)
         dg = bpy.context.evaluated_depsgraph_get()
         n = 0
-        for o in statics + [o for e in desk_live for o in e["objs"]]:
+        for o in kit + statics + [o for e in desk_live for o in e["objs"]]:
             if o.type in ("MESH", "CURVE", "FONT"):
                 me = o.evaluated_get(dg).to_mesh()
                 n += sum(len(p.vertices) - 2 for p in me.polygons)
                 o.evaluated_get(dg).to_mesh_clear()
-        print(f"desk_{i} props: {n} triangles")
-    p += statics
-    placed = place(p, F)
+        print(f"desk_{i} kit + props: {n} triangles")
+    body_w = place(body, F)
+    props_w = place(kit + statics, F)
     # no chair: agents hover at their desk. A floor pad in the agent's color marks the spot instead.
     pad = rounded_slab("pad", 0.62, 0.006, 0.5, 0.12, (0, 0.003, 0), plastic(agent["color"], 0.9, 0, 0.6, f"pad_{i}"), G)
     pad = place([pad], F @ Mx((0, 0, WORK_Z)))
-    fp(f"desk_{i}", placed + pad, "floor", core=placed)  # the desk and the agent's spot in front of it
-    desk = join(f"desk_{i}", placed)
+    POD.append((bounds(body_w), bounds(body_w + props_w + pad)))  # #195: the five desks are one island: one footprint
+    desk = join(f"desk_{i}", body_w)
+    things = join(f"desk_{i}_props", props_w)
+    things["desk"] = i
     pad = join(f"pad_{i}", pad)
+    # #225 plan A: the 87 caps, one node in the keyboard frame (press = local -y by press x key_travel_m)
+    Kf = F @ KIT.keyboard_frame()
+    caps, keys = KIT.keyed_caps(f"kb_{i}_caps", GP, agent["color"])
+    caps = pivot(join(f"kb_{i}_caps", place([caps], Kf)), Kf)
+    caps["keys"] = keys
+    caps["key_travel_m"] = KIT.KEY_TRAVEL
+    caps["desk"] = i
     # live parts: the screen slot and a neon strip under the desk's front edge
     scr = quad(f"screen_work_{i}", 0.57, 0.33, screen_mat(f"screen_glow_{i}", agent["color"], 0.45), "export")
     screen = slot(apply_all(place(scr, F @ Mx((0, h + 0.36, -0.178)))[0]), 0.57, 0.33)
     strip = box(f"neon_desk_{i}", (w - 0.04, 0.006, 0.006), (0, 0, 0), emitter(agent["color"], 3.0, f"neon_desk_{i}"), "export")
     neon = apply_all(place(strip, F @ Mx((0, h - 0.04, d / 2 - 0.004)))[0])
-    return [desk, pad], [screen, neon], place_desk_live(F, desk_live)
+    return [desk, pad], [things, caps], [screen, neon], place_desk_live(F, desk_live)
 
 
 # ================================================================ DESK PROPS (#43, docs/design/desks.md 2 + 4)
@@ -521,6 +560,7 @@ def build_desk(i, agent):
 # changes from data are live nodes (LIVE below), placed like the other live parts. The hands' band in front of
 # the keyboard (x ±0.28, z -0.03..0.31) and the mouse spot stay empty.
 DESK_H = 0.74
+POD = []  # (desk objects, its agent pad) per desk, for the pod's single footprint (#195)
 RED = "#ff5a5f"  # --color-red
 TRAY = (0.44, -0.16, 0.24, 0.30)  # MEMO's IN/OUT tray: x, z, width, depth (right end: the left end hides behind HUE's head)
 
@@ -542,45 +582,116 @@ def LIVE(name, kind, objs, at=None, **extras):
     return {"name": name, "kind": kind, "objs": objs, "at": at, "extras": extras}
 
 
-def desk_props_memo(G):
+def punched(name, base_hex, dot_hex, axes, pitch=0.009, r=0.0028, metal=0.5):
+    """sheet steel with a punched dot grid (baked into the atlas: dark dots, no alpha). axes = the two Blender
+    object axes in the panel's plane, e.g. "XZ" for a panel facing web z, "YZ" for one facing web x"""
+    m, nodes, links, b = new_mat(name)
+    tc = nodes.new("ShaderNodeTexCoord")
+    sep = nodes.new("ShaderNodeSeparateXYZ")
+    comb = nodes.new("ShaderNodeCombineXYZ")
+    links.new(tc.outputs["Object"], sep.inputs["Vector"])
+    links.new(sep.outputs[axes[0]], comb.inputs["X"])
+    links.new(sep.outputs[axes[1]], comb.inputs["Y"])
+    sc = nodes.new("ShaderNodeVectorMath")
+    sc.operation = "SCALE"
+    sc.inputs["Scale"].default_value = 1.0 / pitch
+    fr = nodes.new("ShaderNodeVectorMath")
+    fr.operation = "FRACTION"
+    sub = nodes.new("ShaderNodeVectorMath")
+    sub.operation = "SUBTRACT"
+    sub.inputs[1].default_value = (0.5, 0.5, 0.0)
+    ln = nodes.new("ShaderNodeVectorMath")
+    ln.operation = "LENGTH"
+    lt = nodes.new("ShaderNodeMath")
+    lt.operation = "LESS_THAN"
+    lt.inputs[1].default_value = r / pitch
+    mix = nodes.new("ShaderNodeMix")
+    mix.data_type = "RGBA"
+    mix.inputs["A"].default_value = rgba(base_hex)
+    mix.inputs["B"].default_value = rgba(dot_hex)
+    links.new(comb.outputs["Vector"], sc.inputs[0])
+    links.new(sc.outputs["Vector"], fr.inputs[0])
+    links.new(fr.outputs["Vector"], sub.inputs[0])
+    links.new(sub.outputs["Vector"], ln.inputs[0])
+    links.new(ln.outputs["Value"], lt.inputs[0])
+    links.new(lt.outputs["Value"], mix.inputs["Factor"])
+    links.new(mix.outputs["Result"], b.inputs["Base Color"])
+    b.inputs["Roughness"].default_value = 0.6
+    b.inputs["Metallic"].default_value = metal
+    return m
+
+
+# ================================================================ MEMO (seat 0)
+def seat_memo(G):
+    """desk-props.md 3 MEMO: a two-tier wire-mesh tray (punched side / back panels, low front lips, four posts, IN /
+    OUT plates), a round ink pad with its hinged lid open 80 deg, a tent calendar with a spiral binding (16 rings of
+    4 mm) and a page or two flipped behind, the hourglass with turned posts and bevelled plates, the paper planes.
+    Returns (statics, LIVE list, props) - props = [(name, objs)] built at their home (prop_stamp)."""
     h = DESK_H
-    s, L = [], []
-    grey = plastic("#5a606c", 0.45, 0.6, 0.05, "tray")
+    s, L, P = [], [], []
+    iron = plastic("#26282e", 0.6, 0.5, 0.05, "tray_iron")
+    side_m = punched("tray_punched_x", "#26282e", "#0c0d10", "YZ")  # panels facing web x
+    back_m = punched("tray_punched_z", "#26282e", "#0c0d10", "XZ")  # panels facing web z
     paper = plastic("#efece4", 0.9, 0, 0.1, "paper")
-    ink = plastic("#e9edf5", 0.5, 0, 0, "tray_label")
+    plate_m = plastic("#ece6d8", 0.5, 0, 0.1, "tray_plate")
+    ink = plastic("#2a2c31", 0.6, 0, 0, "tray_label_ink")
     tx, tz, tw, td = TRAY
-    # 1 IN / OUT two-tier tray, open to the agent: IN on top (waiting for sign-off), OUT below (handed off today)
+    # 1 the tray: IN on top (waiting for sign-off), OUT below (handed off today); open toward the agent
     for y0, label in ((0.075, "IN"), (0.0, "OUT")):
-        s += [box("tray_floor", (tw, 0.004, td), (tx, h + y0 + 0.002, tz), grey, G),
-              box("tray_back", (tw, 0.035, 0.004), (tx, h + y0 + 0.0175, tz - td / 2 + 0.002), grey, G),
-              box("tray_side", (0.004, 0.035, td), (tx - tw / 2 + 0.002, h + y0 + 0.0175, tz), grey, G),
-              box("tray_side", (0.004, 0.035, td), (tx + tw / 2 - 0.002, h + y0 + 0.0175, tz), grey, G),
-              box("tray_lip", (tw, 0.02, 0.004), (tx, h + y0 + 0.01, tz + td / 2 - 0.002), grey, G),
-              text("tray_label", label, 0.014, (tx, h + y0 + 0.011, tz + td / 2 + 0.0005), ink, G)]
-        # the paper stack: 5 sheets (0.003 each) exported; the app shows 0..5 by scaling y (pivot at the bottom)
-        base = h + y0 + 0.004
+        wy = 0.042  # wall height
+        s += [box("tray_floor", (tw, 0.003, td), (tx, h + y0 + 0.0015, tz), iron, G, bev=0.001, seg=1),
+              box("tray_back", (tw, wy, 0.003), (tx, h + y0 + wy / 2, tz - td / 2 + 0.0015), back_m, G),
+              box("tray_side", (0.003, wy, td - 0.02), (tx - tw / 2 + 0.0015, h + y0 + wy / 2, tz - 0.01), side_m, G),
+              box("tray_side", (0.003, wy, td - 0.02), (tx + tw / 2 - 0.0015, h + y0 + wy / 2, tz - 0.01), side_m, G),
+              # the sides sweep down to the low front lip (a real tray's scoop): a short low piece at the front
+              box("tray_side", (0.003, 0.016, 0.02), (tx - tw / 2 + 0.0015, h + y0 + 0.008, tz + td / 2 - 0.01), iron, G),
+              box("tray_side", (0.003, 0.016, 0.02), (tx + tw / 2 - 0.0015, h + y0 + 0.008, tz + td / 2 - 0.01), iron, G),
+              box("tray_lip", (tw, 0.016, 0.003), (tx, h + y0 + 0.008, tz + td / 2 - 0.0015), iron, G, bev=0.001, seg=1),
+              box("tray_plate", (0.05, 0.012, 0.001), (tx, h + y0 + 0.008, tz + td / 2 + 0.0005), plate_m, G),
+              text("tray_label", label, 0.0085, (tx, h + y0 + 0.0082, tz + td / 2 + 0.0011), ink, G)]
+        base = h + y0 + 0.003
         sheets = []
-        for k in range(5):
+        for k in range(5):  # live: the app shows 0..5 (desks.md)
             sh = box("sheet", (0.2, 0.0028, 0.25), (tx + DRNG.uniform(-0.004, 0.004), base + 0.0015 + k * 0.003, tz + 0.012), paper, G)
             sh.rotation_euler = (0, 0, DRNG.uniform(-0.03, 0.03))
             sheets.append(sh)
         L.append(LIVE(f"desk_0_{label.lower()}", "bot", sheets, Mx((tx, base, tz + 0.012)), sheets=5, sheet_h=0.003))
-    for px in (tx - tw / 2 + 0.004, tx + tw / 2 - 0.004):
+    for px in (tx - tw / 2 + 0.004, tx + tw / 2 - 0.004):  # four posts through both tiers to the lid
         for pz in (tz - td / 2 + 0.004, tz + td / 2 - 0.004):
-            s.append(box("tray_post", (0.006, 0.15, 0.006), (px, h + 0.075, pz), grey, G))
-    s.append(box("tray_lid", (tw, 0.004, 0.14), (tx, h + 0.152, tz - td / 2 + 0.07), grey, G))
-    # #67: IN doubles as the approval box. A 1.5 cm amber dot on its front lip, right corner: on while approvals wait
-    dot = cyl("neon_approval", 0.0075, 0.003, (tx + tw / 2 - 0.016, h + 0.075 + 0.01, tz + td / 2 + 0.0015),
+            top = 0.1505 if pz < tz else 0.117  # the back pair carry the top shelf (the planes), the front pair stop at IN
+            s.append(cyl("tray_post", 0.003, top, (px, h + top / 2, pz), iron, G, 8))
+    s += [box("tray_lid", (tw, 0.003, 0.16), (tx, h + 0.152, tz - td / 2 + 0.08), back_m, G, bev=0.001, seg=1),  # on the back posts
+          box("tray_lid_lip", (tw, 0.01, 0.003), (tx, h + 0.1485, tz - td / 2 + 0.1585), iron, G, bev=0.001, seg=1)]  # a 1 cm front lip
+    dot = cyl("neon_approval", 0.0075, 0.003, (tx + tw / 2 - 0.016, h + 0.075 + 0.008, tz + td / 2 + 0.0015),
               emitter(AGENTS[0]["color"], 3.0, "neon_approval"), "export", 16, axis="z")
     L.append(LIVE("neon_approval", "neon", [dot]))
-    # 3 two folded planes on the lid (the third, prop_plane, is the one MEMO throws: build_props)
-    for dx, ry in ((-0.065, 0.25), (0.0, -0.1)):
+    for dx, ry in ((-0.065, 0.25), (0.0, -0.1)):  # two folded planes on the lid (the third is prop_plane)
         pl = paper_plane("plane", 0.5, plastic(POSTIT[0], 0.85, 0, 0.2, "postit_0"), G, two_sided=True)
         s += place([pl], Mx((tx + dx, h + 0.154 + 0.011, -0.22), ry=ry))
-    # 2 ink pad (the stamp itself is the live prop_stamp: build_props)
-    s += [box("ink_pad", (0.07, 0.015, 0.05), (0.44, h + 0.0075, 0.13), plastic("#2a2c31", 0.5, 0.3, 0.05, "ink_case"), G, bev=0.003, seg=1),
-          box("ink", (0.06, 0.001, 0.04), (0.44, h + 0.0155, 0.13), plastic(RED, 0.8, 0, 0.1, "ink"), G)]
-    # 4 desk calendar (tent): front face = canvas slot screen_cal_0 (today), a red band above it
+    # 2 the ink pad: a round tin (6 cm), its hinged lid standing open at 80 deg behind, red felt inside
+    ix, iz = 0.47, 0.13  # 3 cm right of desks.md: clear of the kit's mouse pad (its right edge at x 0.425)
+    tin = plastic("#3b3e45", 0.4, 0.7, 0.05, "ink_tin")
+    felt = plastic("#b3262e", 0.95, 0, 0.6, "ink_felt")
+    s += [lathe("ink_case", [(0, 0), (0.029, 0), (0.03, 0.001), (0.03, 0.011), (0.0285, 0.012), (0.027, 0.012), (0.027, 0.008), (0, 0.008)],
+                (ix, h, iz), tin, G, seg=24),
+          cyl("ink_felt", 0.0268, 0.002, (ix, h + 0.009, iz), felt, G, 24)]
+    Hn = Mx((ix, h + 0.012, iz - 0.03), rx=-math.radians(80))  # the hinge, the lid's back edge
+    s += place([lathe("ink_lid", [(0, 0.004), (0.0305, 0.004), (0.031, 0.003), (0.031, 0.0), (0.029, 0.0), (0, 0.001)],
+                      (0, -0.004, 0.031), tin, G, seg=24),
+                cyl("ink_hinge", 0.0018, 0.012, (0, 0, 0), tin, G, 8, axis="x")], Hn)
+    # the stamp (prop_stamp): rubber face, an amber body, a brass band, a waisted neck under a turned wooden knob.
+    # Origin = the body's centre, 4.25 cm over the desk (the face at -0.0425), as before
+    amber = plastic(AGENTS[0]["color"], 0.4, 0, 0.05, "stamp")
+    wood_h = plastic("#c9a36b", 0.6, 0, 0.3, "handle")
+    st = [lathe("stamp_face", [(0, -0.0425), (0.0185, -0.0425), (0.019, -0.041), (0.019, -0.0365), (0, -0.0365)], (0, 0, 0),
+                plastic("#7a1f1f", 0.7, 0, 0.1, "stamp_rubber"), G, seg=18),
+          lathe("stamp_body", [(0, -0.0365), (0.018, -0.0365), (0.018, 0.0), (0.0165, 0.004), (0, 0.004)], (0, 0, 0), amber, G, seg=18),
+          lathe("stamp_band", [(0.0168, 0.004), (0.0175, 0.0045), (0.0175, 0.0095), (0.0165, 0.01), (0.0, 0.01)], (0, 0, 0), brass(), G, seg=18),
+          lathe("stamp_knob", [(0.0, 0.01), (0.009, 0.01), (0.0075, 0.018), (0.0085, 0.024), (0.012, 0.027), (0.015, 0.03), (0.0175, 0.033), (0.019, 0.036),
+                               (0.0192, 0.039), (0.0185, 0.0415), (0.0168, 0.0438), (0.014, 0.0455), (0.0105, 0.0466), (0.006, 0.0472), (0.0, 0.0474)],
+                (0, 0, 0), wood_h, G, seg=28)]  # a finer head (designer)
+    P.append(("prop_stamp", st, Mx((0.535, h + 0.0425, 0.12))))  # home moves 0.51 -> 0.535 with the pad
+    # 3 the tent calendar: a spiral binding along the ridge (16 rings, 4 mm), a page or two flipped over behind
     cx, cz = -0.24, -0.13
     bm = bmesh.new()
     v = [bm.verts.new(W(cx + sx * 0.06, h + y, cz + z)) for sx in (-1, 1) for (y, z) in ((0, 0.035), (0.10, 0), (0, -0.035))]
@@ -589,164 +700,491 @@ def desk_props_memo(G):
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     s.append(mesh_obj("calendar", bm, paper, G))
     tilt = -math.atan2(0.035, 0.10)
-    Fc = Mx((cx, h + 0.05, cz + 0.0175), rx=tilt)  # center of the front face, local +z = out of the face
+    Fc = Mx((cx, h + 0.05, cz + 0.0175), rx=tilt)
     s += place([box("cal_band", (0.118, 0.022, 0.002), (0, 0.038, 0.001), plastic(RED, 0.6, 0, 0.1, "cal_band"), G)], Fc)
     cal = quad("screen_cal_0", 0.10, 0.07, paper, "export")
     L.append(LIVE("screen_cal_0", "screen", [place([cal], Mx((0, -0.012, 0.0012)))[0]], None, slot=(0.10, 0.07), frame=Fc))
-    # 5 hourglass: pivot at its center; the app turns it over while MEMO waits for a sign-off
+    wire = plastic("#c8ccd4", 0.3, 0.9, 0, "chrome")
+    for k in range(16):
+        ring = torus("cal_ring", 0.0022, 0.00045, (0, 0, 0), wire, G, seg=8, rseg=3)
+        s += place([ring], Mx((cx - 0.0525 + k * 0.007, h + 0.1, cz), rz=math.pi / 2))
+    Fb = Mx((cx, h + 0.05, cz - 0.0175), rx=-tilt)  # the back face: flipped pages lie on it, a little proud, curling
+    for k, (dz, w, ht) in enumerate(((-0.0012, 0.112, 0.097), (-0.0024, 0.11, 0.094))):
+        pg = box("cal_page", (w, ht, 0.0005), (0, -0.002 * k, dz), plastic("#f4f1ea", 0.9, 0, 0.1, "cal_page"), G)
+        s += place([pg], Fb @ Mx(rx=math.radians(2 + 3 * k)))
+    # 4 the hourglass (live: turned over while MEMO waits): turned posts with beads, bevelled plates, a waisted glass
     wood_m = plastic("#a0703f", 0.6, 0, 0.3, "hourglass_wood")
     sand = plastic("#ffd27a", 0.9, 0, 0.3, "sand")
     glass = glass_mat("hourglass_glass", "#eef6ff", 0.18)
-    hg = [cyl("hg_plate", 0.032, 0.008, (0, 0.051, 0), wood_m, G, 20), cyl("hg_plate", 0.032, 0.008, (0, -0.051, 0), wood_m, G, 20),
-          cyl("hg_bulb", 0.004, 0.047, (0, 0.0235, 0), glass, G, 16, r2=0.024),
-          cyl("hg_bulb", 0.024, 0.047, (0, -0.0235, 0), glass, G, 16, r2=0.004),
-          cyl("hg_sand", 0.019, 0.016, (0, -0.039, 0), sand, G, 14, r2=0.004),
-          cyl("hg_sand", 0.004, 0.012, (0, 0.012, 0), sand, G, 10, r2=0.012)]
+    hg = [cyl("hg_plate", 0.032, 0.008, (0, 0.051, 0), wood_m, G, 20, bev=0.0015),
+          cyl("hg_plate", 0.032, 0.008, (0, -0.051, 0), wood_m, G, 20, bev=0.0015),
+          lathe("hg_glass", [(0.004, -0.047), (0.017, -0.044), (0.023, -0.033), (0.02, -0.017), (0.007, -0.005), (0.0028, 0.0),
+                             (0.007, 0.005), (0.02, 0.017), (0.023, 0.033), (0.017, 0.044), (0.004, 0.047)], (0, 0, 0), glass, G, seg=22),
+          lathe("hg_sand", [(0.0, -0.046), (0.016, -0.044), (0.02, -0.036), (0.012, -0.03), (0.0, -0.026)], (0, 0, 0), sand, G, seg=14),
+          lathe("hg_sand", [(0.0, 0.006), (0.006, 0.006), (0.016, 0.016), (0.019, 0.024), (0.0, 0.024)], (0, 0, 0), sand, G, seg=14)]
+    post = [(0.003, -0.047), (0.004, -0.043), (0.0025, -0.039), (0.0025, -0.006), (0.0036, 0.0), (0.0025, 0.006),
+            (0.0025, 0.039), (0.004, 0.043), (0.003, 0.047)]
     for k in range(3):
         a = 2 * math.pi * k / 3
-        hg.append(cyl("hg_post", 0.003, 0.094, (0.027 * math.cos(a), 0, 0.027 * math.sin(a)), wood_m, G, 6))
+        hg.append(lathe("hg_post", post, (0.027 * math.cos(a), 0, 0.027 * math.sin(a)), wood_m, G, seg=8))
     Hg = Mx((-0.50, h + 0.055, -0.22))
     L.append(LIVE("desk_0_hourglass", "bot", place(hg, Hg), Hg))
-    return s, L
+    return s, L, P
 
 
-def desk_props_mesh(G):
+# ================================================================ MESH (seat 1)
+_PLASTER = {}
+
+
+def plaster(name):
+    """plaster study shapes (baked): roughness 0.9, the value varying +-3% in a fine noise, fine pits (bump)"""
+    if name in _PLASTER:
+        return _PLASTER[name]
+    m, nodes, links, b = new_mat(name)
+    nz = nodes.new("ShaderNodeTexNoise")
+    nz.inputs["Scale"].default_value = 180.0
+    nz.inputs["Detail"].default_value = 4
+    ramp = nodes.new("ShaderNodeValToRGB")
+    lo, hi = [Color(rgba("#ece9e2")[:3]) for _ in range(2)]
+    lo.v, hi.v = lo.v * 0.97, min(1.0, hi.v * 1.03)
+    ramp.color_ramp.elements[0].color = (*lo, 1.0)
+    ramp.color_ramp.elements[1].color = (*hi, 1.0)
+    links.new(nz.outputs["Fac"], ramp.inputs["Fac"])
+    links.new(ramp.outputs["Color"], b.inputs["Base Color"])
+    b.inputs["Roughness"].default_value = 0.9
+    bump(nodes, links, b, 900, 0.35, 0.0002)
+    _PLASTER[name] = m
+    return m
+
+
+def seat_mesh(G):
+    """desk-props.md 3 MESH: a turntable (round base 0.2, a platter that turns, a front button, a cable behind,
+    four rubber feet), a ring light (a 0.25 ring with a phone clamp in the middle, an angle knob, a telescoping pole
+    with height collars, a base, a cable), plaster study shapes (sphere, cone, cylinder) and one lavender torus
+    (the 3D program's default shape - MESH's joke), the colour checker, MESH's mug (#156 shape, red glaze)"""
     h = DESK_H
-    s, L = [], []
-    dark = plastic("#2c3038", 0.5, 0.2, 0.05, "kb")
-    ivory = plastic("#ece6d8", 0.45, 0, 0.1, "ivory")
-    grey = plastic("#9aa0aa", 0.5, 0, 0.1, "prim_grey")
-    lav = plastic(AGENTS[1]["color"], 0.4, 0, 0.05, "turntable_rim")
-    lb = lav.node_tree.nodes["Principled BSDF"]
-    lb.inputs["Emission Color"].default_value = rgba(AGENTS[1]["color"])
-    lb.inputs["Emission Strength"].default_value = 0.5
-    # 1 turntable: baked base, live platter + cube (spins about local y while MESH bakes)
+    s, L, P = [], [], []
+    black = plastic("#1d1f24", 0.55, 0.3, 0.05, "tt_black")
+    rubber = plastic("#0e0f12", 0.9, 0, 0.3, "rubber_foot")
+    cable_m = plastic("#16171b", 0.85, 0, 0.4, "cable")
+    lav_hex = AGENTS[1]["color"]
+    # 1 turntable (live platter + rim + cube: spins about local y while MESH bakes)
     tx, tz = -0.43, -0.18
-    s.append(cyl("tt_base", 0.075, 0.008, (tx, h + 0.004, tz), dark, G, 28))
-    Tt = Mx((tx, h + 0.008, tz))
-    tt = [cyl("tt_platter", 0.07, 0.012, (0, 0.006, 0), plastic("#3a3f48", 0.4, 0.3, 0.05, "platter"), G, 28),
-          torus("tt_rim", 0.07, 0.004, (0, 0.009, 0), lav, G, seg=28, rseg=5),
-          box("tt_cube", (0.05, 0.05, 0.05), (0, 0.037, 0), ivory, G, bev=0.003, seg=1, rot_y=0.4)]
+    s.append(lathe("tt_base", [(0, 0.003), (0.097, 0.003), (0.1, 0.006), (0.1, 0.015), (0.097, 0.018), (0, 0.018)], (tx, h, tz), black, G, seg=30))
+    for k in range(4):
+        a = math.pi / 4 + k * math.pi / 2
+        s.append(cyl("tt_foot", 0.008, 0.003, (tx + 0.07 * math.cos(a), h + 0.0015, tz + 0.07 * math.sin(a)), rubber, G, 10))
+    s += [cyl("tt_button_ring", 0.0065, 0.002, (tx, h + 0.0105, tz + 0.1005), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G, 14, axis="z"),
+          cyl("tt_button", 0.0045, 0.003, (tx, h + 0.0105, tz + 0.1015), emitter(lav_hex, 1.2, "tt_button"), G, 14, axis="z")]
+    tc = rail("tt_cable", [(tx, h + 0.008, tz - 0.098), (tx + 0.005, h + 0.003, tz - 0.12), (tx + 0.02, h + 0.003, -0.29), (tx + 0.025, h - 0.01, -0.315)], 0.002, cable_m, G)
+    tc.data.resolution_u, tc.data.bevel_resolution = 4, 0
+    s.append(tc)
+    lav = plastic(lav_hex, 0.4, 0, 0.05, "turntable_rim")
+    lb = lav.node_tree.nodes["Principled BSDF"]
+    lb.inputs["Emission Color"].default_value = rgba(lav_hex)
+    lb.inputs["Emission Strength"].default_value = 0.5
+    Tt = Mx((tx, h + 0.018, tz))
+    tt = [lathe("tt_platter", [(0, 0), (0.078, 0), (0.08, 0.002), (0.08, 0.008), (0.078, 0.01), (0, 0.01)], (0, 0, 0),
+                plastic("#5a5f68", 0.45, 0.4, 0.05, "platter"), G, seg=30),
+          torus("tt_rim", 0.08, 0.0022, (0, 0.006, 0), lav, G, seg=30, rseg=4),
+          box("tt_cube", (0.05, 0.05, 0.05), (0.02, 0.035, 0), plaster("plaster"), G, bev=0.003, seg=1, rot_y=0.4)]
     L.append(LIVE("desk_1_turntable", "bot", place(tt, Tt), Tt))
-    # 2 color checker card (muted 6 x 4 chips) leaning on the monitor base, 70° from the desk
+    # 2 colour checker on the monitor base (as before; black card = the borders between the chips)
     chips = ["#735244", "#c29682", "#627a9d", "#576c43", "#8580b1", "#67bdaa", "#d67e2c", "#505ba6", "#c15a63", "#5e3c6c",
              "#9dbc40", "#e0a32e", "#383d96", "#469449", "#af363c", "#e7c71f", "#bb5695", "#0885a1", "#f3f3f2", "#c8c8c8",
              "#a0a0a0", "#7a7a79", "#555555", "#343434"]
-    card = [box("checker", (0.15, 0.10, 0.003), (0, 0.05, 0), plastic("#111216", 0.6, 0, 0, "checker"), G)]
+    card = [box("checker", (0.15, 0.10, 0.003), (0, 0.05, 0), plastic("#111216", 0.6, 0, 0, "checker"), G, bev=0.0008, seg=1)]
     for k, c in enumerate(chips):
         col, row = k % 6, k // 6
         card.append(box("chip", (0.019, 0.019, 0.001), (-0.0575 + col * 0.023, 0.085 - row * 0.023, 0.002), plastic(c, 0.7, 0, 0, f"chip_{c[1:]}"), G))
     s += place(card, Mx((0.15, h, -0.09), rx=-math.radians(20)))
-    # 3 ring light: baked base + pole, live ring (lavender, facing the agent)
+    # 3 ring light (0.25): base, a two-stage pole with height collars, an angle knob, the ring (black housing baked,
+    # the diffuser live: lights up, flashes once when a bake ends), a phone clamp in the middle on a cross bar
     rx_, rz_ = 0.46, -0.20
-    s += [cyl("rl_base", 0.05, 0.01, (rx_, h + 0.005, rz_), dark, G, 24),
-          cyl("rl_pole", 0.006, 0.25, (rx_, h + 0.01 + 0.125, rz_), dark, G, 8)]
-    Rl = Mx((rx_, h + 0.26 + 0.07, rz_))
-    ring = torus("ringlight", 0.07, 0.009, (0, 0, 0), emitter(AGENTS[1]["color"], 3.0, "ringlight"), "export", axis="z", seg=32, rseg=6)
-    L.append(LIVE("desk_1_ringlight", "neon", place([ring], Rl), Rl))
-    # 4 primitives: sphere, cone, torus
-    s += [sphere("prim_sphere", 0.03, (-0.48, h + 0.03, 0.12), ivory, G, seg=16, rings=10),
-          cyl("prim_cone", 0.03, 0.06, (-0.40, h + 0.03, 0.19), grey, G, 18, r2=0.0),
-          torus("prim_torus", 0.035, 0.011, (-0.36, h + 0.011, 0.09), ivory, G, seg=20, rseg=8)]
-    return s, L
+    s += [lathe("rl_base", [(0, 0), (0.058, 0), (0.06, 0.003), (0.06, 0.01), (0.055, 0.013), (0.012, 0.016), (0, 0.016)], (rx_, h, rz_), black, G, seg=28),
+          cyl("rl_pole", 0.008, 0.15, (rx_, h + 0.016 + 0.075, rz_), black, G, 10),
+          cyl("rl_collar", 0.0105, 0.012, (rx_, h + 0.166, rz_), black, G, 12, bev=0.001),
+          cyl("rl_pole2", 0.0058, 0.102, (rx_, h + 0.166 + 0.051, rz_), plastic("#9aa0a8", 0.35, 0.8, 0.08, "rl_alu"), G, 10),
+          cyl("rl_collar", 0.008, 0.008, (rx_, h + 0.268, rz_), black, G, 12, bev=0.001),
+          cyl("rl_knob", 0.011, 0.012, (rx_ + 0.012, h + 0.282, rz_), black, G, 14, axis="x", bev=0.001)]
+    for k in range(1):  # the knob's grip ridge
+        s.append(cyl("rl_knob_rib", 0.0118, 0.0012, (rx_ + 0.0085 + k * 0.003, h + 0.282, rz_), black, G, 14, axis="x"))
+    R = 0.125 - 0.012
+    Rc = Mx((rx_, h + 0.282 + R + 0.012, rz_))  # ring centre, its top level with the monitor's (designer); faces the agent (+z)
+    s += place([torus("rl_housing", R, 0.012, (0, 0, 0), black, G, axis="z", seg=40, rseg=4),
+                box("rl_yoke", (0.012, 0.016, 0.014), (0, -R - 0.006, 0), black, G, bev=0.001, seg=1),
+                box("rl_bar", (0.006, R * 2 - 0.01, 0.005), (0, 0, -0.006), black, G),
+                box("rl_clamp", (0.05, 0.012, 0.012), (0, 0.035, 0.0), black, G, bev=0.002, seg=1),
+                box("rl_clamp", (0.05, 0.012, 0.012), (0, -0.035, 0.0), black, G, bev=0.002, seg=1),
+                box("rl_clamp_pad", (0.04, 0.003, 0.008), (0, 0.0275, 0.002), rubber, G),
+                box("rl_clamp_pad", (0.04, 0.003, 0.008), (0, -0.0275, 0.002), rubber, G)], Rc)
+    rlc = rail("rl_cable", [(rx_, h + 0.02, rz_ - 0.05), (rx_ - 0.01, h + 0.003, rz_ - 0.07), (rx_ - 0.03, h + 0.003, -0.29), (rx_ - 0.035, h - 0.01, -0.315)], 0.0018, cable_m, G)
+    rlc.data.resolution_u, rlc.data.bevel_resolution = 4, 0
+    s.append(rlc)
+    ring = torus("ringlight", R, 0.0085, (0, 0, 0.006), emitter("#f4f0ff", 3.0, "ringlight"), "export", axis="z", seg=40, rseg=4)
+    L.append(LIVE("desk_1_ringlight", "neon", place([ring], Rc), Rc))
+    # 4 plaster study shapes + the lavender default torus
+    px, pz = -0.42, 0.15
+    s += [sphere("prim_sphere", 0.03, (px - 0.06, h + 0.03, pz - 0.03), plaster("plaster"), G, seg=18, rings=10),
+          lathe("prim_cone", [(0, 0), (0.029, 0), (0.03, 0.001), (0.0018, 0.0632), (0.0008, 0.0645), (0.0, 0.065)], (px + 0.02, h, pz + 0.035), plaster("plaster"), G, seg=18),
+          lathe("prim_cylinder", [(0, 0), (0.023, 0), (0.024, 0.001), (0.024, 0.054), (0.023, 0.055), (0, 0.055)], (px + 0.04, h, pz - 0.035), plaster("plaster"), G, seg=18),
+          torus("prim_torus", 0.033, 0.011, (px - 0.065, h + 0.011, pz + 0.075), plastic("#b9a6e6", 0.85, 0, 0.1, "prim_torus"), G, seg=22, rseg=8)]
+    # 5 MESH's mug (#156 shape, red glaze #b83a3a) left of the keyboard, the handle toward the agent's right
+    red = plastic("#b83a3a", 0.3, 0, 0.05, "mug_glaze_red")
+    mug = mug_parts(1, G)
+    for o in mug:
+        for k, m in enumerate(o.data.materials):
+            if m and m.name.startswith("mug_glaze_1"):
+                o.data.materials[k] = red
+    mx, mz, ry = -0.43, -0.01, -0.6  # the body's centre; the cup frame's origin is 7.2 cm toward the handle
+    s += place(mug, Mx((mx + 0.072 * math.cos(ry), h + MUG_H / 2, mz - 0.072 * math.sin(ry)), ry=ry))
+    return s, L, P
 
 
-def desk_props_hue(G):
+# ================================================================ HUE (seat 2)
+def flipped(o):
+    """turn a mesh's faces inside out (a shade's white inner skin)"""
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
+    bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
+    bm.to_mesh(o.data)
+    bm.free()
+    return o
+
+
+def spring(name, a, b, r, turns, material, group, wire=0.0008, per_turn=6):
+    """a coil from a to b (web points) of radius r beside an arm"""
+    a, b = Vector(a), Vector(b)
+    ax = (b - a).normalized()
+    u = ax.cross(Vector((0, 1, 0)) if abs(ax.y) < 0.9 else Vector((1, 0, 0))).normalized()
+    v = ax.cross(u)
+    n = turns * per_turn
+    pts = [tuple(a.lerp(b, k / n) + (u * math.cos(2 * math.pi * k / per_turn) + v * math.sin(2 * math.pi * k / per_turn)) * r) for k in range(n + 1)]
+    o = rail(name, pts, wire, material, group)
+    o.data.resolution_u, o.data.bevel_resolution = 1, 0
+    return o
+
+
+PEN_CUP_Z = 0.0  # HUE's pen cup, desk frame z (was -0.06: 0.78 m from the seat, past the 0.75 reach)
+
+
+def seat_hue(G):
+    """desk-props.md 3 HUE: the swatch fan (+ a grey number band under each chip, a domed pin head), a pen tablet
+    0.26 x 0.17 (active-area outline live, four shortcut buttons on the left, a cable off the top, a pen cup), an
+    architect lamp (springs beside both arms, joint knobs, a switch on the base, a cable, magenta shade white inside),
+    the echeveria. No mouse on this desk (the tablet takes its spot)"""
     h = DESK_H
-    s, L = [], []
-    dark = plastic("#2c3038", 0.5, 0.2, 0.05, "kb")
-    # 1 swatch fan in the team's four colors (amber, lavender, magenta, cyan from the left), pinned at the bottom
+    s, L, P = [], [], []
+    dark = plastic("#22252c", 0.6, 0.1, 0.05, "tablet")
+    chrome = plastic("#c8ccd4", 0.3, 0.9, 0, "chrome")
+    cable_m = plastic("#16171b", 0.85, 0, 0.4, "cable")
+    grey_band = plastic("#4a4e56", 0.7, 0, 0.1, "swatch_band")  # dark grey (designer)
+    # 1 swatch fan in the team's four colours, pinned at the bottom; each chip a grey number band at its foot
     fx, fz = -0.40, -0.16
-    s.append(box("fan_base", (0.04, 0.014, 0.03), (fx, h + 0.007, fz), dark, G, bev=0.003, seg=1))
+    s.append(box("fan_base", (0.04, 0.014, 0.03), (fx, h + 0.007, fz), plastic("#2c3038", 0.5, 0.2, 0.05, "kb"), G, bev=0.003, seg=1))
     for k, (a, deg) in enumerate(zip(AGENTS, (27, 9, -9, -27))):
-        chip = box("swatch", (0.035, 0.16, 0.003), (0, 0.08, 0), plastic(a["color"], 0.5, 0, 0.05, f"swatch_{k}"), G, bev=0.001, seg=1)
-        s += place([chip], Mx((fx, h + 0.01, fz - 0.006 + k * 0.004), rz=math.radians(deg)))
-    s.append(cyl("fan_pin", 0.006, 0.02, (fx, h + 0.018, fz), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G, 10, axis="z"))
-    # 2 pen tablet in the mouse spot (baked) + live active-area outline (glows while HUE edits)
-    bx, bz = 0.36, 0.06
-    s += [rounded_slab("tablet", 0.20, 0.012, 0.14, 0.012, (bx, h + 0.006, bz), plastic("#22252c", 0.5, 0.1, 0.05, "tablet"), G)]  # its pen is prop_tablet_pen (#164)
+        chip = [box("swatch", (0.035, 0.16, 0.003), (0, 0.08, 0), plastic(a["color"], 0.5, 0, 0.05, f"swatch_{k}"), G, bev=0.001, seg=1),
+                box("swatch_band", (0.035, 0.024, 0.0006), (0, 0.012, 0.0018), grey_band, G),  # 15% of the chip, at its foot
+                box("swatch_num", (0.014, 0.003, 0.0004), (-0.005, 0.014, 0.0022), plastic("#c9ccd2", 0.7, 0, 0, "swatch_num"), G)]
+        s += place(chip, Mx((fx, h + 0.01, fz - 0.006 + k * 0.004), rz=math.radians(deg)))
+    s += [cyl("fan_pin", 0.0035, 0.024, (fx, h + 0.018, fz + 0.002), chrome, G, 10, axis="z"),
+          place([sphere("fan_pin_head", 0.006, (0, 0, 0), chrome, G, scale=(1, 1, 0.5), seg=12, rings=6)], Mx((fx, h + 0.018, fz + 0.015)))[0]]
+    # 2 pen tablet in the mouse spot: board, the live active-area outline, four shortcut keys on the left, a cable off
+    # the top edge, a pen cup to its right (the pen itself is prop_tablet_pen, #164)
+    bx, bz, bw, bd = 0.36, 0.06, 0.26, 0.17
+    s += [rounded_slab("tablet", bw, 0.009, bd, 0.012, (bx, h + 0.0045, bz), dark, G, seg=3, edge=0.0015),
+          box("tablet_area_bed", (0.18, 0.0004, 0.115), (bx + 0.025, h + 0.0092, bz), plastic("#1a1c21", 0.75, 0, 0.1, "tablet_area"), G)]
+    for k in range(4):
+        s.append(box("tablet_key", (0.016, 0.003, 0.02), (bx - bw / 2 + 0.022, h + 0.0105, bz - 0.048 + k * 0.032), plastic("#30343c", 0.5, 0, 0.05, "tablet_key"), G, bev=0.001, seg=1))
     mag = emitter(AGENTS[2]["color"], 2.0, "tablet_area")
-    aw, ad, t = 0.13, 0.09, 0.003
+    aw, ad, t = 0.18, 0.115, 0.0025
     area = [box("area", (aw, 0.001, t), (0, 0, -ad / 2), mag, "export"), box("area", (aw, 0.001, t), (0, 0, ad / 2), mag, "export"),
             box("area", (t, 0.001, ad), (-aw / 2, 0, 0), mag, "export"), box("area", (t, 0.001, ad), (aw / 2, 0, 0), mag, "export")]
-    Ta = Mx((bx - 0.01, h + 0.0125, bz))
+    Ta = Mx((bx + 0.025, h + 0.0098, bz))
     L.append(LIVE("desk_2_tablet", "neon", place(area, Ta), Ta))
-    # 3 small succulent: an echeveria rosette (#126)
+    tcab = rail("tablet_cable", [(bx - 0.06, h + 0.006, bz - bd / 2), (bx - 0.065, h + 0.003, bz - bd / 2 - 0.03), (bx - 0.04, h + 0.003, -0.25), (bx - 0.03, h - 0.01, -0.315)], 0.0018, cable_m, G)
+    tcab.data.resolution_u, tcab.data.bevel_resolution = 4, 0
+    s += [tcab, lathe("pen_cup", [(0, 0), (0.017, 0), (0.018, 0.002), (0.018, 0.05), (0.0165, 0.05), (0.0165, 0.004), (0, 0.004)],
+                      (0.53, h, PEN_CUP_Z), dark, G, seg=18)]  # #195: 0.73 m from the seat (reach 0.75, coder)
+    # the pen's home (designer): standing in the cup, tilted 15 deg back. prop_tablet_pen keeps its #164 mesh (along
+    # local z, tip at -z, 7 cm from the centre pivot); only its home moves: tip on the cup's floor, local z up and back
+    a15 = math.radians(15)
+    P.append(("prop_tablet_pen", None, Mx((0.53, h + 0.004 + 0.07 * math.cos(a15), PEN_CUP_Z - 0.07 * math.sin(a15)), rx=-math.radians(90) - a15)))
+    # 3 succulent (as before, #126)
     s += plant_tris("succulent", echeveria("succulent", 0.24, h, -0.18, G))
-    # 4 bent desk lamp: base far back-left, two arm segments, shade over the swatch fan; live = the bulb
-    base, elbow, head = (-0.52, h + 0.012, -0.26), (-0.53, h + 0.33, -0.24), (-0.40, h + 0.27, -0.13)
-    joint = plastic("#3a3f48", 0.4, 0.5, 0.05, "lamp")
-    s += [cyl("lamp_base", 0.05, 0.012, (base[0], h + 0.006, base[2]), joint, G, 24),
-          segment("lamp_arm", base, elbow, 0.007, joint, G, verts=8),
-          segment("lamp_arm", elbow, head, 0.007, joint, G, verts=8),
-          sphere("lamp_joint", 0.011, elbow, joint, G, seg=10, rings=6)]
-    Sh = Mx((-0.40, h + 0.24, -0.12), rx=math.radians(20))  # shade axis: down, tipped toward the fan
-    bm = bmesh.new()
-    bmesh.ops.create_cone(bm, cap_ends=False, segments=20, radius1=0.04, radius2=0.016, depth=0.06)
-    shade = mesh_obj("lamp_shade", bm, joint, G)
-    shade.modifiers.new("wall", "SOLIDIFY").thickness = 0.002  # seen from below too (atlas meshes are one-sided)
-    s += place([shade, cyl("lamp_cap", 0.016, 0.01, (0, 0.033, 0), joint, G, 12)], Sh)
+    # 4 architect lamp: base (switch, cable), two arms each with a spring beside it, knobs at the joints, the shade
+    # magenta outside / white inside over the swatch fan; live = the bulb
+    base, elbow, head = (-0.52, h + 0.016, -0.26), (-0.53, h + 0.33, -0.24), (-0.40, h + 0.27, -0.13)
+    metal = plastic("#3a3f48", 0.4, 0.5, 0.05, "lamp")
+    s += [lathe("lamp_base", [(0, 0), (0.05, 0), (0.052, 0.004), (0.05, 0.012), (0.03, 0.016), (0, 0.016)], (base[0], h, base[2]), metal, G, seg=28),
+          box("lamp_switch", (0.012, 0.005, 0.008), (base[0] + 0.022, h + 0.016, base[2] + 0.02), plastic("#16171b", 0.5, 0, 0, "lamp_switch"), G, bev=0.001, seg=1),
+          segment("lamp_arm", base, elbow, 0.0055, metal, G, verts=8),
+          segment("lamp_arm", elbow, head, 0.0055, metal, G, verts=8),
+          sphere("lamp_joint", 0.01, elbow, metal, G, seg=10, rings=6)]
+    for a_, b_ in ((base, elbow), (elbow, head)):  # a spring beside each arm, 8.5 mm off it
+        A, B = Vector(a_), Vector(b_)
+        off = (B - A).cross(Vector((0, 0, 1))).normalized() * 0.0085
+        s.append(spring("lamp_spring", tuple(A.lerp(B, 0.15) + off), tuple(A.lerp(B, 0.75) + off), 0.0032, 11, chrome, G, per_turn=8))
+    for p_ in (base, elbow):  # knobs on the joints' sides
+        s.append(cyl("lamp_knob", 0.008, 0.008, (p_[0] + 0.012, p_[1] + (0.004 if p_ is base else 0), p_[2]), metal, G, 12, axis="x", bev=0.001))
+    lc = rail("lamp_cable", [(base[0], h + 0.008, base[2] - 0.04), (base[0] + 0.01, h + 0.003, -0.29), (base[0] + 0.02, h - 0.01, -0.315)], 0.0018, cable_m, G)
+    lc.data.resolution_u, lc.data.bevel_resolution = 4, 0
+    s.append(lc)
+    Sh = Mx((-0.40, h + 0.24, -0.12), rx=math.radians(20))
+    magenta = plastic(AGENTS[2]["color"], 0.85, 0, 0.1, "lamp_shade")
+    shade_prof = [(0.041, -0.03), (0.04, -0.028), (0.03, 0.0), (0.019, 0.022), (0.016, 0.03), (0, 0.03)]
+    inner = flipped(lathe("lamp_shade_in", [(0.0385, -0.029), (0.029, 0.0), (0.018, 0.021), (0, 0.028)], (0, 0, 0), plastic("#f3ead8", 0.8, 0, 0.05, "lamp_shade_in"), G, seg=24))  # designer: bright inside when lit
+    s += place([lathe("lamp_shade", shade_prof, (0, 0, 0), magenta, G, seg=24), inner,
+                cyl("lamp_cap", 0.016, 0.012, (0, 0.034, 0), metal, G, 12, bev=0.001)], Sh)
     bulb = [cyl("bulb", 0.034, 0.002, (0, -0.02, 0), emitter("#ffe2b0", 4.0, "desk_lamp"), "export", 20),
             sphere("bulb", 0.014, (0, -0.012, 0), emitter("#ffe2b0", 4.0, "desk_lamp"), "export", seg=10, rings=6)]
     L.append(LIVE("desk_2_lamp", "neon", place(bulb, Sh), Sh))
-    return s, L
+    return s, L, P
 
 
-def desk_props_loop(G):
+# ================================================================ LOOP (seat 3)
+def keycap(name, material, row=3, label=None, G="kit"):
+    """one loose sculpted keycap (the kit's cap, 20 triangles) standing on its foot at the origin, a legend on top"""
+    bm = bmesh.new()
+    KIT.cap(bm, 0.0, 0.0, 1, row, 0.0)
+    out = [smooth(mesh_obj(name, bm, material, G))]
+    if label:
+        out.append(text(f"{name}_legend", label, 0.0055, (0, KIT.ROW_H[row] + 0.0002, 0.0), plastic("#2a2c31", 0.6, 0, 0, "legend"), G,
+                        facing="up", extrude=0.0))
+    return out
+
+
+def seat_loop(G):
+    """desk-props.md 3 LOOP: the signal tower (metal rings between the cells, two screws on the base, a cable down),
+    the rubber duck (eyes, a flat bottom; a prop now: prop_duck), the portrait side monitor in the kit's style (7 mm
+    bezel, rounded back, a pivot stand), a ceramic keycap dish (9 cm, 1.2 cm deep, a foot ring, a glaze rim) with
+    three sculpted caps (Esc, ;, a blank teal one = prop_keycap_0), five C-shaped silicone cable clips"""
     h = DESK_H
-    s, L = [], []
+    s, L, P = [], [], []
     dark = plastic("#2c3038", 0.5, 0.2, 0.05, "kb")
     metal = plastic("#c8ccd4", 0.3, 0.9, 0, "chrome")
-    # 1 signal tower: baked base / pole / cap, three live lights (green bottom, yellow, red top)
+    cable_m = plastic("#16171b", 0.85, 0, 0.4, "cable")
+    # 1 signal tower: base (two screws), pole, cap, three live cells with metal rings between them, a cable
     sx_, sz_ = 0.47, -0.24
-    s += [cyl("sig_base", 0.022, 0.008, (sx_, h + 0.004, sz_), dark, G, 16),
-          cyl("sig_pole", 0.006, 0.06, (sx_, h + 0.038, sz_), metal, G, 8),
-          cyl("sig_cap", 0.026, 0.012, (sx_, h + 0.068 + 3 * 0.045 + 0.006, sz_), dark, G, 16, bev=0.002)]
+    s += [lathe("sig_base", [(0, 0), (0.024, 0), (0.025, 0.002), (0.025, 0.008), (0.012, 0.011), (0, 0.011)], (sx_, h, sz_), dark, G, seg=20),
+          cyl("sig_pole", 0.006, 0.058, (sx_, h + 0.04, sz_), metal, G, 10),
+          lathe("sig_cap", [(0, 0), (0.026, 0), (0.026, 0.006), (0.022, 0.011), (0.008, 0.013), (0, 0.013)], (sx_, h + 0.069 + 3 * 0.045, sz_), dark, G, seg=20)]
+    for dx in (-0.017, 0.017):
+        s.append(cyl("sig_screw", 0.0022, 0.0012, (sx_ + dx, h + 0.0085, sz_ + 0.012), metal, G, 8))
+    for k in range(4):  # rings at the bottom, between the cells and under the cap
+        s.append(cyl("sig_ring", 0.0262, 0.003, (sx_, h + 0.069 + k * 0.045, sz_), metal, G, 20))
+    sc = rail("sig_cable", [(sx_, h + 0.004, sz_ - 0.02), (sx_ - 0.005, h + 0.003, -0.29), (sx_ - 0.01, h - 0.01, -0.315)], 0.0018, cable_m, G)
+    sc.data.resolution_u, sc.data.bevel_resolution = 4, 0
+    s.append(sc)
+    off = {"g": "#1f3f2c", "y": "#4a4226", "r": "#4a2426"}  # designer #187: a dark lens when off; colour + glow only lit (live)
     for k, (tag, c) in enumerate((("g", "#39d98a"), ("y", "#ffd23f"), ("r", RED))):
-        At = Mx((sx_, h + 0.068 + 0.0225 + k * 0.045, sz_))
-        lamp = cyl(f"signal_{tag}", 0.025, 0.043, (0, 0, 0), emitter(c, 3.0, f"signal_{tag}"), "export", 16)
+        At = Mx((sx_, h + 0.069 + 0.0225 + k * 0.045, sz_))
+        lens = emitter(c, 3.0, f"signal_{tag}")
+        lens.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = rgba(off[tag])
+        lamp = cyl(f"signal_{tag}", 0.025, 0.042, (0, 0, 0), lens, "export", 20)
         L.append(LIVE(f"desk_3_signal_{tag}", "neon", place([lamp], At), At))
-    # 2 rubber duck (baked) looking toward the keyboard; desk_3_duck_look = the point LOOP turns to on a failure
+    # 2 the rubber duck (prop_duck; origin = the body's centre on the desk, facing +x): a flat bottom, eyes
     dx, dz = -0.34, 0.12
     yellow = plastic("#ffd23f", 0.35, 0, 0.05, "duck")
-    s += [sphere("duck_body", 0.03, (dx, h + 0.022, dz), yellow, G, scale=(1.2, 0.75, 1.0), seg=16, rings=10),
-          sphere("duck_head", 0.018, (dx + 0.016, h + 0.052, dz), yellow, G, seg=14, rings=8),
-          cyl("duck_beak", 0.008, 0.014, (dx + 0.038, h + 0.05, dz), plastic(RED, 0.5, 0, 0, "beak"), G, 10, axis="x", r2=0.004),
-          cyl("duck_tail", 0.012, 0.02, (dx - 0.036, h + 0.034, dz), yellow, G, 10, r2=0.002)]
+    body = sphere("duck_body", 0.03, (0, 0, 0), yellow, G, scale=(1.2, 0.8, 1.0), seg=18, rings=10)
+    for v in body.data.vertices:  # flatten the bottom 6 mm up: it stands
+        v.co.z = max(v.co.z, -0.018)
+    body.location = W(0, 0.018, 0)
+    duck = [body,
+            sphere("duck_head", 0.018, (0.016, 0.05, 0), yellow, G, seg=14, rings=8),
+            place([cyl("duck_beak", 0.008, 0.014, (0, 0, 0), plastic("#ff8a3d", 0.5, 0, 0, "beak"), G, 10, axis="x", r2=0.004)],
+                  Mx((0.037, 0.047, 0), rz=-0.15))[0],
+            cyl("duck_tail", 0.012, 0.02, (-0.036, 0.032, 0), yellow, G, 10, r2=0.002)]
+    for ez in (-0.009, 0.009):
+        duck.append(sphere("duck_eye", 0.0028, (0.029, 0.056, ez), plastic("#111216", 0.3, 0, 0, "duck_eye"), G, seg=8, rings=5))
+    P.append(("prop_duck", duck, Mx((dx, h, dz), ry=-0.5)))
     look = bpy.data.objects.new("desk_3_duck_look", None)
     coll("export").objects.link(look)
     L.append(LIVE("desk_3_duck_look", "anchor", [look], Mx((dx + 0.016, h + 0.052, dz))))
-    # 3 portrait side monitor (baked): cyan stripes of fake code, softly lit
+    # 3 portrait side monitor in the kit's style: screen 0.19 x 0.31 with fake code (cyan, softly lit), 7 mm bezels
+    # (15 mm chin), a rounded back with a VESA plate, a pivot stand (neck + base)
     M = Mx((-0.46, h, -0.20), ry=0.35)
+    body_m = plastic("#2e3138", 0.6, 0.0, 0.08, "mon_body")
+    alu = plastic("#9aa0a8", 0.35, 0.8, 0.08, "mon_alu")
     code = emitter(AGENTS[3]["color"], 0.9, "fake_code")
-    mon = [box("sub_base", (0.1, 0.01, 0.08), (0, 0.005, 0), dark, G, bev=0.003, seg=1),
-           box("sub_neck", (0.03, 0.09, 0.02), (0, 0.05, -0.02), dark, G),
-           panel("sub_body", 0.21, 0.33, 0.02, 0.01, (0, 0.08 + 0.165, -0.01), plastic("#16181d", 0.5, 0.3, 0.05, "monitor"), G),
-           box("sub_screen", (0.19, 0.31, 0.001), (0, 0.08 + 0.165, 0.0005), plastic("#07080a", 0.2, 0, 0, "screen_dark"), G)]
+    sw, sh_, cy = 0.19, 0.31, 0.105 + 0.155
+    bw, bh = sw + 0.014, sh_ + 0.022
+    byc = cy - 0.004
+    P2 = Mx((0, byc, 0), rx=math.pi / 2)
+    mon = place([rounded_slab("sub_bezel", bw, 0.012, bh, 0.004, (0, 0, 0), body_m, G, seg=2),
+                 sphere("sub_back", 1.0, (0, -0.006, 0), body_m, G, scale=(bw / 2 - 0.02, 0.018, bh / 2 - 0.03), seg=20, rings=8)], P2)
+    bm = bmesh.new()
+    bm.from_mesh(mon[1].data)
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z > 1e-6], context="VERTS")
+    bm.to_mesh(mon[1].data)
+    bm.free()
+    mon += [box("sub_screen", (sw, sh_, 0.001), (0, cy, 0.0065), plastic("#07080a", 0.2, 0, 0, "screen_dark"), G),
+            box("sub_vesa", (0.06, 0.06, 0.006), (0, cy, -0.006 - 0.018 - 0.002), body_m, G, bev=0.0015, seg=1),
+            box("sub_neck", (0.03, cy - 0.008, 0.016), (0, (cy + 0.008) / 2, -0.04), alu, G, bev=0.002, seg=1),
+            rounded_slab("sub_base", 0.11, 0.008, 0.09, 0.025, (0, 0.004, -0.03), alu, G, seg=3, edge=0.0015)]
     rng = random.Random(11)
     for k in range(16):
         indent = rng.choice((0, 0, 0.015, 0.03))
         ln = rng.uniform(0.04, 0.15 - indent)
-        mon.append(box("code", (ln, 0.006, 0.001), (-0.08 + indent + ln / 2, 0.08 + 0.3 - 0.018 * k, 0.0012), code, G))
+        mon.append(box("code", (ln, 0.006, 0.001), (-0.08 + indent + ln / 2, cy + 0.135 - 0.018 * k, 0.0072), code, G))
     s += place(mon, M)
-    # 4 keycap dish
-    kx, kz = 0.44, 0.13
-    s.append(cyl("dish", 0.04, 0.012, (kx, h + 0.006, kz), plastic("#ece6d8", 0.35, 0, 0.05, "ivory_dish"), G, 24, r2=0.045))
-    for k, (ox, oz, ry) in enumerate(((-0.012, -0.008, 0.3), (0.014, 0.004, -0.5), (-0.002, 0.016, 1.1))):
-        cap = plastic(AGENTS[3]["color"] if k == 2 else "#3a3f48", 0.5, 0, 0.05, "keycap_c" if k == 2 else "keycap")
-        s.append(box("keycap", (0.02, 0.012, 0.02), (kx + ox, h + 0.018, kz + oz), cap, G, bev=0.003, seg=1, rot_y=ry))
-    # 5 cable clips along the back edge + the cable going over the edge and down
+    # 4 ceramic keycap dish (9 cm, 1.2 cm deep, a foot ring, a darker glaze rim) and three loose caps:
+    # Esc and ; (grey, baked) and a blank teal one (prop_keycap_0, the one LOOP fiddles with)
+    kx, kz = 0.50, 0.13  # 6 cm right of desks.md: clear of the kit's mouse pad (its right edge at x 0.425)
+    glaze = plastic("#ece6d8", 0.25, 0, 0.05, "dish_glaze")
+    s += [lathe("dish", [(0, 0.0015), (0.028, 0.0015), (0.03, 0.0), (0.034, 0.0), (0.035, 0.0025), (0.045, 0.011), (0.0455, 0.012),
+                         (0.044, 0.0122), (0.034, 0.0045), (0, 0.0035)], (kx, h, kz), glaze, G, seg=28),
+          torus("dish_rim", 0.0448, 0.0012, (kx, h + 0.0118, kz), plastic("#b9ab92", 0.3, 0, 0.05, "dish_rim"), G, seg=28, rseg=4)]
+    grey = plastic("#8d929c", 0.55, 0, 0.12, "cap_mod")
+    for k, (ox, oz, ry, lab) in enumerate(((-0.013, -0.008, 0.3, "Esc"), (0.014, 0.006, -0.5, ";"))):
+        s += place(keycap("keycap", grey, 1, lab, G), Mx((kx + ox, h + 0.0035, kz + oz), ry=ry))
+    teal = plastic(AGENTS[3]["color"], 0.5, 0, 0.12, "keycap_teal")
+    P.append(("prop_keycap_0", keycap("prop_keycap_0", teal, 3, None, G), Mx((kx - 0.002, h + 0.0035, kz + 0.018), ry=1.1)))
+    # 5 five C-shaped silicone clips along the back edge holding the cable, which then goes over the edge and down
+    clip_m = plastic("#7d828c", 0.9, 0, 0.3, "clip_silicone")
+    cy_, cz_ = h + 0.0045, -0.295
     for x in (0.06, 0.12, 0.18, 0.24, 0.30):
-        s.append(box("clip", (0.012, 0.012, 0.02), (x, h + 0.006, -0.295), metal, G))
-    cable = rail("cable", [(0.0, h + 0.004, -0.24), (0.05, h + 0.006, -0.29), (0.18, h + 0.006, -0.295), (0.31, h + 0.006, -0.295),
-                           (0.35, h - 0.01, -0.318), (0.37, h - 0.25, -0.32)], 0.003, plastic("#111216", 0.6, 0, 0, "cable"), G)
-    cable.data.resolution_u = 6
-    cable.data.bevel_resolution = 1
+        s.append(box("clip_base", (0.012, 0.0015, 0.012), (x, h + 0.00075, cz_), clip_m, G, bev=0.0005, seg=1))
+        # one 1 cm band bent into a C round the cable, open toward the front (+z), flat against the base behind
+        arc = [(cy_ + 0.0042 * math.sin(a), cz_ + 0.0042 * math.cos(a)) for a in [math.radians(d) for d in range(35, 326, 29)]]
+        bm = bmesh.new()
+        rows = [[bm.verts.new(W(x + side, y, z)) for (y, z) in arc] for side in (-0.005, 0.005)]
+        for k in range(len(arc) - 1):
+            bm.faces.new((rows[0][k], rows[1][k], rows[1][k + 1], rows[0][k + 1]))
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+        c = mesh_obj("clip", bm, clip_m, G)
+        c.modifiers.new("band", "SOLIDIFY").thickness = 0.0014
+        s.append(smooth(c))
+    cable = rail("cable", [(0.0, h + 0.004, -0.24), (0.05, h + 0.0045, -0.29), (0.18, h + 0.0045, -0.295), (0.31, h + 0.0045, -0.295),
+                           (0.35, h - 0.01, -0.318), (0.37, h - 0.25, -0.32)], 0.003, cable_m, G)
+    cable.data.resolution_u, cable.data.bevel_resolution = 6, 1
     s.append(cable)
-    return s, L
+    return s, L, P
 
 
-DESK_PROPS = [desk_props_memo, desk_props_mesh, desk_props_hue, desk_props_loop]
+
+# ================================================================ ECHO (seat 4, #193)
+def seat_echo(G):
+    """desks.md ECHO + desk-props.md 3: a pair of near-field speakers (bevelled baffle, silver woofer ring + live cone,
+    tweeter dome, bass port, rubber feet, a power LED), a 4-channel mixer (channel strips, a gain knob each (live),
+    fader slots + live faders, an 8-cell level meter (live), four screws), a headphone stand with the headphones
+    (prop_headphones: padded band, swivel yokes, cups + cushions, a coiled cable), three cassettes (cases, reel
+    windows, labels, five screws), an acoustic foam tile (8 wedges) behind the monitor"""
+    h = DESK_H
+    s, L, P = [], [], []
+    black = plastic("#16171b", 0.7, 0.1, 0.05, "spk_body")
+    baffle = plastic("#1d1f24", 0.6, 0.1, 0.05, "spk_baffle")
+    cone_m = plastic("#3a3d44", 0.85, 0, 0.3, "spk_cone")
+    silver = plastic("#b9bec6", 0.3, 0.85, 0.05, "spk_ring")
+    dark = plastic("#0c0d10", 0.8, 0, 0, "spk_port")
+    rubber = plastic("#0e0f12", 0.9, 0, 0.3, "rubber_foot")
+    lime = AGENTS[4]["color"]
+    leds = []
+    # 1 near-field speakers either side of the monitor, toed in 0.3 rad toward the seat; local +z = their front
+    sw, sh_, sd = 0.12, 0.20, 0.14
+    for side, sx in (("l", -1), ("r", 1)):
+        Ms = Mx((sx * 0.42, h + 0.004, -0.20), ry=-sx * 0.3)
+        parts = [box("spk_body", (sw, sh_, sd), (0, sh_ / 2, 0), black, G, bev=0.005, seg=2),
+                 box("spk_baffle", (sw - 0.008, sh_ - 0.008, 0.004), (0, sh_ / 2, sd / 2 + 0.001), baffle, G, bev=0.003, seg=1),
+                 torus("spk_woofer_ring", 0.043, 0.0028, (0, 0.075, sd / 2 + 0.004), silver, G, axis="z", seg=28, rseg=4),
+                 torus("spk_tweeter_ring", 0.019, 0.002, (0, 0.158, sd / 2 + 0.004), silver, G, axis="z", seg=20, rseg=4),
+                 place([sphere("spk_tweeter", 0.015, (0, 0, 0), plastic("#2b2e35", 0.4, 0.3, 0.05, "spk_tweeter"), G, half=True, seg=16, rings=6)],
+                       Mx((0, 0.158, sd / 2 + 0.003), rx=math.pi / 2))[0],
+                 box("spk_port", (0.06, 0.012, 0.004), (0, 0.02, sd / 2 + 0.0015), dark, G, bev=0.003, seg=1)]
+        for fx in (-1, 1):
+            for fz in (-1, 1):
+                parts.append(cyl("spk_foot", 0.008, 0.004, (fx * 0.04, -0.002, fz * 0.05), rubber, G, 10))
+        s += place(parts, Ms)
+        leds += place([cyl("spk_led", 0.0022, 0.002, (sx * -0.04, 0.188, sd / 2 + 0.0035), emitter(lime, 3.0, "spk_led"), "export", 10, axis="z")], Ms)
+        Mc = Ms @ Mx((0, 0.075, sd / 2 + 0.002))  # the woofer cone: moves along local z (travel 3 mm)
+        cone = [lathe("spk_cone", [(0.0, 0.004), (0.012, 0.0025), (0.04, -0.008), (0.042, -0.006), (0.0405, -0.004)], (0, 0, 0), cone_m, G, seg=24),
+                place([sphere("spk_dust_cap", 0.012, (0, 0, 0), cone_m, G, half=True, seg=14, rings=4, scale=(1, 0.5, 1))], Mx((0, 0, 0.003)))[0]]
+        cone = place(cone, Mx(rx=math.pi / 2))  # lathe axis (web y) -> local +z (out of the baffle)
+        L.append(LIVE(f"desk_4_spk_{side}", "bot", place(cone, Mc), Mc, travel=0.003, axis="z"))
+    L.append(LIVE("desk_4_spk_led", "neon", leds))
+    # 2 the mixer, front left: a sloped case, four channel strips (gain knob, fader slot), an 8-cell meter, 4 screws
+    mx, mz = -0.46, 0.10
+    body = plastic("#2a2d33", 0.6, 0.2, 0.05, "mixer")
+    panel = plastic("#33373e", 0.55, 0.2, 0.05, "mixer_panel")
+    ivory = plastic("#ece6d8", 0.45, 0, 0.1, "fader_cap")
+    Mm = Mx((mx, h, mz), rx=-math.radians(6))  # its top tilts 6 deg toward the seat
+    mw, mh, md = 0.16, 0.03, 0.12
+    s += place([box("mixer_case", (mw, mh, md), (0, mh / 2, 0), body, G, bev=0.004, seg=2),
+                box("mixer_panel", (mw - 0.008, 0.001, md - 0.008), (0, mh + 0.0004, 0), panel, G)], Mm)
+    for k in range(4):
+        cx = -mw / 2 + 0.018 + k * 0.03
+        s += place([box("mixer_div", (0.0008, 0.0006, md - 0.016), (cx + 0.015, mh + 0.001, 0), dark, G),
+                    box("fader_slot", (0.003, 0.0006, 0.055), (cx, mh + 0.001, 0.02), dark, G)], Mm)
+        Kn = Mm @ Mx((cx, mh + 0.001, -0.035))
+        knob = [cyl("knob", 0.0065, 0.008, (0, 0.004, 0), plastic("#16171b", 0.5, 0, 0.05, "knob"), G, 14, bev=0.001),
+                box("knob_mark", (0.0012, 0.0005, 0.005), (0, 0.0083, -0.003), ivory, G)]
+        L.append(LIVE(f"desk_4_knob_{k}", "bot", place(knob, Kn), Kn, axis="y"))
+        Fz = Mm @ Mx((cx, mh + 0.001, 0.02 + 0.0225))  # the fader at zero (the slot's front end); pushed = local -z
+        cap_ = [box("fader", (0.012, 0.008, 0.007), (0, 0.004, 0), ivory, G, bev=0.0012, seg=1),
+                box("fader_line", (0.012, 0.0004, 0.001), (0, 0.0082, 0), dark, G)]
+        L.append(LIVE(f"desk_4_fader_{k}", "bot", place(cap_, Fz), Fz, travel=0.045, axis="-z", zero=0.0))
+    meter_m = emitter(lime, 2.5, "meter")
+    for k in range(8):  # bottom (front) to top (back); the app lights them from the music's level
+        Mk = Mm @ Mx((mw / 2 - 0.016, mh + 0.0012, 0.04 - k * 0.0095))
+        L.append(LIVE(f"desk_4_meter_{k}", "neon", place([box("meter", (0.012, 0.0008, 0.006), (0, 0, 0), meter_m, "export")], Mk), Mk))
+    for fx in (-1, 1):
+        for fz in (-1, 1):
+            s += place([cyl("mixer_screw", 0.0018, 0.0008, (fx * (mw / 2 - 0.007), mh + 0.0008, fz * (md / 2 - 0.007)), silver, G, 8)], Mm)
+    # 3 the headphone stand (baked) and the headphones on it (prop_headphones; origin = the band's top centre)
+    hx, hz = 0.50, 0.08  # 4 cm right of desks.md: clear of the kit's mouse pad (its right edge at x 0.425)
+    st = plastic("#1a1b1f", 0.5, 0.3, 0.05, "hp_stand")
+    s += [lathe("hp_base", [(0, 0), (0.048, 0), (0.05, 0.003), (0.046, 0.008), (0.012, 0.01), (0, 0.01)], (hx, h, hz), st, G, seg=24),
+          cyl("hp_pole", 0.0055, 0.2, (hx, h + 0.11, hz), st, G, 10)]
+    s.append(cyl("hp_saddle", 0.008, 0.06, (hx, h + 0.21, hz), st, G, 12, axis="z", bev=0.002))  # the band rests on it
+    band_m = plastic("#1c1d22", 0.5, 0.3, 0.05, "hp_band")
+    pad_m = plastic("#2e3036", 0.95, 0, 0.5, "hp_pad")
+    cup_m = plastic("#202227", 0.5, 0.2, 0.05, "hp_cup")
+    R = 0.085
+    arc = [(R * math.sin(a), -R * (1 - math.cos(a)), 0.0) for a in [math.radians(d) for d in range(-90, 91, 15)]]
+    hp = [rail("hp_band", arc, 0.005, band_m, G),
+          rail("hp_pad", arc[3:-3], 0.009, pad_m, G)]
+    for c in hp:
+        c.data.resolution_u, c.data.bevel_resolution = 2, 1
+    for sx in (-1, 1):
+        hp += [box("hp_yoke", (0.006, 0.05, 0.012), (sx * R, -R - 0.01, 0), band_m, G, bev=0.002, seg=1),
+               cyl("hp_cup", 0.045, 0.03, (sx * (R + 0.012), -R - 0.045, 0), cup_m, G, 24, axis="x", bev=0.003),
+               place([torus("hp_cushion", 0.036, 0.011, (0, 0, 0), pad_m, G, axis="x", seg=24, rseg=6)], Mx((sx * (R - 0.006), -R - 0.045, 0)))[0]]
+    hp.append(spring("hp_cable", (-(R + 0.03), -R - 0.07, 0.0), (-(R + 0.03), -R - 0.2, 0.01), 0.005, 9, band_m, G, wire=0.0012, per_turn=6))
+    P.append(("prop_headphones", hp, Mx((hx, h + 0.21 + 0.008 + 0.009, hz), ry=math.pi / 2)))
+    # 4 three cassettes stacked flat behind left of the monitor: smoky case, two reel windows, a label, five screws
+    case_m = plastic("#5f646d", 0.35, 0.1, 0.05, "cassette_case")
+    label = plastic("#efe8d8", 0.85, 0, 0.1, "cassette_label")
+    win = plastic("#1e2026", 0.3, 0, 0, "cassette_window")
+    for k, (rot, col) in enumerate(((0.05, "#ffb347"), (-0.08, "#8f9bff"), (0.12, "#4df3ff"))):
+        Mk = Mx((-0.30, h + 0.006 + k * 0.012, -0.24), ry=rot)
+        c = [box("cassette", (0.1, 0.012, 0.064), (0, 0, 0), case_m, G, bev=0.0015, seg=1),
+             box("cassette_label", (0.08, 0.0004, 0.03), (0, 0.0062, -0.008), label, G),
+             box("cassette_stripe", (0.08, 0.0005, 0.005), (0, 0.0064, -0.018), plastic(col, 0.6, 0, 0.1, f"cassette_{k}"), G)]
+        for wx in (-0.022, 0.022):
+            c.append(cyl("cassette_window", 0.009, 0.0006, (wx, 0.0062, 0.01), win, G, 14))
+        for px_, pz_ in ((-0.045, -0.027), (0.045, -0.027), (-0.045, 0.027), (0.045, 0.027), (0.0, 0.027)):
+            c.append(cyl("cassette_screw", 0.0014, 0.0005, (px_, 0.0062, pz_), silver, G, 6))
+        s += place(c, Mk)
+    # 5 the acoustic foam tile behind the monitor, standing on its base plate: 8 vertical wedges on a backing
+    foam = plastic("#3a4452", 0.98, 0, 0.6, "foam")
+    fw, fh = 0.3, 0.15
+    Mf = Mx((0.0, h + 0.008, -0.287))
+    bm = bmesh.new()
+    for k in range(8):
+        x0, x1 = -fw / 2 + k * fw / 8, -fw / 2 + (k + 1) * fw / 8
+        xm = (x0 + x1) / 2
+        prof = [(x0, 0.0), (xm, 0.02), (x1, 0.0)]  # (x, z out toward the seat)
+        lo = [bm.verts.new(W(x, 0.0, z)) for x, z in prof]
+        hi = [bm.verts.new(W(x, fh, z)) for x, z in prof]
+        for a in range(2):
+            bm.faces.new((lo[a], lo[a + 1], hi[a + 1], hi[a]))
+        bm.faces.new((hi[0], hi[1], hi[2]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    s += place([mesh_obj("foam_wedges", bm, foam, G), box("foam_back", (fw, fh, 0.01), (0, fh / 2, -0.005), foam, G)], Mf)
+    return s, L, P
+
+
+SEATS = [seat_memo, seat_mesh, seat_hue, seat_loop, seat_echo]
 
 
 def place_desk_live(F, entries):
@@ -972,7 +1410,9 @@ def build_wall_items():
             x += bw + 0.003
     p += library_statics(shelf_m)
     # #126: a pothos on top, over the right half (the decorative top row), hanging at most 0.35 m
-    p += plant_tris("vine", pothos("vine", sx + 0.25, sh + 0.015, sz - 0.04, sz + sd / 2, G))
+    vine = pothos("vine", sx + 0.25, sh + 0.015, sz - 0.04, sz + sd / 2, G)
+    leaf_tips("vine", [o for o in vine if "pot" not in o.name and "soil" not in o.name], sx + 0.25, sz - 0.04, hang=True)
+    p += plant_tris("vine", vine)
     fp("shelf", p[mark:], "floor", "n")  # stands on the floor against the back wall
     mark2 = len(p)
     # the wall clock on the left wall next to the door (#91: the timelapse entrance): face + 12 ticks baked,
@@ -1210,6 +1650,34 @@ def flip(o):
     bm.to_mesh(o.data)
     bm.free()
     return o
+
+
+def leaf_tips(name, objs, cx, cz, n=3, hang=False):
+    """#185 (watering.md): empties <plant>_tip_0..n-1 at leaf tips, one per 360/n deg sector round the pot axis - the
+    vertex that reaches furthest out and up (hang: out and down, the pothos). extras tip_of = the plant"""
+    bpy.context.view_layer.update()
+    dg = bpy.context.evaluated_depsgraph_get()
+    best = [None] * n
+    for o in objs:
+        if o.type not in ("MESH", "CURVE"):
+            continue
+        ev = o.evaluated_get(dg)
+        me = ev.to_mesh()
+        for v in me.vertices:
+            p = o.matrix_world @ v.co
+            x, y, z = p.x, p.z, -p.y  # web
+            r = math.hypot(x - cx, z - cz)
+            score = r + (-0.6 * y if hang else 0.6 * y)
+            k = int(((math.atan2(z - cz, x - cx) + math.pi) / (2 * math.pi)) * n) % n
+            if best[k] is None or score > best[k][0]:
+                best[k] = (score, (x, y, z))
+        ev.to_mesh_clear()
+    for k, b in enumerate(b for b in best if b):
+        e = bpy.data.objects.new(f"{name}_tip_{k}", None)
+        coll("export").objects.link(e)
+        e.matrix_world = Mx(b[1])
+        e["tip_of"] = name
+        NODES.append({"obj": e, "tip_of": name})
 
 
 def pot3(name, x, z, y0, r_top, r_bot, h, body, group, saucer=False, pebbles=4, seg=24, foot=None, chips=0, soil_node=True):
@@ -2060,6 +2528,8 @@ def build_lounge():
         # reach the pot. The slot (overlap check) keeps the whole plant
         pot_parts = [o for o in objs if o.name.split(".")[0] in {f"{name}_{p}" for p in ("body", "rim", "foot", "saucer", "leg", "ring")}]
         fp(name, objs, "decor", core=pot_parts)
+        leaf_tips(name, [o for o in objs if o not in pot_parts and "soil" not in o.name and "pot" not in o.name
+                         and not o.get("vein_node")], px, pz)
         veins = [o for o in objs if o.get("vein_node")]
         if veins:  # #156: the 3–9 mm vein strips got 1–2 px at the lounge density and baked dark: their own node
             VEIN_NODES.append(join(f"{name}_veins", veins))
@@ -2160,6 +2630,19 @@ def tripod(o, tip_z, r, side="r"):
         contact(o, part, (r * math.cos(a), r * math.sin(a), z), (math.cos(a), math.sin(a), 0))
 
 
+def web_pose(M):
+    """a Blender world matrix -> (home_pos, home_rot) in web terms for prop()/Mx: position, Euler XYZ (three.js)"""
+    t = M.to_translation()
+    P = Matrix(((1, 0, 0), (0, 0, -1), (0, 1, 0)))  # web -> Blender
+    R = P.transposed() @ M.to_3x3().normalized() @ P
+    ry = math.asin(max(-1.0, min(1.0, R[0][2])))
+    if abs(R[0][2]) < 0.9999999:
+        rx, rz = math.atan2(-R[1][2], R[2][2]), math.atan2(-R[0][1], R[0][0])
+    else:
+        rx, rz = math.atan2(R[2][1], R[1][1]), 0.0
+    return (t.x, t.z, -t.y), (rx, ry, rz)
+
+
 def prop(name, kind, objs, home_pos, home_rot=(0.0, 0.0, 0.0), grip_pos=(0.0, 0.0, 0.0), grip_rot=(0.0, 0.0, 0.0)):
     H = Mx(home_pos, *home_rot)
     o = pivot(join(name, place(objs, H)), H)
@@ -2179,6 +2662,35 @@ def build_book(G):
     T = 0.025
     return make_book("prop_book", 0.15, 0.22, T, "#2f6f9f", (sx2 - 0.235, 0.565 + T / 2, sz2 + 0.06), (0.0, 0.15, 0.0), G,
                      ribbon=True)
+
+
+def turning_page(name, W_, H_, H, paper, G):
+    """#231: one page to turn, live bot <book>_page in the book frame (pivot = the spine axis, turned about local z
+    like the _l half): two sheets back to back 0.1 mm apart with opposite normals (the back has its own UV, mirrored
+    in u, for the next page's text), 0.3-0.4 mm over the lower half's inner face (hidden inside the closed book).
+    16 x 4 quads so the app can bend it; point attributes _PAGE_U (spine 0 -> fore-edge 1), _PAGE_V (bottom 0 -> top 1)"""
+    pw, ph = W_ - 0.008, H_ - 0.012
+    NU, NV = 16, 4
+    bm = bmesh.new()
+    lu, lv = bm.verts.layers.float.new("_PAGE_U"), bm.verts.layers.float.new("_PAGE_V")
+    uvl = bm.loops.layers.uv.new("UVMap")
+    for y, up in ((0.0004, True), (0.0003, False)):
+        g = [[None] * (NV + 1) for _ in range(NU + 1)]
+        for a in range(NU + 1):
+            for b in range(NV + 1):
+                v = bm.verts.new(W(0.003 + a / NU * pw, y, -ph / 2 + b / NV * ph))
+                v[lu], v[lv] = a / NU, b / NV
+                g[a][b] = v
+        for a in range(NU):
+            for b in range(NV):
+                q = [g[a][b], g[a + 1][b], g[a + 1][b + 1], g[a][b + 1]]  # this order faces web -y
+                f = bm.faces.new(list(reversed(q)) if up else q)
+                for loop in f.loops:
+                    u = loop.vert[lu]
+                    loop[uvl].uv = (u if up else 1.0 - u, loop.vert[lv])
+    o = pivot(join(name, place([mesh_obj(name, bm, paper, G)], H)), H)
+    o["page_w"], o["page_h"], o["turn_axis"], o["turn_dir"] = round(pw, 4), round(ph, 4), "z", 1
+    return live(o, "bot")
 
 
 def make_book(name, W_, H_, T, cover_hex, home_pos, home_rot, G, ribbon=False):
@@ -2236,7 +2748,7 @@ def make_book(name, W_, H_, T, cover_hex, home_pos, home_rot, G, ribbon=False):
                             (W_ / 2 - (0.015 if k % 3 == 2 else 0), -sgn * 0.0001, -H_ * 0.34 + k * H_ * 0.09), ink, G))
         return live(pivot(join(nm, place(objs, H)), H), "bot")
 
-    BOOK_HALVES.extend([half(f"{name}_l", 1), half(f"{name}_r", -1)])
+    BOOK_HALVES.extend([half(f"{name}_l", 1), half(f"{name}_r", -1), turning_page(f"{name}_page", W_, H_, H, paper, G)])
     spine = [box("spine", (0.003, T / 2, H_), (-0.0015, -T / 4, 0), cover, G, bev=0.001, seg=2)] + spine_deco(-1)  # the lower half of the spine
     return prop(name, "book", spine, home_pos, home_rot,
                 grip_pos=(0, -0.04, 0), grip_rot=(-math.pi / 2, 0, 0))
@@ -2469,14 +2981,15 @@ def build_props():
     plane = paper_plane("plane", 0.5, plastic(POSTIT[0], 0.85, 0, 0.2, "postit_0"), G)
     out.append(prop("prop_plane", "plane", [plane], desk0(TRAY[0] + 0.065, DESK_H + 0.154 + 0.011, -0.22), (0.0, ry0 - 0.3, 0.0),
                     grip_pos=(0, -0.04, 0), grip_rot=(-math.pi / 2, 0, 0)))
-    # sign-off stamp (#43): origin at the body's center, face = local -y. Home: standing by the ink pad.
-    # Grip: in the fist, face out of the little-finger side (grip +z: down at the rest pose)
-    amber = plastic(AGENTS[0]["color"], 0.4, 0, 0.05, "stamp")
-    objs = [cyl("stamp_body", 0.018, 0.075, (0, 0, 0), amber, G, 18, bev=0.002),
-            cyl("stamp_face", 0.019, 0.006, (0, -0.0395, 0), plastic("#7a1f1f", 0.7, 0, 0.1, "stamp_rubber"), G, 18),
-            sphere("stamp_knob", 0.02, (0, 0.05, 0), plastic("#c9a36b", 0.6, 0, 0.3, "handle"), G, seg=14, rings=8)]
-    out.append(prop("prop_stamp", "stamp", objs, desk0(0.51, DESK_H + 0.0425, 0.12), (0.0, ry0, 0.0),
-                    grip_pos=(0, -0.03, 0), grip_rot=(-math.pi / 2, 0, 0)))
+    # sign-off stamp (#43; #187: rubber face, amber body, brass band, waisted neck, turned knob - seat_memo): origin
+    # at the body's center, face = local -y. Home: by the ink pad (moved with the kit's mouse pad). Grip: in the fist
+    objs, H = SEAT_PROPS["prop_stamp"]
+    out.append(prop("prop_stamp", "stamp", objs, *web_pose(H), grip_pos=(0, -0.03, 0), grip_rot=(-math.pi / 2, 0, 0)))
+    # #187 (desk-props.md 5): LOOP's rubber duck and one teal keycap are props now (the duck is held up to talk to on a
+    # failure, the keycap fiddled with); their grips and contacts are in build_hands
+    for name, kind in (("prop_duck", "duck"), ("prop_keycap_0", "keycap"), ("prop_headphones", "headphones")):
+        objs, H = SEAT_PROPS[name]
+        out.append(prop(name, kind, objs, *web_pose(H), grip_pos=(0, -0.03, 0), grip_rot=(-math.pi / 2, 0, 0)))
     # #164: things written with are props now (HUE draws with the tablet pen, MEMO writes with a marker). Pens lie
     # along local z, the tip at -z, centre pivot; the old grip extras as MEMO's pen
     PEN_GRIP = dict(grip_pos=(0, -0.04, 0), grip_rot=(math.pi / 2, 0, 0))
@@ -2489,8 +3002,8 @@ def build_props():
             cyl("pen_end", 0.0047, 0.006, (0, 0, 0.063), plastic(AGENTS[2]["color"], 0.4, 0, 0.05, "pen_end"), G, 16, axis="z", bev=0.001),
             box("pen_button", (0.003, 0.002, 0.008), (0, 0.0058, -0.012), rubber, G, bev=0.0006, seg=1),
             box("pen_button", (0.003, 0.002, 0.006), (0, 0.0058, -0.002), rubber, G, bev=0.0006, seg=1)]
-    t = (F2 @ Mx((0.44, DESK_H + 0.017, 0.0625))).to_translation()
-    out.append(prop("prop_tablet_pen", "tablet_pen", objs, (t.x, t.z, -t.y), (0.0, AGENTS[2]["at"][2] + math.pi + 0.08, 0.0), **PEN_GRIP))
+    # #187 (designer): its home is the pen cup right of the tablet, tip down, tilted 15 deg back (seat_hue)
+    out.append(prop("prop_tablet_pen", "tablet_pen", objs, *web_pose(SEAT_PROPS["prop_tablet_pen"][1]), **PEN_GRIP))
     # whiteboard markers on the tray (cap over the tip, white barrel with a colour band, colour end plug)
     zb = -HZ + 0.02
     for k, col in enumerate(("#1f6feb", "#d64545", "#111111")):
@@ -2565,8 +3078,20 @@ def build_hands():
         contact(o, "thumb", (0.012, T / 2, 0), (0, 1, 0))
         contact(o, "palm", (-0.003, 0, 0), (-1, 0, 0))
     # stamp: grip over the knob's head, fingers level, palm down
-    grip_at(O["prop_stamp"], R, (0, 0.08, 0), (0, 0, -1), (0, -1, 0))
-    contact(O["prop_stamp"], "palm", (0, 0.07, 0), (0, 1, 0))
+    grip_at(O["prop_stamp"], R, (0, 0.0574, 0), (0, 0, -1), (0, -1, 0))  # #187: the turned knob's top is at 0.0474
+    contact(O["prop_stamp"], "palm", (0, 0.0474, 0), (0, 1, 0))
+    # #187: the duck held over its back, fingers toward its head, thumb and index on its flanks
+    grip_at(O["prop_duck"], R, (-0.012, 0.05, 0), (1, 0, 0), (0, -1, 0))
+    contact(O["prop_duck"], "palm", (-0.012, 0.0404, 0), (0, 1, 0))
+    contact(O["prop_duck"], "thumb", (-0.008, 0.02, 0.0293), (0, 0, 1))
+    contact(O["prop_duck"], "index", (-0.008, 0.02, -0.0293), (0, 0, -1))
+    # #187: the keycap pinched by its skirt (thumb and index on two opposite sides, half way up)
+    grip_at(O["prop_keycap_0"], R, (0, 0.025, 0), (0, -0.3, -1), (0, -1, 0))
+    contact(O["prop_keycap_0"], "thumb", (0, 0.0036, 0.0077), (0, 0.36, 0.93))
+    contact(O["prop_keycap_0"], "index", (0, 0.0036, -0.0077), (0, 0.36, -0.93))
+    # #187: the headphones held by the band's middle (grips.md), the palm on the right cup's back when held to an ear
+    grip_at(O["prop_headphones"], R, (0, 0.03, 0), (0, 0, -1), (0, -1, 0))
+    contact(O["prop_headphones"], "palm", (0.085 + 0.012 + 0.015, -0.085 - 0.045, 0), (1, 0, 0))
     # pens (tripod): MEMO's pen (tip = the capped end, -z), the tablet pen, the markers
     tripod(O["agent_0_pen"], -0.085, 0.009)
     tripod(O["prop_tablet_pen"], -0.07, 0.006)
@@ -2577,8 +3102,33 @@ def build_hands():
         if i == 2:
             continue
         F = frame(a["at"])
-        grip_at(f"desk_{i}_mouse", R, (0.3, DESK_H + 0.04, 0.08), (0, -0.3, -1), (0, -1, 0), M=F)
-        contact(f"desk_{i}_mouse", "index", (0.29, DESK_H + 0.02, 0.04), (0, 1, 0), M=F)
+        grip_at(f"desk_{i}_mouse", R, (0.3, DESK_H + 0.055, 0.085), (0, -0.3, -1), (0, -1, 0), M=F)  # #187 kit mouse (pad z 0.10)
+        contact(f"desk_{i}_mouse", "index", (0.288, DESK_H + 0.0301, 0.04), (0, 1, 0), M=F)  # on desk_<i>_mouse_l
+        contact(f"desk_{i}_mouse", "middle", (0.312, DESK_H + 0.0301, 0.04), (0, 1, 0), M=F)  # #187: on desk_<i>_mouse_r
+    # #187 (grips.md rows 49-63): the desk things' hand points, in each desk's frame (positions as in seat_*)
+    h = DESK_H
+    Fd = [frame(a["at"]) for a in AGENTS]
+    tx, tz = TRAY[0], TRAY[1]
+    top = h + 0.075 + 0.003 + 5 * 0.003  # MEMO's IN stack, 5 sheets: the top sheet's right front corner
+    contact("desk_0_in", "thumb", (tx + 0.095, top, tz + 0.012 + 0.12), (0, 1, 0), M=Fd[0])
+    contact("desk_0_in", "index", (tx + 0.095, top - 0.003, tz + 0.012 + 0.12), (0, -1, 0), M=Fd[0])
+    Hg = Fd[0] @ Mx((-0.50, h + 0.055, -0.22))  # the hourglass: palm over the top plate, thumb on a post
+    grip_at("desk_0_hourglass", R, (0, 0.07, 0), (0, 0, -1), (0, -1, 0), M=Hg)
+    contact("desk_0_hourglass", "palm", (0, 0.055, 0), (0, 1, 0), M=Hg)
+    contact("desk_0_hourglass", "thumb", (0.0305, 0.0, 0.0), (1, 0, 0), M=Hg)
+    ttx, ttz = -0.43, -0.18  # MESH's turntable: the button, the platter's rim
+    contact("desk_1_turntable", "index", (ttx, h + 0.0105, ttz + 0.103), (0, 0, 1), M=Fd[1])
+    contact("desk_1_turntable_rim", "index", (ttx, h + 0.018 + 0.01, ttz + 0.075), (0, 1, 0), M=Fd[1])
+    kx_, ky_, kz_ = 0.46 + 0.012, h + 0.282, -0.20  # the ring light's angle knob, pinched from above and below
+    contact("desk_1_ringlight", "thumb", (kx_, ky_ + 0.011, kz_), (0, 1, 0), M=Fd[1])
+    contact("desk_1_ringlight", "index", (kx_, ky_ - 0.011, kz_), (0, -1, 0), M=Fd[1])
+    contact("desk_2_lamp", "index", (-0.52 + 0.022, h + 0.0185, -0.26 + 0.02), (0, 1, 0), M=Fd[2])  # the base switch
+    grip_at("desk_2_swatch", "l", (-0.40, h + 0.04, -0.16 + 0.04), (0, -1, 0), (0, 0, -1), M=Fd[2])  # the fan's pin
+    contact("desk_2_swatch", "index", (-0.40 + 0.06, h + 0.12, -0.16 + 0.006), (0, 0, 1), M=Fd[2])  # a chip's face
+    contact("desk_3_signal", "index", (0.47, h + 0.069 + 0.0225 + 2 * 0.045, -0.24 + 0.025), (0, 0, 1), M=Fd[3])  # top cell
+    Mm = Fd[4] @ Mx((-0.46, h, 0.10), rx=-math.radians(6))  # ECHO's faders: the fingertip on the cap's top
+    for k in range(4):
+        contact(f"desk_4_fader_{k}", "index", (-0.08 + 0.018 + k * 0.03, 0.03 + 0.001 + 0.0084, 0.0425), (0, 1, 0), M=Mm)
     contact("coffee_button", "index", COFFEE_BUTTON, (1, 0, 0), M=counter_frame())
 
 
@@ -2629,6 +3179,7 @@ SPAWN = [  # where each agent hovers in the exported (idle) pose: ping-pong, cof
     (PINGPONG[0] + 1.33, PINGPONG[1], math.pi / 2),
     (COUNTER[0] - 0.62, COUNTER[1], -math.pi / 2),  # nav_coffee: in front of the counter, facing +x
     (WHITEBOARD_X, -HZ + 0.9, 0.0),
+    (-0.75, -0.6, math.pi / 2),  # ECHO: hall_mid, facing west toward its desk
 ]
 POSTIT = ["#ffe27a", "#ffc46b", "#fff1b8"]
 # the #20 grip offsets were defined on the old hand empty: agent frame, arm hanging (-y = away from the
@@ -2780,6 +3331,50 @@ def disc(name, r, material, group, seg=32):
     return o
 
 
+def seam_split(o, z_web, gap):
+    """#166: cut a head's shell into front and back plates: delete the faces in a gap-wide band round the head at
+    web z = z_web (the graphite seam band inside shows through it)"""
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
+    yb = -z_web  # web z -> Blender -y
+    for c in (yb - gap / 2, yb + gap / 2):
+        bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], plane_co=(0, c, 0), plane_no=(0, 1, 0))
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if abs(f.calc_center_median().y - yb) < gap / 2 - 1e-6], context="FACES")
+    bm.to_mesh(o.data)
+    bm.free()
+
+
+def screw(center, axis, sgn, metal, dark, group, r=0.003):
+    """#166: a flat-head screw (6 mm) with a cross slot, its face toward web axis * sgn"""
+    x, y, z = center
+    k = {"x": 0, "y": 1, "z": 2}[axis]
+    d = [0.0, 0.0, 0.0]
+    d[k] = sgn * 0.0009
+    out = [cyl("screw", r, 0.0015, center, metal, group, 8, axis=axis)]
+    for rot in (0, 1):
+        size = [0.0, 0.0, 0.0]
+        size[k] = 0.0004
+        others = [j for j in range(3) if j != k]
+        size[others[rot]], size[others[1 - rot]] = r * 1.4, 0.0006
+        out.append(box("screw_slot", tuple(size), (x + d[0], y + d[1], z + d[2]), dark, group))
+    return out
+
+
+def hexdot(name, r, center, normal, material, group):
+    """a flat dark hexagon (4 triangles) facing the web direction normal: grille and mic holes on a live head"""
+    n = Vector(normal).normalized()
+    u = n.cross(Vector((0, 1, 0)) if abs(n.y) < 0.9 else Vector((1, 0, 0))).normalized()
+    v = n.cross(u)
+    c = Vector(center)
+    bm = bmesh.new()
+    vs = [bm.verts.new(W(*(c + (u * math.cos(a) + v * math.sin(a)) * r))) for a in [k * math.pi / 3 for k in range(6)]]
+    f = bm.faces.new(vs)
+    f.normal_update()
+    if f.normal.dot(Vector(W(*n)) - Vector(W(0, 0, 0))) < 0:
+        f.normal_flip()
+    return mesh_obj(name, bm, material, group)
+
+
 def soft_glow(h, alpha, strength, name):
     """emissive, mostly see-through (the beam and the floor disc); the app draws them additive"""
     m = emitter(h, strength, name)
@@ -2795,12 +3390,16 @@ def soft_glow(h, alpha, strength, name):
 def build_agent(i, agent):
     G = "bot"
     col = agent["color"]
-    shell = plastic("#f6f3ec", 0.32, 0, 0.08, "bot_shell")
-    joint = plastic("#4a505c", 0.35, 0.35, 0.05, "bot_joint")
+    # #166 (robots.md 2.1): four materials for all five - matte ivory shell, graphite (seams, ears, bezel, plate), metal
+    # (screws, rims, collars); the face is the canvas slot (glass); the agent colour as before (emission 0.6)
+    shell = plastic("#e9e4d8", 0.55, 0, 0.08, "bot_shell")
+    graphite = plastic("#3a3f48", 0.6, 0, 0.05, "bot_graphite")
+    metal = plastic("#b9bec7", 0.35, 1.0, 0.03, "bot_metal")
+    joint = graphite
     accent = plastic(col, 0.4, 0, 0.05, f"bot_accent_{i}")
     ab = accent.node_tree.nodes["Principled BSDF"]
     ab.inputs["Emission Color"].default_value = rgba(col)
-    ab.inputs["Emission Strength"].default_value = 0.35
+    ab.inputs["Emission Strength"].default_value = 0.6
     glow_m = emitter(col, 6.0, f"glow_{i}")
     x, z, ry = SPAWN[i]
     root = Mx((x, 0, z), ry=ry)
@@ -2815,7 +3414,10 @@ def build_agent(i, agent):
     a["pivot_at"] = [round(x, 5), 0.0, round(z, 5)]
     bot.append(a)
 
-    # -- head: rounded box (MESH: chamfered, two chamfer faces glowing lavender), ears, vent, thrust housing
+    # -- head (#166 robots.md 2.1): front and back shells split at z = -0.02 by a 2 mm graphite seam, the face bezel,
+    #    four screws round it, ear modules, the service plate on the back (seams, screws, name plate RB-1i; inside:
+    #    MEMO the post-it clip, MESH/HUE/LOOP five vent slots, ECHO the grille), the thrust ring's metal rim + vents.
+    #    MESH keeps its chamfered head with two glowing facets
     if i == 1:
         head = box("head", HEAD, (0, 0, 0), shell, G, bev=0.06, seg=1)
         head = apply_all(head)
@@ -2824,43 +3426,114 @@ def build_agent(i, agent):
             n = p.normal
             if (abs(n.x + 0.7071) < 0.05 and abs(n.y - 0.7071) < 0.05) or (abs(n.x - 0.7071) < 0.05 and abs(n.y + 0.7071) < 0.05):
                 p.material_index = 1
+        r_in = 0.06
     else:
-        head = box("head", HEAD, (0, 0, 0), shell, G, bev=0.08, seg=3)
+        head = apply_all(box("head", HEAD, (0, 0, 0), shell, G, bev=0.08, seg=3))
+        r_in = 0.08
+    seam_split(head, -0.02, 0.002)
     hp = [head,
-          panel("face_bezel", 0.33, 0.21, 0.006, 0.03, (0, 0, -hd / 2 + 0.001), plastic("#111216", 0.3, 0.2, 0, "face_bezel"), G),
-          box("vent_plate", (0.24, 0.13, 0.006), (0, -0.01, hd / 2), joint, G)]
-    hp += [box("vent", (0.2, 0.012, 0.008), (0, -0.05 + k * 0.027, hd / 2 + 0.004), shell, G) for k in range(4)]
-    hp += [cyl("thrust", 0.105, 0.03, (0, -hh / 2 - 0.005, 0), joint, G, 16, r2=0.09)]
-    ears = {"l": True, "r": True}
-    if i == 0:  # MEMO: antenna (back), headset on the right ear (cup + boom + status mic)
-        ears["r"] = False
-        hp += [cyl("antenna", 0.01, 0.14, (0.08, hh / 2 + 0.07, 0.08), joint, G, 8),
-               box("headset", (0.064, 0.14, 0.06), (hw / 2 + 0.03, 0, 0), joint, G, bev=0.025, seg=2),
-               lowrail("boom", [(hw / 2 + 0.045, -0.05, -0.02), (hw / 2 + 0.01, -0.11, -0.15), (0.09, -0.13, -0.205)], 0.008, joint, G),
-               sphere("mic", 0.02, (0.09, -0.13, -0.205), accent, G, seg=10, rings=6)]
-    if i == 1:  # MESH: gizmo (stalk, three axis bars + ends; the center is the tip)
+          # the seam's floor: a graphite band 1.5 mm inside the shells, seen through the 2 mm gap
+          place([rounded_slab("seam", hw - 0.003, 0.004, hh - 0.003, r_in - 0.0015, (0, 0, 0), graphite, G, seg=3 if i != 1 else 1)],
+                Mx((0, 0, -0.02), rx=math.pi / 2))[0],
+          panel("face_bezel", 0.32, 0.20, 0.006, 0.025, (0, 0, -hd / 2 + 0.0015), graphite, G)]
+    for sx in (-1, 1):  # four screws 1.2 cm out of the bezel's corners, set into the front shell
+        for sy in (-1, 1):
+            hp += screw((sx * 0.172, sy * 0.112, -hd / 2 + 0.0105), "z", -1, metal, graphite, G)
+    # the service plate on the back: a 0.24 x 0.16 seam rectangle, corner screws, the name plate below
+    zb = hd / 2
+    for (w, h_, cx, cy) in ((0.24, 0.0015, 0, 0.08), (0.24, 0.0015, 0, -0.08), (0.0015, 0.16, 0.12, 0), (0.0015, 0.16, -0.12, 0)):
+        hp.append(box("plate_seam", (w, h_, 0.001), (cx, cy, zb + 0.0002), graphite, G))
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            hp += screw((sx * 0.105, sy * 0.066, zb + 0.0005), "z", 1, metal, graphite, G)
+    if i != 4:  # ECHO's grille covers the plate's middle
+        hp += [box("name_plate", (0.06, 0.016, 0.0015), (0, -0.062, zb + 0.0008), shell, G, bev=0.0005, seg=1),
+               text("name_plate_txt", f"RB-1{i}", 0.009, (0, -0.0655, zb + 0.0017), graphite, G, facing="+z", extrude=0.0)]
+    if i in (1, 2, 3):  # five vent slots inside the plate
+        hp += [box("plate_vent", (0.18, 0.004, 0.002), (0, -0.035 + k * 0.02, zb + 0.0002), graphite, G) for k in range(5)]
+    # thrust housing + its metal rim and six vent slots (the glow ring itself is agent_<i>_glow)
+    hp += [cyl("thrust", 0.105, 0.03, (0, -hh / 2 - 0.005, 0), graphite, G, 20, r2=0.09),
+           torus("thrust_rim", 0.103, 0.004, (0, -hh / 2 - 0.005, 0), metal, G, seg=24, rseg=4)]
+    for k in range(6):
+        a = 2 * math.pi * k / 6
+        hp += place([box("thrust_vent", (0.002, 0.016, 0.014), (0, 0, 0), plastic("#1d2127", 0.8, 0, 0, "bot_dark"), G)],
+                    Mx((0.0985 * math.cos(a), -hh / 2 - 0.006, 0.0985 * math.sin(a)), ry=-a))
+    ears = {"l": i not in (2, 3), "r": i not in (0, 3)}  # LOOP: the cups cover them; MEMO: the headset; HUE: the dropper (left)
+    for s, sx in (("l", -1), ("r", 1)):
+        if ears[s]:  # the ear module: graphite cap, an agent-colour band, three screws at 120 deg
+            hp += [cyl("ear_cap", 0.035, 0.035, (sx * (hw / 2 + 0.0175), 0, 0), graphite, G, 20, axis="x", bev=0.002),
+                   torus("ear_band", 0.035, 0.002, (sx * (hw / 2 + 0.03), 0, 0), accent, G, axis="x", seg=20, rseg=4)]
+            if i != 4:
+                for k in range(3):
+                    a = 2 * math.pi * k / 3 + math.pi / 2
+                    hp += screw((sx * (hw / 2 + 0.0355), 0.022 * math.sin(a), 0.022 * math.cos(a)), "x", sx, metal, graphite, G, r=0.0025)
+    if i == 0:  # MEMO: antenna (collar, three spring rings), headset (cushion cup, boom joint, grille mic), post-it clip
+        ax_, az_ = 0.08, 0.08
+        hp += [cyl("antenna", 0.008, 0.14, (ax_, hh / 2 + 0.07, az_), graphite, G, 8),
+               cyl("antenna_collar", 0.016, 0.014, (ax_, hh / 2 + 0.007, az_), metal, G, 12, bev=0.002)]
+        hp += [torus("antenna_spring", 0.0105, 0.0022, (ax_, hh / 2 + 0.04 + k * 0.03, az_), metal, G, seg=10, rseg=4) for k in range(3)]
+        hp += [box("headset", (0.06, 0.14, 0.06), (hw / 2 + 0.03, 0, 0), graphite, G, bev=0.025, seg=2),
+               box("headset_cushion", (0.008, 0.12, 0.05), (hw / 2 + 0.004, 0, 0), plastic("#26292f", 0.95, 0, 0.5, "bot_fabric"), G, bev=0.004, seg=1),
+               sphere("boom_joint", 0.012, (hw / 2 + 0.045, -0.05, -0.02), metal, G, seg=10, rings=6),
+               lowrail("boom", [(hw / 2 + 0.045, -0.05, -0.02), (hw / 2 + 0.01, -0.11, -0.15), (0.09, -0.13, -0.205)], 0.007, graphite, G),
+               sphere("mic", 0.02, (0.09, -0.13, -0.205), accent, G, seg=12, rings=8)]
+        hp += [torus("mic_grille", 0.0175 - k * 0.004, 0.0012, (0.09, -0.13, -0.205 - 0.006 - k * 0.004), graphite, G, axis="z", seg=12, rseg=3)
+               for k in range(3)]
+        hp += [box("postit_clip", (0.05, 0.012, 0.006), (0, 0.06, zb + 0.004), metal, G, bev=0.002, seg=1)]
+    if i == 1:  # MESH: gizmo (base joint, stalk, three bars ending in arrow cones; the centre sphere is the tip)
         cz = hh / 2 + 0.13
-        hp += [cyl("gizmo_stalk", 0.01, 0.11, (0, hh / 2 + 0.055, 0), joint, G, 8)]
+        hp += [sphere("gizmo_joint", 0.016, (0, hh / 2 + 0.004, 0), metal, G, seg=12, rings=6),
+               cyl("gizmo_stalk", 0.009, 0.11, (0, hh / 2 + 0.055, 0), graphite, G, 8)]
         for v, c in (((1, 0, 0), "#ff4d5e"), ((0, 1, 0), "#5dde7a"), ((0, 0, 1), "#4d8bff")):
             m = plastic(c, 0.4, 0, 0, f"gizmo_{c}")
-            end = (0.13 * v[0], cz + 0.13 * v[1], 0.13 * v[2])
-            hp += [segment("gizmo_bar", (0, cz, 0), end, 0.009, m, G, verts=8),
-                   sphere("gizmo_end", 0.026, end, m, G, seg=10, rings=6)]
-    if i == 2:  # HUE: a flat beret tilted -10° (band, dome, stalk)
+            end = (0.11 * v[0], cz + 0.11 * v[1], 0.11 * v[2])
+            hp.append(segment("gizmo_bar", (0, cz, 0), end, 0.008, m, G, verts=8))
+            tip_end = (0.155 * v[0], cz + 0.155 * v[1], 0.155 * v[2])
+            hp.append(segment("gizmo_arrow", end, tip_end, 0.02, m, G, verts=12, r2=0.0))  # the arrow cone
+    if i == 2:  # HUE: beret (band, inner band, dome with stitch lines, the tip is its button), palette pin, dropper
         fabric_m = plastic("#5a2147", 0.85, 0, 0.4, "beret")
+        stitch = plastic("#3d1630", 0.9, 0, 0, "beret_stitch")
         beret = [cyl("beret_band", 0.215, 0.035, (0, 0, 0), fabric_m, G, 32),
+                 cyl("beret_band_in", 0.212, 0.01, (0, -0.012, 0), stitch, G, 32),
                  sphere("beret_dome", 0.26, (0, 0.01, 0), fabric_m, G, scale=(1, 0.09 / 0.26, 1), half=True, seg=32, rings=10),
                  cyl("beret_stalk", 0.008, 0.03, (0, 0.11, 0), fabric_m, G, 8)]
+        beret += [torus("beret_stitch", r_, 0.0012, (0, 0.011 + 0.09 * math.sqrt(max(0.0, 1 - (r_ / 0.26) ** 2)), 0), stitch, G, seg=32, rseg=3)
+                  for r_ in (0.12, 0.2)]
         hp += place(beret, Mx((0, hh / 2 + 0.005, 0), rz=math.radians(-10)))
-    if i == 3:  # LOOP: headphones (cups at the ears + band over the top)
-        ears = {"l": False, "r": False}
+        pin = [sphere("palette_pin", 0.014, (0, 0, 0), plastic("#ece6d8", 0.5, 0, 0.1, "palette"), G, seg=14, rings=6, scale=(1, 0.7, 0.25))]  # flat toward local +z
+        for k, a_ in enumerate(AGENTS[:4]):
+            pin.append(sphere("palette_dot", 0.0035, (-0.006 + (k % 2) * 0.012, -0.004 + (k // 2) * 0.008, 0.0036),
+                              plastic(a_["color"], 0.4, 0, 0, f"swatch_{k}"), G, seg=8, rings=4))
+        hp += place(pin, Mx((0.19, hh / 2 - 0.02, -0.11), ry=math.atan2(0.19, -0.11)))  # pinned on the beret band's front right, facing out
+        dx_ = -(hw / 2 + 0.012)  # the dropper in its holder at the left ear: holder ring, glass tube, rubber bulb, band
+        hp += [cyl("dropper_holder", 0.02, 0.03, (dx_ - 0.006, 0, 0), graphite, G, 16, axis="x", bev=0.002),
+               cyl("dropper_glass", 0.0045, 0.05, (dx_ - 0.028, -0.015, 0), glass_mat("dropper_glass", "#e8f4ff", 0.35), G, 12),
+               sphere("dropper_bulb", 0.009, (dx_ - 0.028, 0.017, 0), graphite, G, seg=12, rings=6, scale=(1, 1.4, 1)),
+               cyl("dropper_band", 0.0055, 0.004, (dx_ - 0.028, 0.005, 0), accent, G, 12)]
+    if i == 3:  # LOOP: headphones (cups with cushions and swivel rings, padded band, a cable down the back)
+        fabric = plastic("#26292f", 0.95, 0, 0.5, "bot_fabric")
         for sx in (-1, 1):
-            hp.append(box("cup", (0.09, 0.18, 0.09), (sx * (hw / 2 + 0.045), 0, 0), joint, G, bev=0.03, seg=2))
+            hp += [box("cup", (0.09, 0.18, 0.09), (sx * (hw / 2 + 0.045), 0, 0), graphite, G, bev=0.03, seg=2),
+                   box("cup_cushion", (0.012, 0.15, 0.075), (sx * (hw / 2 + 0.004), 0, 0), fabric, G, bev=0.005, seg=1),
+                   torus("cup_swivel", 0.03, 0.004, (sx * (hw / 2 + 0.045), 0.09, 0), metal, G, axis="z", seg=16, rseg=4)]
         hp.append(lowrail("band", [(-(hw / 2 + 0.045), 0.09, 0), (-0.2, 0.22, 0), (0, hh / 2 + 0.1, 0), (0.2, 0.22, 0),
-                                (hw / 2 + 0.045, 0.09, 0)], 0.02, joint, G))
-    for s, sx in (("l", -1), ("r", 1)):
-        if ears[s]:
-            hp.append(cyl("ear", 0.04, 0.03, (sx * (hw / 2 + 0.012), 0, 0), accent, G, 16, axis="x"))
+                                (hw / 2 + 0.045, 0.09, 0)], 0.02, graphite, G))
+        hp.append(lowrail("band_pad", [(-0.12, hh / 2 + 0.06, 0), (0, hh / 2 + 0.085, 0), (0.12, hh / 2 + 0.06, 0)], 0.022, fabric, G))
+        hp.append(lowrail("cup_cable", [(-(hw / 2 + 0.06), -0.08, 0.02), (-(hw / 2 + 0.03), -0.14, 0.1), (-0.12, -0.16, 0.18)], 0.004, graphite, G))
+    if i == 4:  # ECHO (agents.md 2.11, #193): the round speaker grille on the plate, mic capsules on the ear modules,
+        # the tuning fork's stem on the crown (the U and the light ring are live)
+        hole_m = plastic("#1d2127", 0.8, 0, 0, "echo_hole")
+        hp.append(cyl("grille", 0.11, 0.012, (0, 0, hd / 2 + 0.006), graphite, G, 32, axis="z"))
+        for ring_r, n in ((0.0, 1), (0.026, 6), (0.05, 12), (0.074, 18), (0.096, 24)):  # holes: concentric hex rows
+            for k in range(n):
+                a = 2 * math.pi * k / n
+                hp.append(hexdot("grille_hole", 0.0045, (ring_r * math.cos(a), ring_r * math.sin(a), hd / 2 + 0.0122), (0, 0, 1), hole_m, G))
+        for sx in (-1, 1):
+            hp.append(cyl("mic", 0.03, 0.004, (sx * (hw / 2 + 0.037), 0, 0), graphite, G, 16, axis="x"))
+            for dy in (-0.011, 0.0, 0.011):
+                for dz in (-0.011, 0.0, 0.011):
+                    hp.append(hexdot("mic_hole", 0.0025, (sx * (hw / 2 + 0.0392), dy, dz), (sx, 0, 0), hole_m, G))
+        hp.append(cyl("fork_stem", 0.01, 0.05, (0, hh / 2 + 0.025, 0.02), metal, G, 12))
     bot.append(pivot(join(f"agent_{i}_head", place(hp, Hd)), Hd))
 
     # -- face slot (off screen material on export; the app draws the face)
@@ -2873,10 +3546,11 @@ def build_agent(i, agent):
     # -- state light (tip)
     # pivot = the light's own center (MEMO antenna end, MESH gizmo center, HUE beret stalk), head's rotation
     tip_m = emitter(col, 4.0, f"tip_{i}")
-    if i < 3:
+    if i < 3 or i == 4:  # ECHO (agents.md 2.11): a sphere in the bottom of the tuning fork's U
         r, T = ((0.026, Hd @ Mx((0.08, hh / 2 + 0.165, 0.08))),
                 (0.03, Hd @ Mx((0, hh / 2 + 0.13, 0))),
-                (0.022, Hd @ Mx((0, hh / 2 + 0.005, 0), rz=math.radians(-10)) @ Mx((0, 0.13, 0))))[i]
+                (0.022, Hd @ Mx((0, hh / 2 + 0.005, 0), rz=math.radians(-10)) @ Mx((0, 0.13, 0))),
+                None, (0.018, Hd @ Mx((0, hh / 2 + 0.05 + 0.012, 0.02))))[i]  # ECHO: in the fork's bend
         tip = sphere(f"agent_{i}_tip", r, (0, 0, 0), tip_m, "export", seg=10, rings=6)
         neon.append(pivot(apply_all(place(tip, T)[0]), T))
     else:  # LOOP: the ring itself, open by 40° with an arrowhead at one end; spins about local y
@@ -2907,6 +3581,10 @@ def build_agent(i, agent):
     F0 = root @ Mx((0, 0.005, 0))
     floor = pivot(apply_all(place(disc(f"agent_{i}_floor", 0.26, soft_glow(col, 0.45, 1.2, f"floor_{i}"), "export"), F0)[0]), F0)
     neon.append(floor)
+    # #166 (robots.md 2.1): a thin light ring just outside the floor disc (r 0.28, 6 mm), additive like it; top-level
+    # with the disc's pivot (a child mesh would be flattened by rebase(); the app moves it with agent_<i>)
+    ring = torus(f"agent_{i}_floor_ring", 0.28, 0.003, (0, 0, 0), soft_glow(col, 0.6, 1.6, f"floor_ring_{i}"), "export", seg=48, rseg=3)
+    neon.append(pivot(apply_all(place([ring], F0 @ Mx((0, 0.001, 0)))[0]), F0))
 
     # -- hands (#134, agents.md 2.7): palm with a back panel, four fingers of three segments and a two-segment thumb,
     #    graphite joint pins, dark fingertip pads; wrist cuff + back band (neon), grip empty
@@ -2935,15 +3613,17 @@ def build_agent(i, agent):
         P = Hd @ pen_local
         pen_m = plastic("#2d3240", 0.4, 0.2, 0.05, "pen")
         pen = pivot(join("agent_0_pen", place([cyl("pen", 0.009, 0.15, (0, 0, 0.01), pen_m, G, 12, axis="z"),
-                                                cyl("pen_cap", 0.0095, 0.02, (0, 0, -0.075), accent, G, 12, axis="z")], P)), P)
+                                                cyl("pen_cap", 0.0095, 0.02, (0, 0, -0.075), accent, G, 12, axis="z"),
+                                                box("pen_clip", (0.003, 0.002, 0.05), (0, 0.0098, -0.045), metal, G, bev=0.0007, seg=1)], P)), P)
         pen["prop"] = "pen"
         pen["home_on"] = f"agent_{i}_head"
         pen["home"] = {"pos": [round(-(hw / 2 + 0.025), 4), 0.07, 0.0], "rot": [round(math.radians(25), 4), 0.0, 0.0]}
         pen["grip"] = {"pos": [0.0, -0.04, 0.0], "rot": [round(math.pi / 2, 4), 0.0, 0.0]}
         other.append((pen, "prop"))
-        spots = [(-0.03, 0.04, 9), (0.04, 0.015, -6), (-0.01, -0.03, 4), (0.05, -0.05, -9), (-0.05, -0.005, 7)]
+        # #166: the post-its hang from the clip at the top of the service plate (1 cm off it, a little fanned), not afloat
+        spots = [(-0.012, 0.012, 7), (0.01, 0.01, -5), (-0.004, 0.008, 3), (0.014, 0.006, -8), (-0.016, 0.004, 9)]
         for k, (dx, dy, rz) in enumerate(spots):
-            Pk = Hd @ Mx((dx, dy, hd / 2 + 0.06 + 0.008 * k), rz=math.radians(rz))
+            Pk = Hd @ Mx((dx, dy, hd / 2 + 0.01 + 0.0035 * k), rz=math.radians(rz))
             note = box("postit", (0.09, 0.09, 0.003), (0, 0, 0), plastic(POSTIT[k % 3], 0.85, 0, 0.2, f"postit_{k % 3}"), G)
             bot.append(pivot(join(f"agent_0_postit_{k}", place([note], Pk)), Pk))
     if i == 1:  # MESH: wireframe cube orbiting the head (pivot = orbit center, spin = local y)
@@ -2959,12 +3639,26 @@ def build_agent(i, agent):
                     s = [t, t, t]
                     s[ax] = e + t
                     bars.append(box("orbit_bar", tuple(s), tuple(c), orbit_m, "export"))
+        bars += [sphere("orbit_corner", 0.011, (u * e / 2, v * e / 2, w_ * e / 2), orbit_m, "export", seg=8, rings=4)  # #166
+                 for u in (-1, 1) for v in (-1, 1) for w_ in (-1, 1)]
         cube = place(bars, Mx((0.34, 0, 0), rx=0.6, ry=0.8))
         neon.append(pivot(join("agent_1_orbit", place(cube, Oc)), Oc))
     if i == 3:  # LOOP: ear-cup glow strips (lit while working)
         strips = [box("cup_glow", (0.004, 0.11, 0.025), (sx * (hw / 2 + 0.091), 0, 0), emitter(col, 3.0, "ear_glow"), "export")
                   for sx in (-1, 1)]
         neon.append(pivot(join("agent_3_ear_glow", place(strips, Hd)), Hd))
+    if i == 4:  # ECHO: the tuning fork's U (only the tines ring: pivot = the stem's top, shake about local x) and the
+        # breathing light ring round the grille (agents.md 2.11)
+        steel = plastic("#c9ccd1", 0.35, 0.8, 0.05, "fork")
+        rb, L_ = 0.035, 0.14
+        u = [(-rb, rb + L_, 0)] + [(-rb * math.cos(a), rb - rb * math.sin(a), 0) for a in [math.radians(d) for d in range(0, 181, 30)]] + [(rb, rb + L_, 0)]
+        fork = rail("fork_u", u, 0.0075, steel, G)
+        fork.data.resolution_u, fork.data.bevel_resolution = 2, 1
+        Fk = Hd @ Mx((0, hh / 2 + 0.05, 0.02))
+        tips = [sphere("fork_end", 0.0075, (sx * rb, rb + L_, 0), steel, G, seg=10, rings=6) for sx in (-1, 1)]
+        bot.append(pivot(join("agent_4_fork", place([fork] + tips, Fk)), Fk))
+        Rg = Hd @ Mx((0, 0, hd / 2 + 0.004))
+        neon.append(pivot(join("agent_4_ring", place([torus("echo_ring", 0.12, 0.006, (0, 0, 0), emitter(col, 3.0, "echo_ring"), "export", axis="z", seg=48, rseg=4)], Rg)), Rg))
     return bot, neon, other
 
 
@@ -3012,15 +3706,26 @@ DESK_SIDE = (0.95, 0.55)
 COFFEE_SPOT = (0.62, 0.0)  # in the counter frame: in front of the machine
 
 
+# #195 (desks.md 2.1.6): the pod's desks touch, so a visitor stands off its four corners (the row desks) and beside
+# MEMO's head desk on its west (the window's east end holds the chat spots)
+DESK_SIDES = [(-3.35, -2.75), (-3.42, 0.85), (-3.42, -2.0), (-1.58, -2.0), (-1.58, 0.85)]
+
+
 def build_nav():
     for i, a in enumerate(AGENTS):
         F = frame(a["at"])
         seat = (F @ Mx((0, 0, WORK_Z))).to_translation()
         nav(f"work_{i}", seat.x, -seat.y, a["at"][2], "work")
-        side = (F @ Mx((DESK_SIDE[0], 0, DESK_SIDE[1]))).to_translation()
-        nav(f"desk_side_{i}", side.x, -side.y, facing(side.x, -side.y, seat.x, -seat.y), "stand")
+        sx, sz = DESK_SIDES[i]
+        nav(f"desk_side_{i}", sx, sz, facing(sx, sz, seat.x, -seat.y), "stand")
+    (ax, az), (bx, bz) = CHAT_SPOTS  # the second conversation (desks.md 2.1.2): face each other
+    nav("chat_0", ax, az, facing(ax, az, bx, bz), "chat")
+    nav("chat_1", bx, bz, facing(bx, bz, ax, az), "chat")
     stand_z = -HZ + 0.9  # in front of the back wall's boards and the shelf
     nav("whiteboard", WHITEBOARD_X, stand_z, 0.0, "stand")
+    # #228: where an agent stands to take or put back a marker on the board's tray (0.5 m from the markers, facing the
+    # board): outside the meeting circle, in the strip along the north wall
+    nav("board_tray", WHITEBOARD_X - 0.28, -HZ + 0.55, 0.0, "stand")  # the middle marker's x (markers at -0.42 + 0.14 k)
     nav("bulletin", BULLETIN_X, stand_z, 0.0, "stand")
     nav("shelf", SHELF_X, stand_z, 0.0, "stand")
     cs = (counter_frame() @ Mx((COFFEE_SPOT[0], 0, COFFEE_SPOT[1]))).to_translation()
@@ -3035,12 +3740,14 @@ def build_nav():
     # meeting centers (#147, agents.md "대형"): the app stands the people on a 0.75 m ring around one and turns them
     # to its center. ry = the 0° direction (toward the board); r = the floor kept free of furniture around it
     # (ring + a body), checked by check-glb --overlap
-    for name, x, z in MEET_CENTERS:
-        nav(name, x, z, 0.0, "meet_center")["r"] = MEET_R
-    # hall nodes: the aisles between the zones (#109 layout; the app's nav check #17 links and tests them)
-    for name, x, z in (("door", -3.3, DOOR_Z), ("west", -3.0, 1.4), ("work", -2.2, -1.5), ("mid", -1.0, -0.6),
-                       ("back", 2.0, -1.7), ("east", 3.1, -1.3), ("front", 0.2, 1.3), ("lounge", 3.95, 1.6),
-                       ("game", -1.6, 1.2), ("ne", 4.1, 0.0)):
+    # #195: one circle for the board meeting and the floor meeting; ry = toward the whiteboard's middle (1.1, -3.46),
+    # ring = where the people stand, r = ring + a body (kept clear of furniture, check-glb)
+    mc = nav("meet_center", MEET_CENTER[0], MEET_CENTER[1], MEET_RY, "meet_center")
+    mc["r"], mc["ring"] = MEET_R, MEET_RING
+    # hall nodes: the aisles between the zones (#195 layout; the app's nav check #17 links and tests them)
+    for name, x, z in (("door", -3.3, DOOR_Z), ("west", -3.0, 1.4), ("work", -0.75, -1.9), ("north", -0.75, -2.3),
+                       ("mid", -0.75, -0.6), ("back", 1.0, -0.1), ("east", 3.1, -1.3), ("front", 0.2, 1.3),
+                       ("lounge", 3.95, 1.6), ("game", -1.6, 1.2), ("ne", 4.1, 0.0)):
         nav(f"hall_{name}", x, z, 0.0, "hall")
 
 
@@ -3048,6 +3755,8 @@ def build_nav():
 def build_lights(lamp_pos):
     # soft overhead "ceiling" panels over the work corner and the lounge (the room has no ceiling)
     # #109: sized to the 9 x 7 room; power scaled with panel area so the light per m2 stays as it was
+    # #195: the pod now stands right under this panel's middle and its oak tops baked to (1, 1, 1) (designer #249); they
+    # come down by ATLAS_GAIN on their two atlases, not by this light, so the room around them stays as it was
     light("panel_work", "AREA", 160, "#dfe6ff", (-2.7, 3.2, -1.5), aim=(-2.7, 0, -1.5), size=3.6, size_y=3.6)
     light("panel_lounge", "AREA", 120, "#ffe2c4", (2.2, 3.2, 1.3), aim=(2.2, 0, 1.3), size=4.0, size_y=3.6)
     light("panel_mid", "AREA", 55, "#ece4dc", (-0.9, 3.2, 1.2), aim=(-0.9, 0, 1.2), size=2.8, size_y=2.6)
@@ -3077,12 +3786,18 @@ door["wall"] = door_screen["wall"] = "w"
 live(door_screen, "screen")
 work = []
 for i, a in enumerate(AGENTS):
-    statics, lives, desk_live = build_desk(i, a)
-    work += statics
+    statics, near, lives, desk_live = build_desk(i, a)
+    work.append(statics[0])  # the desk body
+    baked(statics[1], "room")  # #195: the agent pad on the floor in the room atlas (the work atlas gets ATLAS_GAIN)
+    for o in near:  # #187: the kit and the owner's things, near-field
+        baked(o, DESK_ATLAS)
     live(lives[0], "screen")
     live(lives[1], "neon")
     for o, kind in desk_live:
         live(o, kind)
+lo_c, hi_c = [min(b[0][k] for b, _ in POD) for k in range(3)], [max(b[1][k] for b, _ in POD) for k in range(3)]
+lo_u, hi_u = [min(u[0][k] for _, u in POD) for k in range(3)], [max(u[1][k] for _, u in POD) for k in range(3)]
+FOOTPRINTS.append({"name": "pod", "kind": "floor", "wall": None, "lo": lo_u, "hi": hi_u, "core": (lo_c, hi_c)})
 for o in work:
     baked(o, "work")
 for o in build_wall_items():
@@ -3295,6 +4010,7 @@ if PREVIEW:
     shoot_view("window_side", (1.2, 1.45, -2.4), (WINDOW_X, 1.7, -HZ))
     for name, (pos, target) in {"overview": ((8.5, 8.0, 9.5), (-0.3, 0.6, -0.3)),
                                 "work": ((0.6, 2.3, 1.4), (-2.3, 0.8, -1.6)),
+                                "plan": ((0.0, 17.0, 0.02), (0.0, 0.0, 0.0)),  # #195: straight down, north up (the #206 plan)
                                 "lounge": ((-1.2, 2.2, 4.4), (1.2, 0.6, 1.0)),
                                 "wall": ((1.4, 1.7, 1.2), (1.7, 1.35, -2.75)),
                                 "door": ((0.4, 1.7, 2.6), (-3.4, 1.1, 1.7)),
@@ -3306,6 +4022,24 @@ if PREVIEW:
         F = frame(a["at"])
         c, t = (F @ Mx((0, 1.85, 1.15))).to_translation(), (F @ Mx((0, 0.8, -0.08))).to_translation()
         shoot(f"desk_{i}", (c.x, c.z, -c.y), (t.x, t.z, -t.y))
+    if not want or any(w.startswith("robot") for w in want):
+        # #166: the five robots lined up on the open floor (preview only), facing north: each close front (its face,
+        # -z) and back (the service plate), then the row from the front and from behind
+        rows = []
+        for i in range(len(AGENTS)):
+            x, z, ry = SPAWN[i]
+            R_new = Mx((-1.2 + 0.6 * i, 0, 0.05))
+            M = R_new @ Mx((x, 0, z), ry=ry).inverted()
+            for o in agent_objs(i):
+                o.matrix_world = M @ o.matrix_world
+            rows.append(R_new)
+        for i, R0 in enumerate(rows):
+            t = (R0 @ Mx((0, HEAD_Y + 0.02, 0))).to_translation()
+            for tag, off in (("front", (0.3, HEAD_Y + 0.1, -0.9)), ("back", (-0.3, HEAD_Y + 0.15, 0.9))):
+                c = (R0 @ Mx(off)).to_translation()
+                shoot(f"robot_{i}_{tag}", (c.x, c.z, -c.y), (t.x, t.z, -t.y))
+        shoot("robots_front", (0.0, 1.45, -2.4), (0.0, 1.05, 0.05))
+        shoot("robots_back", (0.0, 1.55, 2.3), (0.0, 1.05, 0.05))
     # 1a) one 3/4 close-up per object, agents hidden, 800 x 600 (#108: "now" column of the quality table)
     QUALITY = {
         # #126: the plants where #109 put them
@@ -3635,6 +4369,23 @@ for name, entries in ({} if NO_BAKE else atlases).items():
     t0 = time.time()
     bpy.ops.object.bake(type="COMBINED")
     print(f"baked {name} ({len(entries)} nodes) in {time.time() - t0:.1f}s")
+    if name in ATLAS_GAIN:  # #195: a linear gain on the float bake (the pod's atlases), and the levels it lands at
+        import numpy as np
+        img = images[name]
+        a_ = np.empty(len(img.pixels), dtype=np.float32)
+        img.pixels.foreach_get(a_)
+        a_ = a_.reshape(-1, 4)
+        lum = a_[:, :3].mean(axis=1)
+        lit = lum[lum > 0.01]
+        if lit.size:
+            print(f"levels {name} (linear, before gain {ATLAS_GAIN[name]}): p50 {np.percentile(lit, 50):.3f} p90 "
+                  f"{np.percentile(lit, 90):.3f} p99 {np.percentile(lit, 99):.3f}, >1: {100 * (lum > 1).sum() / lit.size:.1f}%")
+        if name == "work":  # three points on the desk tops' islands (the layout #249 baked)
+            w_ = img.size[0]
+            for (u, v) in ((0.10, 0.535), (0.40, 0.58), (0.56, 0.95)):
+                print("top sample (linear):", [round(float(c), 3) for c in a_[int((1 - v) * (w_ - 1)) * w_ + int(u * (w_ - 1)), :3]])
+        a_[:, :3] *= ATLAS_GAIN[name]
+        img.pixels.foreach_set(a_.ravel())
     if DENOISE:
         try:
             denoise(images[name], os.path.join(OUT, f"{name}.webp"))
@@ -3661,6 +4412,7 @@ for n in NODES:
     n["obj"].select_set(True)
 bpy.ops.export_scene.gltf(filepath=os.path.join(OUT, "office.glb"), export_format="GLB", use_selection=True,
                           export_apply=True, export_yup=True, export_texcoords=True, export_normals=True,
-                          export_materials="EXPORT", export_image_format="NONE", export_extras=True)
+                          export_materials="EXPORT", export_image_format="NONE", export_extras=True,
+                          export_attributes=True)  # #225: the caps' _KEY, #231: the pages' _PAGE_U / _PAGE_V
 print("atlases:", ", ".join(f"{k} ({len(v)})" for k, v in atlases.items()))
 print("DONE", OUT)

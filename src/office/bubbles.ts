@@ -238,7 +238,7 @@ export interface BubbleItem {
   id: string
   /** the utterance: a different key = a new bubble (restarts typing and the entrance) */
   key: string
-  /** 0..3, the colour and the tab name */
+  /** 0..4, the colour and the tab name */
   seat: number
   kind: BubbleKind
   /** the tab's word: 대화 | 회의 | 반응 | 비공개 */
