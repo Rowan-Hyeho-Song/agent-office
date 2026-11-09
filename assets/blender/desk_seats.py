@@ -93,9 +93,10 @@ def seat_memo(G):
         L.append(LIVE(f"desk_0_{label.lower()}", "bot", sheets, Mx((tx, base, tz + 0.012)), sheets=5, sheet_h=0.003))
     for px in (tx - tw / 2 + 0.004, tx + tw / 2 - 0.004):  # four posts through both tiers to the lid
         for pz in (tz - td / 2 + 0.004, tz + td / 2 - 0.004):
-            top = 0.152 if pz < tz else 0.117  # the back pair carry the top shelf (the planes), the front pair stop at IN
+            top = 0.1505 if pz < tz else 0.117  # the back pair carry the top shelf (the planes), the front pair stop at IN
             s.append(cyl("tray_post", 0.003, top, (px, h + top / 2, pz), iron, G, 8))
-    s.append(box("tray_lid", (tw, 0.003, 0.14), (tx, h + 0.152, tz - td / 2 + 0.07), back_m, G, bev=0.001, seg=1))
+    s += [box("tray_lid", (tw, 0.003, 0.16), (tx, h + 0.152, tz - td / 2 + 0.08), back_m, G, bev=0.001, seg=1),  # on the back posts
+          box("tray_lid_lip", (tw, 0.01, 0.003), (tx, h + 0.1485, tz - td / 2 + 0.1585), iron, G, bev=0.001, seg=1)]  # a 1 cm front lip
     dot = cyl("neon_approval", 0.0075, 0.003, (tx + tw / 2 - 0.016, h + 0.075 + 0.008, tz + td / 2 + 0.0015),
               emitter(AGENTS[0]["color"], 3.0, "neon_approval"), "export", 16, axis="z")
     L.append(LIVE("neon_approval", "neon", [dot]))
@@ -121,8 +122,9 @@ def seat_memo(G):
                 plastic("#7a1f1f", 0.7, 0, 0.1, "stamp_rubber"), G, seg=18),
           lathe("stamp_body", [(0, -0.0365), (0.018, -0.0365), (0.018, 0.0), (0.0165, 0.004), (0, 0.004)], (0, 0, 0), amber, G, seg=18),
           lathe("stamp_band", [(0.0168, 0.004), (0.0175, 0.0045), (0.0175, 0.0095), (0.0165, 0.01), (0.0, 0.01)], (0, 0, 0), brass(), G, seg=18),
-          lathe("stamp_knob", [(0.0, 0.01), (0.009, 0.01), (0.0075, 0.018), (0.0085, 0.024), (0.015, 0.03), (0.019, 0.036),
-                               (0.0185, 0.041), (0.014, 0.0455), (0.0, 0.047)], (0, 0, 0), wood_h, G, seg=18)]
+          lathe("stamp_knob", [(0.0, 0.01), (0.009, 0.01), (0.0075, 0.018), (0.0085, 0.024), (0.012, 0.027), (0.015, 0.03), (0.0175, 0.033), (0.019, 0.036),
+                               (0.0192, 0.039), (0.0185, 0.0415), (0.0168, 0.0438), (0.014, 0.0455), (0.0105, 0.0466), (0.006, 0.0472), (0.0, 0.0474)],
+                (0, 0, 0), wood_h, G, seg=28)]  # a finer head (designer)
     P.append(("prop_stamp", place(st, Mx((0.535, h + 0.0425, 0.12)))))  # home moves 0.51 -> 0.535 with the pad
     # 3 the tent calendar: a spiral binding along the ridge (16 rings, 4 mm), a page or two flipped over behind
     cx, cz = -0.24, -0.13
