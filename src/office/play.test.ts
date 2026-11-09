@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { BLOCK_MINUTES, NIGHT_PLAYS, PLAYS, blockOf, playAt, soloAt } from './play'
 
-const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
+const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
 const ALL_SPOTS = new Set(PLAYS.flatMap((p) => p.spots))
 const PAIR_KINDS = new Set(PLAYS.filter((p) => p.pair).map((p) => p.kind))
 const BLOCKS = 500

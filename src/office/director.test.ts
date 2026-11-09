@@ -4,7 +4,7 @@ import { playAt } from './play'
 import { WRAP_LABEL, wrapCards } from './wrap'
 import type { AgentStatus, OfficeMessage, StatusMap } from './status'
 
-const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
+const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
 const MINUTE = 987_654
 const TALK_MS = 6000
 

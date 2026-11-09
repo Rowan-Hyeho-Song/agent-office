@@ -12,8 +12,8 @@ const row = (order: number, from: number, to: number[], text: string) => ({ orde
 const rows = [row(1, 0, [1], '하나.'), row(2, 1, [2], '둘.'), row(3, 2, [3], '셋.'), row(4, 3, [0], '넷.'), row(5, 1, [0], '다섯.'), row(6, 2, [1], '여섯.')]
 const make = (decision: string | null, followUp: string | null, reduced = false): MeetingScript =>
   buildScript(meta, conversations({ minutes: [{ date: null, rows, decision, followUp }] }), { reduced })
-const status: StatusMap = Object.fromEntries([0, 1, 2, 3, 4].map((i) => [`agent_${i}`, { state: 'idle' as const, since: 0 }]))
-const SEATS = [0, 1, 2, 3, 4]
+const status: StatusMap = Object.fromEntries([0, 1, 2, 3].map((i) => [`agent_${i}`, { state: 'idle' as const, since: 0 }]))
+const SEATS = [0, 1, 2, 3]
 
 const start: Record<string, { x: number; z: number }> = {
   agent_0: { x: -2.7, z: -2.62 },
