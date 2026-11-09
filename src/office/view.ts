@@ -1,5 +1,5 @@
-// The free camera (#111): the cutaway walls, the view limits, WASD and the near-object fade, as pure decisions.
-// three.js side: cutaway.tsx (walls), cameraRig.tsx (limits, keys, reset), occluders.tsx (near-object fade).
+// The free camera (#111): the cutaway walls, the view limits, WASD and the camera clearance, as pure decisions.
+// three.js side: cutaway.tsx (walls), cameraRig.tsx (limits, keys, reset), clearance.ts (keepClear).
 // ONE constants object: the designer's values live here and nowhere else.
 
 import { ROOM, WALL_THICKNESS, floorRect, type WallId } from './room'
@@ -36,8 +36,8 @@ export const VIEW = {
   // --- WASD / arrows ---
   keys: { speedPerDist: 0.35, speedMin: 1.2, speedMax: 4, shift: 2, easeMs: 120 },
 
-  // --- near-object fade ---
-  near: { start: 1.4, end: 0.6, minOpacity: 0.25, /** at or inside this distance an object is fully hidden (no cut face can show; > cameraNear x 3 and above clear.margin) */ hide: 0.4, outMs: 160, inMs: 240, /** the camera->target segment stops this far short of the target */ targetSkip: 0.4 },
+  // --- nothing fades: not by distance, not by occlusion, not by a lowered wall (#253); the camera is kept clear instead, and app-chosen cameras avoid occlusion (tour.ts) ---
+  near: { /** the camera->target sight segment of an app-chosen camera stops this far short of the target */ targetSkip: 0.4 },
 
   // --- camera clearance (#208): the camera never gets nearer than `margin` to furniture, robots or walls; the near plane stays well inside it ---
   cameraNear: 0.1,
@@ -160,7 +160,7 @@ export function focusAllowsCameraKeys(active: { tagName?: string } | null, body:
   return active.tagName === 'CANVAS'
 }
 
-// ---- near-object fade ----------------------------------------------------------------------------------------------
+// ---- sight segment (the tour's line-of-sight check) ----------------------------------------------------------------------------------------------
 
 export interface Box {
   min: readonly [number, number, number]
@@ -198,31 +198,7 @@ export function segmentHitsBox(a: V3, b: V3, box: Box): boolean {
   return true
 }
 
-/**
- * the opacity an object wants: linear from 1 at near.start to minOpacity at near.end, on down to 0 at near.hide (fully
- * hidden: no cut face can show); occluders are at the minimum until then. `hide` false (the debug close-up and top view,
- * where the camera is not kept clear): never below minOpacity, so a hand or monitor close-up keeps its desk (#164)
- */
-export function wantOpacity(dist: number, occluding: boolean, hide = true): number {
-  const n = VIEW.near
-  const inner = n.minOpacity * clamp((dist - n.hide) / (n.end - n.hide), 0, 1)
-  if (dist < n.end) return hide ? inner : n.minOpacity
-  if (occluding) return n.minOpacity
-  return 1 - (1 - n.minOpacity) * clamp((n.start - dist) / (n.start - n.end), 0, 1)
-}
-
-/** `backTo` furniture (tall, back to a wall) is at the minimum while that wall is lowered, else whatever the near-fade wants */
-export const backToOpacity = (want: number, backTo: Wall | undefined, hidden: Hidden): number => (backTo && hidden[backTo] ? Math.min(want, VIEW.near.minOpacity) : want)
-
-/** opacity moved towards `want` at the fade rates (out fast, back slower); instant when reduced */
-export function stepOpacity(cur: number, want: number, dt: number, reduced: boolean): number {
-  if (reduced) return want
-  const span = 1 - VIEW.near.minOpacity
-  if (want < cur) return Math.max(want, cur - (span * dt * 1000) / VIEW.near.outMs)
-  return Math.min(want, cur + (span * dt * 1000) / VIEW.near.inMs)
-}
-
-/** the camera -> target segment for occlusion: stops `targetSkip` short of the target, so what the target sits in stays opaque */
+/** the camera -> target segment for the line-of-sight check (tour.ts sightClear): stops `targetSkip` short of the target, so what the target sits in stays opaque */
 export function occlusionSegment(cam: V3, target: V3): [V3, V3] {
   const d = [target[0] - cam[0], target[1] - cam[1], target[2] - cam[2]]
   const len = Math.hypot(d[0], d[1], d[2]) || 1
