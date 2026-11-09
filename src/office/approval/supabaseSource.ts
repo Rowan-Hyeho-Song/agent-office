@@ -1,6 +1,6 @@
 import { assetUrl } from '../../room/base'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
-import type { ApprovalSource, Cover, DecideResult, Role } from '../../approvals/source'
+import type { ApprovalSource, Cover, DecidedCover, DecideResult, Role } from '../../approvals/source'
 import type { StoredApproval } from '../../approvals/types'
 import { oldestFirst } from '../../approvals/view'
 
@@ -43,6 +43,13 @@ export function supabaseSource(supabase: SupabaseClient): ApprovalSource {
     async covers() {
       const { data } = await supabase.from('approvals_cover').select('id, kind, requester_seat, created_at').order('created_at')
       return (data as Cover[] | null) ?? []
+    },
+    // #222: decided covers come from approvals_decided_cover; before that SQL is applied the view is missing and the
+    // visitor's 처리된 결재 section simply stays empty (no error shown)
+    async decidedCovers() {
+      const { data, error } = await supabase.from('approvals_decided_cover').select('id, kind, requester_seat, result, decided_at').order('decided_at', { ascending: false }).limit(30)
+      if (error) return []
+      return (data as DecidedCover[] | null) ?? []
     },
     async pending() {
       const { data, error } = await supabase.from('approvals').select('*').in('status', ['pending', 'deciding']).order('created_at')
