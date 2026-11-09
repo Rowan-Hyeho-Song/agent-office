@@ -1,8 +1,10 @@
 // The paper plane (#51, #28 decision): a handoff between agents is a plane thrown from one desk to another.
 // The sender folds it in its right hand and throws; it flies an arc through the air (no nav graph: it's above
 // the furniture); the receiver raises its hands and catches it (the coder catches one-handed). If the receiver
-// isn't in (gone home), it glides down onto the receiver's desk. Then the plane goes back home onto the planner's
-// tray. With reduced motion it just appears on the receiver's desk for a moment.
+// isn't in (gone home), it glides down onto the receiver's desk. A caught plane is put down on the receiver's desk.
+// It lies there a moment and is gone (#224: it used to ease back to the planner's tray, its home, and the user saw
+// it travel to 메모's desk after every handoff). What flies is a copy: the tray's own plane never moves.
+// With reduced motion it just appears on the receiver's desk for a moment.
 
 import { Box3, MathUtils, Matrix4, MeshStandardMaterial, Quaternion, Raycaster, Vector3, type Mesh, type Object3D } from 'three'
 import { cue } from '../audio/cues'
@@ -13,6 +15,8 @@ import type { OfficeMessage } from './status'
 const FOLD_S = GESTURE_S.throw
 /** long enough to see what was caught (#62) */
 const HOLD_S = 1.2
+/** from the hand down onto the desk after the catch (#224) */
+const PUT_DOWN_S = 0.4
 /**
  * the catch (#62, designer): pinched by the keel this far in from the tail (of the plane's length), so most of it
  * shows past the fingers; nose up from where the fingers point; one damped wobble as it's caught
@@ -43,12 +47,13 @@ interface Flight {
   start: Vector3
   /** where it ends: the receiver's hand, or its desk when it isn't in */
   toHand: boolean
+  /** landed: where it was put down from (the catching hand), eased onto the desk; null = already lying there */
+  downFrom: { pos: Vector3; quat: Quaternion } | null
 }
 
 export class PaperPlanes {
   private queue: OfficeMessage[] = []
   private flight: Flight | null = null
-  private props: PropBank
   private plane: { node: Object3D; gripLocal: Matrix4 } | undefined
   /** handoffs flown so far (the debug panel shows it) */
   flown = 0
@@ -59,7 +64,6 @@ export class PaperPlanes {
   private rests = new Map<string, Vector3>()
 
   constructor(props: PropBank, nodes: Record<string, Object3D> = {}) {
-    this.props = props
     this.nodes = nodes
     this.plane = props.find('plane')
     if (this.plane) {
@@ -76,8 +80,18 @@ export class PaperPlanes {
         m.emissive.copy(m.color).multiplyScalar(PAPER_GLOW)
         mesh.material = m
       })
+      // what flies is a copy (#224): the tray's plane stays where it is, the copy shows only during a handoff
+      const flyer = node.clone(true)
+      flyer.name = `${node.name}_flight`
+      flyer.visible = false
+      node.parent?.add(flyer)
+      this.tray = node
+      this.plane = { node: flyer, gripLocal: this.plane.gripLocal }
     }
   }
+
+  /** the planner's tray plane (#59): never moved by a handoff */
+  tray: Object3D | undefined
 
   /** where the fingers hold the plane, in its own frame: on the keel, near the tail (the model: nose −z, keel −y) */
   private pinchLocal = new Vector3()
@@ -186,7 +200,6 @@ export class PaperPlanes {
       const sender = rigs[next.from]
       const receiver = rigs[next.to]
       if (!sender || !receiver) return
-      this.props.borrowed.add(plane.node)
       this.flown++
       this.flight = {
         from: next.from,
@@ -194,9 +207,13 @@ export class PaperPlanes {
         phase: reduced ? 'landed' : sender.visible ? 'fold' : 'fly',
         since: t,
         flyFor: 1,
-        start: plane.node.position.clone(),
+        // a sender that isn't in: from its own desk (never from the planner's tray)
+        start: this.restPoint(graph, next.from, new Vector3()),
         toHand: !reduced && receiver.visible,
+        downFrom: null,
       }
+      plane.node.position.copy(this.flight.start)
+      plane.node.visible = true
       if (!reduced && sender.visible) sender.gesture = { kind: 'throw', until: t + FOLD_S }
       if (this.flight.phase === 'fly') this.beginFlight(t, graph, rigs)
     }
@@ -238,14 +255,29 @@ export class PaperPlanes {
       }
       case 'held':
         this.pinched(receiver, t, f.since, reduced, plane.node.position, plane.node.quaternion)
-        if (age >= HOLD_S) this.finish()
+        if (age >= HOLD_S) {
+          // looked at: put down on its own desk (not back to anyone else's)
+          f.downFrom = { pos: plane.node.position.clone(), quat: plane.node.quaternion.clone() }
+          f.phase = 'landed'
+          f.since = t
+        }
         break
-      case 'landed':
-        this.restPoint(graph, f.to, plane.node.position)
-        plane.node.rotation.set(0, (graph.spots[`work_${f.to.split('_')[1]}`]?.ry ?? 0) + 0.4, 0)
+      case 'landed': {
+        this.restPoint(graph, f.to, this.end)
+        this.q.setFromAxisAngle(this.up, (graph.spots[`work_${f.to.split('_')[1]}`]?.ry ?? 0) + 0.4)
+        const k = f.downFrom && !reduced ? Math.min(age / PUT_DOWN_S, 1) : 1
+        const e = k * k * (3 - 2 * k)
+        if (f.downFrom && k < 1) {
+          plane.node.position.lerpVectors(f.downFrom.pos, this.end, e)
+          plane.node.quaternion.slerpQuaternions(f.downFrom.quat, this.q, e)
+        } else {
+          plane.node.position.copy(this.end)
+          plane.node.quaternion.copy(this.q)
+        }
         plane.node.visible = true
-        if (age >= (reduced ? REDUCED_S : LAND_S)) this.finish()
+        if (age >= (reduced ? REDUCED_S : LAND_S) + (f.downFrom && !reduced ? PUT_DOWN_S : 0)) this.finish()
         break
+      }
     }
   }
 
@@ -261,8 +293,14 @@ export class PaperPlanes {
     if (f.toHand) receiver.gesture = { kind: 'catch', until: t + f.flyFor + HOLD_S, oneHand: receiver.id === 'agent_3' }
   }
 
+  /** gone: it does not travel anywhere (#224) */
   private finish() {
-    if (this.plane) this.props.borrowed.delete(this.plane.node) // home again (PropBank eases it back)
+    if (this.plane) this.plane.node.visible = false
     this.flight = null
+  }
+
+  /** the debug panel / tests: where the flight is */
+  get phase(): Phase | null {
+    return this.flight?.phase ?? null
   }
 }
