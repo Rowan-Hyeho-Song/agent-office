@@ -6,17 +6,18 @@
 
 import {
   AdditiveBlending,
+  BoxGeometry,
   CanvasTexture,
   Color,
   Euler,
   MathUtils,
   Matrix4,
+  Mesh,
   MeshBasicMaterial,
   Object3D,
   Quaternion,
   SRGBColorSpace,
   Vector3,
-  type Mesh,
 } from 'three'
 import type { Goal } from './director'
 import { DOZE } from './doze'
@@ -569,6 +570,8 @@ const STAMP_CURL = shape([0.1, 0.1, 0.1, 0.1], [0.1, 0])
 const YIELD_CURL = shape([0.05, 0.08, 0.1, 0.12], [0.15, 0])
 /** a loose hand (sofa, reading, the board-game hand at rest): between rest and hold */
 const LOOSE_CURL = shape([0.45, 0.5, 0.55, 0.6], [0.3, 0.2])
+/** a hand holding a pen to write: the three pen fingers closed, the other two loose (wrap-up, #186) */
+const PEN_CURL = shape([0.55, 0.6, 0.8, 0.85], [0.55, 0.6])
 /** typing (agents.md 2.7): each finger alternates 0.35 ↔ 0.5 four times a second, out of step with its neighbours */
 function typing(t: number, side: 'l' | 'r', phase: number): HandShape {
   const o = side === 'l' ? 0 : Math.PI / 4
@@ -701,6 +704,11 @@ export class AgentRig {
 
   get visible() {
     return !this.hidden
+  }
+
+  /** what it is doing where it stands (null while walking): the typing sound reads this (#194 ②) */
+  get doing(): string | null {
+    return this.goal && this.arrived === this.goal.spot ? this.goal.pose : null
   }
 
   /** the spot it has arrived at and stopped on, if any */
@@ -918,6 +926,7 @@ export class AgentRig {
     }
 
     this.updateHands(dt, t, pose, reduced, others)
+    this.updateCards(goal.carry ?? 0, goal.pose === 'write')
     this.updateRole(dt, t, status, reduced)
     this.updateFace(t, pose, status, reduced)
 
@@ -1034,6 +1043,22 @@ export class AgentRig {
       }
       case 'post':
         return { pitch: 0.2, yaw: 0, roll: 0 }
+      // the wrap-up (#186, wrap.ts): writing nods 2° every 0.6 s, re-reading turns the head ±3° (2 s loop), carrying looks at
+      // the board and then at the poster while it waits, posting looks at the card after the last one, tidying leans back 3°
+      case 'write': {
+        const nod = this.goal?.reread ? 0 : Math.max(0, Math.sin((t / 0.6) * Math.PI * 2)) * 0.035
+        return { pitch: -0.14 + nod, yaw: this.goal?.reread ? Math.sin(t * Math.PI) * 0.052 : 0, roll: 0 }
+      }
+      case 'carry':
+        return { pitch: 0.04, yaw: this.goal?.waiting ? (Math.floor(t / 2) % 2 === 0 ? 0 : 0.5) : 0, roll: 0 }
+      case 'cardpost': {
+        const b = this.goal?.beat
+        return { pitch: b?.kind === 'look' ? 0.12 + Math.sin(b.u * Math.PI) * 0.035 : 0.06, yaw: 0, roll: 0 }
+      }
+      case 'tidy': {
+        const b = this.goal?.beat
+        return { pitch: b?.kind === 'lean' ? -0.03 - Math.sin(b.u * Math.PI) * 0.05 : -0.1, yaw: 0, roll: 0 }
+      }
       case 'boardgame':
         return { pitch: -0.35, yaw: s(0.5) * 0.15, roll: 0 }
       case 'sofa':
@@ -1049,6 +1074,32 @@ export class AgentRig {
       default:
         return idle
     }
+  }
+
+  /** the wrap-up's stack of cards (#186): a thin card box on the left palm, one card thicker per card; hidden without a stack */
+  private cards: Mesh | null = null
+  private updateCards(count: number, flat: boolean) {
+    const hand = this.parts.hands.l
+    if (!this.cards) {
+      if (count <= 0) return
+      // the palm's normal and the finger direction in the hand's own frame (the palm faces +x of the agent at rest)
+      const n = new Vector3(...REST_PALM.l).applyQuaternion(hand.restQuat.clone().invert()).normalize()
+      const knuckle = hand.fingers[1][0]?.node.position ?? new Vector3(0, 0.08, 0)
+      const f = knuckle.clone().addScaledVector(n, -knuckle.dot(n)).normalize()
+      const x = new Vector3().crossVectors(n, f)
+      const m = new Mesh(new BoxGeometry(0.075, 0.004, 0.095), new MeshBasicMaterial({ color: '#f3ead8' }))
+      m.quaternion.setFromRotationMatrix(new Matrix4().makeBasis(x, n, f))
+      m.userData.base = f.clone().multiplyScalar(Math.max(0.045, knuckle.length() * 0.8))
+      m.userData.n = n
+      hand.node.add(m)
+      this.cards = m
+    }
+    const m = this.cards
+    m.visible = count > 0 && this.parts.root.visible
+    if (!m.visible) return
+    const n = m.userData.n as Vector3
+    m.scale.y = Math.max(1, count)
+    m.position.copy(m.userData.base as Vector3).addScaledVector(n, 0.012 + 0.002 * count + (flat ? 0.004 : 0))
   }
 
   /** each hand's target in the root's frame for this pose */
@@ -1104,7 +1155,54 @@ export class AgentRig {
       const f = [0, 1, 2, 3].map((k) => 0.45 + 0.2 * Math.max(0, Math.sin(t * Math.PI * 6 - k * 0.9))) as Four
       return at(-0.07, this.parts.head.position.y - 0.17, -0.12, qz(0.5), shape(f, [0.4, 0.3]))
     }
+    // the wrap-up (#186): the stack of cards in the left hand, palm up at chest height (rest of the pose below is for the other hand)
+    const wg = this.goal
+    if (side === 'l' && wg?.carry && pose !== 'write' && pose !== 'tidy') return at(-0.13, 1.0 + sit, -0.3, down.clone().invert(), STAMP_CURL)
+    const wb = wg?.beat
+    const stroke = m * (wg?.reread ? 0.35 : 1)
     switch (pose) {
+      case 'write':
+        // the right hand writes (small strokes, the wrist moves within 2 cm), the left presses the card flat and pushes it to the stack
+        return side === 'l'
+          ? at(-0.13 - (wb?.kind === 'push' ? Math.sin(wb.u * Math.PI) * 0.1 : 0), 0.82, -0.42, down, STAMP_CURL)
+          : at(0.14 + 0.012 * Math.sin(t * 9) * stroke, 0.83, -0.41 + 0.01 * Math.sin(t * 6.5 + 1) * stroke, down, PEN_CURL)
+      case 'carry': {
+        // the free hand (designer, #217): at the resting height 0.86 m, not hanging below the desk; it swings ±8 cm back and
+        // forth with the walk (a stride a second), still when standing by the board
+        // reduced motion: no swing at all (agents.md 2.5)
+        const walk = reduced ? 0 : MathUtils.clamp(this.speed / 0.5, 0, 1) * m
+        return at(rest.x, 0.86 + sit, rest.z - 0.08 * walk * Math.sin(t * Math.PI * 2 + this.phase))
+      }
+      case 'cardpost': {
+        if (side === 'l') return at(rest.x, rest.y, rest.z)
+        const u = wb?.u ?? 0
+        const stack = v(-0.06, 1.04 + sit, -0.3)
+        const cell = v(0.1, 1.34 + sit, -0.6)
+        const lerp3 = (a: Vector3, b: Vector3, k: number) => a.clone().lerp(b, k)
+        const from = v(rest.x, rest.y, rest.z)
+        switch (wb?.kind) {
+          case 'pick':
+            return { pos: lerp3(from, stack, u), turn: NONE, curl: PINCH_CURL }
+          case 'place':
+            return { pos: lerp3(stack, cell, u), turn: NONE, curl: PINCH_CURL }
+          case 'press':
+            return { pos: cell.clone().add(v(0, 0, -0.02 * Math.sin(u * Math.PI))), turn: NONE, curl: STAMP_CURL }
+          case 'release':
+            return { pos: lerp3(cell, stack, u), turn: NONE, curl: REST_CURL }
+          case 'gap':
+            return { pos: stack, turn: NONE, curl: REST_CURL }
+          default:
+            return at(rest.x, rest.y, rest.z)
+        }
+      }
+      case 'tidy': {
+        // gather the papers, tap them twice (palms facing each other), push the keyboard in with the right hand, lean back
+        const u = wb?.u ?? 0
+        if (wb?.kind === 'tap') return at(sx * 0.06, 0.84 + Math.sin(u * Math.PI) * 0.05, -0.42, NONE, STAMP_CURL)
+        if (wb?.kind === 'keys') return side === 'r' ? at(0.1, 0.81, -0.42 - Math.sin(u * Math.PI) * 0.05, down, STAMP_CURL) : at(-0.13, 0.81, -0.42, down, STAMP_CURL)
+        if (wb?.kind === 'lean') return at(sx * 0.13, 0.81, -0.42, down, STAMP_CURL)
+        return at(sx * 0.1, 0.82, -0.42, down, STAMP_CURL)
+      }
       case 'move':
         return at(rest.x, rest.y - 0.03, rest.z + 0.08)
       case 'type':

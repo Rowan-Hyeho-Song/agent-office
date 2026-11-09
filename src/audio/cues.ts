@@ -332,7 +332,11 @@ export function keyRoll(key: string): number {
 }
 
 // ── the voice cap and repeats ──
-const lastAt = new Map<CueName, number>()
+/** last time per cue (per agent for typing and voices, so five typists don't share one 38 ms gap) */
+const lastAt = new Map<string, number>()
+const gapKey = (name: CueName, agent?: string) => ((name === 'type' || name === 'voice') && agent ? `${name}:${agent}` : name)
+/** how many times each cue has sounded (?debug level scripts read it through window.__sound) */
+export const cueCounts = new Map<CueName, number>()
 const lastPitch = new Map<CueName, number>()
 let active: number[] = [] // end times (ctx seconds) of sounding sfx
 
@@ -351,7 +355,7 @@ export function cue(name: CueName, opts: CueOpts = {}): boolean {
   }
   const def = CUES[name] as CueDef
   const now = performance.now()
-  if (now - (lastAt.get(name) ?? -1e9) < def.gap) return false
+  if (now - (lastAt.get(gapKey(name, opts.agent)) ?? -1e9) < def.gap) return false
   // the "every other one" at ×4 is decided by the event's key when there is one, so a replayed scene sounds the same
   const k = speedRule(def.kind, speed, opts.key !== undefined ? keyRoll(opts.key) : Math.random())
   if (k === 0) return false
@@ -359,7 +363,7 @@ export function cue(name: CueName, opts: CueOpts = {}): boolean {
   const t = g.ctx.currentTime + (opts.at ?? 0)
   active = active.filter((e) => e > g.ctx.currentTime)
   if (def.bus === 'sfx' && def.kind !== 'ui' && active.length >= MAX_SFX) return false
-  lastAt.set(name, now)
+  lastAt.set(gapKey(name, opts.agent), now)
 
   // a repeat within a second wobbles ±3% so it doesn't sound like a machine gun
   const base = seatPitch(opts.agent)
@@ -374,6 +378,7 @@ export function cue(name: CueName, opts: CueOpts = {}): boolean {
   if (def.spatial && opts.pos) dest = panner(g.ctx, opts.pos, trim)
   def.play({ c: g.ctx, dest, echo: g.echo, t }, { agent: opts.agent, dur: opts.dur, pitch: base * wobble })
   active.push(t + def.length)
+  cueCounts.set(name, (cueCounts.get(name) ?? 0) + 1)
   if (def.bus === 'voice') duck('music', -6)
   // let go of the per-cue nodes once it's over
   const free = dest

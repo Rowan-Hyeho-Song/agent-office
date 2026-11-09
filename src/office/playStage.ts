@@ -35,6 +35,7 @@ import { rallyAt, type Dims, type Rally } from '../play/pingpong'
 import { HOLD_DEFAULT, PLANTS, canPose, dropAt, landing, plantAhead, plantsFrom, solvePour, spoutOf, type Plant } from './water'
 import { type Place, ease, followWeight, habitOf, placeSequence, swingTilt, swingTravel } from '../play/choreo'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
+import { PlaySounds } from '../audio/playSounds'
 
 const UP = new Vector3(0, 1, 0)
 const DEG = Math.PI / 180
@@ -92,6 +93,8 @@ const blend = (a: Matrix4, b: Matrix4, k: number, out = new Matrix4()) => {
 const frame = (x: Vector3, y: Vector3, z: Vector3, o: Vector3) => new Matrix4().makeBasis(x, y, z).setPosition(o)
 
 export class PlayStage {
+  /** the play sounds (#194 ②): one line at each event below */
+  private sounds = new PlaySounds()
   private clocks = new Map<string, GripClock>()
   private targets = new Map<string, GripTarget | null>()
   private fits = new Map<string, { curl: number[]; spread: number[] } | null>()
@@ -410,6 +413,7 @@ export class PlayStage {
     const d = this.dims
     const rally: Rally = rallyAt(s.seed, s.players, Math.max(tMs, -1), d, inp.reduced)
     const playing = tMs >= 0
+    if (playing) this.sounds.pingpong(s.seed, tMs, rally, d.ballR!, rally.ballPos ? this.tableWorld(rally.ballPos) : null)
     if (ball) {
       if (playing && rally.ballPos) {
         ball.visible = true
@@ -522,6 +526,7 @@ export class PlayStage {
       return
     }
     const view = gameAt(s.seed, s.players, tMs, inp.reduced)
+    this.sounds.omokStone(s.seed, view.game, view.moveIndex, view.lastMove >= 0 ? this.cellPos(view.lastMove) : null)
     this.sweepState = { start: null, board: view.board.slice() }
     // stones on the board
     let nb = 0
@@ -774,6 +779,7 @@ export class PlayStage {
         const m = this.props.homeWorld(home.node)
         m.elements[13] += lift
         this.grip(rig, 'r', 'stamp', home.node.name, true, m, inp)
+        this.sounds.stamp(inp.t, home.node.getWorldPosition(new Vector3()))
       }
       return
     }
@@ -848,7 +854,7 @@ export class PlayStage {
       }
       return
     }
-    if (goal.pose === 'type' && seat === 2 && inp.tablet && resting) {
+    if (((goal.pose === 'type' && inp.tablet) || goal.pose === 'write') && seat === 2 && resting) {
       const pen = this.props.info(rig, 'tablet_pen')
       const tab = this.nodes.desk_2_tablet
       if (pen && tab) {
@@ -951,10 +957,12 @@ export class PlayStage {
     if (!dr) return
     if (!p?.on || !this.spoutLocal) {
       dr.count = 0
+      this.sounds.water(false, inp.t, null)
       return
     }
     // drops leave the spout (placed from the can's pose of this frame) and are gone where they reach the soil
     const { tip, dir } = spoutOf(p.held, this.spoutLocal!)
+    this.sounds.water(true, inp.t, tip)
     const hit = landing(tip, dir, p.soilY)
     const m = new Matrix4()
     const pos = new Vector3()
