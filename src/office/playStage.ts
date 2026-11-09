@@ -25,8 +25,8 @@ import {
 } from 'three'
 import type { Goal } from './director'
 import type { GripDemo } from './debugPlay'
-import { GRIPS, GripClock, STONE_H, STONE_PITCH, STONE_PITCH_FLAT, handFor, stoneGrip, stoneRoll, tipAt, type StoneGrip } from './grip'
-import { DIP_K, fingerFromC } from './handPose'
+import { GRIPS, GripClock, STONE_ABD, STONE_FALLBACK_M, STONE_H, STONE_PITCH, STONE_PITCH_FLAT, handFor, stoneGrip, stoneRoll, tipAt, type StoneGrip } from './grip'
+import { DIP_K, POSES, fingerFromC, toVec } from './handPose'
 import { contactNormal, fitFingers, handGripMatrix, offsetOf, resolveTarget, type GripTarget } from './gripTargets'
 import { fingerModelOf, type AgentRig, type PropBank } from './rig'
 import { noteTourEvent } from './tourEvents'
@@ -146,6 +146,8 @@ export class PlayStage {
   /** per mover: whether the move's hand began from the pick (a move first seen after its pick, a seat taken mid-move, is left to the board: no hand ever took its stone) */
   private handMove: Record<string, { key: string; ok: boolean }> = {}
   private stoneFrames = new Map<string, StoneGrip[]>()
+  /** per agent, decided once from the fits: the go grip, or (when its tips cannot land on the stone's discs within STONE_FALLBACK_M at some pitch) the tripod pinch */
+  private stoneModes = new Map<string, 'go' | 'pinch'>()
 
   // water and the book
   private drops: InstancedMesh | null = null
@@ -529,6 +531,7 @@ export class PlayStage {
         return stoneGrip(models, top, { index: hold[0], middle: hold[1] }, pitch, stoneRoll(models, top, { index: hold[0], middle: hold[1] }, pitch))
       })
       this.stoneFrames.set(rig.id, f)
+      this.stoneModes.set(rig.id, f.every((g) => g.err[top] <= STONE_FALLBACK_M) ? 'go' : 'pinch')
     }
     return f
   }
@@ -783,7 +786,18 @@ export class PlayStage {
       })
       setFingerJoints(angles, k, j)
     }
-    rig.drive[side] = { target: hand, w: p.w, curl: null, angles, wc: p.w, spread: null }
+    // an agent whose fingers cannot reach the stone's discs holds it with the tripod pinch instead (decided once per agent from the fits, deterministic)
+    const pinch = this.stoneModes.get(rig.id) === 'pinch'
+    if (pinch) {
+      const tri = toVec(POSES.tripod)
+      const pre = rig.curlVec(side, spec.pre)
+      const after = rig.curlVec(side, spec.after)
+      angles.forEach((_, i) => {
+        const closed = pre[i] + (tri[i] - pre[i]) * p.close
+        angles[i] = closed + (after[i] - closed) * free(0)
+      })
+    }
+    rig.drive[side] = { target: hand, w: p.w, curl: null, angles, abdLimits: pinch ? null : [STONE_ABD.index, STONE_ABD.middle, undefined, undefined], wc: p.w, spread: null }
     // the stone: the prop piece, in the hand until it lands; the board's own instance shows from the landing
     if (stone) {
       rig.want = { kind: 'piece', side, prefer: `prop_piece_${wantColor === 1 ? 'a' : 'b'}`, attached: p.attached }

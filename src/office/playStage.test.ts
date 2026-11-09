@@ -8,6 +8,7 @@ import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { loadOffice, stubCanvas } from './glbLoad'
 import { contactNormal } from './gripTargets'
 import { PlayStage, type StageIn } from './playStage'
+import { STONE_DISC_R } from './grip'
 import { AgentRig, PropBank, buildRig } from './rig'
 import type { Goal } from './director'
 
@@ -63,6 +64,12 @@ const tipWorld = (rig: AgentRig, side: 'l' | 'r', f: number | 'thumb', out = new
 }
 const at = (scene: Object3D, name: string) => scene.getObjectByName(name)!.getWorldPosition(new Vector3())
 const up = (scene: Object3D, name: string) => contactNormal(scene, scene.getObjectByName(name)!)
+/** the go stone's contacts are discs (agents.md 2.10): the distance from a tip to the disc of STONE_DISC_R round the contact in the plane across its normal */
+const toDisc = (tip: Vector3, c: Vector3, n: Vector3) => {
+  const d = tip.clone().sub(c)
+  const h = d.dot(n)
+  return Math.hypot(h, Math.max(0, d.addScaledVector(n, -h).length() - STONE_DISC_R))
+}
 
 describe('PlayStage', () => {
   it('ping-pong: the same office time gives the same ball position, in two separate worlds', async () => {
@@ -147,7 +154,7 @@ describe('PlayStage', () => {
           const cm = 'prop_piece_' + col + '_contact_middle'
           const ti = tipWorld(r, 'r', 0)
           const tm = tipWorld(r, 'r', 1)
-          worst = Math.max(worst, ti.distanceTo(at(w.scene, ci)), tm.distanceTo(at(w.scene, cm)))
+          worst = Math.max(worst, toDisc(ti, at(w.scene, ci), up(w.scene, ci)), toDisc(tm, at(w.scene, cm), up(w.scene, cm)))
           minOff = Math.min(minOff, ti.sub(at(w.scene, ci)).dot(up(w.scene, ci)), tm.sub(at(w.scene, cm)).dot(up(w.scene, cm)))
           frames++
         }

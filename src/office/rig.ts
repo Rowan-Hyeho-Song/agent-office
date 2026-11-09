@@ -41,6 +41,7 @@ import {
   type AnyPoseId,
   type HandAngles,
   type JointSpec,
+  type Range,
 } from './handPose'
 import { TRAFFIC, type Sample } from './traffic'
 import type { AgentStatus } from './status'
@@ -140,6 +141,8 @@ export interface HandDrive {
   curl: readonly number[] | null
   /** the fingers as 20 joint angles (handPose.toVec), already mixed by the caller: used instead of `curl` + `spread` when given (the contact fit carries full per-joint angles) */
   angles?: readonly number[] | null
+  /** a grip's own abduction range per finger (index … little; grip.ts STONE_ABD), degrees: the rig clamps with these instead of the general ones while this drive shows */
+  abdLimits?: readonly (Range | undefined)[] | null
   wc: number
   spread: readonly number[] | null
 }
@@ -1464,6 +1467,12 @@ export class AgentRig {
     }
   }
 
+  /** put these joint angles on a hand right now, through the rig's own finger path (limits, then the joint math): the measuring tool (pnpm hand:measure) */
+  poseNow(side: 'l' | 'r', angles: HandAngles) {
+    this.setFingers(side, toVec(angles))
+    this.parts.hands[side].node.updateWorldMatrix(true, true)
+  }
+
   /** force a named pose on one hand (null = let go): the debug hook __office.hand.pose */
   forcePose(side: 'l' | 'r', pose: AnyPoseId | null) {
     this.forced[side] = pose ? ALL_POSES[pose] : null
@@ -1581,14 +1590,14 @@ export class AgentRig {
   }
 
   /** the finger joints for a vector of 20 angles (handPose.toVec) plus each finger's idle drift (°): clamped to the limits, then the joint math of handPose.ts */
-  private setFingers(side: 'l' | 'r', vec: readonly number[], drift: readonly number[] = NO_DRIFT) {
+  private setFingers(side: 'l' | 'r', vec: readonly number[], drift: readonly number[] = NO_DRIFT, abdLimits?: readonly (Range | undefined)[] | null) {
     const hand = this.parts.hands[side]
     const v = vec.slice()
     for (let f = 0; f < 4; f++) {
       v[f * 4] += drift[f]
       v[f * 4 + 1] += drift[f]
     }
-    const { angles } = clampAngles(fromVec(v))
+    const { angles } = clampAngles(fromVec(v), abdLimits ?? undefined)
     hand.fingers.forEach((chain, f) => {
       const a = angles.f[f]
       const [j1, j2, j3] = chain
@@ -1653,7 +1662,7 @@ export class AgentRig {
       const drv = dv.angles ? [...dv.angles] : toVec(fromCurlWithSwing(dv.curl!, fan, dv.spread))
       const w = this.fingerWeights(side, dv.wc)
       const vec = base.map((x, k) => x + (drv[k] - x) * w[k < 16 ? k >> 2 : 4])
-      this.setFingers(side, vec, this.drift[side].map((d) => d * (1 - dv.wc)))
+      this.setFingers(side, vec, this.drift[side].map((d) => d * (1 - dv.wc)), dv.abdLimits)
     } else {
       this.wcHist[side].length = 0
       this.wcClosing[side] = true

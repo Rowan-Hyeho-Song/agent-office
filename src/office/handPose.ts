@@ -78,12 +78,13 @@ export function abdRange(finger: number, mcp: number): Range {
 const clamp = (x: number, r: Range) => Math.min(r.max, Math.max(r.min, x))
 
 /** clamp one finger; pushes the names of the joints it clipped onto `clipped` */
-export function clampFinger(a: FingerAngles, finger: number, clipped: string[] = []): FingerAngles {
+export function clampFinger(a: FingerAngles, finger: number, clipped: string[] = [], abdLimits?: Range): FingerAngles {
   const name = (j: string) => `${FINGER_NAMES[finger]}.${j}`
   const mcp = clamp(a.mcp, LIMITS.mcp)
   const pip = clamp(a.pip, LIMITS.pip)
   const dip = clamp(a.dip ?? DIP_K[finger] * pip, LIMITS.dip)
-  const abd = clamp(a.abd, abdRange(finger, mcp))
+  // abdLimits: a grip's own exception (grip.ts STONE_ABD): used as they are, not scaled by the MCP
+  const abd = clamp(a.abd, abdLimits ?? abdRange(finger, mcp))
   if (mcp !== a.mcp) clipped.push(name('mcp'))
   if (pip !== a.pip) clipped.push(name('pip'))
   if (a.dip !== undefined && dip !== a.dip) clipped.push(name('dip'))
@@ -104,9 +105,9 @@ export function clampThumb(t: ThumbAngles, clipped: string[] = []): ThumbAngles 
 export const FINGER_NAMES = ['index', 'middle', 'ring', 'little'] as const
 
 /** every angle inside its limits (DIP filled in); `clipped` lists the joints that had to move, e.g. "little.abd", "thumb.mcp" */
-export function clampAngles(a: HandAngles): { angles: HandAngles; clipped: string[] } {
+export function clampAngles(a: HandAngles, abdLimits?: readonly (Range | undefined)[]): { angles: HandAngles; clipped: string[] } {
   const clipped: string[] = []
-  const f = a.f.map((x, k) => clampFinger(x, k, clipped)) as unknown as HandAngles['f']
+  const f = a.f.map((x, k) => clampFinger(x, k, clipped, abdLimits?.[k])) as unknown as HandAngles['f']
   return { angles: { f, thumb: clampThumb(a.thumb, clipped) }, clipped }
 }
 

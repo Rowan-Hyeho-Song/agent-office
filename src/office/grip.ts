@@ -8,7 +8,7 @@
 //    stays on the outside of the surface (the contact node's +y, the exported form of Blender's +z).
 
 import { Euler as EulerCtor, Matrix4, Quaternion, Vector3 } from 'three'
-import { DEG, LIMITS, abdRange, clampFinger, clampThumb, fingerFromC, fingerRootQuat, segmentQuat, thumbFromCurl, thumbRootQuat, type JointSpec } from './handPose'
+import { DEG, LIMITS, abdRange, clampFinger, clampThumb, fingerFromC, fingerRootQuat, segmentQuat, thumbFromCurl, thumbRootQuat, type JointSpec, type Range } from './handPose'
 
 
 /** four finger bends (index … little), then the thumb's bend and opposition */
@@ -56,7 +56,7 @@ export const GRIPS: Record<string, GripSpec> = {
   // a finger pressing a button
   button: { r: { pre: curlOf([0, 0.9, 0.92, 0.95], [0.6, 0.6]), hold: curlOf([0.05, 0.9, 0.92, 0.95], [0.6, 0.6]), after: REST, contacts: ['index'] } },
   // the go stone, the Nihon Ki-in grip (agents.md 2.10, #192): the stone on the index nail, the middle fingertip pressing it from above
-  piece: { r: { pre: all(0.15, [0.1, 0.3]), hold: curlOf([0.35, 0.1, 0.8, 0.85], [0.4, 0.6]), after: REST, contacts: ['index', 'middle'] } },
+  piece: { r: { pre: all(0.15, [0.1, 0.3]), hold: curlOf([0.55, 0.12, 0.8, 0.85], [0.4, 0.6]), after: REST, contacts: ['index', 'middle'] } },
 }
 
 // ---------------------------------------------------------------------------------------------------- stages
@@ -198,6 +198,8 @@ export interface FingerModel {
   joint?: (JointSpec | undefined)[]
   /** the fan angle baked into the finger root, degrees (rest_abduct) */
   restAbd?: number
+  /** a grip's own abduction range (STONE_ABD), degrees, used instead of the general one (which shrinks with the MCP) */
+  abdLimits?: Range
 }
 
 const q1 = new Quaternion()
@@ -226,7 +228,7 @@ export function clampJoints(m: FingerModel, j: readonly number[]): number[] {
     const t = clampThumb({ cmcFlex: j[0], cmcAbd: j[1], mcp: j[2], ip: j[3] })
     return [t.cmcFlex, t.cmcAbd, t.mcp, t.ip]
   }
-  const f = clampFinger({ mcp: j[0], pip: j[1], abd: j[2] }, m.finger ?? 0)
+  const f = clampFinger({ mcp: j[0], pip: j[1], abd: j[2] }, m.finger ?? 0, undefined, m.abdLimits)
   return [f.mcp, f.pip, f.abd]
 }
 
@@ -245,7 +247,7 @@ export function tipAtJoints(m: FingerModel, joints: readonly number[], out = new
   } else {
     const k = m.finger ?? 0
     const restAbd = m.restAbd ?? 0
-    const f = clampFinger({ mcp: joints[0], pip: joints[1], abd: joints[2] }, k)
+    const f = clampFinger({ mcp: joints[0], pip: joints[1], abd: joints[2] }, k, undefined, m.abdLimits)
     const spec = j[0] ?? { flex: { axis: 'x' as const, sign: 1 }, abduct: { axis: 'z' as const, sign: m.sx } }
     acc.compose(m.p[0], fingerRootQuat(m.rest[0], spec, restAbd, f.abd, f.mcp, q1), one)
     acc.multiply(m1.compose(m.p[1], segmentQuat(m.rest[1], j[1], f.pip, q1), one))
@@ -284,7 +286,7 @@ const PRIOR_W = 2e-6
  * table's angles (`a0`, `b0`: tableJoints) and prefers the least change from them, so a grip that already fits stays as tabled; a tip that
  * would go through is bent less. Deterministic: a coarse grid over the angles that matter most, then a coordinate search with shrinking steps.
  */
-export function fitContact(m: FingerModel, target: Vector3, normal: Vector3, a0: number, b0 = 0, G = 14): Fit {
+export function fitContact(m: FingerModel, target: Vector3, normal: Vector3, a0: number, b0 = 0, G = 14, radius = 0, priorW = PRIOR_W): Fit {
   const n = normal.clone().normalize()
   const goal = target.clone().addScaledVector(n, SKIN)
   const full = G >= 10
@@ -293,12 +295,21 @@ export function fitContact(m: FingerModel, target: Vector3, normal: Vector3, a0:
   const dim = start.length
   const scale = m.thumb ? PRIOR_SCALE.thumb : PRIOR_SCALE.finger
   const tip = new Vector3()
+  // the contact is a point, or a disc of `radius` round it in the plane across the normal: the distance is to the nearest point of the disc
+  const toContact = (p: Vector3, c: Vector3) => {
+    const d = p.clone().sub(c)
+    const h = d.dot(n)
+    if (radius <= 0) return d.length()
+    const lat = Math.max(0, d.addScaledVector(n, -h).length() - radius)
+    return Math.hypot(h, lat)
+  }
   const cost = (v: number[]) => {
     tipAtJoints(m, v, tip)
     const off = tip.clone().sub(target).dot(n)
     let prior = 0
     for (let k = 0; k < dim; k++) prior += ((v[k] - raw[k]) / scale[k]) ** 2
-    return tip.distanceToSquared(goal) + (off < 0 ? 4000 * off * off : 0) + PRIOR_W * prior
+    const e = toContact(tip, goal)
+    return e * e + (off < 0 ? 4000 * off * off : 0) + priorW * prior
   }
   const feas = (v: number[]) => clampJoints(m, v)
   // the ranges the grid walks over
@@ -362,7 +373,7 @@ export function fitContact(m: FingerModel, target: Vector3, normal: Vector3, a0:
     if (r.c < best.c) best = r
   }
   tipAtJoints(m, best.v, tip)
-  return { joints: best.v, err: tip.distanceTo(target), off: tip.clone().sub(target).dot(n) }
+  return { joints: best.v, err: toContact(tip, target), off: tip.clone().sub(target).dot(n) }
 }
 
 // ---------------------------------------------------------------------------------------------- hand placement
@@ -491,6 +502,19 @@ export function solveContacts(contacts: ContactIn[], keepNear = 0.02): Solved {
 
 /** a go stone's thickness, m (omok_grid extras stone_h) */
 export const STONE_H = 0.008
+/** the stone's contacts are discs, not points (agents.md 2.10): the middle pad lands anywhere on a disc of this radius on the top face, the index nail on the bottom face's */
+export const STONE_DISC_R = 0.008
+/**
+ * THE abduction exception of the go grip (designer, agents.md 2.10) and only of it: the index may swing −12 … 20° and the middle ±12° (degrees,
+ * the total angle, not scaled by the MCP), against the general limits of hand-poses.md 1. stoneGrip fits with these, and the stone's drive tells the rig
+ * (HandDrive.abdLimits) to clamp with the same, so what is fitted is what is shown.
+ */
+export const STONE_ABD: { index: Range; middle: Range } = { index: { min: -12, max: 20 }, middle: { min: -12, max: 12 } }
+/** how much the go grip prefers the designer's natural posture (index about 45 / 60, middle about 10 / 20) over a millimetre: the bottom finger's weight in m per full range, and the top finger's in the fit's squared terms */
+const STONE_POSTURE_W = 0.006
+const STONE_POSTURE_W_TOP = 3e-5
+/** a hand that cannot hold the stone within this (m) falls back to the tripod pinch */
+export const STONE_FALLBACK_M = 0.005
 
 export interface StoneGrip {
   /** the stone's frame (x along the fingers, y out of its faces toward the index finger, z across) in the hand's frame */
@@ -509,16 +533,20 @@ export interface StoneGrip {
 export const STONE_PITCH = (35 * Math.PI) / 180
 export const STONE_PITCH_FLAT = (30 * Math.PI) / 180
 /** palm down with the little-finger side raised by this much (pronation) */
-export const STONE_ROLL = (30 * Math.PI) / 180
+export const STONE_ROLL = (30 * Math.PI) / 180 // the pronation is a wrist twist about the finger axis (grips.md 1.1: within ±90)
 /**
- * The go grip (agents.md 2.10): the palm down with its little-finger side raised by `roll`, the fingers pointing forward and down by
- * `pitch`, the stone flat (horizontal), resting on the fingertip of the BOTTOM finger with the TOP finger's tip pressing it from above.
- * Which finger is on top comes from the model's stone contacts (`top`: the finger whose contact faces up), not from here. In the hand's
- * frame the stone's normal is the direction of "up" for such a hand; the bottom finger starts at its table value, and it and the top
- * finger are bent and swung, as little as it takes, until the top tip stands one stone's thickness above the bottom tip along that normal.
+ * The go grip (agents.md 2.10, redesigned): the palm down, turned (pronated, a wrist twist about the finger axis) by `roll`, the fingers pointing
+ * forward and down by `pitch`, the stone flat, resting on the nail of the BOTTOM finger with the TOP finger's pad on its top face. The
+ * top finger lies above the bottom one by a difference in bend plus that pronation, not by a sideways spread. The stone's contacts are
+ * discs of STONE_DISC_R, so the tips need only land on them; the abduction ranges are the grip's own (STONE_ABD). Which finger is on top comes from the
+ * model's stone contacts (`top`: the finger whose contact faces up). In the hand's frame the stone's normal is the direction of "up" for such a
+ * hand; the bottom finger starts at its table value, and it and the top finger are bent as little as it takes until the top tip is on the top disc,
+ * one stone's thickness above the bottom tip along that normal. Both fingers are fitted in 3 DOF (MCP, PIP, abduction).
  */
 export function stoneGrip(models: { index: FingerModel; middle: FingerModel }, top: 'index' | 'middle', hold: { index: number; middle: number }, pitch = STONE_PITCH, roll = STONE_ROLL): StoneGrip {
   const bottom = top === 'index' ? 'middle' : 'index'
+  // the grip's own abduction ranges (one place: STONE_ABD)
+  const fm = { index: { ...models.index, abdLimits: STONE_ABD.index }, middle: { ...models.middle, abdLimits: STONE_ABD.middle } }
   const sx = models.index.sx
   const sp = Math.sin(pitch)
   const cp = Math.cos(pitch)
@@ -526,24 +554,20 @@ export function stoneGrip(models: { index: FingerModel; middle: FingerModel }, t
   const cr = Math.cos(roll)
   const n = new Vector3(-cp * sr, -sp, -cp * cr)
   const f = new Vector3(-sp * sr, cp, -sp * cr) // the forward direction along the board, in the hand's frame
-  let best: { cb: number; bb: number; fit: Fit; cost: number } | null = null
-  for (let cb = 0.05; cb <= 0.8; cb += 0.05)
-    for (let bb = -0.6; bb <= 0.601; bb += 0.075) {
-      const B = tipAt(models[bottom], cb, bb)
-      const fit = fitContact(models[top], B.clone().addScaledVector(n, STONE_H), n, hold[top], 0, 8)
-      const cost = fit.err + 0.0004 * Math.abs(cb - hold[bottom]) + 0.0004 * Math.abs(bb)
-      if (!best || cost < best.cost) best = { cb, bb, fit, cost }
-    }
-  // a local search around the coarse winner, the bottom finger in 3 DOF too (MCP, PIP, abduction; DIP follows): the least change from its table value
-  const tableB = tableJoints(models[bottom], hold[bottom], 0)
-  const costOf = (v: number[], fit: Fit) => fit.err + 0.0004 * (Math.abs(v[0] - tableB[0]) / 85 + Math.abs(v[1] - tableB[1]) / 100 + Math.abs(v[2] - tableB[2]) / 57.3)
+  const tableB = tableJoints(fm[bottom], hold[bottom], 0)
+  const costOf = (v: number[], fit: Fit) => fit.err + STONE_POSTURE_W * (Math.abs(v[0] - tableB[0]) / 85 + Math.abs(v[1] - tableB[1]) / 100 + Math.abs(v[2] - tableB[2]) / 57.3)
   const eval2 = (v: number[]) => {
-    const w = clampJoints(models[bottom], v)
-    const B = tipAtJoints(models[bottom], w)
-    const fit = fitContact(models[top], B.clone().addScaledVector(n, STONE_H), n, hold[top], 0, 8)
+    const w = clampJoints(fm[bottom], v)
+    const B = tipAtJoints(fm[bottom], w)
+    const fit = fitContact(fm[top], B.clone().addScaledVector(n, STONE_H), n, hold[top], 0, 8, STONE_DISC_R, STONE_POSTURE_W_TOP)
     return { v: w, fit, cost: costOf(w, fit) }
   }
-  let cur = eval2(tableJoints(models[bottom], best!.cb, best!.bb))
+  // a coarse walk over the bottom finger's bend (its table abduction), then a coordinate search in its three joints
+  let cur = eval2(tableB)
+  for (let cb = 0.05; cb <= 0.8; cb += 0.05) {
+    const r = eval2(tableJoints(fm[bottom], cb, 0))
+    if (r.cost < cur.cost) cur = r
+  }
   let step = [6, 6, 4]
   for (let it = 0; it < 60 && step[0] > 0.05; it++) {
     let moved = false
@@ -560,27 +584,20 @@ export function stoneGrip(models: { index: FingerModel; middle: FingerModel }, t
     if (!moved) step = step.map((x) => x * 0.5)
   }
   const { fit } = cur
-  const B = tipAtJoints(models[bottom], cur.v)
+  const B = tipAtJoints(fm[bottom], cur.v)
   const z = new Vector3().crossVectors(f, n)
   const m = new Matrix4().makeBasis(f, n, z).setPosition(B.clone().addScaledVector(n, STONE_H / 2))
   const res = { [top]: { j: fit.joints }, [bottom]: { j: cur.v } } as { index: { j: number[] }; middle: { j: number[] } }
-  const zero = { err: 0, off: 0 }
-  return { m, ...res, top, err: { ...{ index: 0, middle: 0 }, [top]: fit.err }, off: { ...{ index: zero.off, middle: zero.off }, [top]: fit.off } }
+  return { m, ...res, top, err: { ...{ index: 0, middle: 0 }, [top]: fit.err }, off: { ...{ index: 0, middle: 0 }, [top]: fit.off } }
 }
 
 /** the palm's normal never points up more than this far below horizontal: y ≤ −0.61 (designer: palm down, bound −0.6) */
 export const PALM_DOWN_Y = -0.61
 
 /**
- * The least pronation (from the designer's 30°) at which this hand's go grip fits within 2.5 mm at this pitch while the palm stays down
- * (palm normal y = −cos pitch · cos roll ≤ ${PALM_DOWN_Y}). The hands differ by a few mm and the finger on top needs more roll on some of them; where
- * no roll does both, the most roll the palm bound allows.
+ * The pronation of the go grip: a fixed wrist twist of STONE_ROLL (30°, within the wrist's ±90°, grips.md 1.1), so the palm stays down (normal y = −cos pitch ·
+ * cos roll ≤ ${PALM_DOWN_Y}). It used to grow with a hand that could not reach; the fingers now take the difference in bend and the discs the rest.
  */
-export function stoneRoll(models: { index: FingerModel; middle: FingerModel }, top: 'index' | 'middle', hold: { index: number; middle: number }, pitch: number): number {
-  const max = Math.acos(Math.min(1, -PALM_DOWN_Y / Math.cos(pitch)))
-  for (let deg = 30; deg <= 60; deg += 2.5) {
-    const roll = Math.min((deg * Math.PI) / 180, max)
-    if (stoneGrip(models, top, hold, pitch, roll).err[top] <= 0.0025 || roll >= max) return roll
-  }
-  return max
+export function stoneRoll(_models: { index: FingerModel; middle: FingerModel }, _top: 'index' | 'middle', _hold: { index: number; middle: number }, _pitch: number): number {
+  return STONE_ROLL
 }

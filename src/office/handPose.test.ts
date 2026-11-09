@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import { describe, expect, it } from 'vitest'
-import { Matrix4, Object3D, Quaternion, Vector3 } from 'three'
+import { Matrix4, Object3D, Quaternion, Triangle, Vector3 } from 'three'
 import { GRIPS, type Curl } from './grip'
 import {
   ALL_POSES,
@@ -221,7 +221,8 @@ describe('on the baked hand', async () => {
       for (let i = 0; i < pos.count; i++) all.push(v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(rel).clone())
     })
     const top = Math.max(...all.map((p) => p.y))
-    const ties = all.filter((p) => p.y > top - 2e-5)
+    // the measurement tip (pnpm hand:measure tip A): the average of the vertices within 0.5 mm of the farthest along local +y, the centre of the end
+    const ties = all.filter((p) => p.y > top - 5e-4)
     return ties.reduce((m, p) => m.add(p), new Vector3()).multiplyScalar(1 / ties.length)
   }
   /** the artist's tips in the hand frame after a pose */
@@ -239,13 +240,22 @@ describe('on the baked hand', async () => {
     node.updateWorldMatrix(true, true)
     const inv = new Matrix4().copy(h.node.matrixWorld).invert()
     let best = Infinity
-    const v = new Vector3()
-    node.traverse((o) => {
-      if (o !== node && o.parent !== node) return
-      const pos = (o as unknown as { geometry?: { getAttribute(n: string): { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number } } }).geometry?.getAttribute('position')
-      if (!pos || o.name.includes('_f1_3')) return
-      for (let i = 0; i < pos.count; i++) best = Math.min(best, v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(o.matrixWorld).applyMatrix4(inv).distanceTo(p))
-    })
+    const rel = new Matrix4()
+    const q = new Vector3()
+    const tri = new Triangle()
+    // the segment's own meshes (not the finger segments hanging off it): the nearest point on any triangle
+    for (const m of node.children.filter((c) => (c as unknown as { isMesh?: boolean }).isMesh) as unknown as { geometry: import('three').BufferGeometry; matrixWorld: Matrix4 }[]) {
+      rel.multiplyMatrices(inv, m.matrixWorld)
+      const pos = m.geometry.getAttribute('position')
+      const idx = m.geometry.getIndex()
+      const n = idx ? idx.count : pos.count
+      const at = (i: number) => new Vector3().fromBufferAttribute(pos, idx ? idx.getX(i) : i).applyMatrix4(rel)
+      for (let i = 0; i + 2 < n; i += 3) {
+        tri.set(at(i), at(i + 1), at(i + 2))
+        tri.closestPointToPoint(p, q)
+        best = Math.min(best, q.distanceTo(p))
+      }
+    }
     return best
   }
 
