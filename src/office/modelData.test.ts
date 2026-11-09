@@ -5,6 +5,8 @@
 //   NAV_WRITE=1 FOOT_WRITE=1 npx vitest run src/office/modelData.test.ts     (rewrites both files)
 //   FIT_WRITE=1 npx vitest run src/office/gripFit.test.ts                    (gripFit.data.ts)
 import { readFileSync, writeFileSync } from 'node:fs'
+/** line endings aside (a Windows checkout with core.autocrlf turns the generated files CRLF; .gitattributes keeps them LF too) */
+const lf = (s: string) => s.split('\r\n').join('\n')
 import { describe, expect, it } from 'vitest'
 import type { Object3D } from 'three'
 import { loadOffice } from './glbLoad'
@@ -75,13 +77,13 @@ describe('generated model data matches office.glb', async () => {
   it('navSpots.fixture.ts is the glb nav_* empties', () => {
     const text = navFile(navRaw(scene))
     if (process.env.NAV_WRITE) writeFileSync(path('./navSpots.fixture.ts'), text)
-    expect(readFileSync(path('./navSpots.fixture.ts'), 'utf8')).toBe(text)
+    expect(lf(readFileSync(path('./navSpots.fixture.ts'), 'utf8'))).toBe(lf(text))
   })
 
   it('footprint.data.ts is the glb furniture footprint', () => {
     const furniture = Object.values(nodes).filter((m) => m.userData.atlas).flatMap(meshesOf)
     const text = footFile(rasterFootprint(furniture, 0.05, scene))
     if (process.env.FOOT_WRITE) writeFileSync(path('./footprint.data.ts'), text)
-    expect(readFileSync(path('./footprint.data.ts'), 'utf8')).toBe(text)
+    expect(lf(readFileSync(path('./footprint.data.ts'), 'utf8'))).toBe(lf(text))
   })
 })
