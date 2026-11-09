@@ -3247,6 +3247,21 @@ def disc(name, r, material, group, seg=32):
     return o
 
 
+def hexdot(name, r, center, normal, material, group):
+    """a flat dark hexagon (4 triangles) facing the web direction normal: grille and mic holes on a live head"""
+    n = Vector(normal).normalized()
+    u = n.cross(Vector((0, 1, 0)) if abs(n.y) < 0.9 else Vector((1, 0, 0))).normalized()
+    v = n.cross(u)
+    c = Vector(center)
+    bm = bmesh.new()
+    vs = [bm.verts.new(W(*(c + (u * math.cos(a) + v * math.sin(a)) * r))) for a in [k * math.pi / 3 for k in range(6)]]
+    f = bm.faces.new(vs)
+    f.normal_update()
+    if f.normal.dot(Vector(W(*n)) - Vector(W(0, 0, 0))) < 0:
+        f.normal_flip()
+    return mesh_obj(name, bm, material, group)
+
+
 def soft_glow(h, alpha, strength, name):
     """emissive, mostly see-through (the beam and the floor disc); the app draws them additive"""
     m = emitter(h, strength, name)
@@ -3328,6 +3343,23 @@ def build_agent(i, agent):
     for s, sx in (("l", -1), ("r", 1)):
         if ears[s]:
             hp.append(cyl("ear", 0.04, 0.03, (sx * (hw / 2 + 0.012), 0, 0), accent, G, 16, axis="x"))
+    if i == 4:  # ECHO (agents.md 2.11, #193): a round speaker grille instead of the vent, mic capsules on the ears,
+        # the tuning fork's stem on the crown (the U itself and the light ring are live, below)
+        graphite, hole_m = plastic("#3a3f48", 0.5, 0.2, 0.05, "echo_grille"), plastic("#1d2127", 0.8, 0, 0, "echo_hole")
+        for o in [o for o in hp if o.name.startswith("vent")]:  # drop the vent (left in the scene it lay on the floor)
+            hp.remove(o)
+            bpy.data.objects.remove(o, do_unlink=True)
+        hp.append(cyl("grille", 0.11, 0.012, (0, 0, hd / 2 + 0.006), graphite, G, 32, axis="z"))
+        for ring_r, n in ((0.0, 1), (0.026, 6), (0.05, 12), (0.074, 18), (0.096, 24)):  # holes: concentric hex rows
+            for k in range(n):
+                a = 2 * math.pi * k / n
+                hp.append(hexdot("grille_hole", 0.0045, (ring_r * math.cos(a), ring_r * math.sin(a), hd / 2 + 0.0122), (0, 0, 1), hole_m, G))
+        for sx in (-1, 1):
+            hp.append(cyl("mic", 0.03, 0.004, (sx * (hw / 2 + 0.029), 0, 0), graphite, G, 16, axis="x"))
+            for dy in (-0.011, 0.0, 0.011):
+                for dz in (-0.011, 0.0, 0.011):
+                    hp.append(hexdot("mic_hole", 0.0025, (sx * (hw / 2 + 0.0312), dy, dz), (sx, 0, 0), hole_m, G))
+        hp.append(cyl("fork_stem", 0.01, 0.05, (0, hh / 2 + 0.025, 0.02), plastic("#c9ccd1", 0.35, 0.8, 0.05, "fork"), G, 12))
     bot.append(pivot(join(f"agent_{i}_head", place(hp, Hd)), Hd))
 
     # -- face slot (off screen material on export; the app draws the face)
@@ -3340,11 +3372,11 @@ def build_agent(i, agent):
     # -- state light (tip)
     # pivot = the light's own center (MEMO antenna end, MESH gizmo center, HUE beret stalk), head's rotation
     tip_m = emitter(col, 4.0, f"tip_{i}")
-    if i < 3 or i == 4:  # ECHO (stage 3: agents.md 2.11 fork) - for now a tip over the head
+    if i < 3 or i == 4:  # ECHO (agents.md 2.11): a sphere in the bottom of the tuning fork's U
         r, T = ((0.026, Hd @ Mx((0.08, hh / 2 + 0.165, 0.08))),
                 (0.03, Hd @ Mx((0, hh / 2 + 0.13, 0))),
                 (0.022, Hd @ Mx((0, hh / 2 + 0.005, 0), rz=math.radians(-10)) @ Mx((0, 0.13, 0))),
-                None, (0.018, Hd @ Mx((0, hh / 2 + 0.12, 0.02))))[i]
+                None, (0.018, Hd @ Mx((0, hh / 2 + 0.05 + 0.012, 0.02))))[i]  # ECHO: in the fork's bend
         tip = sphere(f"agent_{i}_tip", r, (0, 0, 0), tip_m, "export", seg=10, rings=6)
         neon.append(pivot(apply_all(place(tip, T)[0]), T))
     else:  # LOOP: the ring itself, open by 40° with an arrowhead at one end; spins about local y
@@ -3433,6 +3465,18 @@ def build_agent(i, agent):
         strips = [box("cup_glow", (0.004, 0.11, 0.025), (sx * (hw / 2 + 0.091), 0, 0), emitter(col, 3.0, "ear_glow"), "export")
                   for sx in (-1, 1)]
         neon.append(pivot(join("agent_3_ear_glow", place(strips, Hd)), Hd))
+    if i == 4:  # ECHO: the tuning fork's U (only the tines ring: pivot = the stem's top, shake about local x) and the
+        # breathing light ring round the grille (agents.md 2.11)
+        steel = plastic("#c9ccd1", 0.35, 0.8, 0.05, "fork")
+        rb, L_ = 0.035, 0.14
+        u = [(-rb, rb + L_, 0)] + [(-rb * math.cos(a), rb - rb * math.sin(a), 0) for a in [math.radians(d) for d in range(0, 181, 30)]] + [(rb, rb + L_, 0)]
+        fork = rail("fork_u", u, 0.0075, steel, G)
+        fork.data.resolution_u, fork.data.bevel_resolution = 2, 1
+        Fk = Hd @ Mx((0, hh / 2 + 0.05, 0.02))
+        tips = [sphere("fork_end", 0.0075, (sx * rb, rb + L_, 0), steel, G, seg=10, rings=6) for sx in (-1, 1)]
+        bot.append(pivot(join("agent_4_fork", place([fork] + tips, Fk)), Fk))
+        Rg = Hd @ Mx((0, 0, hd / 2 + 0.004))
+        neon.append(pivot(join("agent_4_ring", place([torus("echo_ring", 0.12, 0.006, (0, 0, 0), emitter(col, 3.0, "echo_ring"), "export", axis="z", seg=48, rseg=4)], Rg)), Rg))
     return bot, neon, other
 
 
