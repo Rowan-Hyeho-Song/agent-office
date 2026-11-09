@@ -27,5 +27,15 @@ describe('a whole day through the planner', () => {
     if (r.worst.length) console.log(JSON.stringify(incidents(r.worst).slice(0, 10)))
     expect(r.worst.slice(0, 5)).toEqual([])
     expect(r.min).toBeGreaterThanOrEqual(2 * TRAFFIC.bodyR)
-  }, 120_000)
+  }, 300_000)
+
+  // #186: what an agent shows is what its body does (one decision in the director), and nobody waits for a spot another holds
+  it('shown state and behaviour never disagree; nobody waits more than 60 s for a goal', () => {
+    const r = simulateDay({ fromMin: 0, toMin: 24 * 60 })
+    console.log(`day sim (#186): ${r.mismatch.length} mismatch frames of ${r.frames}; longest wait for a goal ${r.maxWait.s.toFixed(1)} s (${r.maxWait.who} -> ${r.maxWait.spot} at ${Math.round(r.maxWait.t)} s); waits over 60 s: ${r.longWaits.length}`)
+    if (r.mismatch.length) console.log(JSON.stringify(r.mismatch.slice(0, 8)))
+    if (r.longWaits.length) console.log(JSON.stringify(r.longWaits.slice(0, 8)))
+    expect(r.mismatch.slice(0, 5)).toEqual([])
+    expect(r.longWaits).toEqual([])
+  }, 300_000)
 })
