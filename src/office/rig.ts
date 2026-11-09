@@ -579,6 +579,8 @@ const FRAME_CURL = shape([0, 0.92, 0.94, 0.96], [0, -0.85])
 const STAMP_CURL = shape([0.1, 0.1, 0.1, 0.1], [0.1, 0])
 const YIELD_CURL = shape([0.05, 0.08, 0.1, 0.12], [0.15, 0])
 /** a loose hand (sofa, reading, the board-game hand at rest): between rest and hold */
+/** seated, a gesturing hand stays at or above the desk top + 5 cm (root frame, same as the desk poses ~0.82; #226 ④) */
+const DESK_HAND_MIN = 0.79
 const LOOSE_CURL = shape([0.45, 0.5, 0.55, 0.6], [0.3, 0.2])
 /** a hand holding a pen to write: the three pen fingers closed, the other two loose (wrap-up, #186) */
 const PEN_CURL = shape([0.55, 0.6, 0.8, 0.85], [0.55, 0.6])
@@ -1179,7 +1181,10 @@ export class AgentRig {
     const sit = this.seat
     const rest = this.parts.hands[side].restPos
     const gesturing = g.kind === 'throw' ? side === 'r' : side === 'r' || !g.oneHand
-    if (!gesturing) return { pos: v(rest.x, rest.y, rest.z), turn: NONE, curl: REST_CURL }
+    // seated at a desk the hands never go below the desk top + 5 cm (designer, #226 ④): the throw's follow-through stops there
+    const floor = this.stance.seated ? DESK_HAND_MIN : -Infinity
+    const lift = (p: Vector3) => ((p.y = Math.max(p.y, floor)), p)
+    if (!gesturing) return { pos: lift(v(rest.x, rest.y, rest.z)), turn: NONE, curl: REST_CURL }
     const base = a.arm < 1 ? this.basePose(side, pose, t, reduced) : null
     const sin = Math.sin(a.handAngle)
     const cos = Math.cos(a.handAngle)
@@ -1193,15 +1198,17 @@ export class AgentRig {
     } else {
       // the usual catching place in front, drifting to the plane's side as the angle grows
       const caught = side === 'r' && g.caught
-      const front = v(sx * (0.16 + (caught ? CAUGHT_OUT : 0)), 1.32 + sit, -0.32)
-      // (the hands flank the line to the plane, the pinching one a little further out so it doesn't cover the face screen)
-      const off = sx * (0.12 + (caught ? CAUGHT_OUT : 0))
+      // (the pinching hand a little further out so it doesn't cover the face screen; designer #226 ③: 6 cm more)
+      const outCaught = caught ? CAUGHT_OUT + 0.06 : 0
+      const front = v(sx * (0.16 + outCaught), 1.32 + sit, -0.32)
+      // (the hands flank the line to the plane)
+      const off = sx * (0.12 + outCaught)
       const out = v(-sin * 0.42 + off * cos, 1.3 + sit, -cos * 0.42 - off * sin)
       target = front.lerp(out, MathUtils.clamp(Math.abs(a.handAngle) / 0.5, 0, 1))
       curl = caught ? PINCH_CURL : WAVE_CURL
     }
-    if (!base) return { pos: target, turn: NONE, curl }
-    return { pos: base.pos.clone().lerp(target, a.arm), turn: a.arm > 0.3 ? NONE : base.turn, curl: a.arm > 0.3 ? curl : base.curl }
+    if (!base) return { pos: lift(target), turn: NONE, curl }
+    return { pos: lift(base.pos.clone().lerp(target, a.arm)), turn: a.arm > 0.3 ? NONE : base.turn, curl: a.arm > 0.3 ? curl : base.curl }
   }
 
   /** each hand's target in the root's frame for this pose */

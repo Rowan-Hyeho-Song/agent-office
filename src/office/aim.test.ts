@@ -90,10 +90,16 @@ describe('the throw schedule (#224 designer table)', () => {
     for (let t = T.release + 0.2; t < T.followEnd; t += 0.05) expect(Math.abs(aimPose(p, t, 170 * D).head)).toBeLessThanOrEqual(30 * D + 1e-9)
     expect(deg(aimPose(p, T.followEnd - 0.01, 170 * D).head)).toBeCloseTo(30, 0)
     expect(T.end - T.followEnd).toBeCloseTo(0.6, 9)
-    // head first, then the body: the head is back on the desk direction while the body is still turned
-    const a = aimPose(p, T.retHeadEnd, 130 * D)
-    expect(Math.abs(a.head + a.body)).toBeLessThan(1e-6)
-    expect(a.body).toBeGreaterThan(0)
+    // back (designer, #226 ②): the head leads the body by 0.08 s only and eases to the body's front without passing it
+    expect(T.retBodyStart - T.followEnd).toBeCloseTo(0.08, 9)
+    const h0 = aimPose(p, T.followEnd, 130 * D).head
+    for (let t = T.followEnd; t <= T.end; t += 1 / 60) {
+      const h = aimPose(p, t, 130 * D).head
+      expect(Math.sign(h) === Math.sign(h0) || Math.abs(h) < 1e-9, `head crossed the body front at ${t.toFixed(2)}`).toBe(true)
+      expect(Math.abs(h)).toBeLessThanOrEqual(Math.abs(h0) + 1e-9)
+    }
+    expect(aimPose(p, T.retHeadEnd, 130 * D).head).toBeCloseTo(0, 9)
+    expect(aimPose(p, T.retHeadEnd, 130 * D).body).toBeGreaterThan(0)
     expect(aimPose(p, T.end - 1e-6, 130 * D).body).toBeLessThan(0.01)
     expect(aimPose(p, T.end, 130 * D).phase).toBe('done')
     expect(aimPose(p, T.end, 130 * D).body).toBe(0)
