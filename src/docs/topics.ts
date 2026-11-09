@@ -35,9 +35,11 @@ export const topicName = (id: TopicId) => byId.get(id)!.name
 const byLabel = new Map(TOPICS.flatMap((t) => t.labels.map((l) => [l, t.id] as const)))
 const byPrefix = new Map(TOPICS.flatMap((t) => t.prefixes.map((p) => [p, t.id] as const)))
 
+const LEADING = /^\s*\[([^\]]*)\]\s*/
+
 /** the parts of the title's leading `[a·b·c]`, lower case; none when the title has no such prefix */
 export function prefixParts(title: string | null): string[] {
-  const m = /^\s*\[([^\]]*)\]/.exec(title ?? '')
+  const m = LEADING.exec(title ?? '')
   return m ? m[1].split(/[·,/]/).map((p) => p.trim().toLowerCase()).filter(Boolean) : []
 }
 
@@ -55,4 +57,16 @@ export function topicsOf(labels: readonly unknown[], title: string | null): Topi
   for (const l of labels) if (typeof l === 'string') add(byLabel.get(l.trim().toLowerCase()))
   for (const p of prefixParts(title)) add(byPrefix.get(p))
   return out
+}
+
+/**
+ * The title as shown next to its badges (designer, #289): when the leading `[…]` gave any of the shown topics, the whole
+ * prefix goes (the badge already says it); a prefix that gave none stays (`[잡담] …`). Only for display: the stored title,
+ * the GitHub title and what screen readers get as the file's name elsewhere are unchanged.
+ */
+export function shownTitle(title: string, topics: readonly TopicId[]): string {
+  const parts = prefixParts(title)
+  if (!parts.some((p) => topics.includes(byPrefix.get(p) as TopicId))) return title
+  const rest = title.replace(LEADING, '')
+  return rest || title
 }

@@ -635,10 +635,10 @@ html[data-motion='reduce'] .tour-bar { animation: none; }
 .speaker-tag[data-show] { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .speaker-tag { transition: none; } }
 
-/* topic badges (#236, docs/design/docs-ui.md 3.6): icon + name in the topic colour; 1px border at 70%, 12% fill, bottom-right corner cut 4px */
+/* topic badges (#236, docs/design/docs-ui.md 3.6): icon + name in the topic colour; 1px border at 70%, 12% fill; square like the SECRET badge (designer, #289) */
 .topics { display: inline-flex; flex: none; max-width: 100%; }
 .topic-row { display: inline-flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); }
-.topic { --c: var(--color-text-muted); flex: none; display: inline-flex; align-items: center; gap: var(--space-1); box-sizing: border-box; height: 18px; padding: 0 6px; font-family: var(--font-pixel); font-size: 11px; line-height: 16px; white-space: nowrap; color: var(--c); background: color-mix(in srgb, var(--c) 12%, transparent); border: 1px solid color-mix(in srgb, var(--c) 70%, transparent); clip-path: polygon(0 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); }
+.topic { --c: var(--color-text-muted); flex: none; display: inline-flex; align-items: center; gap: var(--space-1); box-sizing: border-box; height: 18px; padding: 0 6px; font-family: var(--font-pixel); font-size: 11px; line-height: 16px; white-space: nowrap; color: var(--c); background: color-mix(in srgb, var(--c) 12%, transparent); border: 1px solid color-mix(in srgb, var(--c) 70%, transparent); }
 .topic svg { width: 12px; height: 12px; flex: none; }
 .topic[data-topic='feature'] { --c: var(--topic-feature); }
 .topic[data-topic='bug'] { --c: var(--topic-bug); }
@@ -657,4 +657,3 @@ html[data-motion='reduce'] .tour-bar { animation: none; }
   .topics.fold .topic-more { display: inline; }
 }
 .doc-filehead .topics { margin: var(--space-1) 0; }
-.doc-path .topics { flex: none; margin-left: auto; }

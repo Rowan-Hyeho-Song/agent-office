@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { coverOf, groupLibrary, ownerMeta, type CoverSource } from './library'
-import { prefixParts, topicsOf, TOPICS } from './topics'
+import { prefixParts, shownTitle, topicsOf, TOPICS } from './topics'
 
 describe('topicsOf', () => {
   it('reads labels first', () => {
@@ -117,5 +117,23 @@ describe('the topics of a file', () => {
   })
   it('none at all gives no badges', () => {
     expect(topics([row({ id: 1, title: '없음', labels: ['question'] })], coverOf)).toEqual([])
+  })
+})
+
+describe('the title shown next to its badges (designer, #289)', () => {
+  it('drops the leading prefix when it gave a shown badge', () => {
+    expect(shownTitle('[UI] 서재 문서 뷰어', ['feature', 'ui'])).toBe('서재 문서 뷰어')
+    expect(shownTitle('[디자인·3D·기능] 자리별 책상 꾸미기', ['design', 'asset'])).toBe('자리별 책상 꾸미기')
+  })
+  it('also when a label gave the same topic first', () => {
+    expect(shownTitle('[디자인] 표', ['design'])).toBe('표')
+  })
+  it('keeps a prefix that gave none of the shown badges', () => {
+    expect(shownTitle('[잡담] 점심', [])).toBe('[잡담] 점심')
+    expect(shownTitle('[기능] 셋째', ['design', 'asset'])).toBe('[기능] 셋째')
+  })
+  it('keeps a bracket in the middle, and a title that is only the prefix', () => {
+    expect(shownTitle('서재 [UI] 손보기', ['ui'])).toBe('서재 [UI] 손보기')
+    expect(shownTitle('[UI]', ['ui'])).toBe('[UI]')
   })
 })

@@ -26,6 +26,7 @@ import { renderMarkdown } from './approval/markdown'
 import { useRole } from './ApprovalBox'
 import { Icon } from './ApprovalIcons'
 import { TopicBadges } from './TopicBadges'
+import { shownTitle } from '../docs/topics'
 import { closeDocs, openFromHash, toggleDocs, useDocsPanel } from './docs/panel'
 import { AGENT_INFO, type OfficeWorld } from './world'
 
@@ -220,7 +221,7 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
           <div className="doc-viewer" ref={viewer} tabIndex={-1}>
             {view === 'paper' && file && folder ? (
               <div className="doc-main">
-                <DocPath folder={folder} file={file} topics={file.topics} onRoot={() => setStage('folders')} onFolder={() => setStage('files')} />
+                <DocPath folder={folder} file={file} onRoot={() => setStage('folders')} onFolder={() => setStage('files')} />
                 <FileHead file={file} />
                 {kinds.length > 0 && (
                   <div className="doc-toc" role="tablist" aria-label="문서 순서" ref={toc} onKeyDown={onTocKey}>
@@ -274,7 +275,7 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
                         <span className="n">{f.n ? `#${f.n}` : '—'}</span>
                         {unreadFile(f, seen) && <NewMark />}
                         <span className="ttl">
-                          {f.title ?? (
+                          {(f.title && shownTitle(f.title, f.topics)) ?? (
                             <>
                               <span className="redact" style={{ width: 120 }} aria-hidden="true" />
                               <span className="sr-only">가려진 제목</span>
@@ -312,7 +313,7 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
 }
 
 /** the path line of a stage: 서재 › folder › 파일철 #45; every step before the last goes back to that list */
-function DocPath({ folder, file, topics = [], onRoot, onFolder }: { folder: DocFolder; file: DocFile | null; topics?: DocFile['topics']; onRoot: () => void; onFolder: () => void }) {
+function DocPath({ folder, file, onRoot, onFolder }: { folder: DocFolder; file: DocFile | null; onRoot: () => void; onFolder: () => void }) {
   const priv = folder.repo === null
   return (
     <nav className="doc-path" aria-label="경로">
@@ -327,7 +328,6 @@ function DocPath({ folder, file, topics = [], onRoot, onFolder }: { folder: DocF
           </button>
           <span aria-hidden="true">›</span>
           <span aria-current="location">파일철 {priv ? <Bar w={30} /> : `#${file.n}`}</span>
-          <TopicBadges topics={topics} />
         </>
       ) : (
         <span aria-current="location">{folder.label}</span>
@@ -341,7 +341,7 @@ function FileHead({ file }: { file: DocFile }) {
   return (
     <div className="doc-filehead">
       <h4>
-        {file.title ?? (
+        {(file.title && shownTitle(file.title, file.topics)) ?? (
           <>
             SECRET 문서
             <span className="sr-only">{priv ? ' (제목 지워짐)' : ' (결재 전이라 제목 가려짐)'}</span>
