@@ -7,6 +7,7 @@ import { silenceReasons } from './audible'
 import { measureCue, type Level } from './levels'
 import { LAYERS, TEMPOS, getMusicState, getTempo, isLayerMuted, setMusicState, setTempo, toggleLayer, type MusicState, type Tempo } from './music'
 import { getSetting, setSetting, subscribe } from './settings'
+import { faderLevels, forceMusic, forcedMusic, getMusicDist, setMusicDist, speakerCells, speakerCone, speakerForMe, toggleSpeakerForMe, type MusicDist } from './speaker'
 import { midi, tone } from './synth'
 import { KEY_VOICES, KEY_VOICE_LABEL, getKeyVoice, setKeyVoice, type KeyKind } from './keys'
 import { keysBetween } from './typing'
@@ -21,6 +22,7 @@ const WHERE: Record<Where, string> = { near: '가까이', far: '멀리', left: '
 const BUSES: Bus[] = ['music', 'sfx', 'keys', 'voice', 'ambience']
 const PERIOD_NAMES = ['새벽', '낮', '저녁', '밤']
 const STATE_NAMES: Record<MusicState, string> = { off: '끔', work: '일할 때 (−12 dB)', break: '쉴 때' }
+const DIST_NAMES: Record<MusicDist, string> = { room: '방 어디서나 같게', near: '가까이 크게 · 멀리 작게' }
 
 /** a point relative to the listener (the camera) */
 function placeOf(w: Where): Vec | undefined {
@@ -65,7 +67,7 @@ export function SoundDebug() {
 
   // debug only: lets level-check scripts drive the mix (like the desk room's window.__audio)
   useEffect(() => {
-    ;(window as unknown as { __sound: unknown }).__sound = { audioGraph, ensureAudio, setBusLevel, getBusLevel, cue, cueCounts, setMusicState, startAmbience, setAmbienceOverride, meter, setSetting }
+    ;(window as unknown as { __sound: unknown }).__sound = { audioGraph, ensureAudio, setBusLevel, getBusLevel, cue, cueCounts, setMusicState, forceMusic, setMusicDist, startAmbience, setAmbienceOverride, meter, setSetting }
   }, [])
 
   const [tonePeak, setTonePeak] = useState<number | null>(null)
@@ -97,7 +99,7 @@ export function SoundDebug() {
   // bus faders move in dB around the defaults; any change goes into the copy line so a "louder/quieter" comes back as numbers
   const busDb = (b: Bus) => Math.round(20 * Math.log10(Math.max(1e-6, getBusLevel(b) / BUS_LEVEL[b])))
   const busLine = BUSES.filter((b) => busDb(b) !== 0).map((b) => `bus.${b}=${busDb(b) > 0 ? '+' : ''}${busDb(b)}dB`)
-  const copyLine = [...Object.entries(verdicts).map(([k, v]) => `${k}=${v}`), ...busLine, `keys.voice=${getKeyVoice()}`].join(' ')
+  const copyLine = [...Object.entries(verdicts).map(([k, v]) => `${k}=${v}`), ...busLine, `keys.voice=${getKeyVoice()}`, `music.dist=${getMusicDist()}`].join(' ')
   // keyboard demo: one agent typing a few seconds with the live rhythm, or several at once, or one special key
   const typeDemo = (typists: number, seconds = 4) => {
     start()
@@ -338,21 +340,65 @@ export function SoundDebug() {
 
       <section aria-label="스피커 음악">
         <b>스피커 음악</b>
-        <p className="sd-note">아직 에이전트 상태와 이어지지 않았어요(③). 여기서 "쉴 때"를 누르면 쉬는 시간 음악, "일할 때"를 누르면 작게 깔리는 음악을 들을 수 있어요.</p>{' '}
+        <p className="sd-note">
+          에코 책상 스피커에서 나요. 에이전트 둘 이상이 쉬면 "쉴 때", 아니면 "일할 때", 밤에는 꺼져요(8초 지켜본 뒤 바뀜). 탁구 중에는 4 dB 낮아져요. 아래 버튼은 상태를 고정해 들어 보는
+          것이고, "에이전트 따라"로 돌아가요.
+        </p>{' '}
+        <button
+          type="button"
+          aria-pressed={forcedMusic() === null}
+          onClick={() => {
+            start()
+            forceMusic(null)
+            tick()
+          }}
+        >
+          에이전트 따라 ({STATE_NAMES[getMusicState()]})
+        </button>
         {(Object.keys(STATE_NAMES) as MusicState[]).map((st) => (
           <button
             type="button"
             key={st}
-            aria-pressed={getMusicState() === st}
+            aria-pressed={forcedMusic() === st}
             onClick={() => {
               start()
-              setMusicState(st)
+              forceMusic(st)
               tick()
             }}
           >
             {STATE_NAMES[st]}
           </button>
         ))}
+        <div>
+          거리{' '}
+          {(Object.keys(DIST_NAMES) as MusicDist[]).map((d) => (
+            <button
+              type="button"
+              key={d}
+              aria-pressed={getMusicDist() === d}
+              onClick={() => {
+                setMusicDist(d)
+                tick()
+              }}
+            >
+              {DIST_NAMES[d]}
+            </button>
+          ))}{' '}
+          <button
+            type="button"
+            onClick={() => {
+              start()
+              toggleSpeakerForMe()
+              tick()
+            }}
+          >
+            스피커 누르기 ({speakerForMe() ? '켜짐' : '나에게만 꺼짐'})
+          </button>
+          <small>
+            {' '}
+            미터 {speakerCells()}/8 · 콘 {speakerCone().toFixed(2)} · 페이더 {faderLevels().map((v) => v.toFixed(2)).join(' ')}
+          </small>
+        </div>
         <div>
           템포{' '}
           {TEMPOS.map((t: Tempo) => (
