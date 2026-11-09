@@ -5,11 +5,14 @@
 //   window.__office.grip.demo(agent, prop)    prop: marker | pen | stamp | mouse | cup | paddle | can | book: walks the agent to it and
 //                                             repeats reach, pre-grip, close, hold, put back, after, every 6 s
 //   window.__office.grip.stop()
+//   window.__office.hand.pose(agent, side, poseId | null)   force one of the 16 named poses of handPose.ts (rest, spread, wrap, fist, ok, tripod, key, point,
+//                                             press, type, support, basket, thumbsUp, sweep, + frame, stamp) on one hand; null lets go. agent: 0 or 'agent_0'
 // The pair games run on the office clock (a forced one is already 5 s into its first game). Set the clock for the schedule with
 // __office.kst.set('HH:MM'); clock.set only changes the wall clock, the play schedule follows kst.
 
 import type { Goal } from './director'
 import { standSlot } from './director'
+import { ALL_POSES, type AnyPoseId } from './handPose'
 import { CAN_HOME, WATER_PLANTS, canStand } from './water'
 import { hash } from './play'
 import { SETTLE_MS, type PlaySession } from '../play/session'
@@ -87,5 +90,12 @@ export function makePlayTools(world: OfficeWorld) {
       world.gripDemo = null
     },
   }
-  return { play, grip }
+  const hand = {
+    pose(agent: number | string, side: 'l' | 'r', pose: AnyPoseId | null) {
+      if (pose !== null && !(pose in ALL_POSES)) throw new Error('unknown pose ' + pose + ', one of ' + Object.keys(ALL_POSES).join(', '))
+      const rig = world.rigs[typeof agent === 'number' ? 'agent_' + agent : agent]
+      rig?.forcePose(side, pose)
+    },
+  }
+  return { play, grip, hand }
 }

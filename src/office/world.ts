@@ -135,6 +135,8 @@ export interface OfficeWorld {
   /** ?debug=1: window.__office.play.force(agent, kind) / .clear(); window.__office.grip.demo(agent, prop) / .stop() (see debugPlay.ts) */
   play: ReturnType<typeof makePlayTools>['play'] | null
   grip: ReturnType<typeof makePlayTools>['grip'] | null
+  /** ?debug=1: window.__office.hand.pose(agent, side, poseId | null) forces a named hand pose (debugPlay.ts) */
+  hand: ReturnType<typeof makePlayTools>['hand'] | null
   /** the planner's clock, s (accumulated frame time) */
   simTime: number
   /** ?debug=1 only: the traffic demo running (trafficDemo.ts) */
@@ -218,6 +220,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     gripDemo: null,
     play: null,
     grip: null,
+    hand: null,
     simTime: 0,
     demo: null,
     trafficDemo: (kind) => {
@@ -231,6 +234,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     const tools = makePlayTools(world)
     world.play = tools.play
     world.grip = tools.grip
+    world.hand = tools.hand
   }
   if (debug) setKst(world, query.get('kst') ?? '')
   if (library) {

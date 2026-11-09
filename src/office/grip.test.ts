@@ -93,7 +93,7 @@ describe('contact correction on a plain finger', () => {
   it('a contact in front of the finger\'s reach is approached without going through the surface', () => {
     const m = finger()
     // a plane the finger would run into before reaching the point behind it: the tip stays on the outside
-    const target = tipAt(m, 1, 0).add(new Vector3(0, 0, -0.02))
+    const target = tipAt(m, 0.6, 0).add(new Vector3(0, 0, -0.02))
     const fit = fitContact(m, target, new Vector3(0, 0, -1), 0.5)
     expect(fit.off).toBeGreaterThanOrEqual(-1e-4)
   })
