@@ -87,21 +87,28 @@ WALL_H = 2.6
 WT = 0.14
 WORK_Z = 0.5  # where an agent hovers in front of its desk (from the desk center): hands reach the keyboard
 
-AGENTS = [  # desk frame (x, z, ry): the agent sits on local +z and faces local -z (the monitor / the wall)
-    {"color": "#ffb347", "at": (-2.8, -3.07, 0.0)},  # 0 MEMO amber (its back edge just clear of the window sill)
-    {"color": "#8f9bff", "at": (-1.0, -3.07, 0.0)},  # 1 MESH lavender
-    {"color": "#ff3ea5", "at": (-4.14, -1.12, math.pi / 2)},  # 2 HUE magenta (0.6 m clear of MEMO's spot)
-    {"color": "#4df3ff", "at": (-4.14, 0.68, math.pi / 2)},  # 3 LOOP cyan
+AGENTS = [  # desk frame (x, z, ry): the agent sits on local +z and faces local -z (the monitor)
+    # #195 plan 2 (desks.md 2.1.3): an island pod, two rows of two back to back running north-south (west row x -3.01,
+    # east row x -2.39, desks 1.2 long), MEMO's head desk across their north end in front of the window
+    {"color": "#ffb347", "at": (-2.70, -2.12, math.pi)},  # 0 MEMO amber: head desk, faces south
+    {"color": "#8f9bff", "at": (-3.01, -0.01, -math.pi / 2)},  # 1 MESH lavender: west row south, faces east
+    {"color": "#ff3ea5", "at": (-3.01, -1.21, -math.pi / 2)},  # 2 HUE magenta: west row north, faces east
+    {"color": "#4df3ff", "at": (-2.39, -1.21, math.pi / 2)},  # 3 LOOP cyan: east row north, faces west
+    {"color": "#f2ffc4", "at": (-2.39, -0.01, math.pi / 2)},  # 4 ECHO phosphor (#193): east row south, faces west
 ]
 WINDOW_X = -1.9  # the window over desks 0-1 (2.6 m wide)
 WHITEBOARD_X, BULLETIN_X = 1.1, 2.55
-# meeting centers (#147): 1.3 m in front of the whiteboard's face, and the open floor between the work corner and the
-# lounge (the old meet_a/b middle). MEET_R = 0.75 m ring + 0.25 m body
-MEET_CENTERS = (("meet_center_board", WHITEBOARD_X, -HZ + 0.02 + 1.3), ("meet_center_floor", -1.0, -0.6))
-MEET_R = 1.0
+# #195 (desks.md 2.1.2): one meeting circle almost square in front of the whiteboard; the board meeting and the floor
+# meeting stand on the same ring. Ring 0.9 + a body 0.26 = 1.16 kept free; ry = its 0 deg (toward the board)
+MEET_CENTER = (1.0, -1.57)
+MEET_RING, MEET_R, MEET_RY = 0.9, 1.16, math.radians(-3.0)
+CHAT_SPOTS = ((-1.45, -2.95), (-0.45, -2.95))  # the second conversation: two spots by the window, facing each other
+RUG_WORK = (-2.70, -0.92, 2.46, 4.24)  # x, z, width, depth (desks.md 2.1.5)
+RUG_LOUNGE = (2.2, 2.55, 2.5, 1.3)
+RUG_MEET_D = 2.92
 DOOR_Z = 2.6
-PINGPONG = (2.2, 0.0)
-SOFA = (2.2, 2.6)
+PINGPONG = (2.15, 0.97)
+SOFA = (2.2, 2.785)
 GAME_TABLE = (-1.6, 2.2)
 SIDE_TABLE = (0.3, 2.6)  # a small round table in the open front middle (designer, #109): visitors' snacks and cheers later
 COUNTER = (HX - 0.32, -2.0, math.pi)  # against the right wall, its front (local +x) facing the room
@@ -109,7 +116,7 @@ COFFEE_BUTTON = (0.146, 1.2, -0.02)  # #164: the brew button face, counter frame
 SHELF_X = 3.75
 SHELF_W, SHELF_D = 1.1, 0.34  # the bookshelf against the back wall: width, depth
 PLANTS = [  # name, species, x, z (#126: one species each, office-quality.md 3; plant_boards left out, designer)
-    ("plant_desk", "sansevieria", 0.0, -3.2),  # between MESH's desk and the whiteboard: tall and narrow
+    ("plant_desk", "sansevieria", -3.75, -3.2),  # #195: the window's west end (the chat spots took its old place)
     ("plant_corner", "fiddle_fig", 4.22, 3.18),  # its canopy (0.6 m) clears the floor lamp by 0.1 m
     ("plant_sofa", "monstera", 0.905, 2.75),  # between the side table and the sofa: 0.44 m wide (#156: leaves all round, short toward ±x)
 ]
@@ -202,23 +209,17 @@ def build_room():
     carpet = plastic("#1d2a3d", 0.98, 0, 0.9, "carpet")
     rug = plastic("#5a2f45", 0.97, 0, 0.9, "rug")
     floor = apply_all(box("floor", (2 * HX + 2 * WT, 0.12, 2 * HZ + 2 * WT), (0, -0.06, 0), floor_wood, G, bev=0.01))
-    cx0, cx1, cz0, cz1 = -HX, -HX + 4.3, -HZ, -HZ + 4.8  # the work corner carpet
     tile(floor, axes="xz")
-    bm = bmesh.new()  # also cut along the carpet's two open edges, then drop the floor top under it
-    bm.from_mesh(floor.data)
-    for k, c in ((0, cx1), (1, -cz1)):
-        no, co = Vector((0, 0, 0)), Vector((0, 0, 0))
-        no[k], co[k] = 1.0, c
-        bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], plane_co=co, plane_no=no)
-    bm.to_mesh(floor.data)
-    bm.free()
-    drop_faces_in(floor, cx0 - 0.5, cx1, cz0 - 0.5, cz1, 0.0)
-    parts = [
-        floor,
-        # work corner carpet, lounge rug
-        box("carpet", (cx1 - cx0, 0.01, cz1 - cz0), ((cx0 + cx1) / 2, 0.005, (cz0 + cz1) / 2), carpet, G),
-        rounded_slab("rug", 2.8, 0.01, 1.4, 0.25, (SOFA[0], 0.006, SOFA[1] - 1.05), rug, G),
-    ]
+    # #195 (desks.md 2.1.5): one rug per zone, none touching another. Work: the pod + its chair room, 0.61 beyond the
+    # desks (0.30 from a wall wins); meeting: round, the standing circle + 0.30; lounge: the mat in front of the sofa,
+    # 0.30 wider each side, 0.45 in front of it, 0.30 off the south wall
+    rugs = (("rug_work", RUG_WORK, carpet), ("rug_lounge", RUG_LOUNGE, rug))
+    parts = [floor] + [rounded_slab(n, w, 0.01, d, 0.06 if n == "rug_work" else 0.2, (x, 0.005, z), m, G) for n, (x, z, w, d), m in rugs]
+    parts.append(cyl("rug_meet", RUG_MEET_D / 2, 0.01, (MEET_CENTER[0], 0.005, MEET_CENTER[1]), plastic("#33404c", 0.97, 0, 0.9, "rug_meet"), G, 56))
+    for n, (x, z, w, d), _m in rugs:
+        fp_box(n, "rug", (x - w / 2, 0.0, z - d / 2), (x + w / 2, 0.01, z + d / 2))
+    r = RUG_MEET_D / 2
+    fp_box("rug_meet", "rug", (MEET_CENTER[0] - r, 0.0, MEET_CENTER[1] - r), (MEET_CENTER[0] + r, 0.01, MEET_CENTER[1] + r))
     # floor edge trim on all four sides: the cut-away faces read as a model base
     L, D = 2 * HX + 2 * WT, 2 * HZ + 2 * WT
     for name, size, c, n_in, ax in (("edge_n", (L, 0.12, 0.02), (0, -0.06, -D / 2 - 0.01), (0, 0, 1), "x"),
@@ -486,7 +487,7 @@ def build_desk(i, agent):
         p.append(rounded_slab("mouse", 0.06, 0.02, 0.1, 0.025, (0.3, h + 0.01, 0.07), plastic("#2c3038", 0.4, 0, 0.1, "kb"), G))
     if i == 1:  # only MESH kept the mug
         p.append(cyl("mug", 0.04, 0.09, (-0.42, h + 0.045, -0.05), plastic("#d64545", 0.4, 0, 0.1, "mug_1"), G, 20))
-    if i % 2 == 0:  # the old plants drew from RNG: keep its sequence so the rest of the room stays as it was
+    if i in (0, 2):  # the old plants drew from RNG: keep its sequence so the rest of the room stays as it was (desks 0, 2 only)
         for _ in range(5 * 4):
             RNG.uniform(0, 1)
     statics, desk_live = DESK_PROPS[i](G)
@@ -504,7 +505,7 @@ def build_desk(i, agent):
     # no chair: agents hover at their desk. A floor pad in the agent's color marks the spot instead.
     pad = rounded_slab("pad", 0.62, 0.006, 0.5, 0.12, (0, 0.003, 0), plastic(agent["color"], 0.9, 0, 0.6, f"pad_{i}"), G)
     pad = place([pad], F @ Mx((0, 0, WORK_Z)))
-    fp(f"desk_{i}", placed + pad, "floor", core=placed)  # the desk and the agent's spot in front of it
+    POD.append((bounds(placed), bounds(placed + pad)))  # #195: the five desks are one island: one footprint (main)
     desk = join(f"desk_{i}", placed)
     pad = join(f"pad_{i}", pad)
     # live parts: the screen slot and a neon strip under the desk's front edge
@@ -521,6 +522,7 @@ def build_desk(i, agent):
 # changes from data are live nodes (LIVE below), placed like the other live parts. The hands' band in front of
 # the keyboard (x ±0.28, z -0.03..0.31) and the mouse spot stay empty.
 DESK_H = 0.74
+POD = []  # (desk objects, its agent pad) per desk, for the pod's single footprint (#195)
 RED = "#ff5a5f"  # --color-red
 TRAY = (0.44, -0.16, 0.24, 0.30)  # MEMO's IN/OUT tray: x, z, width, depth (right end: the left end hides behind HUE's head)
 
@@ -746,7 +748,7 @@ def desk_props_loop(G):
     return s, L
 
 
-DESK_PROPS = [desk_props_memo, desk_props_mesh, desk_props_hue, desk_props_loop]
+DESK_PROPS = [desk_props_memo, desk_props_mesh, desk_props_hue, desk_props_loop, lambda G: ([], [])]  # ECHO: stage 2
 
 
 def place_desk_live(F, entries):
@@ -2629,6 +2631,7 @@ SPAWN = [  # where each agent hovers in the exported (idle) pose: ping-pong, cof
     (PINGPONG[0] + 1.33, PINGPONG[1], math.pi / 2),
     (COUNTER[0] - 0.62, COUNTER[1], -math.pi / 2),  # nav_coffee: in front of the counter, facing +x
     (WHITEBOARD_X, -HZ + 0.9, 0.0),
+    (-1.0, -0.6, math.pi / 2),  # ECHO: hall_mid, facing west toward its desk
 ]
 POSTIT = ["#ffe27a", "#ffc46b", "#fff1b8"]
 # the #20 grip offsets were defined on the old hand empty: agent frame, arm hanging (-y = away from the
@@ -2873,10 +2876,11 @@ def build_agent(i, agent):
     # -- state light (tip)
     # pivot = the light's own center (MEMO antenna end, MESH gizmo center, HUE beret stalk), head's rotation
     tip_m = emitter(col, 4.0, f"tip_{i}")
-    if i < 3:
+    if i < 3 or i == 4:  # ECHO (stage 3: agents.md 2.11 fork) - for now a tip over the head
         r, T = ((0.026, Hd @ Mx((0.08, hh / 2 + 0.165, 0.08))),
                 (0.03, Hd @ Mx((0, hh / 2 + 0.13, 0))),
-                (0.022, Hd @ Mx((0, hh / 2 + 0.005, 0), rz=math.radians(-10)) @ Mx((0, 0.13, 0))))[i]
+                (0.022, Hd @ Mx((0, hh / 2 + 0.005, 0), rz=math.radians(-10)) @ Mx((0, 0.13, 0))),
+                None, (0.018, Hd @ Mx((0, hh / 2 + 0.12, 0.02))))[i]
         tip = sphere(f"agent_{i}_tip", r, (0, 0, 0), tip_m, "export", seg=10, rings=6)
         neon.append(pivot(apply_all(place(tip, T)[0]), T))
     else:  # LOOP: the ring itself, open by 40° with an arrowhead at one end; spins about local y
@@ -3012,13 +3016,21 @@ DESK_SIDE = (0.95, 0.55)
 COFFEE_SPOT = (0.62, 0.0)  # in the counter frame: in front of the machine
 
 
+# #195 (desks.md 2.1.6): the pod's desks touch, so a visitor stands off its four corners (the row desks) and beside
+# MEMO's head desk on its west (the window's east end holds the chat spots)
+DESK_SIDES = [(-3.55, -2.75), (-3.62, 0.85), (-3.62, -2.0), (-1.78, -2.0), (-1.78, 0.85)]
+
+
 def build_nav():
     for i, a in enumerate(AGENTS):
         F = frame(a["at"])
         seat = (F @ Mx((0, 0, WORK_Z))).to_translation()
         nav(f"work_{i}", seat.x, -seat.y, a["at"][2], "work")
-        side = (F @ Mx((DESK_SIDE[0], 0, DESK_SIDE[1]))).to_translation()
-        nav(f"desk_side_{i}", side.x, -side.y, facing(side.x, -side.y, seat.x, -seat.y), "stand")
+        sx, sz = DESK_SIDES[i]
+        nav(f"desk_side_{i}", sx, sz, facing(sx, sz, seat.x, -seat.y), "stand")
+    (ax, az), (bx, bz) = CHAT_SPOTS  # the second conversation (desks.md 2.1.2): face each other
+    nav("chat_0", ax, az, facing(ax, az, bx, bz), "chat")
+    nav("chat_1", bx, bz, facing(bx, bz, ax, az), "chat")
     stand_z = -HZ + 0.9  # in front of the back wall's boards and the shelf
     nav("whiteboard", WHITEBOARD_X, stand_z, 0.0, "stand")
     nav("bulletin", BULLETIN_X, stand_z, 0.0, "stand")
@@ -3035,12 +3047,14 @@ def build_nav():
     # meeting centers (#147, agents.md "대형"): the app stands the people on a 0.75 m ring around one and turns them
     # to its center. ry = the 0° direction (toward the board); r = the floor kept free of furniture around it
     # (ring + a body), checked by check-glb --overlap
-    for name, x, z in MEET_CENTERS:
-        nav(name, x, z, 0.0, "meet_center")["r"] = MEET_R
-    # hall nodes: the aisles between the zones (#109 layout; the app's nav check #17 links and tests them)
-    for name, x, z in (("door", -3.3, DOOR_Z), ("west", -3.0, 1.4), ("work", -2.2, -1.5), ("mid", -1.0, -0.6),
-                       ("back", 2.0, -1.7), ("east", 3.1, -1.3), ("front", 0.2, 1.3), ("lounge", 3.95, 1.6),
-                       ("game", -1.6, 1.2), ("ne", 4.1, 0.0)):
+    # #195: one circle for the board meeting and the floor meeting; ry = toward the whiteboard's middle (1.1, -3.46),
+    # ring = where the people stand, r = ring + a body (kept clear of furniture, check-glb)
+    mc = nav("meet_center", MEET_CENTER[0], MEET_CENTER[1], MEET_RY, "meet_center")
+    mc["r"], mc["ring"] = MEET_R, MEET_RING
+    # hall nodes: the aisles between the zones (#195 layout; the app's nav check #17 links and tests them)
+    for name, x, z in (("door", -3.3, DOOR_Z), ("west", -3.0, 1.4), ("work", -1.0, -1.9), ("north", -0.95, -2.3),
+                       ("mid", -1.0, -0.6), ("back", 1.0, -0.1), ("east", 3.1, -1.3), ("front", 0.2, 1.3),
+                       ("lounge", 3.95, 1.6), ("game", -1.6, 1.2), ("ne", 4.1, 0.0)):
         nav(f"hall_{name}", x, z, 0.0, "hall")
 
 
@@ -3083,6 +3097,9 @@ for i, a in enumerate(AGENTS):
     live(lives[1], "neon")
     for o, kind in desk_live:
         live(o, kind)
+lo_c, hi_c = [min(b[0][k] for b, _ in POD) for k in range(3)], [max(b[1][k] for b, _ in POD) for k in range(3)]
+lo_u, hi_u = [min(u[0][k] for _, u in POD) for k in range(3)], [max(u[1][k] for _, u in POD) for k in range(3)]
+FOOTPRINTS.append({"name": "pod", "kind": "floor", "wall": None, "lo": lo_u, "hi": hi_u, "core": (lo_c, hi_c)})
 for o in work:
     baked(o, "work")
 for o in build_wall_items():
@@ -3295,6 +3312,7 @@ if PREVIEW:
     shoot_view("window_side", (1.2, 1.45, -2.4), (WINDOW_X, 1.7, -HZ))
     for name, (pos, target) in {"overview": ((8.5, 8.0, 9.5), (-0.3, 0.6, -0.3)),
                                 "work": ((0.6, 2.3, 1.4), (-2.3, 0.8, -1.6)),
+                                "plan": ((0.0, 17.0, 0.02), (0.0, 0.0, 0.0)),  # #195: straight down, north up (the #206 plan)
                                 "lounge": ((-1.2, 2.2, 4.4), (1.2, 0.6, 1.0)),
                                 "wall": ((1.4, 1.7, 1.2), (1.7, 1.35, -2.75)),
                                 "door": ((0.4, 1.7, 2.6), (-3.4, 1.1, 1.7)),

@@ -115,10 +115,14 @@ if (overlap) {
     return Math.hypot(...pos)
   }
   const along = { n: 0, s: 0, e: 2, w: 2 } // the axis that runs along each wall
+  // #195 (desks.md 2.1.4 / 2.1.6): named pairs with their own minimum (the main aisle: the pod with its chair room
+  // to the omok table)
+  const PAIR_NEED = { 'game|pod': 1.12 }
   const rows = []
   for (let i = 0; i < items.length; i++)
     for (let j = i + 1; j < items.length; j++) {
       const [a, b] = [items[i], items[j]].sort((x, y) => x.kind.localeCompare(y.kind))
+      if (a.kind === 'rug' || b.kind === 'rug') continue // rugs lie under furniture: their own rules below
       let need, g, where
       if (a.kind === 'wall' && b.kind === 'wall') {
         if (a.wall !== b.wall) continue
@@ -126,7 +130,7 @@ if (overlap) {
       } else if (a.kind === 'wall' || b.kind === 'wall') {
         ;[need, g, where] = [0, gap(a, b, [0, 1, 2]), '3D'] // a floor thing may stand under a wall item, not through it
       } else {
-        need = NEED[`${a.kind}|${b.kind}`] ?? 0.1
+        need = PAIR_NEED[[a.name, b.name].sort().join('|')] ?? NEED[`${a.kind}|${b.kind}`] ?? 0.1
         ;[g, where] = [gap(a, b, [0, 2]), 'floor']
       }
       if (g < need + 0.3) rows.push({ pair: `${a.name} · ${b.name}`, kinds: `${a.kind}/${b.kind}`, where, gap: g, need, ok: g >= need - 1e-3 })
@@ -137,19 +141,73 @@ if (overlap) {
     const p = o.getWorldPosition(new Vector3())
     return { name: o.name.replace(/^nav_/, ''), x: p.x, z: p.z, r: o.userData.r }
   })
+  // #195: the circle (ring + a body) keeps 0.76 from furniture (a secondary aisle round it, desks.md 2.1.4) and
+  // 0.6 from the walls (MEMO's way to the board along the north wall)
+  const RING_FURNITURE = 0.76, RING_WALL = 0.6
   for (const c of rings) {
-    for (const s of items.filter((x) => x.kind !== 'wall')) {
+    for (const s of items.filter((x) => x.kind !== 'wall' && x.kind !== 'rug')) {
       const dx = Math.max(s.lo[0] - c.x, 0, c.x - s.hi[0])
       const dz = Math.max(s.lo[2] - c.z, 0, c.z - s.hi[2])
       const g = Math.hypot(dx, dz) - c.r
-      if (g < 0.3) rows.push({ pair: `${c.name} · ${s.name}`, kinds: `ring/${s.kind}`, where: 'floor', gap: g, need: 0, ok: g >= -1e-3 })
+      const need = s.kind === 'floor' || s.kind === 'decor' ? RING_FURNITURE : 0
+      if (g < need + 0.3) rows.push({ pair: `${c.name} · ${s.name}`, kinds: `ring/${s.kind}`, where: 'floor', gap: g, need, ok: g >= need - 1e-3 })
     }
     for (const d of rings.filter((x) => x.name > c.name)) {
       const g = Math.hypot(c.x - d.x, c.z - d.z) - c.r - d.r
       rows.push({ pair: `${c.name} · ${d.name}`, kinds: 'ring/ring', where: 'floor', gap: g, need: 0, ok: g >= -1e-3 })
     }
-    if (room && (c.x - c.r < room.lo[0] || c.x + c.r > room.hi[0] || c.z - c.r < room.lo[2] || c.z + c.r > room.hi[2]))
-      rows.push({ pair: `${c.name} · room`, kinds: 'ring/room', where: 'walls', gap: -1, need: 0, ok: false })
+    if (room) {
+      const g = Math.min(c.x - c.r - room.lo[0], room.hi[0] - c.x - c.r, c.z - c.r - room.lo[2], room.hi[2] - c.z - c.r)
+      rows.push({ pair: `${c.name} · room`, kinds: 'ring/room', where: 'walls', gap: g, need: RING_WALL, ok: g >= RING_WALL - 1e-3 })
+    }
+  }
+  // #195 rugs (desks.md 2.1.5): none overlapping or touching another (0.3), 0.30 off the walls; the work rug 0.61
+  // beyond the pod's desks (the slot's core); the meeting rug 0.30 beyond the standing circle
+  const rugs = items.filter((s) => s.kind === 'rug')
+  for (let i = 0; i < rugs.length; i++) {
+    for (let j = i + 1; j < rugs.length; j++) {
+      const g = gap(rugs[i], rugs[j], [0, 2])
+      rows.push({ pair: `${rugs[i].name} · ${rugs[j].name}`, kinds: 'rug/rug', where: 'floor', gap: g, need: 0.3, ok: g >= 0.3 - 1e-3 })
+    }
+    if (room) {
+      const r = rugs[i]
+      const g = Math.min(r.lo[0] - room.lo[0], room.hi[0] - r.hi[0], r.lo[2] - room.lo[2], room.hi[2] - r.hi[2])
+      rows.push({ pair: `${r.name} · room`, kinds: 'rug/room', where: 'walls', gap: g, need: 0.3, ok: g >= 0.3 - 1e-3 })
+    }
+  }
+  const podSlot = scene.children.find((o) => o.name === 'slot_pod')
+  const rugWork = rugs.find((r) => r.name === 'rug_work')
+  if (podSlot?.userData.core && rugWork) {
+    const { at, size } = podSlot.userData.core
+    const lo = [at[0] - size[0] / 2, at[2] - size[2] / 2], hi = [at[0] + size[0] / 2, at[2] + size[2] / 2]
+    const g = Math.min(lo[0] - rugWork.lo[0], rugWork.hi[0] - hi[0], lo[1] - rugWork.lo[2], rugWork.hi[2] - hi[1])
+    rows.push({ pair: 'rug_work · pod desks', kinds: 'rug/floor', where: 'floor', gap: g, need: 0.61, ok: g >= 0.61 - 1e-3 })
+  }
+  const rugMeet = rugs.find((r) => r.name === 'rug_meet')
+  if (rugMeet && rings.length) {
+    const g = (rugMeet.hi[0] - rugMeet.lo[0]) / 2 - rings[0].r
+    rows.push({ pair: `rug_meet · ${rings[0].name}`, kinds: 'rug/ring', where: 'floor', gap: g, need: 0.3, ok: g >= 0.3 - 1e-3 })
+  }
+  // #195 chair room (desks.md 2.1.4): from each desk's front edge back past the seated agent to the first obstacle
+  // (a floor footprint other than the pod and the rugs, a meeting circle, a wall) >= 0.91, along a body-wide lane
+  const CHAIR_BACK = 0.91, BODY = 0.22
+  for (const o of scene.children.filter((x) => x.userData.nav === 'work')) {
+    const p = o.getWorldPosition(new Vector3()), ry = o.userData.ry
+    const f = [-Math.sin(ry), -Math.cos(ry)] // the way the agent faces (local -z)
+    const start = [p.x + f[0] * 0.19, p.z + f[1] * 0.19] // the desk's front edge (desk centre 0.5 ahead, 0.62 deep)
+    const back = [-f[0], -f[1]]
+    let hit = 4
+    for (let t = 0; t < 4; t += 0.01) {
+      const q = [start[0] + back[0] * t, start[1] + back[1] * t]
+      const inBox = items.some((s) => s.kind !== 'wall' && s.kind !== 'rug' && s.name !== 'pod' &&
+        q[0] > s.lo[0] - BODY * Math.abs(back[1]) && q[0] < s.hi[0] + BODY * Math.abs(back[1]) &&
+        q[1] > s.lo[2] - BODY * Math.abs(back[0]) && q[1] < s.hi[2] + BODY * Math.abs(back[0]))
+      const inRing = rings.some((c) => Math.hypot(q[0] - c.x, q[1] - c.z) < c.r)
+      const outRoom = room && (q[0] < room.lo[0] || q[0] > room.hi[0] || q[1] < room.lo[2] || q[1] > room.hi[2])
+      if (inBox || inRing || outRoom) { hit = t; break }
+    }
+    const name = o.name.replace(/^nav_/, '')
+    rows.push({ pair: `${name} chair room`, kinds: 'work/back', where: 'floor', gap: hit, need: CHAIR_BACK, ok: hit >= CHAIR_BACK - 1e-3 })
   }
   rows.sort((x, y) => x.gap - x.need - (y.gap - y.need))
   console.log('\noverlap: pairs closer than their minimum + 0.3 m (gap < 0 = overlapping; ring = a meeting circle, #147)')
