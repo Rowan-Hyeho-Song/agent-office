@@ -35,7 +35,14 @@ export async function measureCue(name: CueName, agent?: string): Promise<Level> 
   const comp = c.createDynamicsCompressor()
   comp.threshold.value = -18
   comp.ratio.value = 3
-  comp.connect(c.destination)
+  // the same safety limiter as live (engine.ts)
+  const lim = c.createDynamicsCompressor()
+  lim.threshold.value = -2
+  lim.knee.value = 0
+  lim.ratio.value = 20
+  lim.attack.value = 0.001
+  lim.release.value = 0.1
+  comp.connect(lim).connect(c.destination)
   const bus = c.createGain()
   bus.gain.value = BUS_LEVEL[CUES[name].bus]
   bus.connect(comp)
