@@ -6,7 +6,7 @@
 import { pairSide, placeBubbles, type BubbleItem, type PlaceInput } from './bubbles'
 import { iconSvg } from './bubbleIcons'
 
-const TAB = ['MEMO', 'MESH', 'HUE', 'LOOP']
+const TAB = ['MEMO', 'MESH', 'HUE', 'LOOP', 'ECHO']
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
 import { DOZE } from './doze'

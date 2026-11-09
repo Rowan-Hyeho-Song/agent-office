@@ -27,8 +27,8 @@ export interface DocInput {
   meta?: Record<string, unknown>
 }
 
-/** who speaks in a minutes row: one of the four agents, the owner (사용자), or an unknown name kept as written */
-export type Speaker = { seat: 0 | 1 | 2 | 3 } | { owner: true } | { name: string }
+/** who speaks in a minutes row: one of the five agents, the owner (사용자), or an unknown name kept as written */
+export type Speaker = { seat: 0 | 1 | 2 | 3 | 4 } | { owner: true } | { name: string }
 
 export interface MinutesRow {
   /** the 순서 column as written (it may continue numbering from an earlier comment) */
@@ -57,7 +57,7 @@ export interface ApprovalRequest {
   kind: string
   /** **요청** value, e.g. "코더(루프)" */
   requester: string
-  requesterSeat: 0 | 1 | 2 | 3 | null
+  requesterSeat: 0 | 1 | 2 | 3 | 4 | null
   content: string
   /** the numbered 선택지 lines, without the number and without "(추천)" */
   options: string[]

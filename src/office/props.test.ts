@@ -3,7 +3,7 @@ import { BLINK_MS, STAMP_MS, deskProps, type PropsInput } from './props'
 import type { AgentStatus, StatusMap } from './status'
 
 const NOW = new Date(2026, 10, 8, 9, 0).getTime()
-const idle = (): StatusMap => Object.fromEntries([0, 1, 2, 3].map((i) => [`agent_${i}`, { state: 'idle', since: 0 } satisfies AgentStatus]))
+const idle = (): StatusMap => Object.fromEntries([0, 1, 2, 3, 4].map((i) => [`agent_${i}`, { state: 'idle', since: 0 } satisfies AgentStatus]))
 const input = (over: Partial<PropsInput> = {}, status: Record<string, AgentStatus> = {}): PropsInput => ({
   status: { ...idle(), ...status },
   pending: 0,

@@ -123,8 +123,8 @@ describe('kinds and attribution', () => {
     expect(collect(data({ comments: [c] })).filter((p) => p.kind === 'minutes')).toHaveLength(0)
   })
   it('seat words match src/docs/parse.ts', () => {
-    expect(SEAT_WORDS.map(([s]) => s)).toEqual([0, 1, 2, 3])
-    expect([seatIn('메모'), seatIn('Blender'), seatIn('휴'), seatIn('루프'), seatIn('MESH'), seatIn('x')]).toEqual([0, 1, 2, 3, 1, null])
+    expect(SEAT_WORDS.map(([s]) => s)).toEqual([0, 1, 2, 3, 4])
+    expect([seatIn('메모'), seatIn('Blender'), seatIn('휴'), seatIn('루프'), seatIn('MESH'), seatIn('x'), seatIn('사운드'), seatIn('echo')]).toEqual([0, 1, 2, 3, 1, null, 4, 4])
     expect(seatIn('코더 → 기획')).toBe(3) // first mention wins
   })
 })

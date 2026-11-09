@@ -14,16 +14,17 @@ export const SEAT_R = 0.9
 /**
  * The board side (0° ± 60°) stays empty in an open circle. Three and four seats stand 66-67° apart (the design says 60° and 50°: 0.75 m and 0.63 m): the traffic
  * planner keeps resting agents 2R + planGap = 0.72 m apart, and a cell of its grid can shift a seat by up to a cell's half diagonal
- * (0.1 m), so a pair that close never settled in the scene. 0.82 m settles wherever the cells fall.
+ * (0.1 m), so a pair that close never settled in the scene. 0.82 m settles wherever the cells fall. Five seats (#193) stand 55° apart open (0.83 m,
+ * the board gap grows to 0° ± 70°) and 72° apart closed (1.06 m).
  */
-const OPEN: Record<number, number[]> = { 1: [180], 2: [90, 270], 3: [113, 180, 247], 4: [80, 147, 213, 280] }
-const CLOSED: Record<number, number[]> = { 1: [180], 2: [90, 270], 3: [60, 180, 300], 4: [45, 135, 225, 315] }
+const OPEN: Record<number, number[]> = { 1: [180], 2: [90, 270], 3: [113, 180, 247], 4: [80, 147, 213, 280], 5: [70, 125, 180, 235, 290] }
+const CLOSED: Record<number, number[]> = { 1: [180], 2: [90, 270], 3: [60, 180, 300], 4: [45, 135, 225, 315], 5: [0, 72, 144, 216, 288] }
 
 /** `count` seats round `centre`, every one facing the centre; seat i of the script takes slot i */
 export function formation(centre: P & { ry?: number }, count: number, open: boolean): Slot[] {
   // 0° is the board side: the centre's ry is the way to the whiteboard (nav_meet_center extras), so the whole ring turns by -ry
   const turn = -(centre.ry ?? 0)
-  const angles = (open ? OPEN : CLOSED)[Math.min(4, Math.max(1, count))]
+  const angles = (open ? OPEN : CLOSED)[Math.min(5, Math.max(1, count))]
   return angles.slice(0, count).map((deg) => {
     const a = (deg * Math.PI) / 180 + turn
     const p = { x: centre.x + Math.sin(a) * SEAT_R, z: centre.z - Math.cos(a) * SEAT_R }

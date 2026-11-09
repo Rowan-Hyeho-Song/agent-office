@@ -35,14 +35,15 @@ import type { ScreenForce } from './screenLive'
 import type { ScreenState } from './screens'
 import { supabase } from './supabase'
 
-/** the four agents = desks 0..3 (#5); agent_<seat> in the glb */
-export const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
+/** the five agents = desks 0..4 (#5, #193); agent_<seat> in the glb */
+export const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
 /** names and colors (#26 결재; same values as --agent-N in src/styles/tokens.css and supabase/office.sql) */
 export const AGENT_INFO: Record<string, { name: string; role: string; color: string }> = {
   agent_0: { name: '메모 MEMO', role: '기획', color: '#ffb347' },
   agent_1: { name: '메시 MESH', role: '3D', color: '#8f9bff' },
   agent_2: { name: '휴 HUE', role: '디자인', color: '#ff3ea5' },
   agent_3: { name: '루프 LOOP', role: '코더', color: '#4df3ff' },
+  agent_4: { name: '에코 ECHO', role: '사운드', color: '#f2ffc4' },
 }
 export const AGENT_COLORS: Record<string, string> = Object.fromEntries(AGENTS.map((a) => [a, AGENT_INFO[a].color]))
 
@@ -58,7 +59,7 @@ export class ScreenDebug {
   /** set by the scene: where each monitor is (for placing a screenshot camera) */
   centers: () => number[][] = () => []
   set(seat: number | 'all', state: ScreenState | null, activity?: string) {
-    for (const s of seat === 'all' ? [0, 1, 2, 3] : [seat]) {
+    for (const s of seat === 'all' ? [0, 1, 2, 3, 4] : [seat]) {
       if (state) this.force[s] = { state, activity }
       else delete this.force[s]
     }

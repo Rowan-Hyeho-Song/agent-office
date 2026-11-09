@@ -6,6 +6,7 @@ import { openApprovalBox } from './approval/panel'
 import { Door } from '../room/Door'
 import { ReadyPing } from '../room/RoomUi'
 import { ClockRig } from './ClockRig'
+import { SpeakerClick } from './SpeakerClick'
 import { Agents } from './Agents'
 import { useRole } from './ApprovalBox'
 import { Icon } from './ApprovalIcons'
@@ -31,6 +32,7 @@ export function Office({ world }: { world: OfficeWorld }) {
       <Agents world={world} />
       <TrayClick scene={scene} nodes={nodes} />
       <ClockRig scene={scene} nodes={nodes} />
+      <SpeakerClick nodes={nodes} />
       <Shelf world={world} scene={scene} nodes={nodes} />
       <Whiteboard world={world} scene={scene} />
       {world.approvals && <DoorKey world={world} nodes={nodes} />}
