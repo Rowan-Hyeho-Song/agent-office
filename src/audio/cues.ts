@@ -211,6 +211,26 @@ export const CUES = {
       tone(d, midi(56), 0.2, { type: 'square', level: 0.025, at: 0.12 })
     },
   },
+  'approval.new': {
+    // #240: a new approval arrived. A small bell "띵-동" falling a fourth (G6 → D6, both in the pentatonic), so it reads
+    // apart from the stamp (a low thud), the paper plane (air) and the approve chime (a rising triangle arpeggio).
+    // A bell = a sine plus an inharmonic partial (×2.76) that dies sooner, with a short echo tail.
+    label: '결재함 새 항목 띵동',
+    kind: 'ui',
+    bus: 'sfx',
+    spatial: false,
+    gap: 5000, // several within 5 s = one (docs-ui.md 1.6)
+    length: 0.9,
+    play: (o) => {
+      for (const [n, at] of [
+        [91, 0],
+        [86, 0.16],
+      ] as const) {
+        tone(o, midi(n), 0.55, { type: 'sine', level: 0.038, at, attack: 0.002, echo: true })
+        tone(o, midi(n) * 2.76, 0.18, { type: 'sine', level: 0.01, at, attack: 0.001 })
+      }
+    },
+  },
   // ── 화면 UI (책상 방과 같은 소리) ──
   'ui.hover': {
     label: 'UI 호버',
