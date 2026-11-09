@@ -46,11 +46,10 @@ const gripPoint = (w: World, node: Object3D, side: 'l' | 'r') => (w.scene.getObj
 /** the most a prop may move in the frame a hand takes it or lets it go (m) */
 export const JUMP = 0.005
 /**
- * Props the schedule hands out from further than REACH. The marker's old entry went with #195 (the poster stands at nav_board_tray, within 0.51 m of
- * the markers). NEW with #195: the tablet pen rests in the pen cup of HUE's desk (desk_2), 0.78 m from the seat spot work_2 (0.57 m across the desk,
- * 0.53 m along it; the new #187 kit moved the cup), 3 cm past the 0.75 m reach. A model follow-up (cup or seat); the entry must go the day it is within REACH.
+ * Props the schedule hands out from further than REACH (none now: the marker's entry went with #195's nav_board_tray, 0.51 m from the markers; the
+ * tablet pen's went with #195's final bake, the pen cup pulled in to 0.73 m from work_2). A new entry must say why and go the day it is within REACH.
  */
-export const KNOWN_FAR: Record<string, number> = { tablet_pen: 0.8 }
+export const KNOWN_FAR: Record<string, number> = {}
 /**
  * The paddle is swung for a wide ball: the rally engine lets it go as far sideways as the table is wide plus 0.3 m (pingpong.ts, playStage.pingpong clamps z
  * to W/2 + 0.3) with the body standing still, so its grip point goes up to 0.81 m from the body in the walking stretch. Still an arm swinging, not a hand flying.
