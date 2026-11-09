@@ -14,8 +14,16 @@ import { makeEcho } from './synth'
 
 export type Bus = 'music' | 'sfx' | 'voice' | 'ambience'
 
-/** base bus gains (sound.md 2.2). The desk room: music 0.14, sfx 0.55 */
-export const BUS_LEVEL: Record<Bus, number> = { music: 0.12, sfx: 0.5, voice: 0.45, ambience: 0.1 }
+/**
+ * base bus gains (sound.md 2.2), set from the live output (#194 levels fix): the desk room's music sits at about −39 dBFS
+ * RMS, so the office music at a break is about −38 and the room tone about 17 dB under it (it masked every cue at 0.1).
+ * The desk room: music 0.14, sfx 0.55.
+ */
+export const BUS_LEVEL: Record<Bus, number> = { music: 0.24, sfx: 0.55, voice: 0.5, ambience: 0.009 }
+
+/** the default camera is about 15 m from the room (room.ts DEFAULT_CAMERA → DEFAULT_TARGET): sounds there play at full level */
+export const REF_DISTANCE = 16
+export const MAX_DISTANCE = 40
 
 /** most one-shot sfx sounding at once (sound.md 6) */
 export const MAX_SFX = 6
@@ -150,8 +158,8 @@ export function panner(c: BaseAudioContext, pos: Vec, into: AudioNode) {
   const p = c.createPanner()
   p.panningModel = 'equalpower'
   p.distanceModel = 'inverse'
-  p.refDistance = 2
-  p.maxDistance = 12
+  p.refDistance = REF_DISTANCE
+  p.maxDistance = MAX_DISTANCE
   p.rolloffFactor = 1
   if (p.positionX) {
     p.positionX.value = pos.x
@@ -169,8 +177,8 @@ export function distanceGain(pos: Vec | undefined): number {
   const lx = l.positionX?.value ?? 0
   const ly = l.positionY?.value ?? 0
   const lz = l.positionZ?.value ?? 0
-  const d = Math.max(2, Math.min(12, Math.hypot(pos.x - lx, pos.y - ly, pos.z - lz)))
-  return 2 / (2 + (d - 2))
+  const d = Math.max(REF_DISTANCE, Math.min(MAX_DISTANCE, Math.hypot(pos.x - lx, pos.y - ly, pos.z - lz)))
+  return REF_DISTANCE / d
 }
 
 /** debug meter: peak and RMS (dBFS) of the master output right now */

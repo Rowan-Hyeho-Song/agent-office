@@ -18,7 +18,7 @@
 //     "repos": ["agent-office", "rowansong.dev"],   optional: repos a declared task may name (#182)
 //     "log": true }                                    optional: one line per event in ~/.agent-office/hook.log
 //                                                    (event, seat, what was sent; no titles or content)
-// AGENT_OFFICE_SEAT=0..3 in the environment pins the seat for sessions started from that shell.
+// AGENT_OFFICE_SEAT=0..4 in the environment pins the seat for sessions started from that shell.
 
 import { appendFileSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'

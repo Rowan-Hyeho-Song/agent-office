@@ -7,7 +7,8 @@ describe('resolveSeat', () => {
     expect(resolveSeat({ session_title: '프로젝트 코더' }, {}, { seat: 1 }, '2')).toBe(2)
     expect(resolveSeat({}, {}, undefined, '0')).toBe(0)
   })
-  it.each(['9', 'x', '-1', '4', ''])('ignores a pinned %j', (pin) => {
+  it('a pinned 4 is the fifth seat (#193)', () => expect(resolveSeat({}, {}, undefined, '4')).toBe(4))
+  it.each(['9', 'x', '-1', '5', ''])('ignores a pinned %j', (pin) => {
     expect(resolveSeat({ session_title: '프로젝트 코더' }, {}, { seat: 1 }, pin)).toBe(3)
   })
   it('reads the title', () => {
