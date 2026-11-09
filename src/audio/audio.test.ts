@@ -111,3 +111,20 @@ describe('keyRoll', () => {
     expect(kept).toBeLessThan(240)
   })
 })
+
+describe('silenceReasons', async () => {
+  const { silenceReasons } = await import('./audible')
+  type AudibleState = import('./audible').AudibleState
+  const ok: AudibleState = { muted: false, volume: 1, ctx: 'running', hidden: false, room: 1 }
+  it('is empty when the page is sounding', () => expect(silenceReasons(ok)).toEqual([]))
+  it('names each reason', () => {
+    const codes = (s: Partial<AudibleState>) => silenceReasons({ ...ok, ...s }).map((r) => r.code)
+    expect(codes({ muted: true })).toEqual(['muted'])
+    expect(codes({ volume: 0 })).toEqual(['volume0'])
+    expect(codes({ ctx: null })).toEqual(['noContext'])
+    expect(codes({ ctx: 'suspended' })).toEqual(['suspended'])
+    expect(codes({ hidden: true })).toEqual(['hidden'])
+    expect(codes({ room: 0 })).toEqual(['room0'])
+    expect(codes({ muted: true, volume: 0, ctx: null })).toEqual(['muted', 'volume0', 'noContext'])
+  })
+})

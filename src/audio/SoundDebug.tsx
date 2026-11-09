@@ -2,7 +2,8 @@ import { useEffect, useReducer, useState, useSyncExternalStore } from 'react'
 import { PERIODS } from '../office/outside'
 import { passCar, setAmbienceOverride, startAmbience } from './ambience'
 import { CUES, CUE_NAMES, cue, type CueName } from './cues'
-import { BUS_LEVEL, audioGraph, ensureAudio, getBusLevel, meter, setBusLevel, type Bus, type Vec } from './engine'
+import { BUS_LEVEL, audioDebug, audioGraph, ensureAudio, getBusLevel, meter, setBusLevel, testTone, type Bus, type Vec } from './engine'
+import { silenceReasons } from './audible'
 import { measureCue, type Level } from './levels'
 import { LAYERS, TEMPOS, getMusicState, getTempo, isLayerMuted, setMusicState, setTempo, toggleLayer, type MusicState, type Tempo } from './music'
 import { getSetting, setSetting, subscribe } from './settings'
@@ -65,8 +66,23 @@ export function SoundDebug() {
     ;(window as unknown as { __sound: unknown }).__sound = { audioGraph, ensureAudio, setBusLevel, getBusLevel, cue, setMusicState, startAmbience, setAmbienceOverride, meter, setSetting }
   }, [])
 
+  const [tonePeak, setTonePeak] = useState<number | null>(null)
+  const playTest = () => {
+    start()
+    testTone()
+    let best = -120
+    const id = setInterval(() => (best = Math.max(best, meter()?.peak ?? -120)), 40)
+    setTimeout(() => {
+      clearInterval(id)
+      setTonePeak(best)
+    }, 900)
+  }
+  const dbg = audioDebug()
+  const reasons = silenceReasons({ muted: s.muted, volume: s.volume, ctx: dbg.ctx, hidden: document.hidden, room: dbg.room })
+
   const start = () => {
-    if (getSetting().muted) setSetting({ muted: false })
+    // a stored volume of 0 would keep "소리 켜기" silent: turning it on brings the volume back
+    if (getSetting().muted || getSetting().volume <= 0.001) setSetting({ muted: false, volume: getSetting().volume <= 0.001 ? 1 : getSetting().volume })
     ensureAudio()
     startAmbience()
     tick()
@@ -108,6 +124,50 @@ export function SoundDebug() {
     <details className="sound-debug">
       <summary>소리 (#194)</summary>
       <p className="sd-note">세션은 소리를 들을 수 없어요. 들어 보고 판정을 누른 뒤, 맨 아래 줄을 복사해 #194에 붙여 주세요.</p>
+
+      <section aria-label="지금 소리가 안 나는 이유" className="sd-why" role="status">
+        <b>지금 상태</b>{' '}
+        {reasons.length === 0 ? (
+          <span className="sd-ok">페이지는 소리를 내는 중이에요.</span>
+        ) : (
+          <ul>
+            {reasons.map((r) => (
+              <li key={r.code}>
+                {r.text}{' '}
+                {r.fix === '다시 시작' ? (
+                  <button type="button" onClick={() => void audioGraph()?.ctx.resume().then(tick)}>
+                    다시 시작
+                  </button>
+                ) : r.fix === '음량 100%' ? (
+                  <button type="button" onClick={() => setSetting({ volume: 1 })}>
+                    음량 100%
+                  </button>
+                ) : r.fix ? (
+                  <button type="button" onClick={start}>
+                    {r.fix}
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div>
+          <button type="button" onClick={playTest}>
+            테스트 소리 (440 Hz, 0.8초)
+          </button>{' '}
+          {tonePeak !== null &&
+            (tonePeak > -60 ? (
+              <span>
+                페이지에서 소리가 나갔어요(피크 {fmt(tonePeak)} dBFS). 그래도 안 들리면 <b>탭 음소거 · 출력 장치 · 시스템 볼륨</b>을 확인하세요.
+              </span>
+            ) : (
+              <span>페이지에서 소리가 나가지 않았어요. 위의 이유를 먼저 풀어 주세요.</span>
+            ))}
+        </div>
+        <small>
+          출력 장치: {dbg.sink === undefined ? '브라우저가 알려 주지 않음' : dbg.sink === '' ? '시스템 기본' : dbg.sink}
+        </small>
+      </section>
 
       <section aria-label="미터">
         <b>미터</b> 피크 {m ? fmt(m.peak) : '—'} dBFS · 3초 평균 {fmt(avg)} dBFS · {audioGraph()?.ctx.state ?? '아직 없음'}
