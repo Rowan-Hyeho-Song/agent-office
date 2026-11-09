@@ -21,7 +21,9 @@ export function supabaseDocsSource(supabase: SupabaseClient): DocsSource {
         if (error) throw error
         return (data as CoverSource[]).map(ownerMeta)
       }
-      const { data, error } = await supabase.from('docs_cover').select(`${COLS}, labels, readable`).order('created_at').limit(LIMIT)
+      // `*`: the view hands out only cover columns, and `labels` (#236) arrives once supabase/docs.sql has been run again; naming
+      // it would make the whole read fail (400, undefined column) on a database that is a step behind the code (#289)
+      const { data, error } = await supabase.from('docs_cover').select('*').order('created_at').limit(LIMIT)
       if (error) throw error
       return (data as DocMeta[]).map((d) => ({ ...d, labels: stringsOnly(d.labels) }))
     },
