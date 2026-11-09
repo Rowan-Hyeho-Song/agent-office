@@ -27,14 +27,19 @@ const wallBoxes = (): ClearBox[] =>
     return { min: [r.cx - r.sx / 2, 0, r.cz - r.sz / 2], max: [r.cx + r.sx / 2, WALL_CUT[w], r.cz + r.sz / 2], slide: true } as ClearBox
   })
 
-/** the camera position kept `VIEW.clear.margin` clear of furniture, robots (their root nodes) and walls */
-export function clearCamera(cam: Vector3, target: Vector3, robots: Iterable<{ visible: boolean; group: Object3D }> = []): Vector3 {
+/** every box the camera keeps clear of: furniture, robots (their root nodes, re-measured) and the walls at their current height */
+export function clearBoxes(robots: Iterable<{ visible: boolean; group: Object3D }> = []): ClearBox[] {
   const boxes: ClearBox[] = [...furniture, ...wallBoxes()]
   for (const r of robots) {
     if (!r.visible) continue
     tmp.setFromObject(r.group)
     if (!tmp.isEmpty()) boxes.push({ min: tmp.min.toArray() as [number, number, number], max: tmp.max.toArray() as [number, number, number] })
   }
-  const p = keepClear(cam.toArray() as [number, number, number], target.toArray() as [number, number, number], boxes, VIEW.clear.margin)
+  return boxes
+}
+
+/** the camera position kept `VIEW.clear.margin` clear of furniture, robots (their root nodes) and walls */
+export function clearCamera(cam: Vector3, target: Vector3, robots: Iterable<{ visible: boolean; group: Object3D }> = []): Vector3 {
+  const p = keepClear(cam.toArray() as [number, number, number], target.toArray() as [number, number, number], clearBoxes(robots), VIEW.clear.margin)
   return cam.set(p[0], p[1], p[2])
 }

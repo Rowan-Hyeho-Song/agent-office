@@ -10,6 +10,8 @@ import { DocsViewer } from './office/DocsViewer'
 import { SidePanel } from './office/SidePanel'
 import { SideViewOffset } from './office/sidePanelRig'
 import { CameraHint, CameraRig } from './office/cameraRig'
+import { TourBar } from './office/TourBar'
+import { TourRig } from './office/TourRig'
 import { CAMERA_FAR, DEFAULT_CAMERA, DEFAULT_TARGET, LAMP_POS } from './office/room'
 import { VIEW } from './office/view'
 import { Office } from './office/Office'
@@ -82,6 +84,7 @@ export function App() {
         />
         )}
         <CameraRig limits={limits} world={world} />
+        <TourRig limits={limits} world={world} />
         <SideViewOffset />
         <SoundListener world={world} />
       </Canvas>
@@ -89,6 +92,7 @@ export function App() {
         <b>AGENT OFFICE</b> · 드래그해서 돌려 보기
       </p>
       <CameraHint enabled={limits && !busy} />
+      <TourBar world={world} />
       <AgentList world={world} />
       <CornerDock />
       <SidePanel world={world} />

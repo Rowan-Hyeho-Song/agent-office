@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { useReplay } from '../replay/store'
 import { Icon } from './ApprovalIcons'
 import { activityLabel, clip, PRIVATE_TASK_LABEL, taskNumber, taskOf, taskText } from './status'
+import { tour } from './tourStore'
 import { AGENT_INFO, type OfficeWorld } from './world'
 
 const STATE_LABELS = { working: '', wrapping: '정리 중', idle: '휴식 중', off: '퇴근' } as const
@@ -32,7 +33,7 @@ export function AgentList({ world }: { world: OfficeWorld }) {
           return (
             <li key={a} className={`state-${s?.state ?? 'off'}`}>
               <i style={{ background: info.color }} aria-hidden="true" />
-              <b>{info.name}</b>{' '}
+              <button type="button" className="agent-name" onClick={() => tour.start(a)} title="이 에이전트부터 둘러보기"><b>{info.name}</b></button>{' '}
               {task && s ? (
                 <span className="agent-task" title={taskText(task)} aria-label={`${info.name}, ${state} ${taskText(task)}${more ? `, ${more}` : ''}`}>
                   {state} ›{' '}
