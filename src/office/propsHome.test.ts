@@ -10,6 +10,7 @@ import { Matrix4, Quaternion, Vector3 } from 'three'
 import { stubCanvas } from './glbLoad'
 import { Guard, IDS, JUMP, expectClean, reachOf, world } from './errandWorld.fixture'
 import { SPOTS } from './navSpots.fixture'
+import { BOARD_STAND } from './meetingRun'
 import { PLAYS } from './play'
 import { GRIPS } from './grip'
 import type { Goal } from './director'
@@ -41,9 +42,9 @@ const slotOf = (p: { stand?: { x: number; z: number }; face?: { x: number; z: nu
 const SCENES: Scene[] = [
   { name: 'coffee', agent: 'agent_3', kind: 'cup', goal: { spot: 'coffee', pose: 'coffee', label: '' } },
   { name: 'books', agent: 'agent_0', kind: 'book', goal: { spot: 'shelf', pose: 'books', face: books.face, slot: slotOf(books, 'shelf'), label: '' } },
-  { name: 'marker', agent: 'agent_0', kind: 'marker', prop: 'prop_marker_0', goal: { spot: 'whiteboard', pose: 'post', label: '' } },
-  { name: 'marker 1', agent: 'agent_1', kind: 'marker', prop: 'prop_marker_1', goal: { spot: 'whiteboard', pose: 'post', label: '' } },
-  { name: 'marker 2', agent: 'agent_2', kind: 'marker', prop: 'prop_marker_2', goal: { spot: 'whiteboard', pose: 'post', label: '' } },
+  { name: 'marker', agent: 'agent_0', kind: 'marker', prop: 'prop_marker_0', goal: { spot: BOARD_STAND, pose: 'post', label: '' } },
+  { name: 'marker 1', agent: 'agent_1', kind: 'marker', prop: 'prop_marker_1', goal: { spot: BOARD_STAND, pose: 'post', label: '' } },
+  { name: 'marker 2', agent: 'agent_2', kind: 'marker', prop: 'prop_marker_2', goal: { spot: BOARD_STAND, pose: 'post', label: '' } },
   { name: 'tablet pen', agent: 'agent_2', kind: 'tablet_pen', goal: { spot: 'work_2', pose: 'type', label: '' }, tablet: true },
   { name: 'stamp', agent: 'agent_0', kind: 'stamp', goal: { spot: 'work_0', pose: 'type', label: '' }, stamp: true },
 ]

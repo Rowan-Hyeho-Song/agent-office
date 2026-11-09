@@ -690,7 +690,7 @@ def denoise(image, path):
 def save(image, path):
     s = scene.render.image_settings
     s.file_format = "WEBP"
-    s.quality = 92
+    s.quality = 92  # #195: the cap is 5 MB now (user): sharpness first (at 85 the models were 3.28 MB, at 92 3.83 MB)
     s.color_mode = "RGB"
     s.color_management = "FOLLOW_SCENE"
     image.save_render(path, scene=scene)

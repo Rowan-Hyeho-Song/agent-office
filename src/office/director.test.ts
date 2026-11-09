@@ -288,17 +288,17 @@ describe('messages', () => {
     const { at, fn } = makeArrived()
     d.receive(msg('agent_0', 'agent_1'))
     let g = d.goals(0, MINUTE, st, fn)
-    expect(g.agent_0.spot).toBe('meet_floor_0')
-    expect(g.agent_1.spot).toBe('meet_floor_1')
+    expect(g.agent_0.spot).toBe('meet_talk_0')
+    expect(g.agent_1.spot).toBe('meet_talk_1')
     expect(g.agent_0.bubble).toBeUndefined()
     expect(g.agent_1.bubble).toBeUndefined()
 
     // only one arrived: still gathering
-    at.agent_0 = 'meet_floor_0'
+    at.agent_0 = 'meet_talk_0'
     g = d.goals(1000, MINUTE, st, fn)
     expect(g.agent_0.bubble).toBeUndefined()
 
-    at.agent_1 = 'meet_floor_1'
+    at.agent_1 = 'meet_talk_1'
     g = d.goals(2000, MINUTE, st, fn)
     expect(g.agent_0.bubble).toBe(BUBBLE_ASK)
     expect(g.agent_1.bubble).toBe(BUBBLE_REPLY)
@@ -306,7 +306,7 @@ describe('messages', () => {
     expect(g.agent_1.pose).toBe('talk')
 
     g = d.goals(2000 + TALK_MS - 1, MINUTE, st, fn)
-    expect(g.agent_0.spot).toBe('meet_floor_0')
+    expect(g.agent_0.spot).toBe('meet_talk_0')
     g = d.goals(2000 + TALK_MS, MINUTE, st, fn)
     const play = playAt(MINUTE, AGENTS)
     expect(g.agent_0.spot).toBe(play.agent_0.spot)
@@ -320,18 +320,18 @@ describe('messages', () => {
     const st = allIdle()
     const { fn } = makeArrived()
     d.receive(msg('agent_0', 'agent_1'))
-    expect(d.goals(0, MINUTE, st, fn).agent_0.spot).toBe('meet_floor_0')
+    expect(d.goals(0, MINUTE, st, fn).agent_0.spot).toBe('meet_talk_0')
     expect(d.goals(30_000, MINUTE, st, fn).agent_0.spot).toBe(playAt(MINUTE, AGENTS).agent_0.spot)
   })
 
-  it('a second talk uses the other meet pair; a third waits', () => {
+  it('a second talk goes to the chat spots by the window; a third waits', () => {
     const d = new Director(AGENTS)
     const st = allIdle()
     d.receive(msg('agent_0', 'agent_1', 'a'))
     d.receive(msg('agent_2', 'agent_3', 'b'))
     const g = d.goals(0, MINUTE, st, makeArrived().fn)
-    expect(g.agent_2.spot).toBe('meet_board_0')
-    expect(g.agent_3.spot).toBe('meet_board_1')
+    expect(g.agent_2.spot).toBe('chat_0')
+    expect(g.agent_3.spot).toBe('chat_1')
     expect(d.pending.queued).toBe(0)
   })
 

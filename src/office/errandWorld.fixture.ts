@@ -14,7 +14,7 @@ import { AgentRig, PropBank, buildRig } from './rig'
 import type { StatusMap } from './status'
 import type { WaterStage } from './waterRun'
 import { TrafficPlanner } from './traffic'
-import { REACH } from './water'
+import { PATH_BLOCKERS, REACH } from './water'
 
 export { REACH }
 
@@ -46,12 +46,10 @@ const gripPoint = (w: World, node: Object3D, side: 'l' | 'r') => (w.scene.getObj
 /** the most a prop may move in the frame a hand takes it or lets it go (m) */
 export const JUMP = 0.005
 /**
- * Props the schedule hands out from further than REACH today (follow-ups, listed so the day the stand moves the entry must go): the whiteboard's
- * markers rest on the ledge 0.86–0.95 m from the nav spot the planner stands on to pin a decision (the spot comes from the model's empties).
- * TEMPORARY — removed in #195: that bake adds a stand within 0.6 m of the markers (planning's decision on #228); the #195 coder commit deletes
- * this entry and the marker must then pass the 0.75 m check like every other prop.
+ * Props the schedule hands out from further than REACH (none now: the marker's entry went with #195's nav_board_tray, 0.51 m from the markers; the
+ * tablet pen's went with #195's final bake, the pen cup pulled in to 0.73 m from work_2). A new entry must say why and go the day it is within REACH.
  */
-export const KNOWN_FAR: Record<string, number> = { marker: 1.0 }
+export const KNOWN_FAR: Record<string, number> = {}
 /**
  * The paddle is swung for a wide ball: the rally engine lets it go as far sideways as the table is wide plus 0.3 m (pingpong.ts, playStage.pingpong clamps z
  * to W/2 + 0.3) with the body standing still, so its grip point goes up to 0.81 m from the body in the walking stretch. Still an arm swinging, not a hand flying.
@@ -247,6 +245,8 @@ export function runErrand(w: World, agent: string, plant: string, guard: Guard, 
   for (const id of IDS) walk.status[id] = { state: 'working', activity: 'test', since: 0 }
   for (let k = 0; k < 10; k++) walk.step(dt, guard) // standing at the desks first
   walk.status[agent] = { state: 'idle', since: 0 }
+  // a plant whose way in runs past a seat (water.ts PATH_BLOCKERS): the seat's owner is away (the schedule only sends the errand then)
+  for (const spot of PATH_BLOCKERS[plant] ?? []) walk.status[`agent_${spot.split('_')[1]}`] = { state: 'idle', since: 0 }
   walk.director.forceWater(agent, plant, walk.t0 + walk.t * 1000, opts.reduced ?? false)
   const stages: WaterStage[] = []
   const at: Record<string, { t: number; x: number; z: number }> = {}

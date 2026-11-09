@@ -186,9 +186,9 @@ describe('traffic planner on the grid', () => {
     p.place('a', req('work_0'), 0, 0)
     p.place('b', req('work_1'), 0, 1)
     p.update(0)
-    const slot = { x: 0.2, z: -0.2, ry: 1 }
+    const slot = { x: -0.6, z: 0.9, ry: 1 }
     p.request('a', req('ring_0', { slot }), 0)
-    p.request('b', req('ring_1', { slot: { x: 0.5, z: -0.2, ry: -1 } }), 0)
+    p.request('b', req('ring_1', { slot: { x: -0.3, z: 0.9, ry: -1 } }), 0)
     const min = run(p, ['a', 'b'], 0, 60)
     expect(min).toBeGreaterThanOrEqual(R2)
     const a = p.sample('a', 60)
@@ -227,4 +227,24 @@ describe('traffic planner on the grid', () => {
       expect(p.sample('a', 40).arrived).toBe(first)
     }
   })
+  // desks.md 2.1 (#251): the window strip behind 메모's seat is not a lane for others, but it is 메모's own way out when someone stands
+  // at chat_0 (the head desk's north-east corner to a body on chat_0 is 0.39 m). The grid only treats seated bodies as obstacles, so the
+  // strip opens as soon as 메모 gets up; this checks it with a talk going on at both chat spots and the whole pod seated
+  for (const to of ['meet_center', 'board_tray'])
+    it(`메모 leaves its seat while two talk at chat_0 / chat_1 and reaches ${to} within 60 s; never closer than 2R`, () => {
+      const p = office()
+      const seated = ['work_1', 'work_2', 'work_3', 'work_4']
+      p.place('memo', req('work_0'), 0, 0)
+      p.place('c0', req('chat_0'), 0, 1)
+      p.place('c1', req('chat_1'), 0, 2)
+      seated.forEach((s, i) => p.place(s, req(s), 0, 3 + i))
+      p.update(0)
+      p.request('memo', req(to), 0)
+      const ids = ['memo', 'c0', 'c1', ...seated]
+      const min = run(p, ids, 0, 60)
+      expect(min).toBeGreaterThanOrEqual(R2 - 1e-6)
+      expect(p.sample('memo', 60).arrived).toBe(to)
+      // the talkers and the seated ones never moved
+      for (const [id, spot] of [['c0', 'chat_0'], ['c1', 'chat_1'], ...seated.map((s) => [s, s])]) expect(p.sample(id, 60).arrived).toBe(spot)
+    })
 })
