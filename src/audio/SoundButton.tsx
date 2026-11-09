@@ -69,7 +69,8 @@ export function SoundButton() {
           aria-label={label}
           title={label}
           onClick={() => {
-            setSetting({ muted: on })
+            // turning it on with a stored volume of 0 would stay silent: bring the volume back (#194 audible fix)
+            setSetting(on ? { muted: true } : { muted: false, volume: s.volume <= 0.001 ? 1 : s.volume })
             setHint(false)
           }}
         >
