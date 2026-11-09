@@ -17,6 +17,8 @@ import { CAN_HOME, WATER_PLANTS, canStand } from './water'
 import { hash } from './play'
 import { SETTLE_MS, type PlaySession } from '../play/session'
 import { officeNow, type OfficeWorld } from './world'
+import { onInput } from './inputEvents'
+import type { Typist } from './typist'
 
 export interface GripDemo {
   agent: string
@@ -40,6 +42,89 @@ const DEMOS: Record<string, (seat: number) => Omit<GripDemo, 'agent'>> = {
   paddle: () => ({ kind: 'paddle', obj: 'prop_paddle_a', side: 'r', goal: { spot: 'pingpong_a' } }),
   can: () => ({ kind: 'watering_can', obj: 'prop_watering_can', side: 'r', goal: waterGoal() }),
   book: () => ({ kind: 'book', obj: 'prop_book', side: 'l', goal: { spot: 'shelf', face: BOOK.face, ...standSlot(BOOK) } }),
+}
+
+/**
+ * ?debug=1 (#225): window.__office.typing
+ *   force(agent, activity | null)   the agent works with this activity (edit, read, test, think, delegate ...) and the typist uses it; null lets go
+ *   keys(agent, seconds = 3)        the keys the schedule has coming up for the agent: [{ t, code, hand, finger }]
+ *   watch(true | false)             records the input bus; log() reads it, clear() empties it
+ */
+export function makeTypingTools(world: OfficeWorld, typist: Typist) {
+  const id = (a: number | string) => (typeof a === 'number' ? 'agent_' + a : a)
+  const rec: { t: number; type: string; agent: string; kind: string; key?: string; x: number; y: number; z: number }[] = []
+  let off: (() => void) | null = null
+  return {
+    force(agent: number | string, activity: string | null) {
+      const a = id(agent)
+      if (activity === null) {
+        delete typist.forced[a]
+        return
+      }
+      typist.forced[a] = activity
+      world.fake?.set(a, 'working', activity)
+    },
+    keys(agent: number | string, seconds = 3) {
+      const a = id(agent)
+      const t = world.rigs[a] ? typist.lastT(a) : 0
+      return typist.upcoming(a, typist.forced[a], t, seconds, a !== 'agent_2')
+    },
+    /** hold the schedule at time t (null: let go): a still for close-ups. now(agent) is the schedule time, mouse(agent, s) the mouse acts coming */
+    freeze(agent: number | string, t: number | null) {
+      const a = id(agent)
+      if (t === null) delete typist.frozen[a]
+      else typist.frozen[a] = t
+    },
+    now: (agent: number | string) => typist.lastT(id(agent)),
+    mouse(agent: number | string, seconds = 8) {
+      const a = id(agent)
+      return typist.upcomingMouse(a, typist.forced[a], typist.lastT(a), seconds)
+    },
+    /** frame cost of the typing (ms): timing(true) starts, timing(false) returns { step, fade, applyDrive, frames }: totals per frame over the five agents */
+    timing(on: boolean) {
+      const acc = world as unknown as { __typingTiming?: { step: number; fade: number; drive: number; frames: number; undo: () => void } }
+      if (on) {
+        acc.__typingTiming?.undo()
+        const s = { step: 0, fade: 0, drive: 0, frames: 0, undo: () => {} }
+        const wrapFn = <T extends object>(o: T, k: keyof T, field: 'step' | 'fade' | 'drive') => {
+          const orig = o[k] as unknown as (...a: unknown[]) => unknown
+          ;(o as Record<string, unknown>)[k as string] = function (this: unknown, ...a: unknown[]) {
+            const t0 = performance.now()
+            const r = orig.apply(this, a)
+            s[field] += performance.now() - t0
+            if (field === 'step' && a[0] === world.rigs.agent_0) s.frames++
+            return r
+          }
+          return () => void ((o as Record<string, unknown>)[k as string] = orig)
+        }
+        const undo = [wrapFn(typist, 'step', 'step'), wrapFn(typist, 'fade', 'fade'), ...Object.values(world.rigs).map((r) => wrapFn(r, 'applyDrive', 'drive'))]
+        s.undo = () => undo.forEach((u) => u())
+        acc.__typingTiming = s
+        return
+      }
+      const s = acc.__typingTiming
+      if (!s) return null
+      s.undo()
+      const f = Math.max(1, s.frames)
+      return { frames: s.frames, stepMs: +(s.step / f).toFixed(3), fadeMs: +(s.fade / f).toFixed(3), applyDriveMs: +(s.drive / f).toFixed(3) }
+    },
+    watch(on = true) {
+      off?.()
+      off = on
+        ? onInput((e) => {
+            rec.push({ t: e.t, type: e.type, agent: e.agent, kind: e.kind, key: e.type === 'mouse' ? undefined : e.key, x: e.pos.x, y: e.pos.y, z: e.pos.z })
+            if (rec.length > 2000) rec.shift()
+          })
+        : null
+    },
+    log: () => rec.slice(),
+    clear: () => void (rec.length = 0),
+    /** the keycap press values of a seat (the non-zero ones), to compare with the events */
+    pressed: (seat: number) => {
+      const kb = typist.keyboard(seat)
+      return kb ? [...kb.press].map((p, i) => [i, +p.toFixed(2)] as const).filter(([, p]) => p > 0) : []
+    },
+  }
 }
 
 export function makePlayTools(world: OfficeWorld) {
