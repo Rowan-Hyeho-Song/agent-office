@@ -99,7 +99,7 @@ export function planGesture(kind: 'throw' | 'catch', theta: number, o: AimOpts):
       const bodyEnd = turns ? bodyStart + m : m
       const release = bodyEnd + 0.1
       times = { headEnd: m, bodyStart, bodyEnd, holdEnd: bodyEnd, release, followEnd: release, retHeadEnd: release + m, retBodyStart: release + 0.5 * m, end: turns ? release + 1.5 * m : release + m }
-    } else times = { headEnd: 0.25, bodyStart: 0.15, bodyEnd: 0.55, holdEnd: 0.85, release: 1.0, followEnd: 1.6, retHeadEnd: 2.0, retBodyStart: 1.8, end: 2.2 }
+    } else times = { headEnd: 0.25, bodyStart: 0.15, bodyEnd: 0.55, holdEnd: 0.85, release: 1.0, followEnd: 1.6, retHeadEnd: 2.12, retBodyStart: 1.68, end: 2.2 }
   } else {
     const F = o.flyFor ?? 1
     const H = o.holdS ?? 1.2
@@ -107,7 +107,7 @@ export function planGesture(kind: 'throw' | 'catch', theta: number, o: AimOpts):
     if (o.fast) {
       const bodyStart = 0.6 * m
       times = { headEnd: m, bodyStart, bodyEnd: turns ? bodyStart + m : m, holdEnd: F * 0.5, release: F, followEnd: arrive, retHeadEnd: arrive + m, retBodyStart: arrive + 0.5 * m, end: turns ? arrive + 1.5 * m : arrive + m }
-    } else times = { headEnd: 0.2, bodyStart: 0.2, bodyEnd: 0.6, holdEnd: F * 0.5, release: F, followEnd: arrive, retHeadEnd: arrive + 0.4, retBodyStart: arrive + 0.2, end: arrive + 0.6 }
+    } else times = { headEnd: 0.2, bodyStart: 0.2, bodyEnd: 0.6, holdEnd: F * 0.5, release: F, followEnd: arrive, retHeadEnd: arrive + 0.52, retBodyStart: arrive + 0.08, end: arrive + 0.6 }
   }
   return { kind, theta, body, opts: o, times }
 }
@@ -152,9 +152,10 @@ function headAt(p: Plan, t: number, thetaLive: number) {
   let head: number
   if (t < T.followEnd) head = clamp(thetaLive - turned, lim) * ramp(t, 0, T.headEnd)
   else {
-    // back: the head (against the desk) first, then the body follows
-    const abs0 = p.body + clamp(thetaLive - p.body, lim)
-    head = abs0 * (1 - ramp(t, T.followEnd, T.retHeadEnd)) - turned
+    // back (designer, #226 ②): the head leads the body by RETURN_LEAD_S only, and eases from where it was against the body
+    // to the body's front, never past it (no shake of the head on the way back)
+    const h0 = clamp(thetaLive - p.body, lim)
+    head = h0 * (1 - ramp(t, T.followEnd, T.retHeadEnd))
   }
   return clamp(head, HEAD_MAX)
 }
