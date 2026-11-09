@@ -79,7 +79,7 @@ const HAND_OMEGA = 12
  * swing below stillV (turning on the spot); settleS: on a stop the swing sinks to nothing, without overshoot, then bobS blends the standing bob in; attachS: the
  * hand's spring state (when it is farther than attachNear from the place) blends into the attached place (a hand that was elsewhere does not jump); carryShare: the free hand beside a carrying one swings this much.
  */
-const WALK = { hz: 0.8, hzMin: 0.5, hzMax: 1.0, cruise: 0.75, amp: 0.05, ampMax: 0.07, arc: 0.012, inward: 0.01, wristDeg: 10, startS: 0.4, stillV: 0.1, stillBand: 0.1, settleS: 0.5, bobS: 0.3, attachS: 0.25, attachNear: 0.15, carryShare: 0.6 } as const
+const WALK = { hz: 0.8, hzMin: 0.5, hzMax: 1.0, cruise: 0.75, amp: 0.05, ampMax: 0.07, arc: 0.012, inward: 0.01, wristDeg: 10, startS: 0.4, stillV: 0.1, stillBand: 0.1, settleS: 0.5, bobS: 0.3, attachS: 0.25, attachNear: 0.15, carryShare: 0.6, heldBob: 0.006, canBob: 0.01 } as const
 interface Swing {
   dx: number
   dy: number
@@ -779,9 +779,11 @@ export class AgentRig {
   drive: Record<'l' | 'r', HandDrive | null> = { l: null, r: null }
   private spring: Record<'l' | 'r', { pos: Vector3; quat: Quaternion } | null> = { l: null, r: null }
   /** the walking swing (#257): phase of the left hand (the right is PI behind), time since the start / the stop, the offsets now and at the stop */
-  private walkSt = { mode: 'none' as 'none' | 'walk' | 'settle', phase: 0, ramp: 0, since: 0, bob: 1, off: { l: { dx: 0, dy: 0, dz: 0, wrist: 0 }, r: { dx: 0, dy: 0, dz: 0, wrist: 0 } } as Record<'l' | 'r', Swing>, from: { l: { dx: 0, dy: 0, dz: 0, wrist: 0 }, r: { dx: 0, dy: 0, dz: 0, wrist: 0 } } as Record<'l' | 'r', Swing> }
+  private walkSt = { held: 0, mode: 'none' as 'none' | 'walk' | 'settle', phase: 0, ramp: 0, since: 0, bob: 1, off: { l: { dx: 0, dy: 0, dz: 0, wrist: 0 }, r: { dx: 0, dy: 0, dz: 0, wrist: 0 } } as Record<'l' | 'r', Swing>, from: { l: { dx: 0, dy: 0, dz: 0, wrist: 0 }, r: { dx: 0, dy: 0, dz: 0, wrist: 0 } } as Record<'l' | 'r', Swing> }
   /** 0 -> 1 while a hand blends into its attached place */
   private attachT: Record<'l' | 'r', number> = { l: 0, r: 0 }
+  /** where the hand was from its walking place (the agent's frame) when the blend began; it shrinks to 0 over WALK.attachS */
+  private attachOff: Record<'l' | 'r', Vector3> = { l: new Vector3(), r: new Vector3() }
   /** a small extra head turn while playing (the omok thinker's 5° tilt, 10° toward the last stone); rad */
   headExtra = { pitch: 0, yaw: 0, roll: 0 }
   /** a point the head glances at, up to `glanceMax` rad of yaw (the opponent's last stone) */
@@ -1543,8 +1545,11 @@ export class AgentRig {
         }
       }
       W.bob = 1
+      // a hand that holds something bobs up and down at twice the step rate instead (heldBob, applyDrive); 0 under reduced motion (ratio is 0)
+      W.held = Math.sin(2 * W.phase) * Math.min(1, ratio)
       return
     }
+    W.held = 0
     if (W.mode === 'walk') {
       if (reduced) W.mode = 'none'
       else {
@@ -1674,16 +1679,20 @@ export class AgentRig {
         if (swing) {
           // walking (#257): attached to the body-relative place, no lag (also while the body turns on the spot). A hand that was far from it (at the keys,
           // say) blends in over WALK.attachS, so it does not jump
-          if (this.attachT[side] === 0 && hand.node.position.distanceTo(this.tmpPos) < WALK.attachNear) this.attachT[side] = 1
+          if (this.attachT[side] === 0) {
+            if (hand.node.position.distanceTo(this.tmpPos) < WALK.attachNear) this.attachT[side] = 1
+            else this.attachOff[side].copy(root.worldToLocal(this.tmpAt.copy(hand.node.position))).sub(p.pos)
+          }
           const a = (this.attachT[side] = Math.min(1, this.attachT[side] + dt / WALK.attachS))
           if (a >= 1) {
             hand.node.position.copy(this.tmpPos)
             hand.node.quaternion.copy(this.tmpQuat)
-            hand.vel.set(0, 0, 0)
           } else {
-            hand.node.position.lerp(this.tmpPos, smooth01(a))
+            // the distance to the place shrinks by a smoothstep (never grows, never jumps), the place carried by the body
+            hand.node.position.copy(root.localToWorld(this.tmpAt.copy(p.pos).addScaledVector(this.attachOff[side], 1 - smooth01(a))))
             hand.node.quaternion.slerp(this.tmpQuat, smooth01(a))
           }
+          hand.vel.set(0, 0, 0)
         } else this.attachT[side] = 0
       }
       // blend the joint angles over ~120 ms (agents.md 2.7); at once with reduced motion
@@ -1811,6 +1820,8 @@ export class AgentRig {
     if (dv?.target && dv.w > 0) {
       if (!this.spring[side]) this.spring[side] = { pos: hand.node.position.clone(), quat: hand.node.quaternion.clone() }
       dv.target.decompose(this.tmpPos, this.tmpQuat, this.tmpScl)
+      // walking with it in the hand (#257): +-0.6 cm up and down at twice the step rate (the watering can +-1 cm); no swing, no bob under reduced motion
+      if (this.walkSt.mode === 'walk') this.tmpPos.y += this.walkSt.held * (this.want?.kind === 'watering_can' ? WALK.canBob : WALK.heldBob)
       hand.node.position.lerp(this.tmpPos, dv.w)
       if (dv.reach && dv.w < 1) {
         // #255: on the way to it the fingers follow the reach direction (shoulder -> the hand's place) and the palm faces the object the grip takes (the grip's own

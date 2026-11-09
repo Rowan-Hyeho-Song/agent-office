@@ -1,7 +1,7 @@
 /// <reference types="node" />
 // #257 (agents.md 2.5): walking hands are attached to their body-relative place and swing with the step, opposite phases; a stop sinks the swing in 0.5 s without
 // overshoot; a hand that holds something does not swing; no swing under reduced motion.
-import { Vector3 } from 'three'
+import { Matrix4, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import type { Goal } from './director'
 import { loadOffice, stubCanvas } from './glbLoad'
@@ -143,6 +143,98 @@ describe('walking hands (#257)', () => {
     expect(left.r / free.r, 'the free hand beside it').toBeGreaterThan(0.5)
     expect(left.r / free.r).toBeLessThan(0.7)
   })
+
+  it('a hand that holds something bobs +-0.6 cm up and down at twice the step rate (the watering can +-1 cm), no fore / aft swing, none with reduced motion', async () => {
+    const run = async (kind: string, reduced: boolean) => {
+      const { rig, rigs } = await setup('door', 'hall_east')
+      let t = 120 * DT
+      const ys: number[] = []
+      let zs = 0
+      const hold = new Vector3(-0.2, 1.0, -0.3)
+      for (let k = 0; k < 60 * 8 && priv(rig).path.length; k++) {
+        t += DT
+        ;(rig as unknown as { want: unknown }).want = { kind, side: 'l', attached: true }
+        rig.update(DT, t, GRAPH, rigs, reduced)
+        // the stage: the hand goes to a body-relative carry place with full weight
+        ;(rig as unknown as { want: unknown }).want = { kind, side: 'l', attached: true }
+        rig.parts.root.updateMatrixWorld(true)
+        rig.drive.l = { target: new Matrix4().setPosition(rig.parts.root.localToWorld(hold.clone())), w: 1, curl: null, wc: 0, spread: null }
+        rig.applyDrive('l', t, reduced)
+        if (priv(rig).walkSt.mode === 'walk' && priv(rig).speed > 0.7 && t > 6) {
+          const o = local(rig, 'l').sub(hold)
+          ys.push(o.y)
+          zs = Math.max(zs, Math.abs(o.z))
+        }
+      }
+      return { ys, zs }
+    }
+    const book = await run('book', false)
+    const can = await run('watering_can', false)
+    const red = await run('book', true)
+    expect(book.ys.length).toBeGreaterThan(60)
+    expect(Math.max(...book.ys)).toBeGreaterThan(0.0055)
+    expect(Math.max(...book.ys)).toBeLessThanOrEqual(0.006 + 1e-4)
+    expect(Math.min(...book.ys)).toBeGreaterThanOrEqual(-0.006 - 1e-4)
+    expect(Math.max(...can.ys)).toBeGreaterThan(0.0095)
+    expect(Math.max(...can.ys)).toBeLessThanOrEqual(0.01 + 1e-4)
+    expect(book.zs, 'no fore / aft swing').toBeLessThan(0.0005)
+    expect(Math.max(...red.ys.map(Math.abs)), 'reduced motion').toBeLessThan(1e-4)
+    // twice the step rate: crossings of the bob per second are about twice the swing's (2 x 0.8 Hz x 2 = 3.2 / s)
+    let cross = 0
+    for (let i = 1; i < book.ys.length; i++) if (Math.sign(book.ys[i]) !== Math.sign(book.ys[i - 1])) cross++
+    const hz = cross / 2 / (book.ys.length * DT)
+    expect(hz).toBeGreaterThan(1.4)
+    expect(hz).toBeLessThan(2.5)
+  })
+
+  for (const [from, pose, label] of [['work_0', 'type', 'standing up from the desk (the hands were typing)'], ['sofa_0', 'sofa', 'getting up from the sofa']] as const) {
+    it(label + ': from the first walking frame each hand is within amplitude + 2 cm of its place, the blend from a far pose only gets nearer, the ramp starts at 0', async () => {
+      const { scene, nodes } = await loadOffice()
+      const rig = new AgentRig('agent_0', 0, buildRig(scene, nodes, 0), '#ffffff')
+      const rigs = { agent_0: rig }
+      rig.setGoal({ spot: from, pose, label: '' } as Goal, GRAPH)
+      let t = 0
+      for (let k = 0; k < 60 * 4; k++) rig.update(DT, (t += DT), GRAPH, rigs, false)
+      const far = ['l', 'r'].map((s) => offset(rig, s as 'l' | 'r').length())
+      expect(Math.max(...far), 'the hands start away from the walking place').toBeGreaterThan(0.1)
+      rig.setGoal(goal('hall_east'), GRAPH)
+      const P = rig as unknown as { attachT: Record<string, number>; walkSt: { mode: string; ramp: number; off: Record<string, { dx: number; dy: number; dz: number }> } }
+      let first = true
+      const last = { l: Infinity, r: Infinity }
+      const lastPlace = { l: new Vector3(), r: new Vector3() }
+      const lastHand = { l: new Vector3(), r: new Vector3() }
+      let maxStep = 0
+      let blended = 0
+      let maxNear = 0
+      for (let k = 0; k < 60 * 6; k++) {
+        rig.update(DT, (t += DT), GRAPH, rigs, false)
+        if (P.walkSt.mode !== 'walk') continue
+        if (first) {
+          first = false
+          expect(P.walkSt.ramp, 'the amplitude ramp starts at 0').toBeLessThanOrEqual(DT / 0.4 + 1e-9)
+        }
+        for (const side of ['l', 'r'] as const) {
+          const rest = rig.parts.hands[side].restPos
+          const o = P.walkSt.off[side]
+          const place = new Vector3(rest.x + o.dx, rest.y + o.dy, rest.z + o.dz)
+          const d = local(rig, side).distanceTo(place)
+          const hand = local(rig, side)
+          if (P.attachT[side] < 1) {
+            blended++
+            // the place itself moves with the swing (up to ~4 mm a frame): the distance may grow by at most that
+            expect(d, side + ' during the blend').toBeLessThanOrEqual(last[side] + place.distanceTo(lastPlace[side]) + 1e-4)
+            if (blended > 2) maxStep = Math.max(maxStep, hand.distanceTo(lastHand[side]))
+          } else maxNear = Math.max(maxNear, offset(rig, side).length())
+          last[side] = d
+          lastPlace[side].copy(place)
+          lastHand[side].copy(hand)
+        }
+      }
+      expect(blended).toBeGreaterThan(5)
+      expect(maxNear).toBeLessThanOrEqual(AMP + 0.02)
+      expect(maxStep, 'no jump during the blend (a smoothstep over 0.25 s moves a 0.4 m offset by at most 4 cm a frame)').toBeLessThan(0.06)
+    })
+  }
 
   it('reduced motion: no swing at all, the hands stay on their body-relative place', async () => {
     const { rig, rigs } = await setup('door', 'hall_east')
