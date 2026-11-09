@@ -19,6 +19,12 @@ import {
   forward,
   driftSightClear,
   isClear,
+  isParked,
+  coverShare,
+  inFrameShare,
+  shotOk,
+  screenBox,
+  type Shot,
   lag,
   leaveEarly,
   meetingPose,
@@ -35,6 +41,7 @@ import {
   type Clearance,
   type Frame,
   type Pose,
+  type V3,
 } from './tour'
 
 const NOW = 1_000_000
@@ -361,6 +368,93 @@ describe('line of sight (#253)', () => {
     expect(driftSightClear(base, range, free)).toBe(true)
     expect(sightClear(base.pos, base.target, blocked)).toBe(true) // the middle of the drift is free
     expect(driftSightClear(base, range, blocked)).toBe(false)
+  })
+})
+
+// the picture (#270): parked robots may cover the subject only a little; a work cut shows the monitor or the face
+describe('the picture (#270)', () => {
+  const FOV = (32 * Math.PI) / 180
+  const AR = 1.6
+  const at: Frame = { x: 0, z: 0, ry: 0 } // faces -z; its monitor is 0.678 m ahead
+  const head = { min: [-0.25, 0.8, -0.25] as [number, number, number], max: [0.25, 1.3, 0.25] as [number, number, number] }
+  const shot = (blockers: Shot['blockers'] = [], work?: Frame): Shot => ({ heads: [head], blockers, fovY: FOV, aspect: AR, work })
+
+  it('only robots parked at a place count, not the ones passing by', () => {
+    expect(isParked({ visible: true, arrived: 'work_1' }, 'work_1')).toBe(true)
+    expect(isParked({ visible: true, arrived: null }, 'work_1')).toBe(false) // walking
+    expect(isParked({ visible: true, arrived: 'hall_front' }, 'work_1')).toBe(false) // passing a spot, not its goal
+    expect(isParked({ visible: false, arrived: 'work_1' }, 'work_1')).toBe(false)
+  })
+  it('a blocker in front of the head covers it; one behind or beside does not', () => {
+    const cam: V3 = [0, 1.1, 3]
+    const tg: V3 = [0, 1.05, 0]
+    const inFront = { min: [-0.5, 0, 1.4] as V3, max: [0.5, 1.5, 1.8] as V3 }
+    const behind = { min: [-0.5, 0, -2] as V3, max: [0.5, 1.5, -1.6] as V3 }
+    const beside = { min: [1.5, 0, 1.4] as V3, max: [2.5, 1.5, 1.8] as V3 }
+    expect(coverShare([head], [inFront], cam, tg, FOV, AR)).toBeGreaterThan(0.9)
+    expect(coverShare([head], [behind], cam, tg, FOV, AR)).toBe(0)
+    expect(coverShare([head], [beside], cam, tg, FOV, AR)).toBe(0)
+    expect(shotOk(cam, tg, shot([inFront]))).toBe(false)
+    expect(shotOk(cam, tg, shot([beside]))).toBe(true)
+    expect(shotOk(cam, tg, shot([]))).toBe(true)
+  })
+  it('35 percent is the limit', () => {
+    const cam: V3 = [0, 1.05, 3]
+    const tg: V3 = [0, 1.05, 0]
+    // a wall of a blocker whose edge covers about half of the head's picture: over; about a fifth: allowed
+    const cover = (frac: number) => ({ min: [-1 + 2 * frac * 0.5 - 0.5 + 0.25 - 0.25, 0, 1.4] as V3, max: [-0.25 + 0.5 * frac, 1.5, 1.8] as V3 })
+    expect(shotOk(cam, tg, shot([cover(0.5)]))).toBe(false)
+    expect(shotOk(cam, tg, shot([cover(0.2)]))).toBe(true)
+  })
+  it('a work cut: the monitor in the picture (and seen from its front) or the face seen from the front', () => {
+    const screen = screenBox(at)
+    expect(screen.min[2]).toBeLessThan(-0.5)
+    // behind the seat, monitor in the middle of the picture
+    expect(inFrameShare(screen, [0, 1.7, 2.3], [0, 1.0, -0.7], FOV, AR)).toBeGreaterThan(0.99)
+    expect(shotOk([0, 1.7, 2.3], [0, 1.0, -0.7], shot([], at))).toBe(true)
+    // behind the seat, aimed past the monitor: it is cut off and the face is not seen
+    expect(inFrameShare(screen, [0, 1.7, 2.3], [3, 1.0, -0.7], FOV, AR)).toBeLessThan(0.7)
+    expect(shotOk([0, 1.7, 2.3], [3, 1.0, -0.7], shot([], at))).toBe(false)
+    // in front of the monitor, face seen from the front (within 60 degrees), even when the monitor is cut off
+    expect(shotOk([0.8, 1.7, -2.6], [3, 1.0, -2.6], shot([], at))).toBe(true)
+    // 3/4 from the front, 60 degrees: ok; from the side (90 degrees) with the monitor cut off: not
+    expect(shotOk([2.6 * Math.sin(Math.PI / 3), 1.7, -2.6 * Math.cos(Math.PI / 3)], [9, 1.0, 9], shot([], at))).toBe(true)
+    expect(shotOk([2.6, 1.7, 0], [9, 1.0, 9], shot([], at))).toBe(false)
+    // the monitor in the picture but seen edge-on (87 degrees off its front) and the face not seen: no
+    expect(inFrameShare(screenBox(at), [2.6, 1.7, -0.55], [0, 1.1, -0.678], FOV, AR)).toBeGreaterThan(0.99)
+    expect(shotOk([2.6, 1.7, -0.55], [0, 1.1, -0.678], shot([], at))).toBe(false)
+    // the monitor seen from its back (camera ahead of the screen, looking at it, 90+ degrees off the front): only the face rule can pass
+    expect(shotOk([0, 1.7, -3], [0, 1.0, 0], shot([], at))).toBe(true) // that is in front: the face is seen
+  })
+  it('a pose that fails the picture is skipped for the next candidate; none passes: no pose', () => {
+    const seat = seatOf(3)
+    const first = workCandidates(seat)[0]
+    const hd = { min: [seat.x - 0.25, 0.8, seat.z - 0.25] as V3, max: [seat.x + 0.25, 1.3, seat.z + 0.25] as V3 }
+    // a parked robot right in front of the first camera, between it and the seat
+    const d = [seat.x - first.pos[0], seat.z - first.pos[2]]
+    const l = Math.hypot(d[0], d[1])
+    const bx = first.pos[0] + (d[0] / l) * 0.9
+    const bz = first.pos[2] + (d[1] / l) * 0.9
+    const blocker = { min: [bx - 0.5, 0, bz - 0.5] as V3, max: [bx + 0.5, 3.5, bz + 0.5] as V3 }
+    const c: Clearance = { boxes: [], margin: 0.3, shot: { heads: [hd], blockers: [blocker], fovY: FOV, aspect: AR, work: seat } }
+    expect(shotOk(first.pos, first.target, c.shot)).toBe(false)
+    const p = workPose(seat, c)
+    expect(p).not.toBeNull()
+    expect(p).not.toEqual(first)
+    expect(shotOk(p!.pos, p!.target, c.shot)).toBe(true)
+    // everything covered: skipped
+    const all = { min: [-100, -100, -100] as V3, max: [100, 100, 100] as V3 }
+    expect(workPose(seat, { boxes: [], margin: 0.3, shot: { heads: [hd], blockers: [all], fovY: FOV, aspect: AR, work: seat } })).toBeNull()
+  })
+  it('every seat: a work pose that meets the rules, or the cut is skipped', () => {
+    for (const s of SPOTS.filter((p) => /^work_d+$/.test(p.id))) {
+      const seat: Frame = { x: s.x, z: s.z, ry: s.ry }
+      const hd = { min: [seat.x - 0.25, 0.8, seat.z - 0.25] as V3, max: [seat.x + 0.25, 1.3, seat.z + 0.25] as V3 }
+      const c: Clearance = { boxes: [], margin: 0.3, shot: { heads: [hd], blockers: [], fovY: FOV, aspect: AR, work: seat } }
+      const p = workPose(seat, c)
+      if (p) expect(shotOk(p.pos, p.target, c.shot)).toBe(true)
+      expect(p === null || isClear(p.pos, c)).toBe(true)
+    }
   })
 })
 

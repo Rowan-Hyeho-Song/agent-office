@@ -247,10 +247,166 @@ export interface Clearance {
    * itself is one). Absent = no sight check.
    */
   sight?: readonly Box[]
+  /** what the picture must show (heads, the monitor of a work cut) and what may stand in front of it; absent = no such rules */
+  shot?: Shot
 }
 const roomInset = 0.3
 export const inRoom = (x: number, z: number) => Math.abs(x) <= ROOM.hx - roomInset && Math.abs(z) <= ROOM.hz - roomInset
 export const isClear = (p: V3, c: Clearance) => inRoom(p[0], p[2]) && c.boxes.every((b) => boxDistance(p, b) >= c.margin - 0.03)
+
+// ---- what the picture shows (#270) ----------------------------------------------------------------------------------
+
+/** the monitor of a seat (screen_work_i in the glb: 0.57 x 0.33 m, centre 0.678 m ahead of the seat, 1.1 m up), as a box */
+export const SCREEN = { ahead: 0.678, y: 1.1, w: 0.57, h: 0.33 }
+export function screenBox(seat: Frame): Box {
+  const [fx, fz] = forward(seat.ry)
+  const [rx, rz] = rightOf(seat.ry)
+  const cx = seat.x + fx * SCREEN.ahead
+  const cz = seat.z + fz * SCREEN.ahead
+  const hx = Math.abs(rx) * (SCREEN.w / 2) + 0.01
+  const hz = Math.abs(rz) * (SCREEN.w / 2) + 0.01
+  return { min: [cx - hx, SCREEN.y - SCREEN.h / 2, cz - hz], max: [cx + hx, SCREEN.y + SCREEN.h / 2, cz + hz] }
+}
+
+/** the picture's rules: the subject's head(s), the robots that stay at their places (not the passing ones) and the camera optics */
+export interface Shot {
+  /** the heads of the subject(s) */
+  heads: readonly Box[]
+  /** the boxes of the other robots that are parked at a place (work, sofa, meeting, play) */
+  blockers: readonly Box[]
+  /** vertical field of view (rad) and width / height of the picture */
+  fovY: number
+  aspect: number
+  /** a work cut: the seat (its monitor must be in the picture, or the face seen) */
+  work?: Frame
+}
+export const SHOT = {
+  /** the blockers may cover at most this share of the subject (head + monitor) as seen from the camera */
+  maxCover: 0.35,
+  /** a work cut: the monitor must be this much inside the picture ... */
+  minScreenIn: 0.7,
+  /** ... or the camera stands within this angle (deg) of the seat's facing direction (the face is seen from the front, 3/4 view included) */
+  faceCone: 60,
+  /** ... and the screen is seen from within this angle (deg) of its normal (not edge-on) */
+  screenCone: 70,
+}
+
+const corners = (b: Box): V3[] => {
+  const o: V3[] = []
+  for (const x of [b.min[0], b.max[0]]) for (const y of [b.min[1], b.max[1]]) for (const z of [b.min[2], b.max[2]]) o.push([x, y, z])
+  return o
+}
+const sub = (a: readonly number[], b: readonly number[]): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+const dot = (a: readonly number[], b: readonly number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+const cross = (a: readonly number[], b: readonly number[]): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+const unit = (a: V3): V3 => {
+  const l = Math.hypot(a[0], a[1], a[2]) || 1
+  return [a[0] / l, a[1] / l, a[2] / l]
+}
+
+/**
+ * the box as a rectangle in the picture (-1..1 both ways = in view) seen from pos towards target; null when any of it is behind
+ * the camera, except with `clip` (a blocker reaching past the camera: its near corners are pushed to the near plane)
+ */
+export function projectBox(b: Box, pos: V3, target: V3, fovY: number, aspect: number, clip = false): { x0: number; y0: number; x1: number; y1: number; depth: number; near: number } | null {
+  const f = unit(sub(target, pos))
+  let r = cross(f, [0, 1, 0])
+  if (Math.hypot(r[0], r[1], r[2]) < 1e-6) r = [1, 0, 0]
+  r = unit(r)
+  const u = cross(r, f)
+  const t = Math.tan(fovY / 2)
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  let near = Infinity
+  for (const p of corners(b)) {
+    const d = sub(p, pos)
+    let z = dot(d, f)
+    if (z < 0.05) {
+      if (!clip) return null
+      z = 0.05
+    }
+    near = Math.min(near, z)
+    const x = dot(d, r) / (z * t * aspect)
+    const y = dot(d, u) / (z * t)
+    x0 = Math.min(x0, x)
+    x1 = Math.max(x1, x)
+    y0 = Math.min(y0, y)
+    y1 = Math.max(y1, y)
+  }
+  const c = b.min.map((v, i) => (v + b.max[i]) / 2)
+  return { x0, y0, x1, y1, depth: dot(sub(c, pos), f), near }
+}
+
+/** the share of the boxes' pictures (sampled) that the blockers in front of them cover; a subject behind the camera counts as covered */
+export function coverShare(subjects: readonly Box[], blockers: readonly Box[], pos: V3, target: V3, fovY: number, aspect: number): number {
+  const N = 8
+  let n = 0
+  let hit = 0
+  for (const s of subjects) {
+    const rs = projectBox(s, pos, target, fovY, aspect)
+    if (!rs) {
+      n += N * N
+      hit += N * N
+      continue
+    }
+    const front = blockers.map((b) => projectBox(b, pos, target, fovY, aspect, true)).filter((r): r is NonNullable<typeof r> => !!r && r.near < rs.depth)
+    for (let i = 0; i < N; i++)
+      for (let j = 0; j < N; j++) {
+        const x = rs.x0 + ((rs.x1 - rs.x0) * (i + 0.5)) / N
+        const y = rs.y0 + ((rs.y1 - rs.y0) * (j + 0.5)) / N
+        n++
+        if (front.some((r) => x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1)) hit++
+      }
+  }
+  return n ? hit / n : 0
+}
+
+/** how much of the box's picture is inside the frame (0..1); 0 when it is behind the camera */
+export function inFrameShare(b: Box, pos: V3, target: V3, fovY: number, aspect: number): number {
+  const r = projectBox(b, pos, target, fovY, aspect)
+  if (!r) return 0
+  const area = (r.x1 - r.x0) * (r.y1 - r.y0)
+  const ix = Math.max(0, Math.min(1, r.x1) - Math.max(-1, r.x0))
+  const iy = Math.max(0, Math.min(1, r.y1) - Math.max(-1, r.y0))
+  return area > 0 ? (ix * iy) / area : 0
+}
+
+/** the angle (deg) between the seat's facing direction and the direction from the seat to the camera (ground plane) */
+export function angleFromFront(seat: Frame, pos: V3): number {
+  const [fx, fz] = forward(seat.ry)
+  const dx = pos[0] - seat.x
+  const dz = pos[2] - seat.z
+  const l = Math.hypot(dx, dz) || 1
+  return Math.acos(Math.min(1, Math.max(-1, (dx * fx + dz * fz) / l))) / DEG
+}
+
+/**
+ * the picture's rules: (1) the robots parked at a place cover at most SHOT.maxCover of the subject (heads + the monitor of a
+ * work cut) as seen from the camera; (2) a work cut shows the monitor (>= 70 % in the picture and seen within 70 degrees of its front) or the face
+ * (the camera within 60 degrees of the seat's facing direction, i.e. in front of it)
+ */
+export function shotOk(pos: V3, target: V3, shot: Shot | undefined): boolean {
+  if (!shot) return true
+  const screen = shot.work ? screenBox(shot.work) : null
+  if (shot.blockers.length > 0) {
+    const subjects = screen ? [...shot.heads, screen] : shot.heads
+    if (subjects.length && coverShare(subjects, shot.blockers, pos, target, shot.fovY, shot.aspect) > SHOT.maxCover) return false
+  }
+  if (shot.work && screen) {
+    const [fx, fz] = forward(shot.work.ry)
+    const dx = pos[0] - (shot.work.x + fx * SCREEN.ahead)
+    const dz = pos[2] - (shot.work.z + fz * SCREEN.ahead)
+    const fromNormal = Math.acos(Math.min(1, Math.max(-1, (dx * -fx + dz * -fz) / (Math.hypot(dx, dz) || 1)))) / DEG
+    const seesScreen = fromNormal <= SHOT.screenCone && inFrameShare(screen, pos, target, shot.fovY, shot.aspect) >= SHOT.minScreenIn
+    return seesScreen || angleFromFront(shot.work, pos) <= SHOT.faceCone
+  }
+  return true
+}
+
+/** a robot that stays at a place (its goal spot: a seat, the sofa, a circle, a game); one walking past is not */
+export const isParked = (r: { visible: boolean; arrived: string | null }, goalSpot?: string) => r.visible && !!r.arrived && goalSpot === r.arrived
 
 /** is the line from the camera to the target (stopping VIEW.near.targetSkip short of it) free of furniture? */
 export function sightClear(pos: V3, target: V3, c: Clearance): boolean {
@@ -260,7 +416,7 @@ export function sightClear(pos: V3, target: V3, c: Clearance): boolean {
 }
 
 /** a camera the app may use: clear of everything, and it sees the target */
-export const usable = (pos: V3, target: V3, c: Clearance) => isClear(pos, c) && sightClear(pos, target, c)
+export const usable = (pos: V3, target: V3, c: Clearance) => isClear(pos, c) && sightClear(pos, target, c) && shotOk(pos, target, c.shot)
 
 /** the first pose (in order) whose camera is usable (clear and it sees its target), else null */
 export const firstClear = (poses: readonly Pose[], c: Clearance): Pose | null => poses.find((p) => usable(p.pos, p.target, c)) ?? null
@@ -289,14 +445,18 @@ export const adjusted = (p: Pose, k: number, dy: number): Pose => ({
 /** the first usable pose of the candidates (in order), trying each alternative (pull / raise) over all of them before the next; null when none */
 export function firstUsable(cands: readonly Pose[], c: Clearance): Pose | null {
   for (const { k, dy } of ALTERNATIVES) {
-    const p = firstClear(
-      cands.map((q) => (k === 1 && dy === 0 ? q : adjusted(q, k, dy))),
-      c,
-    )
-    if (p) return p
+    const poses = cands.map((q) => (k === 1 && dy === 0 ? q : adjusted(q, k, dy)))
+    const p = firstClear(poses, c)
+    if (p) {
+      lastPick.work = { index: poses.indexOf(p), k, dy }
+      return p
+    }
   }
+  lastPick.work = null
   return null
 }
+/** debug: which candidate (index in workCandidates) and alternative (pull k, raise dy) the last work pose took */
+export const lastPick: { work: { index: number; k: number; dy: number } | null } = { work: null }
 
 const v3 = (x: number, y: number, z: number): V3 => [x, y, z]
 
