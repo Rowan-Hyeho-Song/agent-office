@@ -34,6 +34,8 @@ const CORNER_SPEED = 0.32 // through a sharp turn
 const TURN_RATE = 4.5 // rad/s
 // a meeting listener's nod (#141): how long it takes, how far the head dips, how long the addressee's hand stays up
 const NOD_S = 0.5
+/** a received plane / toss: how long the eyes stay wide before the nod (paper-pass.md 4) */
+const PAPER_SURPRISE_S = 1.2
 const NOD_DEG = 5
 const NOD_HAND_S = 0.8
 const LIFT = 0.06 // extra hover height while moving
@@ -676,6 +678,24 @@ export class AgentRig {
   /** the meeting reaction in progress (#141): when it started on the scene clock, whether a hand lifts with it; the key it answered last */
   private nod: { t0: number; hand: boolean } | null = null
   private nodKey = ''
+  /** a received paper / plane (#267, paper-pass.md 4): the wide eyes of surprise until `until`, then a nod at `nodAt` */
+  private paperFace: { until: number; nodAt: number | null } | null = null
+
+  /**
+   * What the receiver's face does when a paper or a plane reaches its hand (#267, paper-pass.md 4): 'surprise' (a plane, a
+   * toss) = wide eyes for 1.2 s, then a nod while it looks; 'nod' (handed over, pushed) = a nod at once. Then the status face.
+   */
+  paperReaction(kind: 'surprise' | 'nod', t: number, reduced = false) {
+    const surpriseS = Math.max(PAPER_SURPRISE_S, this.gestureMin)
+    if (kind === 'surprise') this.paperFace = { until: t + surpriseS, nodAt: t + surpriseS }
+    else this.paperFace = { until: t, nodAt: t }
+    if (reduced) this.paperFace.nodAt = null // the nod is motion; the surprise face is information and stays
+  }
+
+  /** tests: whether the face shows the received-paper surprise now */
+  surprisedAt(t: number): boolean {
+    return !!this.paperFace && t < this.paperFace.until
+  }
   /** a point to turn the head to while resting (the coder's rubber duck when a test fails, #44) */
   watch: Vector3 | null = null
   /** grips and play (PlayStage): what each hand is made to do this frame (null = just its pose) */
@@ -1512,6 +1532,21 @@ export class AgentRig {
   }
 
   private updateFace(t: number, pose: string, status: AgentStatus | undefined, reduced: boolean) {
+    // a received paper / plane: the nod once its surprise is over, the wide eyes until then (#267)
+    const pf = this.paperFace
+    if (pf) {
+      if (pf.nodAt !== null && t >= pf.nodAt) {
+        this.nod = reduced ? null : { t0: t, hand: false }
+        pf.nodAt = null
+      }
+      if (t < pf.until) {
+        if (!this.face) return
+        const a = this.aim
+        const gx = a ? Math.round(MathUtils.clamp(a.eyes, -1, 1) * 3) : 0
+        return this.face.draw('wide', gx, 0)
+      }
+      if (pf.nodAt === null) this.paperFace = null
+    }
     if (!this.face) return
     // looking at the plane / the one it throws to (#224): the eyes go first, the mood narrows to aim and widens to catch.
     // Eye direction is information, not motion: it stays with reduced motion
