@@ -183,7 +183,7 @@ def kit_mouse(G, at=(0.3, 0.07)):
     return parts
 
 
-def kit_pad(G, at=(0.3, 0.06)):
+def kit_pad(G, at=(0.3, 0.1)):  # z 0.10: clear of MEMO's tray (its front edge at z -0.01)
     """a cloth mouse pad 0.25 x 0.21 x 3 mm, dark navy, a grey stitched band round the edge"""
     x0, z0 = at
     h = DESK_H
