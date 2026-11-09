@@ -5,7 +5,7 @@ import { CanvasTexture, MathUtils, MeshBasicMaterial, SRGBColorSpace, Vector3, t
 import type { DeskProps } from './props'
 import { TrayPile } from './tray'
 import { PlaySounds } from '../audio/playSounds'
-import { roomSound, setSpeakerNodes } from './echoLive'
+import { faderLevels, setSpeakerNodes, speakerCells, speakerCone, speakerOn } from '../audio/speaker'
 
 /** an emitter's own colors (a node may hold several meshes), so it can be dimmed and brought back */
 function emitter(node: Object3D | undefined) {
@@ -28,7 +28,7 @@ const APPROVAL_DOT_OFF = 0.15
 const HOURGLASS_EVERY = 6 // s: while the planner waits, it turns the hourglass over now and then
 const BLINK_HZ = 2.2
 
-/** echo's mixer (desks.md, #193): the woofer cones travel 3 mm with the loudness, the level meter has 8 cells, 4 faders show the visitor's volumes */
+/** echo's mixer (desks.md, #193): the woofer cones travel 3 mm, the level meter has 8 cells, 4 faders; every value comes from src/audio/speaker.ts */
 export class EchoDesk {
   private spk: { node: Object3D; rest: Vector3; travel: number }[]
   private led: (k: number) => void
@@ -46,23 +46,24 @@ export class EchoDesk {
     this.led = emitter(n('desk_4_spk_led'))
     this.meter = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => emitter(n(`desk_4_meter_${k}`)))
     this.present = this.spk.length > 0 || this.fader.length > 0
-    setSpeakerNodes(n('desk_4_spk_l'), n('desk_4_spk_r'))
+    const l = n('desk_4_spk_l')
+    const r = n('desk_4_spk_r')
+    if (l && r) setSpeakerNodes(l, r)
   }
 
-  update(working: boolean, t: number, dt: number, reduced: boolean) {
+  update(reduced: boolean) {
     if (!this.present) return
-    const s = roomSound(t, dt)
-    // the cones: along their own +z by the loudness (only when the visitor hears it)
-    for (const c of this.spk) c.node.position.copy(c.rest).addScaledVector(Z_LOCAL, c.travel * (reduced ? 0 : s.level))
-    // the faders: the visitor's music / effects / ambience / master (axis -z, zero = the slot's end)
-    this.fader.forEach((f, k) => f.node.position.copy(f.rest).addScaledVector(Z_LOCAL, -f.travel * s.faders[k]))
+    const cone = speakerCone()
+    const faders = faderLevels()
+    // the cones: along their own +z (the speaker's push); reduced motion leaves them
+    for (const c of this.spk) c.node.position.copy(c.rest).addScaledVector(Z_LOCAL, c.travel * (reduced ? 0 : cone))
+    // the faders: hook / piano / bass / drums (axis -z, zero = the slot's end)
+    this.fader.forEach((f, k) => f.node.position.copy(f.rest).addScaledVector(Z_LOCAL, -f.travel * faders[k]))
     // the gain knobs turn with their fader (about 270 degrees end to end)
-    this.knob.forEach((o, k) => (o.rotation.y = (s.faders[k] - 0.5) * 1.5 * Math.PI))
-    this.led(s.on ? 1 : OFF)
-    // the level meter: the loudness; while echo works and nothing is audible, a quiet wandering level so the desk shows the work
-    const synth = working && !s.audible ? 0.22 + 0.18 * Math.sin(t * 2.3) * Math.sin(t * 0.7 + 1) : 0
-    const level = reduced ? (working ? 0.3 : s.level) : Math.max(s.level, synth)
-    const lit = Math.round(MathUtils.clamp(level, 0, 1) * 8)
+    this.knob.forEach((o, k) => (o.rotation.y = (faders[k] - 0.5) * 1.5 * Math.PI))
+    this.led(speakerOn() ? 1 : OFF)
+    // the level meter follows the speaker's cells only: no sound, no light (sound.md 5)
+    const lit = MathUtils.clamp(speakerCells(), 0, 8)
     this.cells = lit
     this.meter.forEach((m, k) => m(k < lit ? 1 : 0.06))
   }
@@ -187,7 +188,7 @@ export class DeskLive {
     this.signal.y(p.signal === 'yellow' ? (reduced ? 1 : 0.65 + 0.35 * Math.sin(t * 6)) : OFF)
     this.signal.r(p.signal === 'red' ? 1 : OFF)
     // 에코: speaker cones, faders, knobs, level meter
-    this.echo.update(p.echoWorking, t, dt, reduced)
+    this.echo.update(reduced)
     this.sounds.signalLight(p.signal, this.signalAt ? this.signalAt.getWorldPosition(this.signalPos) : null)
   }
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react'
 import { BoxGeometry, Mesh, MeshBasicMaterial, Quaternion, Vector3, type Object3D } from 'three'
-import { toggleSpeakerForMe } from './echoLive'
+import { toggleSpeakerForMe } from '../audio/speaker'
 import { useCanvasPick } from './pick'
 
 /** the press box of one speaker, centred on its pivot (desk_4_spk_l | _r), 0.12 x 0.20 x 0.14 m in the speaker's own axes (#193, sound.md 5) */
@@ -48,6 +48,7 @@ export function SpeakerClick({ nodes }: { nodes: Record<string, Object3D> }) {
     () => boxes,
     () => {
       const r = toggleSpeakerForMe()
+      // speaker.ts: 'off' = the music is off for me now
       if (r === 'off') toast(SPEAKER_TAG.off, 1500)
       else if (r === 'muted') toast(SPEAKER_TAG.muted, 1500)
     },

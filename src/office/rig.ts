@@ -27,7 +27,7 @@ import { GLOW } from './nodes'
 import { KNUCKLE_DEG, THUMB_DEG, type FingerModel } from './grip'
 import { TRAFFIC, type Sample } from './traffic'
 import type { AgentStatus } from './status'
-import { musicGlow, roomSound } from './echoLive'
+import { musicGlow, speakerCone, speakerOn } from '../audio/speaker'
 
 /** the poses of the play schedule (play.ts PlayKind): what "resting" means (sound.md 5) */
 const RESTING_POSES: ReadonlySet<string> = new Set(['pingpong', 'boardgame', 'coffee', 'sofa', 'water', 'books'])
@@ -1529,17 +1529,17 @@ export class AgentRig {
 
   /**
    * Echo (agents.md 2.11): the fork's prongs ring at 24 Hz, +-0.6 deg about local x, while the visitor hears the office (0.4 s decay); the
-   * grille's light ring breathes 0.35..0.6 over 4 s, and follows the loudness 0.4..1.0 while there is sound. Reduced motion: no ringing, steady light.
+   * grille's light ring breathes 0.35..0.6 over 4 s, and musicGlow() (0..0.3, speaker.ts) is added while the music plays. Reduced motion: no ringing, steady light.
    */
   private updateEcho(dt: number, t: number, reduced: boolean, tint: (node: Object3D | undefined, color: (base: Color) => Color) => void) {
-    const s = roomSound(t, dt)
+    const level = speakerOn() ? speakerCone() : 0
     const fork = this.parts.fork
     if (fork) {
-      this.forkAmp = s.audible && s.level > 0.05 ? Math.max(this.forkAmp, Math.min(1, s.level * 1.6)) : Math.max(0, this.forkAmp - dt / 0.4)
+      this.forkAmp = level > 0.05 ? Math.max(this.forkAmp, Math.min(1, level * 1.6)) : Math.max(0, this.forkAmp - dt / 0.4)
       fork.rotation.x = reduced ? 0 : this.forkAmp * 0.6 * MathUtils.DEG2RAD * Math.sin(t * Math.PI * 2 * 24)
     }
     const breath = reduced ? 0.475 : 0.475 + 0.125 * Math.sin((t / 4) * Math.PI * 2)
-    const k = Math.min(1, (s.audible ? 0.4 + 0.6 * s.level : breath) + musicGlow())
+    const k = Math.min(1, breath + musicGlow())
     tint(this.parts.grille, (base) => this.tmpColor.copy(base).multiplyScalar(k))
   }
 

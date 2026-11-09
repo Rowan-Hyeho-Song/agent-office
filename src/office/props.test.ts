@@ -33,13 +33,6 @@ describe('deskProps', () => {
     })
   })
 
-  it("echo's level meter moves while the sound seat works (#193)", () => {
-    expect(deskProps(input()).echoWorking).toBe(false)
-    expect(deskProps(input({}, { agent_4: working('edit') })).echoWorking).toBe(true)
-    expect(deskProps(input({}, { agent_4: working('test'), agent_3: working('test') })).echoWorking).toBe(true)
-    expect(deskProps(input({}, { agent_3: working('edit') })).echoWorking).toBe(false)
-  })
-
   it('inbox / outbox clamp to 0..5', () => {
     for (const [n, want] of [[-3, 0], [0, 0], [2.7, 2], [5, 5], [9, 5], [NaN, 0]] as const) {
       expect(deskProps(input({ pending: n })).inbox).toBe(want)

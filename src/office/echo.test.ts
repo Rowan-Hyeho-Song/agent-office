@@ -8,10 +8,17 @@ import { AgentRig, buildRig } from './rig'
 import { EchoDesk } from './deskLive'
 import { AGENTS, AGENT_COLORS, AGENT_INFO } from './world'
 import { loadOffice, stubCanvas } from './glbLoad'
-import type { RoomSound } from './echoLive'
 
-const sound: { now: RoomSound } = { now: { on: false, audible: false, level: 0, faders: [0, 0, 0, 0] } }
-vi.mock('./echoLive', () => ({ roomSound: () => sound.now, musicGlow: () => (sound.now.audible ? 0.3 * sound.now.level : 0), setSpeakerNodes: () => {} }))
+/** what speaker.ts says now (the real one needs the audio graph; its shape is what the desk and the rig read) */
+const sound = { now: { on: false, audible: false, level: 0, faders: [0, 0, 0, 0] as [number, number, number, number] } }
+vi.mock('../audio/speaker', () => ({
+  speakerCone: () => sound.now.level,
+  speakerOn: () => sound.now.on,
+  speakerCells: () => Math.round(sound.now.level * 8),
+  faderLevels: () => sound.now.faders,
+  musicGlow: () => (sound.now.audible ? 0.3 * sound.now.level : 0),
+  setSpeakerNodes: () => {},
+}))
 stubCanvas()
 
 const tokens = readFileSync(new URL('../styles/tokens.css', import.meta.url), 'utf8')
@@ -83,7 +90,7 @@ describe('echo in the model', async () => {
     expect(Math.abs(fork.rotation.x)).toBe(0)
   })
 
-  it('the grille ring breathes 0.35..0.6 of full without sound and follows the loudness 0.4..1 with it', () => {
+  it('the grille ring breathes 0.35..0.6 of full without sound and adds the music glow (up to 0.3) with it', () => {
     const rig = new AgentRig('agent_4', 4, rigs[4], '#f2ffc4')
     let mesh: Mesh | undefined
     rigs[4].grille!.traverse((o) => {
@@ -101,12 +108,10 @@ describe('echo in the model', async () => {
     expect(Math.min(...seen)).toBeGreaterThanOrEqual(0.35 - 1e-6)
     expect(Math.max(...seen)).toBeLessThanOrEqual(0.6 + 1e-6)
     expect(Math.max(...seen) - Math.min(...seen)).toBeGreaterThan(0.2)
-    sound.now = { on: true, audible: true, level: 0, faders: [1, 1, 1, 1] }
-    step(10)
-    expect(bright() / base).toBeCloseTo(0.4)
+    // t = 1 s is the top of the breath (0.6): the music adds musicGlow() 0..0.3 on top
     sound.now = { on: true, audible: true, level: 1, faders: [1, 1, 1, 1] }
-    step(10.02)
-    expect(bright() / base).toBeCloseTo(1)
+    step(1)
+    expect(bright() / base).toBeCloseTo(0.9)
   })
 
   describe('the desk: cones, faders, knobs, LED, level meter', () => {
@@ -133,35 +138,30 @@ describe('echo in the model', async () => {
 
     it('cones travel the extras travel (3 mm) with the loudness and faders slide their travel (45 mm) with the volumes; both rest at silence', () => {
       sound.now = { on: true, audible: true, level: 1, faders: [1, 0.5, 0, 1] }
-      desks.update(false, 1, 1 / 60, false)
+      desks.update(false)
       expect(moved('desk_4_spk_l')).toBeCloseTo(at('desk_4_spk_l').userData.travel, 6)
       expect(moved('desk_4_fader_0')).toBeCloseTo(0.045, 6)
       expect(moved('desk_4_fader_3')).toBeCloseTo(0.045, 6)
       sound.now = { on: false, audible: false, level: 0, faders: [0, 0, 0, 0] }
-      desks.update(false, 2, 1 / 60, false)
+      desks.update(false)
       expect(moved('desk_4_spk_l')).toBeCloseTo(0, 9)
       expect(moved('desk_4_fader_0')).toBeCloseTo(0, 9)
       // reduced motion: the cones stay
       sound.now = { on: true, audible: true, level: 1, faders: [1, 1, 1, 1] }
-      desks.update(false, 3, 1 / 60, true)
+      desks.update(true)
       expect(moved('desk_4_spk_l')).toBeCloseTo(0, 9)
     })
 
-    it('the level meter is dark when nothing works and nothing is heard, shows the sound when audible, and moves while echo works', () => {
+    it('the level meter follows the speaker cells only: dark without sound, however hard echo works', () => {
       sound.now = { on: false, audible: false, level: 0, faders: [0, 0, 0, 0] }
-      desks.update(false, 3, 1 / 60, false)
+      desks.update(false)
       expect(cells()).toBe(0)
       sound.now = { on: true, audible: true, level: 0.75, faders: [1, 1, 1, 1] }
-      desks.update(false, 4, 1 / 60, false)
+      desks.update(false)
       expect(cells()).toBe(6)
       sound.now = { on: false, audible: false, level: 0, faders: [0, 0, 0, 0] }
-      const seen = new Set<number>()
-      for (let k = 0; k < 400; k++) {
-        desks.update(true, 5 + k / 20, 1 / 60, false)
-        seen.add(cells())
-      }
-      expect(seen.size).toBeGreaterThan(1)
-      expect(Math.max(...seen)).toBeLessThanOrEqual(5)
+      desks.update(false)
+      expect(cells()).toBe(0)
     })
   })
 })
