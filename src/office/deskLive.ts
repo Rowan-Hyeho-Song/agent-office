@@ -5,7 +5,7 @@ import { CanvasTexture, MathUtils, MeshBasicMaterial, SRGBColorSpace, Vector3, t
 import type { DeskProps } from './props'
 import { TrayPile } from './tray'
 import { PlaySounds } from '../audio/playSounds'
-import { roomSound } from './echoLive'
+import { roomSound, setSpeakerNodes } from './echoLive'
 
 /** an emitter's own colors (a node may hold several meshes), so it can be dimmed and brought back */
 function emitter(node: Object3D | undefined) {
@@ -46,6 +46,7 @@ export class EchoDesk {
     this.led = emitter(n('desk_4_spk_led'))
     this.meter = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => emitter(n(`desk_4_meter_${k}`)))
     this.present = this.spk.length > 0 || this.fader.length > 0
+    setSpeakerNodes(n('desk_4_spk_l'), n('desk_4_spk_r'))
   }
 
   update(working: boolean, t: number, dt: number, reduced: boolean) {

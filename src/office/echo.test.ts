@@ -11,7 +11,7 @@ import { loadOffice, stubCanvas } from './glbLoad'
 import type { RoomSound } from './echoLive'
 
 const sound: { now: RoomSound } = { now: { on: false, audible: false, level: 0, faders: [0, 0, 0, 0] } }
-vi.mock('./echoLive', () => ({ roomSound: () => sound.now }))
+vi.mock('./echoLive', () => ({ roomSound: () => sound.now, musicGlow: () => (sound.now.audible ? 0.3 * sound.now.level : 0), setSpeakerNodes: () => {} }))
 stubCanvas()
 
 const tokens = readFileSync(new URL('../styles/tokens.css', import.meta.url), 'utf8')
@@ -46,6 +46,20 @@ describe('echo in the model', async () => {
     for (const k of [0, 1, 2, 3]) {
       expect(rigs[k].fork).toBeUndefined()
       expect(rigs[k].grille).toBeUndefined()
+    }
+  })
+
+  it('resting: true only for a play goal (also while walking there); work, talk, meeting, doze are not', () => {
+    const rig = new AgentRig('agent_4', 4, rigs[4], '#f2ffc4')
+    const set = (pose: string | null) => ((rig as unknown as { goal: unknown }).goal = pose ? { pose, spot: 'x' } : null)
+    expect(rig.resting).toBe(false)
+    for (const p of ['pingpong', 'boardgame', 'coffee', 'sofa', 'water', 'books']) {
+      set(p)
+      expect(rig.resting, p).toBe(true)
+    }
+    for (const p of ['idle', 'type', 'talk', 'listen', 'doze', 'leave', 'post']) {
+      set(p)
+      expect(rig.resting, p).toBe(false)
     }
   })
 

@@ -27,8 +27,10 @@ import { GLOW } from './nodes'
 import { KNUCKLE_DEG, THUMB_DEG, type FingerModel } from './grip'
 import { TRAFFIC, type Sample } from './traffic'
 import type { AgentStatus } from './status'
-import { roomSound } from './echoLive'
+import { musicGlow, roomSound } from './echoLive'
 
+/** the poses of the play schedule (play.ts PlayKind): what "resting" means (sound.md 5) */
+const RESTING_POSES: ReadonlySet<string> = new Set(['pingpong', 'boardgame', 'coffee', 'sofa', 'water', 'books'])
 const SPEED = 0.75 // m/s cruising
 const ACCEL = 1.4 // m/s²
 const CORNER_SPEED = 0.32 // through a sharp turn
@@ -771,6 +773,10 @@ export class AgentRig {
     // throwing or catching a plane (#224): the hands have stopped typing, so the typing sound stops too
     if (this.gesturing) return null
     return this.goal && this.arrived === this.goal.spot ? this.goal.pose : null
+  }
+  /** it is free and at play: its goal is a play (pingpong, a board game, coffee, the sofa, watering, a book), also while it walks there; talks, meetings, dozing and work are not */
+  get resting(): boolean {
+    return !!this.goal && RESTING_POSES.has(this.goal.pose)
   }
   /** a throw / catch is under way this frame (set in update) */
   private gesturing = false
@@ -1533,7 +1539,7 @@ export class AgentRig {
       fork.rotation.x = reduced ? 0 : this.forkAmp * 0.6 * MathUtils.DEG2RAD * Math.sin(t * Math.PI * 2 * 24)
     }
     const breath = reduced ? 0.475 : 0.475 + 0.125 * Math.sin((t / 4) * Math.PI * 2)
-    const k = s.audible ? 0.4 + 0.6 * s.level : breath
+    const k = Math.min(1, (s.audible ? 0.4 + 0.6 * s.level : breath) + musicGlow())
     tint(this.parts.grille, (base) => this.tmpColor.copy(base).multiplyScalar(k))
   }
 

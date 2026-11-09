@@ -611,3 +611,8 @@ body:has(.tour-bar) .cam-hint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .tour-bar { animation: none; } }
 html[data-motion='reduce'] .tour-bar { animation: none; }
+
+/* echo's speaker switch (#193): a small tag by the sound button, 1.5 s */
+.speaker-tag { position: fixed; right: 56px; bottom: 96px; z-index: 30; margin: 0; padding: var(--space-1) var(--space-2); background: var(--color-panel, #0b0e13); color: var(--color-text, #f3ead8); border: 1px solid var(--color-border, #3a4250); border-radius: 4px; font: 13px var(--font-pixel, monospace); pointer-events: none; opacity: 0; transition: opacity 0.15s; }
+.speaker-tag[data-show] { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .speaker-tag { transition: none; } }
