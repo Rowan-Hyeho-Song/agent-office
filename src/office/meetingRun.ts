@@ -73,7 +73,7 @@ const id = (seat: number) => `agent_${seat}`
 export const seatLabel = (seat: number) => `meet_seat_${seat}`
 const PLANNER = 0
 /** poses that are not a play kind: anyone else was playing and puts its props down before leaving */
-const NOT_PLAY = new Set(['idle', 'type', 'post', 'talk', 'listen', 'leave', 'doze'])
+const NOT_PLAY = new Set(['idle', 'type', 'post', 'talk', 'listen', 'leave', 'doze', 'write', 'carry', 'cardpost', 'tidy'])
 
 /** a listener's reaction to the end of `line`: the addressee always nods (and lifts a hand), the others half of the time, decided by the line key */
 export function reaction(scriptId: string, line: ScriptLine, seat: number): { key: string; hand: boolean } | null {
