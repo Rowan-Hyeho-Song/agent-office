@@ -2634,6 +2634,35 @@ def build_book(G):
                      ribbon=True)
 
 
+def turning_page(name, W_, H_, H, paper, G):
+    """#231: one page to turn, live bot <book>_page in the book frame (pivot = the spine axis, turned about local z
+    like the _l half): two sheets back to back 0.1 mm apart with opposite normals (the back has its own UV, mirrored
+    in u, for the next page's text), 0.3-0.4 mm over the lower half's inner face (hidden inside the closed book).
+    16 x 4 quads so the app can bend it; point attributes _PAGE_U (spine 0 -> fore-edge 1), _PAGE_V (bottom 0 -> top 1)"""
+    pw, ph = W_ - 0.008, H_ - 0.012
+    NU, NV = 16, 4
+    bm = bmesh.new()
+    lu, lv = bm.verts.layers.float.new("_PAGE_U"), bm.verts.layers.float.new("_PAGE_V")
+    uvl = bm.loops.layers.uv.new("UVMap")
+    for y, up in ((0.0004, True), (0.0003, False)):
+        g = [[None] * (NV + 1) for _ in range(NU + 1)]
+        for a in range(NU + 1):
+            for b in range(NV + 1):
+                v = bm.verts.new(W(0.003 + a / NU * pw, y, -ph / 2 + b / NV * ph))
+                v[lu], v[lv] = a / NU, b / NV
+                g[a][b] = v
+        for a in range(NU):
+            for b in range(NV):
+                q = [g[a][b], g[a + 1][b], g[a + 1][b + 1], g[a][b + 1]]  # this order faces web -y
+                f = bm.faces.new(list(reversed(q)) if up else q)
+                for loop in f.loops:
+                    u = loop.vert[lu]
+                    loop[uvl].uv = (u if up else 1.0 - u, loop.vert[lv])
+    o = pivot(join(name, place([mesh_obj(name, bm, paper, G)], H)), H)
+    o["page_w"], o["page_h"], o["turn_axis"], o["turn_dir"] = round(pw, 4), round(ph, 4), "z", 1
+    return live(o, "bot")
+
+
 def make_book(name, W_, H_, T, cover_hex, home_pos, home_rot, G, ribbon=False):
     """book frame: origin on the spine axis at mid thickness, pages along +x (W_), spine along z (H_), thickness
     along y; the lower half (_r) under y = 0, the upper half (_l, the front cover) above. <name> = the spine's lower
@@ -2689,7 +2718,7 @@ def make_book(name, W_, H_, T, cover_hex, home_pos, home_rot, G, ribbon=False):
                             (W_ / 2 - (0.015 if k % 3 == 2 else 0), -sgn * 0.0001, -H_ * 0.34 + k * H_ * 0.09), ink, G))
         return live(pivot(join(nm, place(objs, H)), H), "bot")
 
-    BOOK_HALVES.extend([half(f"{name}_l", 1), half(f"{name}_r", -1)])
+    BOOK_HALVES.extend([half(f"{name}_l", 1), half(f"{name}_r", -1), turning_page(f"{name}_page", W_, H_, H, paper, G)])
     spine = [box("spine", (0.003, T / 2, H_), (-0.0015, -T / 4, 0), cover, G, bev=0.001, seg=2)] + spine_deco(-1)  # the lower half of the spine
     return prop(name, "book", spine, home_pos, home_rot,
                 grip_pos=(0, -0.04, 0), grip_rot=(-math.pi / 2, 0, 0))
