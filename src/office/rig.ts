@@ -740,8 +740,12 @@ export class AgentRig {
 
   /** what it is doing where it stands (null while walking): the typing sound reads this (#194 ②) */
   get doing(): string | null {
+    // throwing or catching a plane (#224): the hands have stopped typing, so the typing sound stops too
+    if (this.gesturing) return null
     return this.goal && this.arrived === this.goal.spot ? this.goal.pose : null
   }
+  /** a throw / catch is under way this frame (set in update) */
+  private gesturing = false
 
   /** the spot it has arrived at and stopped on, if any */
   get arrived(): string | null {
@@ -917,6 +921,7 @@ export class AgentRig {
     // looking at what it throws to / catches (#224, aim.ts): the root turns on top of its heading (a rotation only: the
     // agent stays on its spot and the plan never sees it), the head and eyes lead
     const gz = this.gesture && t < this.gesture.until ? this.gesture : null
+    this.gesturing = !!gz
     let aim: AimPose | null = null
     let gazeFrom = 0
     if (gz?.plan && gz.at && gz.t0 !== undefined) {
