@@ -1,5 +1,6 @@
 import { handle } from '../src/approvals/approve.js'
 import type { StoredApproval } from '../src/approvals/types.js'
+import { signals } from '../src/server/signal.js'
 import { supabaseServer } from '../src/server/supabase.js'
 
 // The owner's decision from the office's approval box (#25). See src/approvals/approve.ts.
@@ -33,6 +34,7 @@ async function comment(repo: string, folder: number, body: string) {
 export async function POST(request: Request) {
   if (!url || !key || !owner || !ghToken) return Response.json({ error: 'not configured' }, { status: 503 })
   const db = supabaseServer(url, key)
+  const sig = signals(url, key) // #240 one content-free signal once the decision is stored
   try {
     return await handle(request, {
       githubIdOf: db.githubIdOf,
@@ -60,16 +62,18 @@ export async function POST(request: Request) {
         })
       },
       comment,
-      decide: async (id, d) => {
+      decide: sig.after('approvals', async (id, d) => {
         await db.rest(`approvals?id=eq.${id}&status=eq.deciding`, {
           method: 'PATCH',
           headers: { prefer: 'return=minimal' },
           body: JSON.stringify({ status: 'decided', ...d, updated_at: d.decided_at }),
         })
-      },
+      }),
     })
   } catch (e) {
     console.error(e)
     return Response.json({ error: 'failed' }, { status: 502 })
+  } finally {
+    await sig.flush()
   }
 }

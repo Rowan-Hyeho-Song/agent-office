@@ -7,6 +7,7 @@ import { kstTimeToMs } from './kst'
 import { FakeApprovalSource } from '../approvals/fakeSource'
 import { supabaseSource } from './approval/supabaseSource'
 import { openApprovalBox } from './approval/panel'
+import { createSignalHub, supabaseSignalWire, type SignalHub } from './signal'
 import { openDocs } from './docs/panel'
 import { supabaseDocsSource } from './docs/supabaseSource'
 import { FakeDocsSource } from '../docs/fakeSource'
@@ -84,6 +85,8 @@ export interface OfficeWorld {
   approvals: ApprovalSource | null
   /** set when approvals is the debug fake: window.__office.fakeApprovals.as('owner' | 'visitor'), .failNext(), .open() */
   fakeApprovals: FakeApprovalSource | null
+  /** #240 how the page hears that the approval box or the library changed (server signal, owner table changes, polling); null when the office is not configured */
+  signal: SignalHub | null
   /** the library (#65): documents for the current role, read by the viewer and the bookshelf; null when the office is not configured */
   library: LibraryStore | null
   /** set when the library is the debug fake: window.__office.docs.as('owner' | 'visitor'), .open(n, kind, row), .publish(id) */
@@ -161,8 +164,10 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
   // the fake only under ?debug=1 (and not &live): the shipped page never gets it
   const fakeApprovals = debug && !(live && supabase) ? new FakeApprovalSource() : null
   const approvals = fakeApprovals ?? (supabase ? supabaseSource(supabase) : null)
+  const signal = approvals ? createSignalHub(fakeApprovals || !supabase ? null : supabaseSignalWire(supabase)) : null
   if (fakeApprovals) {
     fakeApprovals.openPanel = openApprovalBox
+    fakeApprovals.onChange = () => signal?.receive({ table: 'approvals' })
     // ?debug=1&approvals=owner|visitor: start in that view with the panel open
     const as = query.get('approvals')
     if (as === 'owner' || as === 'visitor') {
@@ -170,7 +175,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
       openApprovalBox()
     }
   }
-  const { library, docs } = createLibrary(approvals, fakeApprovals, debug && !(live && supabase), query)
+  const { library, docs } = createLibrary(approvals, fakeApprovals, signal, debug && !(live && supabase), query)
   const board = new BoardStore()
   const fakeBoard = docs ? new FakeBoard(board) : null
   if (library && !fakeBoard) feedBoardFromLibrary(library, board)
@@ -183,6 +188,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     fakeBoard,
     approvals,
     fakeApprovals,
+    signal,
     library,
     docs,
     source: duty,
@@ -248,7 +254,7 @@ export function prefersReducedMotion(): boolean {
 }
 
 /** the library: Supabase, or under ?debug=1 the fake (shares the approval fake's role). ?debug=1&docs=owner|visitor opens the viewer */
-function createLibrary(approvals: ApprovalSource | null, fakeApprovals: FakeApprovalSource | null, fake: boolean, query: URLSearchParams) {
+function createLibrary(approvals: ApprovalSource | null, fakeApprovals: FakeApprovalSource | null, signal: SignalHub | null, fake: boolean, query: URLSearchParams) {
   const docs = fake ? new FakeDocsSource() : null
   const source = docs ?? (supabase ? supabaseDocsSource(supabase) : null)
   if (!source || !approvals) return { library: null, docs: null }
@@ -257,8 +263,8 @@ function createLibrary(approvals: ApprovalSource | null, fakeApprovals: FakeAppr
   refresh()
   approvals.subscribe(refresh)
   source.subscribe?.(refresh)
-  // the page only ever polls, never subscribes to documents: an hour-old list is fine, a minute-old one is better
-  setInterval(() => !document.hidden && refresh(), 60_000)
+  // #240 a server signal (or the owner's table change, or the poll that stands in when the channel is down) re-reads the list
+  signal?.on('docs', refresh)
   if (docs && fakeApprovals) {
     docs.setRole = (r) => fakeApprovals.as(r)
     docs.openViewer = ({ n, kind, row, repo, id }) => {
