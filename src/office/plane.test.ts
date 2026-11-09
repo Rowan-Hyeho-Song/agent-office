@@ -51,6 +51,6 @@ describe('HAND_POSES (#62, #134, #282)', () => {
     const { pinch } = HAND_POSES
     expect(pinch.f[0].mcp).toBeGreaterThanOrEqual(40)
     expect(pinch.f[1].mcp).toBeLessThan(20)
-    expect(pinch.thumb.ip).toBe(20)
+    expect(pinch.thumb.ip).toBe(50)
   })
 })
