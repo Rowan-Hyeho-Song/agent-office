@@ -334,7 +334,7 @@ button.secret-cover:hover .bar { background: var(--color-line); }
   transition: opacity 160ms ease, visibility 0s, right var(--dur-base) var(--ease-out);
 }
 .dock-slot:empty { display: none; }
-.dock-slot { display: flex; }
+.dock-slot { display: flex; position: relative; }
 .dock-btn {
   flex: 1; display: flex; align-items: center; gap: var(--space-2); height: 32px; padding: 0 var(--space-3) 0 var(--space-2);
   font-family: var(--font-pixel); font-size: var(--font-size-1); white-space: nowrap; border: 0; cursor: pointer;
@@ -346,7 +346,8 @@ button.secret-cover:hover .bar { background: var(--color-line); }
 .dock-badge { display: none; position: absolute; right: 3px; bottom: 3px; min-width: 14px; height: 14px; padding: 0 3px; place-items: center;
   font: 400 10px/14px var(--font-pixel); background: var(--approval-accent); color: var(--color-ink); box-shadow: 0 0 0 1px var(--color-ink); }
 /* #240 the new-item dot: 8 px, a 2 px ring in the surface colour so it stands off the button, a pop-in and a faint breath every 4 s (none under reduced motion) */
-.new-dot { position: absolute; top: 4px; right: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--approval-accent); box-shadow: 0 0 0 2px var(--color-ink); animation: dot-in 200ms var(--ease-out) both, dot-breath 4s ease-in-out 1s infinite; pointer-events: none; }
+/* half outside the dock button, on the middle of its cut top-right corner, over the dark dock (designer, #286) */
+.new-dot { position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--approval-accent); box-shadow: 0 0 0 2px var(--color-ink); animation: dot-in 200ms var(--ease-out) both, dot-breath 4s ease-in-out 1s infinite; pointer-events: none; }
 .new-dot.docs { background: var(--ivory-dot); }
 .side-tabs button { position: relative; }
 .side-tabs .new-dot { position: static; display: inline-block; vertical-align: middle; margin-left: var(--space-1); box-shadow: 0 0 0 2px var(--color-surface); }

@@ -210,8 +210,8 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
           <button type="button" className="dock-btn docs-launcher" aria-label={dot ? `서재, 새 문서 ${fresh}건` : '서재'} aria-expanded={false} aria-controls="docs-box" onClick={toggleDocs}>
             <Icon name="publish" />
             <span className="dock-label">서재</span>
-            {dot && <i className="new-dot docs" aria-hidden="true" />}
           </button>
+          {dot && <i className="new-dot docs" aria-hidden="true" />}
         </DockSlot>
       )}
       <SideSlot tab="docs">

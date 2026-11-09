@@ -160,7 +160,6 @@ function Box({ src, signal }: { src: ApprovalSource; signal: SignalHub | null })
             <span className="dock-label" aria-hidden="true">
               결재함{count !== null && ` · 대기 ${count}`}
             </span>
-            {dot && <i className="new-dot approval" aria-hidden="true" />}
             {/* the count on the icon when the label is hidden (under 360px; the name and count are in aria-label) */}
             {!!count && (
               <b className="dock-badge" aria-hidden="true">
@@ -168,6 +167,8 @@ function Box({ src, signal }: { src: ApprovalSource; signal: SignalHub | null })
               </b>
             )}
           </button>
+          {/* outside the button: its clip-path would cut the dot, and on the dark dock it reads as colour, not a ring (#286) */}
+          {dot && <i className="new-dot approval" aria-hidden="true" />}
         </DockSlot>
       )}
       <SideSlot tab="approval">
