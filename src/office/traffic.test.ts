@@ -248,3 +248,43 @@ describe('traffic planner on the grid', () => {
       for (const [id, spot] of [['c0', 'chat_0'], ['c1', 'chat_1'], ...seated.map((s) => [s, s])]) expect(p.sample(id, 60).arrived).toBe(spot)
     })
 })
+
+describe('a quiet (night-duty) agent standing at a desk side (#193)', () => {
+  it('walks out of it: the side it stands at is not avoided for the way out, the others still are', () => {
+    const grid = buildGrid(decodeFootprint(FOOTPRINT_DATA), GRAPH)
+    const avoid = new Set(['desk_side_0', 'desk_side_1', 'desk_side_2', 'desk_side_3', 'desk_side_4'])
+    for (const dest of ['coffee', 'chat_0', 'sofa_1']) {
+      const p = new TrafficPlanner(grid, GRAPH)
+      p.place('night', req('desk_side_0', { avoid }), 0, 1)
+      p.place('memo', req('work_0'), 0, 0)
+      p.update(0)
+      p.request('night', req(dest, { avoid }), 1, 1)
+      for (let t = 1; t < 90; t += 0.1) p.update(t)
+      expect(p.sample('night', 90).arrived, dest).toBe(dest)
+    }
+  })
+})
+
+describe('a newcomer beside a resting agent (#193)', () => {
+  it('walks in to the next sofa seat while the sleeper on the first keeps its seat: no reorder loop that sends the sleeper away', () => {
+    const grid = buildGrid(decodeFootprint(FOOTPRINT_DATA), GRAPH)
+    const p = new TrafficPlanner(grid, GRAPH)
+    p.place('sleeper', req('sofa_0'), 0, 1)
+    p.place('walker', req('work_2'), 0, 2)
+    p.place('reader', { ...req('shelf'), slot: { x: 0.07, z: 2.0, ry: 3.14 } }, 0, 3)
+    p.update(0)
+    p.request('walker', req('sofa_1'), 1, 2)
+    p.request('reader', { ...req('water_can'), slot: { x: 3.82, z: 2.64, ry: 0 } }, 1, 3)
+    let minPair = Infinity
+    let sleeperMoved = 0
+    for (let t = 1; t < 80; t += 0.1) {
+      p.update(t)
+      const s = ['sleeper', 'walker', 'reader'].map((i) => p.sample(i, t))
+      for (const [a, b] of [[0, 1], [0, 2], [1, 2]]) minPair = Math.min(minPair, Math.hypot(s[a].x - s[b].x, s[a].z - s[b].z))
+      if (Math.hypot(s[0].x - 1.67, s[0].z - 2.73) > 0.05) sleeperMoved++
+    }
+    expect(p.sample('walker', 80).arrived).toBe('sofa_1')
+    expect(sleeperMoved).toBe(0)
+    expect(minPair).toBeGreaterThanOrEqual(0.47) // the designed sofa pair is 0.53 m
+  })
+})

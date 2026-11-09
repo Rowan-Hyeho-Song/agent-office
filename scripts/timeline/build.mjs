@@ -25,6 +25,7 @@ export const SEAT_WORDS = [
   [1, ['Blender', '3D', '메시', 'MESH']],
   [2, ['디자이너', '디자인', '휴', 'HUE']],
   [3, ['코더', '루프', 'LOOP']],
+  [4, ['사운드', '에코', 'ECHO']],
 ]
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const SEAT_RES = SEAT_WORDS.map(([seat, words]) => [
@@ -94,7 +95,7 @@ export function finalize(p, cfg = {}) {
     project: p.project,
     at: stamp(p.at),
     kind: p.kind,
-    agent: p.agent === 0 || p.agent === 1 || p.agent === 2 || p.agent === 3 ? p.agent : null,
+    agent: p.agent === 0 || p.agent === 1 || p.agent === 2 || p.agent === 3 || p.agent === 4 ? p.agent : null,
     title: secret ? '' : t.text,
     secret,
     additions: count(p.additions),

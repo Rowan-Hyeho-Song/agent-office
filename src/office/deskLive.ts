@@ -5,6 +5,7 @@ import { CanvasTexture, MathUtils, MeshBasicMaterial, SRGBColorSpace, Vector3, t
 import type { DeskProps } from './props'
 import { TrayPile } from './tray'
 import { PlaySounds } from '../audio/playSounds'
+import { faderLevels, setSpeakerNodes, speakerCells, speakerCone, speakerOn } from '../audio/speaker'
 
 /** an emitter's own colors (a node may hold several meshes), so it can be dimmed and brought back */
 function emitter(node: Object3D | undefined) {
@@ -27,6 +28,53 @@ const APPROVAL_DOT_OFF = 0.15
 const HOURGLASS_EVERY = 6 // s: while the planner waits, it turns the hourglass over now and then
 const BLINK_HZ = 2.2
 
+/** echo's mixer (desks.md, #193): the woofer cones travel 3 mm, the level meter has 8 cells, 4 faders; every value comes from src/audio/speaker.ts */
+export class EchoDesk {
+  private spk: { node: Object3D; rest: Vector3; travel: number }[]
+  private led: (k: number) => void
+  private meter: ((k: number) => void)[]
+  private fader: { node: Object3D; rest: Vector3; travel: number }[]
+  private knob: Object3D[]
+  readonly present: boolean
+  private cells = 0
+
+  constructor(n: (name: string) => Object3D | undefined) {
+    const slide = (node: Object3D | undefined) => (node ? [{ node, rest: node.position.clone(), travel: Number(node.userData.travel) || 0 }] : [])
+    this.spk = ['desk_4_spk_l', 'desk_4_spk_r'].flatMap((k) => slide(n(k)))
+    this.fader = [0, 1, 2, 3].flatMap((k) => slide(n(`desk_4_fader_${k}`)))
+    this.knob = [0, 1, 2, 3].flatMap((k) => (n(`desk_4_knob_${k}`) ? [n(`desk_4_knob_${k}`)!] : []))
+    this.led = emitter(n('desk_4_spk_led'))
+    this.meter = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => emitter(n(`desk_4_meter_${k}`)))
+    this.present = this.spk.length > 0 || this.fader.length > 0
+    const l = n('desk_4_spk_l')
+    const r = n('desk_4_spk_r')
+    if (l && r) setSpeakerNodes(l, r)
+  }
+
+  update(reduced: boolean) {
+    if (!this.present) return
+    const cone = speakerCone()
+    const faders = faderLevels()
+    // the cones: along their own +z (the speaker's push); reduced motion leaves them
+    for (const c of this.spk) c.node.position.copy(c.rest).addScaledVector(Z_LOCAL, c.travel * (reduced ? 0 : cone))
+    // the faders: hook / piano / bass / drums (axis -z, zero = the slot's end)
+    this.fader.forEach((f, k) => f.node.position.copy(f.rest).addScaledVector(Z_LOCAL, -f.travel * faders[k]))
+    // the gain knobs turn with their fader (about 270 degrees end to end)
+    this.knob.forEach((o, k) => (o.rotation.y = (faders[k] - 0.5) * 1.5 * Math.PI))
+    this.led(speakerOn() ? 1 : OFF)
+    // the level meter follows the speaker's cells only: no sound, no light (sound.md 5)
+    const lit = MathUtils.clamp(speakerCells(), 0, 8)
+    this.cells = lit
+    this.meter.forEach((m, k) => m(k < lit ? 1 : 0.06))
+  }
+
+  /** cells lit now (debug / tests) */
+  get lit() {
+    return this.cells
+  }
+}
+const Z_LOCAL = new Vector3(0, 0, 1)
+
 export class DeskLive {
   private trays: (TrayPile | null)[]
   private hourglass: Object3D | undefined
@@ -42,6 +90,7 @@ export class DeskLive {
   private signalAt: Object3D | undefined
   private signalPos = new Vector3()
   private sounds = new PlaySounds()
+  private echo: EchoDesk
   private calendar: { ctx: CanvasRenderingContext2D; texture: CanvasTexture; drawn: string } | null = null
   private flip = { angle: 0, target: 0, nextAt: 0 }
   private spin = 0
@@ -58,6 +107,7 @@ export class DeskLive {
     this.signal = { g: emitter(n('desk_3_signal_g')), y: emitter(n('desk_3_signal_y')), r: emitter(n('desk_3_signal_r')) }
     this.duck = n('desk_3_duck_look')
     this.signalAt = n('desk_3_signal_y')
+    this.echo = new EchoDesk(n)
     const cal = n('screen_cal_0') as Mesh | undefined
     if (cal) {
       // one canvas per scene (StrictMode builds this twice): the texture shown is the one drawn on
@@ -137,6 +187,8 @@ export class DeskLive {
     this.signal.g(p.signal === 'green' ? 1 : OFF)
     this.signal.y(p.signal === 'yellow' ? (reduced ? 1 : 0.65 + 0.35 * Math.sin(t * 6)) : OFF)
     this.signal.r(p.signal === 'red' ? 1 : OFF)
+    // 에코: speaker cones, faders, knobs, level meter
+    this.echo.update(reduced)
     this.sounds.signalLight(p.signal, this.signalAt ? this.signalAt.getWorldPosition(this.signalPos) : null)
   }
 }

@@ -134,3 +134,22 @@ describe('DutySource', () => {
     src.dispose()
   })
 })
+
+describe('five agents (#193)', () => {
+  const FIVE = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
+  it('night duty falls on all five over a month, and the lights go out one seat at a time up to seat 4', () => {
+    const picks = new Set<string>()
+    for (let d = 1; d <= 30; d++) picks.add(nightDuty(FIVE, kst(`2026-11-${String(d).padStart(2, '0')} 23:30`)))
+    expect(picks.size).toBeGreaterThanOrEqual(4)
+    expect(FIVE.length).toBe(5)
+    // exactly one of the five stays up deep in the night; the other four are asleep
+    const deep = kst('2026-11-09 03:00')
+    const raw = Object.fromEntries(FIVE.map((a) => [a, { state: 'idle', since: 0 } as AgentStatus]))
+    const out = applyDuty(raw, FIVE, deep)
+    expect(FIVE.filter((a) => out[a].night === 'duty')).toHaveLength(1)
+    expect(FIVE.filter((a) => out[a].night === 'sleep')).toHaveLength(4)
+    // seat 4's light is the last to go (stagger x 4 minutes)
+    const t0 = kst('2026-11-08 23:00') + (NIGHT.staggerMin * 4 - 1) * 60_000
+    expect(dutyStatus({ state: 'idle', since: 0 }, 'agent_4', FIVE, t0).night).toBeUndefined()
+  })
+})

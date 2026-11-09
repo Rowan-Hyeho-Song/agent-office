@@ -1,4 +1,4 @@
-// The four work monitors (#75, docs/design/office-ui.md 4): a 584 x 338 canvas on each screen_work_N. screens.ts decides
+// The five work monitors (#75, docs/design/office-ui.md 4): a 584 x 338 canvas on each screen_work_N. screens.ts decides
 // what to show; this draws it. At most 8 redraws a second; an unchanged state repaints only the bottom band
 // (progress strip, elapsed time); a monitor outside the view is not drawn at all.
 
@@ -82,6 +82,12 @@ export interface ScreenFrame {
   forced?: Partial<Record<number, ScreenForce>>
 }
 
+/**
+ * The screen plate sits in the same plane as the monitor's black bed (and nearly as the bezel): at some angles and
+ * distances the depth test picks the bed and the canvas goes black (#260). A small pull towards the camera makes the screen win.
+ */
+export const SCREEN_OFFSET = { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 } as const
+
 const frustum = new Frustum()
 const projView = new Matrix4()
 
@@ -98,13 +104,19 @@ export class ScreenLive {
   ms = 0
 
   constructor(nodes: Record<string, Object3D>, maxAnisotropy: number) {
-    for (let seat = 0; seat < 4; seat++) {
+    for (let seat = 0; seat < 5; seat++) {
       const node = nodes[`screen_work_${seat}`]
       const mesh = node && ([node, ...node.children].find((o) => (o as Mesh).isMesh) as Mesh | undefined)
       if (!mesh) continue
       // one canvas per scene (StrictMode builds this twice): the texture shown is the one drawn on
       const made = (mesh.userData.workScreen ??= ScreenLive.make(mesh, maxAnisotropy)) as Pick<Monitor, 'ctx' | 'texture' | 'sphere'>
       this.monitors.push({ seat, mesh, ...made, key: '' })
+    }
+    // a monitor the live screens do not drive yet (a fifth seat) still gets the same depth pull on its plate
+    for (let seat = 4; seat < 8; seat++) {
+      const m = nodes['screen_work_' + seat] as Mesh | undefined
+      const mat = m?.isMesh ? (m.material as MeshBasicMaterial) : null
+      if (mat && !mat.polygonOffset) Object.assign(mat, SCREEN_OFFSET, { needsUpdate: true })
     }
     // first full draw only once Galmuri11 is in (a fallback face would be baked into the canvas)
     void Promise.all([document.fonts.load(pixel(24)), document.fonts.load(pixel(48, true))])
@@ -129,7 +141,7 @@ export class ScreenLive {
     const old = mesh.material as MeshBasicMaterial
     const glow = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--screen-glow')) || 0.85
     // toneMapped off like the other emitters; colour = glow < 1 keeps the brightest text under the bloom threshold
-    mesh.material = new MeshBasicMaterial({ map: texture, color: new Color().setScalar(glow), toneMapped: false })
+    mesh.material = new MeshBasicMaterial({ map: texture, color: new Color().setScalar(glow), toneMapped: false, ...SCREEN_OFFSET })
     old.dispose()
     mesh.geometry.computeBoundingSphere()
     mesh.updateWorldMatrix(true, false)

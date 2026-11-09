@@ -1,14 +1,16 @@
 import { useFrame } from '@react-three/fiber'
 import { useEffect, useRef } from 'react'
 import { Frustum, Matrix4, Vector3 } from 'three'
-import { kstMinutes } from '../office/kst'
+import { isNight, kstMinutes } from '../office/kst'
 import { officeNow, type OfficeWorld } from '../office/world'
 import { replay } from '../replay/store'
 import { ROOM_MODE, onDeskAudio, onEntered, onLeaveStart, postToParent } from '../room/link'
 import { setAmbienceMinute, startAmbience } from './ambience'
 import { cue, setCueSpeed } from './cues'
 import { audioGraph, ensureAudio, fadeRoom, setListener } from './engine'
+import { loadKeySample } from './keys'
 import { getSetting, setSetting, subscribe } from './settings'
+import { speakerFrame } from './speaker'
 import { keysBetween, type TypeState } from './typing'
 
 // Wires the office's sound to the page (docs/design/sound.md 2): the first gesture, the room door, the desk's
@@ -20,8 +22,11 @@ const OUT_S = 0.6
 
 function wake() {
   if (getSetting().muted) return
-  if (!ensureAudio()) return
+  const g = ensureAudio()
+  if (!g) return
   startAmbience()
+  // the key sound is a recording (#194): fetch it now so the first key already sounds like it
+  void loadKeySample(g.ctx)
 }
 
 export function SoundRoot({ world }: { world: OfficeWorld }) {
@@ -79,6 +84,13 @@ export function SoundRoot({ world }: { world: OfficeWorld }) {
 const fwd = new Vector3()
 const up = new Vector3()
 
+const BREAKS = new Set<string>(['pingpong', 'boardgame', 'coffee', 'sofa', 'water', 'books'])
+/** on a break (walking to one too): the rig's `resting` (#193 2/2, coder) once it has it, else what it is doing there */
+const isResting = (r: OfficeWorld['rigs'][string]) => {
+  const own = (r as unknown as { resting?: boolean }).resting
+  return typeof own === 'boolean' ? own : BREAKS.has(r.doing ?? '')
+}
+
 const frustum = new Frustum()
 const viewProj = new Matrix4()
 const head = new Vector3()
@@ -93,6 +105,18 @@ export function SoundListener({ world }: { world: OfficeWorld }) {
     camera.getWorldDirection(fwd)
     up.set(0, 1, 0).applyQuaternion(camera.quaternion)
     setListener(camera.position, fwd, up)
+
+    // ③ the speaker music follows the agents: two or more on a break = break music, a rally dips it, night = off
+    let resting = 0
+    let playing = false
+    for (const id in world.rigs) {
+      const r = world.rigs[id]
+      if (!r.visible) continue
+      if (isResting(r)) resting++
+      if (r.doing === 'pingpong') playing = true
+    }
+    const ms = officeNow(world)
+    speakerFrame(resting, playing, isNight(ms), ms / 1000)
 
     const g = audioGraph()
     if (!g || g.ctx.state !== 'running' || getSetting().muted) return
