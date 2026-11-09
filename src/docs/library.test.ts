@@ -26,6 +26,7 @@ const row = (o: Partial<CoverSource> & Pick<CoverSource, 'id'>): CoverSource => 
   folder: 1,
   title: '제목',
   agents: [],
+  labels: [],
   grade: 'public',
   approved: true,
   created_at: '2026-11-08T01:00:00Z',
@@ -63,6 +64,7 @@ describe('what a visitor and the owner may see (mirrors docs_cover)', () => {
       'grade',
       'id',
       'kind',
+      'labels',
       'readable',
       'repo',
       'title',
@@ -78,7 +80,12 @@ describe('docs_cover view in supabase/docs.sql', () => {
     expect(view).toMatch(/case when grade = 'private' then null else repo end as repo/)
     expect(view).toMatch(/case when grade = 'private' then null else folder end as folder/)
     expect(view).toMatch(/case when grade = 'public' and approved then title end as title/)
-    expect(view).not.toMatch(/\bbody\b|\bdata\b|source_url|summary/)
+    // labels are topic info like the title: given out only where the title is, and only the labels of the document's data
+    expect(view).toMatch(/case when grade = 'public' and approved then coalesce\(data->'labels', '\[\]'::jsonb\) else '\[\]'::jsonb end as labels/)
+    expect(view).not.toMatch(/\bbody\b|source_url|summary/)
+    expect(view.replace(/data->'labels'/g, '')).not.toMatch(/\bdata\b/)
+    // Postgres can only append columns to a view: labels is the last one
+    expect(view.trimEnd().split('\n').slice(-2)[0]).toMatch(/as labels$/)
   })
 })
 

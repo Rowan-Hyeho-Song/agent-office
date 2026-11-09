@@ -23,6 +23,7 @@ const row = (over: Partial<Row> & Pick<Row, 'kind' | 'created_at'>): Row => {
     folder: 1,
     title: '',
     agents: [],
+    labels: [],
     grade: 'public',
     approved: true,
     updated_at: over.created_at,
@@ -43,9 +44,11 @@ const minutes = (date: string, rows: [Who, Who[], string][], decision: string | 
 })
 
 const T28 = '몸통 없는 에이전트: 떠 있는 머리 + 떠 있는 두 손'
-const T32 = '자리별 책상 꾸미기: 각 에이전트가 고른 소품 반영'
+// topic badges (#236), every case: #28 labels (a third one is cut), #32 title prefix only (three parts, two shown),
+// #18 labels the table does not know (no badge), #40 label + prefix mixed, #193 nothing, #3 SECRET, private
+const T32 = '[디자인·3D·기능] 자리별 책상 꾸미기: 각 에이전트가 고른 소품 반영'
 const T18 = '사무실 말풍선·모니터 화면·출입문 화면: 시안 + 디자인 토큰'
-const T40 = '서재 문서 뷰어: 파일철 · 회의록 대화 · SECRET 표지'
+const T40 = '[UI] 서재 문서 뷰어: 파일철 · 회의록 대화 · SECRET 표지'
 const T193 = '다섯째 에이전트 에코(사운드) 합류: 자리 · 개성 · 책상'
 const T3 = '로봇 대사가 끝날 때까지 다른 로봇 상호작용이 덮지 않게'
 
@@ -65,7 +68,7 @@ export const sampleRows = (): Row[] => {
   nextId = 1
   return [
     // agent-office #28: all four kinds, public
-    row({ kind: 'plan', folder: 28, title: T28, agents: [0, 1, 2, 3], created_at: at(5, 10), body:
+    row({ kind: 'plan', folder: 28, title: T28, labels: ['design', 'asset', 'feature'], agents: [0, 1, 2, 3], created_at: at(5, 10), body:
       '## 배경과 목표\n사용자 의견(2026-11-08, #26 결재 뒤): **몸통 없이 머리만 떠 있고, 손도 따로 떠다니는 느낌**이 더 멋있다. 지금 로봇(몸통 + 호버 포드 + 팔)을 머리 + 떠 있는 두 손으로 바꾼다.\n\n' +
       '## 범위\n- 기본 형태: 떠 있는 머리, 호버 빛, 떠 있는 두 손\n- 크기·높이: 손이 키보드(0.75 m)에 닿고 `#20` 소품을 들 수 있음\n- 역할 부품 다시 배치, 실루엣 시험\n\n' +
       '## 하지 않을 것\n- 이름·색 변경(결재 완료)\n- 3D 모델링(#27), 앱 애니메이션(코더)\n\n' +
@@ -100,7 +103,7 @@ export const sampleRows = (): Row[] => {
       request: { ...req28, kind: '산출물 확인', content: '책상 소품 배치를 확인해 주세요.', options: [], recommended: null, reason: null },
     } }),
     // agent-office #18: plan + minutes only
-    row({ kind: 'plan', folder: 18, title: T18, agents: [0, 2, 3], created_at: at(5, 9), body: '## 배경과 목표\n방문자가 가장 많이 읽게 될 글자는 두 곳에 나온다: **말풍선**, 그리고 **모니터**와 **출입문 화면**.' }),
+    row({ kind: 'plan', folder: 18, title: T18, labels: ['question'], agents: [0, 2, 3], created_at: at(5, 9), body: '## 배경과 목표\n방문자가 가장 많이 읽게 될 글자는 두 곳에 나온다: **말풍선**, 그리고 **모니터**와 **출입문 화면**.' }),
     row({ kind: 'minutes', folder: 18, title: T18, agents: [0, 2, 3], created_at: at(5, 12), data: { minutes: [
       minutes('2026-11-08', [[0, [2], '역할 확인 요청'], [2, [0], '그래픽 디자이너 세션 맞음'], [3, [2], '토큰 검토: 에이전트 번호를 0부터'], [2, [3], '두 가지 모두 반영']], '에이전트 색 토큰은 `--agent-0..3`.', '#26 결재 뒤 색 값이 바뀔 수 있음.'),
     ] } }),
@@ -115,7 +118,7 @@ export const sampleRows = (): Row[] => {
       ], '에코의 색은 #f2ffc4.', '코더가 소리 연동을 붙임.'),
     ] } }),
     // agent-office #40: a public plan with a SECRET (review) report: a mixed file
-    row({ kind: 'plan', folder: 40, title: T40, agents: [2, 3], created_at: at(8, 13), body: '## 배경과 목표\n방문자와 주인이 서재에서 기획서 · 회의록 · 결정 · 보고서를 읽는다.\n\n## 범위\n- 파일철 목록\n- 회의록 대화' }),
+    row({ kind: 'plan', folder: 40, title: T40, labels: ['enhancement'], agents: [2, 3], created_at: at(8, 13), body: '## 배경과 목표\n방문자와 주인이 서재에서 기획서 · 회의록 · 결정 · 보고서를 읽는다.\n\n## 범위\n- 파일철 목록\n- 회의록 대화' }),
     row({ kind: 'report', folder: 40, title: T40, agents: [3], grade: 'review', approved: false, created_at: at(8, 17), data: { pr: 80 }, body:
       '## 무엇을 했나\n서재 뷰어 첫 구현. 결재 전이라 방문자는 표지만 본다.\n\n## 확인한 것\n| 확인 | 방법 | 결과 |\n|---|---|---|\n| 방문자 응답 | 단위 시험 | 본문 없음 |' }),
     // rowansong.dev #3: SECRET (review)

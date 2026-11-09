@@ -25,6 +25,8 @@ import { openApprovalBox } from './approval/panel'
 import { renderMarkdown } from './approval/markdown'
 import { useRole } from './ApprovalBox'
 import { Icon } from './ApprovalIcons'
+import { TopicBadges } from './TopicBadges'
+import { shownTitle } from '../docs/topics'
 import { closeDocs, openFromHash, toggleDocs, useDocsPanel } from './docs/panel'
 import { AGENT_INFO, type OfficeWorld } from './world'
 
@@ -269,17 +271,34 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
                 {view === 'files' &&
                   folder?.files.map((f) => (
                     <button key={f.key} type="button" className="doc-file" aria-current={f === file} onClick={() => goFile(f)}>
-                      <span className="n">{f.n ? `#${f.n}` : '—'}</span>
-                      {unreadFile(f, seen) && <NewMark />}
-                      <span>
-                        {f.title ?? (
-                          <>
-                            <span className="redact" style={{ width: 120 }} aria-hidden="true" />
-                            <span className="sr-only">가려진 제목</span>
-                          </>
-                        )}
+                      <span className="l1">
+                        <span className="n">{f.n ? `#${f.n}` : '—'}</span>
+                        {unreadFile(f, seen) && <NewMark />}
+                        <span className="ttl">
+                          {(f.title && shownTitle(f.title, f.topics)) ?? (
+                            <>
+                              <span className="redact" style={{ width: 120 }} aria-hidden="true" />
+                              <span className="sr-only">가려진 제목</span>
+                            </>
+                          )}
+                        </span>
+                        {f.secret && <span className="sec">{f.secret === 'review' ? `SECRET ${f.docs.filter((d) => !d.approved).length}` : 'SECRET'}</span>}
                       </span>
-                      {f.secret && <span className="sec">{f.secret === 'review' ? `SECRET ${f.docs.filter((d) => !d.approved).length}` : 'SECRET'}</span>}
+                      {(f.repo !== null || f.seats.length > 0) && (
+                        <span className="l2">
+                          <TopicBadges topics={f.topics} fold />
+                          {f.repo !== null && <span>{fmtDocDay(f.date)}</span>}
+                          {f.seats.length > 0 && (
+                            <span className="who">
+                              {f.seats.map((s) => (
+                                <i key={s} data-seat={s}>
+                                  {seatFirst(s)}
+                                </i>
+                              ))}
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </button>
                   ))}
                 {snap.layout.note && <p className="doc-note">{snap.layout.note}</p>}
@@ -322,13 +341,14 @@ function FileHead({ file }: { file: DocFile }) {
   return (
     <div className="doc-filehead">
       <h4>
-        {file.title ?? (
+        {(file.title && shownTitle(file.title, file.topics)) ?? (
           <>
             SECRET 문서
             <span className="sr-only">{priv ? ' (제목 지워짐)' : ' (결재 전이라 제목 가려짐)'}</span>
           </>
         )}
       </h4>
+      <TopicBadges topics={file.topics} />
       {file.seats.length > 0 && (
         <div className="doc-who">
           참여{' '}
