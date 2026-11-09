@@ -1,4 +1,4 @@
-import { DEFAULT_PARENT_ORIGINS, allowedOrigins, envelope, parentOrigin, parseDeskMessage, type OfficeMessage } from './protocol'
+import { DEFAULT_DESK_URL, allowedOrigins, envelope, parentOrigin, parseDeskAudio, parseDeskMessage, type DeskAudio, type OfficeMessage } from './protocol'
 
 /** `?embed=room` and really inside a frame: the desk draws the way back and plays the exit */
 export const ROOM_MODE = (() => {
@@ -11,7 +11,7 @@ export const ROOM_MODE = (() => {
 if (ROOM_MODE) document.documentElement.dataset.room = '1'
 
 /** standalone "← 책상으로" target */
-export const DESK_URL = (import.meta.env.VITE_DESK_URL as string | undefined) || `${DEFAULT_PARENT_ORIGINS}/`
+export const DESK_URL = (import.meta.env.VITE_DESK_URL as string | undefined) || DEFAULT_DESK_URL
 
 const allowed = allowedOrigins(location.origin, import.meta.env.VITE_ROOM_PARENT_ORIGINS as string | undefined)
 
@@ -35,6 +35,9 @@ const enteredListeners = new Set<() => void>()
 export const onLeaveStart = (fn: (from: Leave) => void) => (leaveListeners.add(fn), () => void leaveListeners.delete(fn))
 /** the desk said `entered` (its CRT started): step back from the door */
 export const onEntered = (fn: () => void) => (enteredListeners.add(fn), () => void enteredListeners.delete(fn))
+const audioListeners = new Set<(a: DeskAudio) => void>()
+/** the desk sent its sound setting (on `entered` and whenever it changes, docs/design/sound.md 2.4) */
+export const onDeskAudio = (fn: (a: DeskAudio) => void) => (audioListeners.add(fn), () => void audioListeners.delete(fn))
 
 function startLeave(from: Leave) {
   if (locked) return
@@ -58,6 +61,10 @@ export function listenToDesk() {
     const t = parseDeskMessage(e, window.parent, allowed)
     if (t === 'leaving') startLeave('desk')
     else if (t === 'entered') enteredListeners.forEach((f) => f())
+    else {
+      const a = parseDeskAudio(e, window.parent, allowed)
+      if (a) audioListeners.forEach((f) => f(a))
+    }
   }
   window.addEventListener('message', onMessage)
   return () => window.removeEventListener('message', onMessage)

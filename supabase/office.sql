@@ -8,9 +8,9 @@
 -- Nothing private is stored: an agent number, a state, an activity kind (edit, test, …). Session ids, paths,
 -- commands and tool input/output never leave the PC (the hook classifies them locally, plan.md 5.1).
 
--- the four agents (#5, #26): seat = desk / nav work_<seat>
+-- the agents (#5, #26; #193 the fifth): seat = desk / nav work_<seat>
 create table if not exists public.agents (
-  seat smallint primary key check (seat between 0 and 3),
+  seat smallint primary key check (seat between 0 and 4),
   key text not null unique,
   name text not null,
   role text not null,
@@ -22,6 +22,13 @@ insert into public.agents (seat, key, name, role, color) values
   (1, 'mesh', '메시 MESH', '3D', '#8f9bff'),
   (2, 'hue',  '휴 HUE',    '디자인', '#ff3ea5'),
   (3, 'loop', '루프 LOOP', '코더', '#4df3ff')
+on conflict (seat) do update set key = excluded.key, name = excluded.name, role = excluded.role, color = excluded.color;
+
+-- #193: the fifth agent, 에코 ECHO (sound). On a database made for four seats the check is widened first; both
+-- statements are safe to run again
+alter table public.agents drop constraint if exists agents_seat_check;
+alter table public.agents add constraint agents_seat_check check (seat between 0 and 4);
+insert into public.agents (seat, key, name, role, color) values (4, 'echo', '에코 ECHO', '사운드', '#f2ffc4')
 on conflict (seat) do update set key = excluded.key, name = excluded.name, role = excluded.role, color = excluded.color;
 
 -- what each agent is doing now. One row per agent; the page derives "idle" / "off" from updated_at when the
@@ -42,6 +49,13 @@ create table if not exists public.agent_status (
 alter table public.agent_status add column if not exists last_result_activity text check (last_result_activity in ('test', 'build'));
 alter table public.agent_status add column if not exists last_result_ok boolean;
 alter table public.agent_status add column if not exists last_result_at timestamptz;
+-- #182: the issue the agent is on. The hook sends only the repo name and the number; the server looks the title
+-- up from the public plan documents (docs table). A private repo stores only task_private = true: no repo, no
+-- number, no title. All null = no task. Existing rows stay null, so this is safe to run before deploying.
+alter table public.agent_status add column if not exists task_repo text check (char_length(task_repo) <= 100);
+alter table public.agent_status add column if not exists task_issue integer check (task_issue between 1 and 1000000);
+alter table public.agent_status add column if not exists task_title text check (char_length(task_title) <= 300);
+alter table public.agent_status add column if not exists task_private boolean;
 
 insert into public.agent_status (seat) select seat from public.agents on conflict do nothing;
 

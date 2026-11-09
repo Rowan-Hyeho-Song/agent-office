@@ -22,12 +22,18 @@ import type { Goal } from './director'
 import { DOZE } from './doze'
 import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
 import { GLOW } from './nodes'
+import { KNUCKLE_DEG, THUMB_DEG, type FingerModel } from './grip'
+import { TRAFFIC, type Sample } from './traffic'
 import type { AgentStatus } from './status'
 
 const SPEED = 0.75 // m/s cruising
 const ACCEL = 1.4 // m/s²
 const CORNER_SPEED = 0.32 // through a sharp turn
 const TURN_RATE = 4.5 // rad/s
+// a meeting listener's nod (#141): how long it takes, how far the head dips, how long the addressee's hand stays up
+const NOD_S = 0.5
+const NOD_DEG = 5
+const NOD_HAND_S = 0.8
 const LIFT = 0.06 // extra hover height while moving
 /** seated spots: the head floats lower over the cushion / stool */
 const SEAT: Record<string, number> = { sofa: -0.3, stool: -0.2 }
@@ -38,6 +44,10 @@ const EXIT_DEPTH = 0.9
 const EXIT = '__exit'
 /** hand spring (#28: critically damped, ω ≈ 12 → about 0.12 s behind the head) */
 const HAND_OMEGA = 12
+/** finger bends ease at this rate (1/s): ~95 % of a change in 120 ms (agents.md 2.7) */
+const FINGER_RATE = 25
+const X_AXIS = new Vector3(1, 0, 0)
+const Z_AXIS = new Vector3(0, 0, 1)
 const PROP_OMEGA = 14
 /** the planner's sticky notes shown (#28: = open issues, fixed until the count is wired, #44) */
 const POSTITS = 3
@@ -50,19 +60,41 @@ const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a))
 const damp = MathUtils.damp
 const UP = new Vector3(0, 1, 0)
 
+/** one finger joint (#134): the node and its rest rotation in its parent (bends are applied on top of it) */
+export interface Joint {
+  node: Object3D
+  rest: Quaternion
+}
+
 export interface Hand {
   node: Object3D
   grip: Object3D | undefined
-  index: Object3D | undefined
-  fingers: Object3D | undefined
-  thumb: Object3D | undefined
+  /** f[finger][knuckle]: index … little, root … tip (agent_i_hand_*_f{1..4}_{1,2,3}); missing nodes are null */
+  fingers: (Joint | null)[][]
+  /** the thumb's two segments (agent_i_hand_*_t_{1,2}) */
+  thumb: (Joint | null)[]
   /** the index and thumb tips in their own part's frame (the vertex farthest from the pivot), for the pinch */
   indexTip: Vector3 | null
   thumbTip: Vector3 | null
+  /** every finger's tip in its last segment's frame (index … little) */
+  tips: (Vector3 | null)[]
   /** rest pose in the root's frame */
   restPos: Vector3
   restQuat: Quaternion
   vel: Vector3
+}
+
+/**
+ * What a grip (grip.ts, PlayStage) makes a hand do on top of its pose: where the hand goes (a world matrix, weight w: 0 = the
+ * pose's own place), and how the fingers bend (six values, weight wc over the pose's own curls; spread = each finger's sideways
+ * swing, rad). The hand's spring keeps following its pose underneath, so the weights fade back without a jump.
+ */
+export interface HandDrive {
+  target: Matrix4 | null
+  w: number
+  curl: readonly number[] | null
+  wc: number
+  spread: readonly number[] | null
 }
 
 export interface RigParts {
@@ -160,6 +192,14 @@ function fadeBeam(mesh: Mesh) {
   m.needsUpdate = true
 }
 
+/** a finger (0 = index … 3 = little) or the thumb as plain data for the contact fit (grip.ts), or null if the hand lacks its parts */
+export function fingerModelOf(hand: Hand, finger: number | 'thumb', side: 'l' | 'r'): FingerModel | null {
+  const chain = finger === 'thumb' ? hand.thumb : hand.fingers[finger]
+  const tip = finger === 'thumb' ? hand.thumbTip : hand.tips[finger]
+  if (!tip || chain.some((j) => !j)) return null
+  return { p: chain.map((j) => j!.node.position.clone()), rest: chain.map((j) => j!.rest.clone()), tip: tip.clone(), thumb: finger === 'thumb', sx: side === 'l' ? -1 : 1 }
+}
+
 /** the vertex of a part farthest from its pivot, in the part's own frame (a finger's tip) */
 function tipOf(part: Object3D | undefined): Vector3 | null {
   if (!part) return null
@@ -203,15 +243,28 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
   const rootQuatInv = root.getWorldQuaternion(new Quaternion()).invert()
   const hand = (side: 'l' | 'r'): Hand => {
     const node = n(`_hand_${side}`)
-    for (const s of ['_index', '_fingers', '_thumb', '_cuff']) if (n(`_hand_${side}${s}`)) node.attach(n(`_hand_${side}${s}`))
+    if (n(`_hand_${side}_cuff`)) node.attach(n(`_hand_${side}_cuff`))
+    // the finger chains (#134, Blender #148): each segment hangs off the one before, the first off the palm
+    const chain = (names: string[]): (Joint | null)[] => {
+      let parent = node
+      return names.map((s) => {
+        const part = n(`_hand_${side}_${s}`)
+        if (!part) return null
+        parent.attach(part)
+        parent = part
+        return { node: part, rest: part.quaternion.clone() }
+      })
+    }
+    const fingers = [1, 2, 3, 4].map((f) => chain([1, 2, 3].map((k) => `f${f}_${k}`)))
+    const thumb = chain(['t_1', 't_2'])
     return {
       node,
       grip: n(`_hand_${side}_grip`),
-      index: n(`_hand_${side}_index`),
-      fingers: n(`_hand_${side}_fingers`),
-      thumb: n(`_hand_${side}_thumb`),
-      indexTip: tipOf(n(`_hand_${side}_index`)),
-      thumbTip: tipOf(n(`_hand_${side}_thumb`)),
+      fingers,
+      thumb,
+      indexTip: tipOf(fingers[0][2]?.node),
+      thumbTip: tipOf(thumb[1]?.node),
+      tips: fingers.map((c) => tipOf(c[2]?.node)),
       restPos: root.worldToLocal(node.getWorldPosition(new Vector3())),
       restQuat: rootQuatInv.clone().multiply(node.getWorldQuaternion(new Quaternion())),
       vel: new Vector3(),
@@ -306,7 +359,19 @@ interface Prop {
   homeLocal: Matrix4
   /** its pose in a hand's grip frame (extras.grip) */
   gripLocal: Matrix4
-  holder: { rig: AgentRig; side: 'l' | 'r' } | null
+  /** who has it; `attached` = it is in the hand now (false while the hand is still reaching for it: it stays home, reserved) */
+  holder: { rig: AgentRig; side: 'l' | 'r'; attached: boolean } | null
+  /** the grip empties (`<name>_grip_r|l`) in the node's own frame (grip.ts: the hand's _grip goes onto it) */
+  grips: Partial<Record<'l' | 'r', Matrix4>>
+  /** a pose someone else decided for this frame (PlayStage: the paddle's swing, the cup at the lips): taken exactly, no easing */
+  forced: Matrix4 | null
+}
+
+/** a prop's info for the play stage */
+export interface PropInfo {
+  node: Object3D
+  kind: string
+  grips: Partial<Record<'l' | 'r', Matrix4>>
 }
 
 /** extras { pos, rot } (rot = Blender XYZ Euler) → a matrix */
@@ -333,7 +398,13 @@ export class PropBank {
       homeParent.updateMatrixWorld(true)
       const homeLocal = homeParent.matrixWorld.clone().invert().multiply(node.matrixWorld)
       scene.attach(node) // props move in world space; their home is recomputed from homeParent every frame
-      this.props.push({ node, kind: x.prop, homeParent, homeLocal, gripLocal: toMatrix(x.grip), holder: null })
+      const grips: Prop['grips'] = {}
+      const inv = node.matrixWorld.clone().invert()
+      for (const side of ['l', 'r'] as const) {
+        const g = scene.getObjectByName(`${node.name}_grip_${side}`)
+        if (g) grips[side] = inv.clone().multiply(g.matrixWorld)
+      }
+      this.props.push({ node, kind: x.prop, homeParent, homeLocal, gripLocal: toMatrix(x.grip), holder: null, grips, forced: null })
     }
   }
 
@@ -346,16 +417,36 @@ export class PropBank {
   }
 
   /** set what each agent holds this frame: one prop per agent, everything else goes home */
-  hold(wants: Map<AgentRig, { kind: string; side: 'l' | 'r'; prefer?: string } | null>) {
+  hold(wants: Map<AgentRig, { kind: string; side: 'l' | 'r'; prefer?: string; attached?: boolean } | null>) {
     const taken = new Set<Prop>()
     for (const [rig, want] of wants) {
       if (!want) continue
       const p = this.pick(rig, want.kind, want.prefer)
       if (!p || taken.has(p)) continue
-      p.holder = { rig, side: want.side }
+      p.holder = { rig, side: want.side, attached: want.attached ?? true }
       taken.add(p)
     }
     for (const p of this.props) if (!taken.has(p)) p.holder = null
+  }
+
+  /** the prop a rig would take for this kind (the one it holds, else a free one, preferring `prefer`) */
+  info(rig: AgentRig, kind: string, prefer?: string): PropInfo | null {
+    const p = this.pick(rig, kind, prefer)
+    return p ? { node: p.node, kind: p.kind, grips: p.grips } : null
+  }
+
+  /** where a prop rests, in the world */
+  homeWorld(node: Object3D, out = new Matrix4()): Matrix4 {
+    const p = this.props.find((x) => x.node === node)
+    if (!p) return out.copy(node.matrixWorld)
+    p.homeParent.updateWorldMatrix(true, false)
+    return out.multiplyMatrices(p.homeParent.matrixWorld, p.homeLocal)
+  }
+
+  /** the pose PlayStage wants for this prop this frame (null: leave it to the easing) */
+  force(node: Object3D, pose: Matrix4 | null) {
+    const p = this.props.find((x) => x.node === node)
+    if (p) p.forced = pose ? (p.forced ?? new Matrix4()).copy(pose) : null
   }
 
   private m = new Matrix4()
@@ -376,7 +467,13 @@ export class PropBank {
     const k = 1 - Math.exp(-PROP_OMEGA * dt)
     for (const p of this.props) {
       if (this.borrowed.has(p.node)) continue
-      const grip = p.holder && p.holder.rig.parts.hands[p.holder.side].grip
+      if (p.forced && p.holder) {
+        // a pose decided elsewhere (the hand was placed from it, grip.ts): exactly, with no easing
+        p.forced.decompose(p.node.position, p.node.quaternion, this.scl)
+        p.node.visible = p.holder.rig.visible
+        continue
+      }
+      const grip = p.holder?.attached ? p.holder.rig.parts.hands[p.holder.side].grip : undefined
       if (grip && p.holder!.rig.visible) {
         grip.updateWorldMatrix(true, false)
         this.m.multiplyMatrices(grip.matrixWorld, p.gripLocal)
@@ -391,9 +488,16 @@ export class PropBank {
         this.quat.setFromAxisAngle(UP, yaw)
         if (p.kind === 'watering_can') this.quat.multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -0.5))
       }
+      // a go stone that has been placed is back on its bowl at once (the next one of the pile): nothing flies home
+      if (!grip && p.kind === 'piece') {
+        p.node.position.copy(this.pos)
+        p.node.quaternion.copy(this.quat)
+        p.node.visible = !p.holder || !p.holder.attached || p.holder.rig.visible
+        continue
+      }
       p.node.position.lerp(this.pos, k)
       p.node.quaternion.slerp(this.quat, k)
-      p.node.visible = !p.holder || p.holder.rig.visible
+      p.node.visible = !p.holder || !p.holder.attached || p.holder.rig.visible
     }
   }
 }
@@ -404,34 +508,87 @@ interface HandPose {
   pos: Vector3
   /** extra rotation in the root's frame, applied before the rest rotation */
   turn: Quaternion
-  /** finger curls (+ = toward the palm); iz / tz turn the index / thumb sideways (the pinch) */
+  /** how the fingers bend */
   curl: HandShape
 }
 
+/**
+ * A hand shape (agents.md 2.7, #134): one bend value c per finger, index … little (0 = straight, 1 = fully bent; the
+ * knuckles turn root 75°·c, middle 90°·c, tip 60°·c toward the palm), and the thumb's bend and opposition (its root
+ * turns toward the palm by 60°·opposition; a negative one opens it outward, 메시's frame).
+ */
 export interface HandShape {
-  index: number
-  fingers: number
-  thumb: number
-  iz?: number
-  tz?: number
+  f: readonly [number, number, number, number]
+  thumb: readonly [bend: number, oppose: number]
 }
+
+const DEG = Math.PI / 180
+export { KNUCKLE_DEG, THUMB_DEG }
+
+/** the knuckle angles of a shape (radians): f[finger][knuckle] about local x; the thumb's root x / z and tip x */
+export function jointAngles(shape: HandShape, side: 'l' | 'r') {
+  const sx = side === 'l' ? -1 : 1
+  return {
+    f: shape.f.map((c) => KNUCKLE_DEG.map((d) => d * DEG * c)),
+    t1x: THUMB_DEG.bend1 * DEG * shape.thumb[0],
+    t1z: sx * THUMB_DEG.oppose * DEG * shape.thumb[1],
+    t2x: THUMB_DEG.bend2 * DEG * shape.thumb[0],
+  }
+}
+
+type Four = [number, number, number, number]
+const shape = (f: Four, thumb: [number, number]): HandShape => ({ f, thumb })
 
 const v = (x: number, y: number, z: number) => new Vector3(x, y, z)
 const qz = (a: number) => new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), a)
 const qy = (a: number) => new Quaternion().setFromAxisAngle(UP, a)
 const NONE = new Quaternion()
-const REST_CURL = { index: 0.15, fingers: 0.25, thumb: 0.1 }
-const HOLD_CURL = { index: 1.2, fingers: 1.35, thumb: 0.8 }
 /**
- * thumb and index tips meet (#62). The glove's thumb is short and curls on the same axis as the index, so the
- * index folds well over (136°) onto the thumb pad and both turn in a little: an 'OK' ring, read as a pinch. The
- * other three fingers only half bend so they don't cover what's held. Angles from a search over the hand parts.
+ * The hand's frame (#148, measured in Blender and in the app): at rest the palms face each other, the right palm toward
+ * the agent's −x and the left toward +x, thumbs up. Palm down is a roll about the agent's forward axis: the right hand
+ * +90° about +z, the left −90°. (#178: the sign was the other way round for the old glove hand and turned the new
+ * hand's palms up, back of the hand on the keyboard.)
  */
-const PINCH_CURL: HandShape = { index: 2.38, fingers: 0.8, thumb: 1.72, iz: -0.4, tz: -0.3 }
+export const REST_PALM: Record<'l' | 'r', readonly [number, number, number]> = { r: [-1, 0, 0], l: [1, 0, 0] }
+export const palmDown = (side: 'l' | 'r') => qz(((side === 'l' ? -1 : 1) * Math.PI) / 2)
+/** the nine shapes of agents.md 2.7 (#134) */
+const REST_CURL = shape([0.25, 0.25, 0.3, 0.35], [0.2, 0])
+const TYPE_CURL = shape([0.35, 0.35, 0.35, 0.4], [0.3, 0.2])
+const HOLD_CURL = shape([0.85, 0.88, 0.9, 0.92], [0.7, 1])
+/**
+ * the index and thumb tips meet (#62). Measured on the #148 hand: the table's values (index 0.55, thumb 0.6 / 0.9)
+ * leave the tips 5.9 cm apart; a fully bent index onto a straight, opposed thumb closes them to 5 mm (a search over
+ * index 0.2–1 × thumb bend 0–1.5 × opposition 0–1.5). The other three stay loose as at rest: an "OK" hand, not a fist
+ * (designer, #154), and they keep clear of the paper plane's wings.
+ */
+const PINCH_CURL = shape([0.9, 0.25, 0.3, 0.35], [0, 0.7])
+const POINT_CURL = shape([0, 0.9, 0.92, 0.95], [0.6, 0.6])
+const WAVE_CURL = shape([0, 0, 0.02, 0.05], [0.1, 0])
+const FRAME_CURL = shape([0, 0.92, 0.94, 0.96], [0, -0.85])
+const STAMP_CURL = shape([0.1, 0.1, 0.1, 0.1], [0.1, 0])
+const YIELD_CURL = shape([0.05, 0.08, 0.1, 0.12], [0.15, 0])
+/** a loose hand (sofa, reading, the board-game hand at rest): between rest and hold */
+const LOOSE_CURL = shape([0.45, 0.5, 0.55, 0.6], [0.3, 0.2])
+/** typing (agents.md 2.7): each finger alternates 0.35 ↔ 0.5 four times a second, out of step with its neighbours */
+function typing(t: number, side: 'l' | 'r', phase: number): HandShape {
+  const o = side === 'l' ? 0 : Math.PI / 4
+  const f = TYPE_CURL.f.map((c, k) => c + 0.15 * (0.5 + 0.5 * Math.sin(t * Math.PI * 8 + phase + o + k * Math.PI * 0.5))) as Four
+  return shape(f, [TYPE_CURL.thumb[0], TYPE_CURL.thumb[1]])
+}
 /** how far the hand holding a caught plane moves out from the head's centre line, m (designer, #62) */
 const CAUGHT_OUT = 0.055
 /** named hand shapes, for anything that holds something (the plane's catch; later 휴's dropper, 메시's vertex pick) */
-export const HAND_SHAPES = { rest: REST_CURL, hold: HOLD_CURL, pinch: PINCH_CURL } as const satisfies Record<string, HandShape>
+export const HAND_SHAPES = {
+  rest: REST_CURL,
+  type: TYPE_CURL,
+  hold: HOLD_CURL,
+  pinch: PINCH_CURL,
+  point: POINT_CURL,
+  wave: WAVE_CURL,
+  frame: FRAME_CURL,
+  stamp: STAMP_CURL,
+  yield: YIELD_CURL,
+} as const satisfies Record<string, HandShape>
 /** how long the paper plane's gestures last, seconds (#51) */
 export const GESTURE_S = { throw: 0.7, catch: 1.6 }
 
@@ -468,6 +625,9 @@ export class AgentRig {
   private speed = 0
   /** walking pace scale (the replay walks faster) */
   pace = 1
+  /** the traffic planner (traffic.ts) moves this rig: its trajectory sample for this frame; when set, nothing here integrates */
+  track: Sample | null = null
+  traffic = false
   private turnVel = 0
   private lift = 0
   private seat = 0
@@ -475,13 +635,36 @@ export class AgentRig {
   /** 0 → 1 while dozing (#110): lowers the head, dims the beam */
   private dozing = 0
   private look = { pitch: 0, yaw: 0, roll: 0 }
-  private curls: Record<'l' | 'r', Required<HandShape>> = { l: { ...REST_CURL, iz: 0, tz: 0 }, r: { ...REST_CURL, iz: 0, tz: 0 } }
+  /** the current bends per hand (eased toward the pose's shape): four fingers, then the thumb's bend and opposition */
+  private curls: Record<'l' | 'r', number[]> = { l: [...REST_CURL.f, ...REST_CURL.thumb], r: [...REST_CURL.f, ...REST_CURL.thumb] }
   private spin = { orbit: 0, ring: 0 }
   private blinkAt = 0
   /** what it is holding this frame (read by the PropBank) */
-  want: { kind: string; side: 'l' | 'r'; prefer?: string } | null = null
+  want: { kind: string; side: 'l' | 'r'; prefer?: string; attached?: boolean } | null = null
+  /** the meeting reaction in progress (#141): when it started on the scene clock, whether a hand lifts with it; the key it answered last */
+  private nod: { t0: number; hand: boolean } | null = null
+  private nodKey = ''
   /** a point to turn the head to while resting (the coder's rubber duck when a test fails, #44) */
   watch: Vector3 | null = null
+  /** grips and play (PlayStage): what each hand is made to do this frame (null = just its pose) */
+  drive: Record<'l' | 'r', HandDrive | null> = { l: null, r: null }
+  private spring: Record<'l' | 'r', { pos: Vector3; quat: Quaternion } | null> = { l: null, r: null }
+  /** a small extra head turn while playing (the omok thinker's 5° tilt, 10° toward the last stone); rad */
+  headExtra = { pitch: 0, yaw: 0, roll: 0 }
+  /** a point the head glances at, up to `glanceMax` rad of yaw (the opponent's last stone) */
+  glance: { at: Vector3; max: number } | null = null
+  /** a short reaction on top of the hand pose: the winner's fist, the loser's three claps (play.md 2.5) */
+  reaction: { kind: 'fist' | 'clap'; t0: number; dur: number } | null = null
+  /** the left hand at the chin, its fingers drumming (the omok thinker 메시) */
+  chin = false
+  /** the timelapse at x16 (#158, timelapse.md): a gesture lasts at least this long on the scene clock (s; 0 = as designed) ... */
+  gestureMin = 0
+  /** where to draw the body when it is not where the plan puts it (the timelapse caps the screen speed); x, z stay the plan's */
+  drawAt: { x: number; z: number } | null = null
+  /** ... and the repeating ambient motion (bob, sway, typing flutter) is scaled by this (1 = on, 0 = off) */
+  ambient = 1
+  private cueMem: { kind: NonNullable<Sample['cue']>['kind']; dur: number; gesture: boolean; toward: { x: number; z: number } | null; startT: number } | null = null
+  private cueT = 0
   /** a short gesture set by the paper plane (#51): until = the scene clock time it ends */
   gesture: { kind: 'throw' | 'catch'; until: number; oneHand?: boolean; caught?: boolean } | null = null
 
@@ -522,6 +705,7 @@ export class AgentRig {
 
   /** the spot it has arrived at and stopped on, if any */
   get arrived(): string | null {
+    if (this.traffic) return this.track ? this.track.arrived : this.at
     return this.path.length === 0 && this.at !== EXIT ? this.at : null
   }
 
@@ -561,6 +745,10 @@ export class AgentRig {
   setGoal(goal: Goal, g: NavGraph) {
     const prev = this.goal
     this.goal = goal
+    if (this.traffic) {
+      this.placed = true
+      return
+    }
     if (!this.placed) {
       // first frame: start where the schedule says (every visitor sees the same scene from the start)
       this.placed = true
@@ -596,7 +784,7 @@ export class AgentRig {
     if (goal.face) return Math.atan2(-(goal.face.x - this.x), -(goal.face.z - this.z))
     const look = goal.lookAt && others?.[goal.lookAt]
     if (look && goal.pose !== 'listen') return Math.atan2(-(look.x - this.x), -(look.z - this.z))
-    return g.spots[goal.spot]?.ry ?? this.heading
+    return goal.slot?.ry ?? g.spots[goal.spot]?.ry ?? this.heading
   }
 
   update(dt: number, t: number, g: NavGraph, others: Record<string, AgentRig>, reduced: boolean, status?: AgentStatus) {
@@ -605,7 +793,20 @@ export class AgentRig {
     let wantHeading = this.heading
     let moving = false
 
-    if (this.path.length) {
+    if (this.traffic) {
+      const k = this.track
+      if (k) {
+        this.x = k.x
+        this.z = k.z
+        this.speed = k.speed
+        this.at = k.arrived
+        this.from = null
+        this.path = []
+        moving = k.moving
+        if (k.moving && k.heading !== null) wantHeading = k.heading
+        else if (k.arrived) wantHeading = this.restHeading(g, others)
+      }
+    } else if (this.path.length) {
       moving = true
       // slow down for the final stop and for sharp corners
       const next = this.point(g, this.path[0])
@@ -664,21 +865,31 @@ export class AgentRig {
     this.surface = this.snap ? surfaceTarget : damp(this.surface, surfaceTarget, 6, dt)
     this.snap = false
     const motion = reduced ? 0.2 : 1
+    this.cueT = t
     const doze = resting && goal.pose === 'doze'
     this.dozing = damp(this.dozing, doze ? 1 : 0, 3, dt)
     // dozing breathes slowly (none with reduced motion) instead of the usual bob
     const dozeBob = -DOZE.lowerM + (reduced ? 0 : Math.sin(((t + this.phase) / DOZE.bobPeriodS) * Math.PI * 2) * DOZE.bobM)
-    const bob = MathUtils.lerp(Math.sin(t * 2.1 + this.phase) * 0.015 * motion, dozeBob, this.dozing)
+    const bob = MathUtils.lerp(Math.sin(t * 2.1 + this.phase) * 0.015 * motion * this.ambient, dozeBob, this.dozing)
 
     const { root, head, beam } = this.parts
     root.visible = !this.hidden
-    root.position.set(this.x, 0, this.z)
+    root.position.set(this.drawAt?.x ?? this.x, 0, this.drawAt?.z ?? this.z)
     root.rotation.set(0, this.heading, 0)
     root.updateMatrixWorld(true)
 
     // the head: lifts while moving, sits lower on seats, bobs, leans into turns and forward with speed
     const pose = resting ? goal.pose : moving ? 'move' : 'idle'
     const lookTarget = this.headLook(pose, t, reduced, others)
+    lookTarget.pitch -= this.nodDip(goal, t, reduced)
+    if (this.glance && pose !== 'move') {
+      const dx = this.glance.at.x - this.x
+      const dz = this.glance.at.z - this.z
+      lookTarget.yaw += MathUtils.clamp(wrap(Math.atan2(-dx, -dz) - this.heading), -this.glance.max, this.glance.max)
+    }
+    lookTarget.pitch += this.headExtra.pitch
+    lookTarget.yaw += this.headExtra.yaw
+    lookTarget.roll += this.headExtra.roll
     this.look.pitch = damp(this.look.pitch, lookTarget.pitch, 6, dt)
     this.look.yaw = damp(this.look.yaw, lookTarget.yaw, 6, dt)
     this.look.roll = damp(this.look.roll, lookTarget.roll, 6, dt)
@@ -720,8 +931,81 @@ export class AgentRig {
         : null
   }
 
+  /** a goal's gesture starts once per new key; the head dips NOD_DEG over NOD_S (rad now; 0 when still or with reduced motion) */
+  private nodDip(goal: Goal, t: number, reduced: boolean): number {
+    const g = goal.gesture
+    if (g && g.key !== this.nodKey) {
+      this.nodKey = g.key
+      this.nod = reduced ? null : { t0: t, hand: g.hand }
+    }
+    const n = this.nod
+    const nodS = Math.max(NOD_S, this.gestureMin)
+    if (!n || reduced || t - n.t0 > nodS) return 0
+    return Math.sin(((t - n.t0) / nodS) * Math.PI) * NOD_DEG * (Math.PI / 180)
+  }
+
+  /**
+   * The yield / pass cue to draw. In the timelapse (gestureMin > 0) a cue shorter than gestureMin is played slower, and
+   * kept after the planner has dropped it, so it still shows for gestureMin of scene time.
+   */
+  private cue(): NonNullable<Sample['cue']> | null {
+    const live = this.track?.cue ?? null
+    if (this.gestureMin <= 0) return live
+    const t = this.cueT
+    if (live) {
+      if (!this.cueMem || this.cueMem.kind !== live.kind || t - this.cueMem.startT > Math.max(live.dur, this.gestureMin) * 1.01 + 1e-6 || live.age < 0.06)
+        this.cueMem = { kind: live.kind, dur: live.dur, gesture: live.gesture, toward: live.toward, startT: t - live.age }
+      else if (live.toward) this.cueMem.toward = live.toward
+    }
+    const m = this.cueMem
+    if (!m) return null
+    const s = Math.max(1, this.gestureMin / m.dur)
+    const el = t - m.startT
+    if (el >= m.dur * s) {
+      if (!live) this.cueMem = null
+      return null
+    }
+    return { kind: m.kind, age: el / s, dur: m.dur, gesture: m.gesture, toward: m.toward }
+  }
+
+  /** the angle from the body's heading to the other agent of the current yield / pass cue (positive = to the left) */
+  private cueRel(): number {
+    const c = this.cue()
+    if (!c?.toward) return 0
+    return wrap(Math.atan2(-(c.toward.x - this.x), -(c.toward.z - this.z)) - this.heading)
+  }
+
+  /** the designer's yield gestures (agents.md 2.8) as head motion; none with reduced motion (the step aside is the gesture) */
+  private cueLook(reduced: boolean): { pitch: number; yaw: number; roll: number } | null {
+    const c = this.cue()
+    if (!c || reduced) return null
+    const C = TRAFFIC.cue
+    const D = Math.PI / 180
+    const rel = this.cueRel()
+    const clampDeg = (deg: number) => MathUtils.clamp(rel, -deg * D, deg * D)
+    const env = MathUtils.clamp(c.age / 0.15, 0, 1) * MathUtils.clamp((c.dur - c.age) / 0.15, 0, 1)
+    const arc = Math.sin(MathUtils.clamp(c.age / c.dur, 0, 1) * Math.PI)
+    switch (c.kind) {
+      case 'yield': {
+        const k = MathUtils.clamp((c.age - C.nodFromS) / (C.nodToS - C.nodFromS), 0, 1)
+        const turn = MathUtils.clamp(c.age / C.stepAsideS, 0, 1)
+        return { pitch: c.gesture ? -Math.sin(k * Math.PI) * C.nodDeg * D : 0, yaw: clampDeg(C.yieldHeadDeg) * turn * env, roll: 0 }
+      }
+      case 'pass':
+        return { pitch: -arc * C.nodDeg * D, yaw: clampDeg(C.passHeadDeg) * arc, roll: 0 }
+      case 'wide':
+        return { pitch: 0, yaw: clampDeg(C.wideHeadDeg) * arc, roll: 0 }
+      case 'tilt':
+        return { pitch: 0, yaw: 0, roll: C.tiltDeg * D * arc }
+      case 'dest':
+        return { pitch: 0, yaw: clampDeg(40) * MathUtils.clamp(c.age / 0.3, 0, 1), roll: 0 }
+    }
+  }
+
   private headLook(pose: string, t: number, reduced: boolean, others: Record<string, AgentRig>) {
-    const m = reduced ? 0.3 : 1
+    const cue = this.cueLook(reduced)
+    if (cue) return cue
+    const m = reduced ? 0.3 : this.ambient
     const s = (f: number, o = 0) => Math.sin(t * f + this.phase + o) * m
     const idle = { pitch: 0, yaw: reduced ? 0 : s(0.35) * 0.25, roll: 0 }
     // looking at something on the desk (the duck): turn toward it and look down at it
@@ -742,8 +1026,12 @@ export class AgentRig {
         const yaw = o ? MathUtils.clamp(wrap(Math.atan2(-(o.x - this.x), -(o.z - this.z)) - this.heading), -1.1, 1.1) : 0
         return { pitch: 0, yaw, roll: 0 }
       }
-      case 'talk':
-        return { pitch: 0.04 + s(5) * 0.04, yaw: 0, roll: 0 }
+      case 'talk': {
+        // the head alone turns to the one it listens to / speaks to (#141); the body keeps the circle's direction
+        const o = this.goal?.gaze ? others[this.goal.gaze] : undefined
+        const yaw = o ? MathUtils.clamp(wrap(Math.atan2(-(o.x - this.x), -(o.z - this.z)) - this.heading), -1.1, 1.1) : 0
+        return { pitch: 0.04 + s(5) * 0.04, yaw, roll: 0 }
+      }
       case 'post':
         return { pitch: 0.2, yaw: 0, roll: 0 }
       case 'boardgame':
@@ -765,11 +1053,11 @@ export class AgentRig {
 
   /** each hand's target in the root's frame for this pose */
   private handPose(side: 'l' | 'r', pose: string, t: number, reduced: boolean): HandPose {
-    const m = reduced ? 0.3 : 1
+    const m = reduced ? 0.3 : this.ambient
     const s = (f: number, o = 0) => Math.sin(t * f + this.phase + o) * m
     const sx = side === 'l' ? -1 : 1
     const rest = this.parts.hands[side].restPos
-    const down = qz(-sx * Math.PI / 2) // palm down (#27 rest: palms face each other)
+    const down = palmDown(side)
     const at = (x: number, y: number, z: number, turn = NONE, curl = REST_CURL): HandPose => ({ pos: v(x, y, z), turn, curl })
     const sit = this.seat
     // a moment's gesture on top of whatever the agent does (#51): throw the plane, raise a hand to catch it
@@ -781,18 +1069,50 @@ export class AgentRig {
     if (g?.kind === 'catch' && (side === 'r' || !g.oneHand)) {
       // once caught, the pinching hand moves out a little so it doesn't cover the face screen (its reaction shows)
       const caught = side === 'r' && g.caught
-      return at(sx * (0.16 + (caught ? CAUGHT_OUT : 0)), 1.32 + sit, -0.32, NONE, caught ? PINCH_CURL : { index: 0.1, fingers: 0.3, thumb: 0.2 })
+      return at(sx * (0.16 + (caught ? CAUGHT_OUT : 0)), 1.32 + sit, -0.32, NONE, caught ? PINCH_CURL : WAVE_CURL)
+    }
+    // the yield gesture: the hand on the passer's side opens palm up in front and sweeps toward them ("after you")
+    const cue = this.cue()
+    if (cue && !reduced) {
+      const C = TRAFFIC.cue
+      if (cue.kind === 'yield' && cue.gesture && cue.age >= C.nodFromS && cue.age < C.followFromS && side === (this.cueRel() > 0 ? 'l' : 'r')) {
+        const k = (cue.age - C.nodFromS) / (C.followFromS - C.nodFromS)
+        const sweep = Math.sin(k * Math.PI * 0.5 + 0.0) * C.handSweepM * (k < 0.7 ? k / 0.7 : 1)
+        return at(sx * (0.2 + sweep), 1.0 + sit, -0.15 - C.handForwardM, NONE, YIELD_CURL)
+      }
+      if (cue.kind === 'dest' && side === 'r') {
+        // a small impatient tap every 1.5 s: the fingers in turn, index to little, 0.1 s each (agents.md 2.8)
+        const ph = (cue.age % C.destTapEveryS) / 0.1
+        const f = REST_CURL.f.map((c, k) => c + (ph >= k && ph < k + 1 ? Math.sin((ph - k) * Math.PI) * C.destTapCurl : 0)) as Four
+        return at(rest.x, rest.y + 0.02, rest.z + 0.1, NONE, shape(f, [REST_CURL.thumb[0], REST_CURL.thumb[1]]))
+      }
+    }
+    // the addressee's small reaction: the left hand lifts a few cm, its curl as at rest (#141)
+    if (this.nod?.hand && !reduced && side === 'l' && t - this.nod.t0 < Math.max(NOD_HAND_S, this.gestureMin)) return at(rest.x, rest.y + 0.07, rest.z + 0.1)
+    const rx = this.reaction
+    if (rx && !reduced && t - rx.t0 >= 0 && t - rx.t0 < rx.dur) {
+      const u = (t - rx.t0) / rx.dur
+      // the winner's small fist, raised a little and let go; the loser's three claps, the hands meeting in front (play.md 2.5)
+      if (rx.kind === 'fist' && side === 'r') return at(0.16, 1.0 + sit + Math.sin(u * Math.PI) * 0.05, -0.3, NONE, shape([1, 1, 1, 1], [0.8, 1]))
+      if (rx.kind === 'clap') {
+        const k = 0.5 + 0.5 * Math.cos(u * 3 * Math.PI * 2)
+        return at(sx * (0.012 + 0.07 * k), 1.0 + sit, -0.3, NONE, WAVE_CURL)
+      }
+    }
+    if (this.chin && side === 'l' && pose === 'boardgame') {
+      // the hand under the chin, the fingers drumming in turn
+      const f = [0, 1, 2, 3].map((k) => 0.45 + 0.2 * Math.max(0, Math.sin(t * Math.PI * 6 - k * 0.9))) as Four
+      return at(-0.07, this.parts.head.position.y - 0.17, -0.12, qz(0.5), shape(f, [0.4, 0.3]))
     }
     switch (pose) {
       case 'move':
         return at(rest.x, rest.y - 0.03, rest.z + 0.08)
       case 'type':
-      case 'listen': {
-        const tap = pose === 'type' ? Math.max(0, s(14, side === 'l' ? 0 : 1.6)) * 0.02 : 0
-        return at(sx * 0.13, 0.81 + tap, -0.42, down, { index: 0.5 + tap * 15, fingers: 0.6, thumb: 0.2 })
-      }
+      case 'listen':
+        // the fingers type now (#134), not the whole hand: it rests on the keys
+        return at(sx * 0.13, 0.81, -0.42, down, pose === 'type' && !reduced && this.ambient > 0 ? typing(t, side, this.phase) : TYPE_CURL)
       case 'talk':
-        return at(sx * 0.24, 0.98 + sit + s(3, sx) * 0.05, -0.28, qy(-sx * 0.3), side === 'r' ? { index: 0, fingers: 1.3, thumb: 0.6 } : REST_CURL)
+        return at(sx * 0.24, 0.98 + sit + s(3, sx) * 0.05, -0.28, qy(-sx * 0.3), side === 'r' ? POINT_CURL : REST_CURL)
       case 'post':
         return side === 'r' ? at(0.12, 1.42 + s(2.5) * 0.03, -0.32, qz(0.4), HOLD_CURL) : at(rest.x, rest.y, rest.z)
       case 'pingpong':
@@ -803,7 +1123,7 @@ export class AgentRig {
         const reach = Math.max(0, s(1.4)) ** 4
         return side === 'r'
           ? at(0.1 - reach * 0.06, 0.84 + reach * 0.04, -0.34 - reach * 0.12, down, HOLD_CURL)
-          : at(-0.16, 0.8, -0.3, down, { index: 0.4, fingers: 0.5, thumb: 0.2 })
+          : at(-0.16, 0.8, -0.3, down, LOOSE_CURL)
       }
       case 'coffee':
         return side === 'l'
@@ -811,13 +1131,13 @@ export class AgentRig {
           : at(rest.x, rest.y, rest.z)
       case 'doze':
         // both palms flat on the desk either side of the keyboard
-        return at(sx * DOZE.hands.x, SURFACE.work + DOZE.hands.aboveDeskM, DOZE.hands.z, down, REST_CURL)
+        return at(sx * DOZE.hands.x, SURFACE.work + DOZE.hands.aboveDeskM, DOZE.hands.z, down, STAMP_CURL)
       case 'sofa':
-        return at(sx * 0.22, 0.62, -0.08, down, { index: 0.6, fingers: 0.7, thumb: 0.3 })
+        return at(sx * 0.22, 0.62, -0.08, down, LOOSE_CURL)
       case 'water':
         return side === 'r' ? at(0.16, 0.86 + s(1.2) * 0.02, -0.42, NONE, HOLD_CURL) : at(rest.x, rest.y, rest.z)
       case 'books':
-        return side === 'r' ? at(0.14, 1.3 + Math.max(0, s(0.6)) * 0.12, -0.4, qz(0.3), { index: 0.2, fingers: 0.4, thumb: 0.2 }) : at(rest.x, rest.y, rest.z)
+        return side === 'r' ? at(0.14, 1.3 + Math.max(0, s(0.6)) * 0.12, -0.4, qz(0.3), LOOSE_CURL) : at(rest.x, rest.y, rest.z)
       default:
         return at(rest.x, rest.y + s(1.1, sx) * 0.01, rest.z)
     }
@@ -826,10 +1146,12 @@ export class AgentRig {
   /** where a hand's index and thumb tips meet, in world space (the hand itself if it has no tips) */
   pinchPoint(side: 'l' | 'r', out = new Vector3()) {
     const h = this.parts.hands[side]
-    if (!h.index || !h.thumb || !h.indexTip || !h.thumbTip) return h.node.getWorldPosition(out)
+    const index = h.fingers[0][2]?.node
+    const thumb = h.thumb[1]?.node
+    if (!index || !thumb || !h.indexTip || !h.thumbTip) return h.node.getWorldPosition(out)
     h.node.updateWorldMatrix(true, true)
-    out.copy(h.indexTip).applyMatrix4(h.index.matrixWorld)
-    return out.add(this.tmpTip.copy(h.thumbTip).applyMatrix4(h.thumb.matrixWorld)).multiplyScalar(0.5)
+    out.copy(h.indexTip).applyMatrix4(index.matrixWorld)
+    return out.add(this.tmpTip.copy(h.thumbTip).applyMatrix4(thumb.matrixWorld)).multiplyScalar(0.5)
   }
 
   /** where a hand's fingers point, flattened to the floor (the way the agent faces if they point straight up / down) */
@@ -842,8 +1164,11 @@ export class AgentRig {
   }
 
   private tmpTip = new Vector3()
+  private tmpBend = new Quaternion()
+  private tmpBend2 = new Quaternion()
   private tmpQuat2 = new Quaternion()
   private tmpPos = new Vector3()
+  private tmpScl = new Vector3()
   private tmpQuat = new Quaternion()
   private rootQuat = new Quaternion()
 
@@ -854,6 +1179,13 @@ export class AgentRig {
     for (const side of ['l', 'r'] as const) {
       const hand = this.parts.hands[side]
       const p = this.handPose(side, pose, t, reduced)
+      const sp = this.spring[side]
+      if (sp) {
+        // the spring state under last frame's drive
+        hand.node.position.copy(sp.pos)
+        hand.node.quaternion.copy(sp.quat)
+        this.spring[side] = null
+      }
       hand.node.visible = root.visible
       // target in world: the root frame, then the pose's turn on top of the rest rotation
       this.tmpPos.copy(p.pos)
@@ -879,19 +1211,55 @@ export class AgentRig {
         }
         hand.node.quaternion.slerp(this.tmpQuat, k)
       }
+      // blend the bends over ~120 ms (agents.md 2.7); at once with reduced motion
       const c = this.curls[side]
-      c.index = damp(c.index, p.curl.index, 10, dt)
-      c.fingers = damp(c.fingers, p.curl.fingers, 10, dt)
-      c.thumb = damp(c.thumb, p.curl.thumb, 10, dt)
-      c.iz = damp(c.iz, p.curl.iz ?? 0, 10, dt)
-      c.tz = damp(c.tz, p.curl.tz ?? 0, 10, dt)
-      if (hand.index) hand.index.rotation.set(c.index, 0, c.iz)
-      if (hand.fingers) hand.fingers.rotation.x = c.fingers
-      if (hand.thumb) hand.thumb.rotation.set(c.thumb, 0, c.tz)
+      const want = [...p.curl.f, ...p.curl.thumb]
+      for (let k = 0; k < c.length; k++) c[k] = reduced || this.snapHands ? want[k] : damp(c[k], want[k], FINGER_RATE, dt)
+      this.setFingers(side, c, null)
     }
     this.snapHands = false
   }
   private snapHands = true
+
+  /** the finger joints for six curls (and each finger's sideways swing, rad) */
+  private setFingers(side: 'l' | 'r', c: readonly number[], spread: readonly number[] | null, wSpread = 0) {
+    const hand = this.parts.hands[side]
+    const a = jointAngles(shape([c[0], c[1], c[2], c[3]], [c[4], c[5]]), side)
+    const sx = side === 'l' ? -1 : 1
+    hand.fingers.forEach((chain, f) =>
+      chain.forEach((j, k) => {
+        if (!j) return
+        j.node.quaternion.copy(j.rest).multiply(this.tmpBend.setFromAxisAngle(X_AXIS, a.f[f][k]))
+        // the sideways swing of a finger that touches something (grip.ts), about the hand's palm normal
+        if (k === 0 && spread && wSpread > 0) j.node.quaternion.premultiply(this.tmpBend2.setFromAxisAngle(Z_AXIS, sx * spread[f] * wSpread))
+      }),
+    )
+    const [t1, t2] = hand.thumb
+    // the thumb's root: opposition (local z), then the bend (local x): Rz · Rx
+    t1?.node.quaternion.copy(t1.rest).multiply(this.tmpBend.setFromAxisAngle(Z_AXIS, a.t1z)).multiply(this.tmpBend2.setFromAxisAngle(X_AXIS, a.t1x))
+    t2?.node.quaternion.copy(t2.rest).multiply(this.tmpBend.setFromAxisAngle(X_AXIS, a.t2x))
+  }
+
+  /**
+   * Put this frame's `drive` on a hand (PlayStage calls it after update(), so the hand and the object it holds are placed
+   * from the same pose): the place blended over the pose's by w, the fingers over the pose's curls by wc. The spring keeps its
+   * own state (restored at the start of the next update), so letting go fades back with no jump.
+   */
+  applyDrive(side: 'l' | 'r') {
+    const dv = this.drive[side]
+    const hand = this.parts.hands[side]
+    if (dv?.curl && dv.wc > 0) {
+      const c = this.curls[side]
+      this.setFingers(side, c.map((x, k) => x + (dv.curl![k] - x) * dv.wc), dv.spread, dv.wc)
+    }
+    if (dv?.target && dv.w > 0) {
+      if (!this.spring[side]) this.spring[side] = { pos: hand.node.position.clone(), quat: hand.node.quaternion.clone() }
+      dv.target.decompose(this.tmpPos, this.tmpQuat, this.tmpScl)
+      hand.node.position.lerp(this.tmpPos, dv.w)
+      hand.node.quaternion.slerp(this.tmpQuat, dv.w)
+    }
+    hand.node.updateMatrixWorld(true)
+  }
   private tmpColor = new Color()
 
   /** the 3D agent's orbit and the coder's ring spin; the coder's ear cups glow while it works (#28) */

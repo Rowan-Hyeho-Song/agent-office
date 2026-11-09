@@ -96,6 +96,13 @@ body,
 .agent-list i { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 2px; }
 .agent-list b { font-weight: 600; color: #f3ead8; }
 .agent-list .state-off { opacity: 0.55; }
+/* #182: the issue an agent is on, one line; only the title is cut (JS: 18 characters; on phones it is dropped) */
+.agent-list li { white-space: nowrap; }
+.agent-task-no { font-variant-numeric: tabular-nums; font-weight: 600; color: #f3ead8; }
+.agent-task-title, .agent-task-private { color: var(--color-muted, #a39d90); }
+.agent-task-lock { display: inline-block; width: 0.9em; height: 0.9em; margin-right: 4px; vertical-align: -0.1em; }
+.agent-task-lock svg { width: 100%; height: 100%; fill: currentColor; }
+@media (max-width: 640px) { .agent-task-title { display: none; } }
 .agent-list-error { margin: 4px 0 0; color: #a39d90; }
 
 /* approval box (#25, #64): the #45 design (docs/design/docs-ui.html), values from src/styles/tokens.css */
@@ -110,17 +117,9 @@ body,
 /* ═════════ 결재함 패널 ═════════ */
 .approval-box {
   color-scheme: dark; scrollbar-color: var(--bubble-dim-line) transparent; scrollbar-width: thin; /* dark scrollbars, table scroll, textarea grip (designer) */
-  position: fixed; z-index: 30; top: var(--space-4); right: var(--space-4); bottom: var(--space-8);
-  width: min(var(--approval-panel-w), calc(100% - 2 * var(--space-4)));
-  display: flex; flex-direction: column;
-  filter: drop-shadow(0 0 1px var(--color-halo)) drop-shadow(0 12px 24px var(--color-halo));
+  display: flex; flex-direction: column; height: 100%; min-height: 0;
 }
-.approval-tab { align-self: flex-start; display: flex; gap: var(--space-2); align-items: center; height: 22px; padding: 0 var(--space-3) 0 var(--space-2);
-  font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: 22px; background: var(--approval-accent); color: var(--color-ink);
-  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%); }
-.approval-tab svg { width: 12px; height: 12px; }
-.approval-body { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--color-surface-alpha); border: 1px solid color-mix(in srgb, var(--approval-accent) 45%, transparent); border-top: 2px solid var(--approval-accent);
-  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%); }
+.approval-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .approval-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-3) var(--space-4) 0; }
 .approval-head h2, .approval-head h3 { font-size: var(--font-size-2); line-height: 30px; margin: 0; color: var(--color-text); letter-spacing: 0; }
 .approval-close { font-family: var(--font-pixel); font-size: var(--font-size-1); background: none; border: 1px solid var(--color-line); color: var(--color-text-muted); padding: 2px var(--space-2); cursor: pointer; }
@@ -232,7 +231,6 @@ fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap
 .props-debug td:last-child { color: #f3ead8; }
 
 /* approval box (#64): launcher, owner tag, door key dot, decided cards, narrow screens */
-.approval-launcher { position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 20; border: 0; cursor: pointer; }
 .owner-tag { position: fixed; left: 16px; bottom: 44px; z-index: 20; }
 .approval-item.static { cursor: default; }
 .approval-item.static:hover { border-color: var(--color-line); }
@@ -240,8 +238,6 @@ fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap
 .door-key svg { width: 12px; height: 12px; }
 .door-key:hover, .door-key:focus-visible { opacity: 1; color: var(--door-hover); }
 .approval-stamp text { font-family: var(--font-pixel); }
-/* full screen on phones: an opaque board, nothing of the HUD behind shows through */
-@media (max-width: 640px) { .approval-box { top: 0; right: 0; bottom: 0; width: 100%; background: var(--color-void); } .approval-box .approval-body { background: var(--color-surface); } }
 
 /* the way out: standalone only, same look as the desk's "← 책상으로" button (.btn). In a room the desk draws its own
    in the top-left 200 x 72 px, which stays clear (the status list moves down); only a focusable door button is left */
@@ -302,22 +298,60 @@ fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap
 }
 /* ═════════ 서재 문서 뷰어 (#65, docs/design/docs-ui.md 2절) ═════════ */
 .docs-box :focus-visible, .docs-launcher:focus-visible, .doc-band :focus-visible, .doc-paper a:focus-visible, .talk .line:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
-.docs-launcher { position: fixed; right: var(--space-4); bottom: calc(var(--space-4) + 30px); z-index: 20; border: 0; cursor: pointer; background: var(--manila); }
+/* the bottom-right dock (#167, designer): one column bottom up (결재함 · 서재 · 타임랩스), 8px apart, every button as wide
+   as the widest; a row on phones, icons only under 360px; hidden while a panel or the replay covers the right side */
+.corner-dock {
+  position: fixed; z-index: 20;
+  right: calc(var(--space-4) + env(safe-area-inset-right, 0px)); bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column-reverse; align-items: stretch; gap: 8px; width: max-content;
+  /* visible at once when it comes back (so focus can return to a launcher), hidden only after the fade */
+  transition: opacity 160ms ease, visibility 0s, right var(--dur-base) var(--ease-out);
+}
+.dock-slot:empty { display: none; }
+.dock-slot { display: flex; }
+.dock-btn {
+  flex: 1; display: flex; align-items: center; gap: var(--space-2); height: 32px; padding: 0 var(--space-3) 0 var(--space-2);
+  font-family: var(--font-pixel); font-size: var(--font-size-1); white-space: nowrap; border: 0; cursor: pointer;
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
+}
+.dock-btn svg { width: 12px; height: 12px; }
+.dock-btn { position: relative; }
+/* the waiting count on the icon-only 결재함 (under 360px): amber on ink like the button, hidden at 0 */
+.dock-badge { display: none; position: absolute; right: 3px; bottom: 3px; min-width: 14px; height: 14px; padding: 0 3px; place-items: center;
+  font: 400 10px/14px var(--font-pixel); background: var(--approval-accent); color: var(--color-ink); box-shadow: 0 0 0 1px var(--color-ink); }
+.dock-btn.approval-launcher { background: var(--approval-accent); color: var(--color-ink); }
+.dock-btn.docs-launcher { background: var(--manila); color: var(--color-ink); }
+.dock-btn.replay-entry { background: var(--color-surface-alpha); color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-line); }
+.dock-btn:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+@media (pointer: coarse) { .dock-btn { height: 44px; } }
+/* phones: the dock is a row along the bottom edge, so the bottom-left caption moves up above it */
+@media (max-width: 640px) {
+  .corner-dock { flex-direction: row-reverse; align-items: center; }
+  .hud { bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px) + 44px + 8px); }
+  /* then the owner tag above the caption, and the one-time WASD hint above both */
+  .owner-tag { bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px) + 44px + 8px + 26px); }
+  p.cam-hint { bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px) + 44px + 8px + 26px + 30px); }
+}
+@media (max-width: 359px) {
+  .dock-btn { width: 44px; height: 44px; padding: 0; justify-content: center; }
+  .dock-label { display: none; }
+  .dock-badge { display: grid; }
+}
+body:has(.replay) .corner-dock, html[data-side='sheet'] .corner-dock { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 160ms ease, visibility 0s 160ms; }
+@media (prefers-reduced-motion: reduce) { .corner-dock { transition: none; } }
+html[data-motion='reduce'] .corner-dock { transition: none; }
 .docs-box {
   color-scheme: dark; scrollbar-color: var(--bubble-dim-line) transparent; scrollbar-width: thin;
-  position: fixed; z-index: 30; top: var(--space-4); bottom: var(--space-4); left: 50%; translate: -50% 0;
-  width: min(1120px, calc(100% - 2 * var(--space-4)));
-  display: flex; flex-direction: column;
-  filter: drop-shadow(0 0 1px var(--color-halo)) drop-shadow(0 12px 24px var(--color-halo));
+  display: flex; flex-direction: column; height: 100%; min-height: 0;
 }
-.docs-tab { align-self: flex-start; display: flex; gap: var(--space-2); align-items: center; height: 22px; padding: 0 var(--space-3) 0 var(--space-2);
-  font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: 22px; background: var(--manila); color: var(--manila-ink);
-  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%); }
-.docs-tab svg { width: 12px; height: 12px; }
-.docs-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--color-surface-alpha); border: 1px solid color-mix(in srgb, var(--manila) 55%, transparent); border-top: 2px solid var(--manila); }
-.docs-close { position: absolute; top: var(--space-2); right: var(--space-2); z-index: 2; background: var(--color-surface); }
-.doc-viewer { flex: 1; min-height: 0; display: grid; grid-template-columns: 260px 1fr; background: var(--color-surface); }
-.doc-nav { border-right: 1px solid var(--color-line); padding: var(--space-3); overflow: auto; }
+.doc-viewer { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--color-surface); }
+.doc-viewer:focus { outline: none; }
+.doc-nav { flex: 1; min-height: 0; padding: var(--space-3) var(--space-4); overflow: auto; }
+.doc-path { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); padding: var(--space-3) var(--space-4) 0; font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+.doc-nav .doc-path { padding: 0 0 var(--space-3); }
+.doc-path button { font: inherit; background: none; border: 0; padding: 2px 0; color: var(--color-text); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.doc-path button:hover { color: var(--color-amber); }
+.doc-path button:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
 .doc-nav h4 { font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); color: var(--color-text-muted); margin: var(--space-3) 0 var(--space-1); letter-spacing: var(--letter-spacing-label); }
 .doc-nav h4:first-child { margin-top: 0; }
 .doc-folder, .doc-file { display: flex; gap: var(--space-2); align-items: center; width: 100%; text-align: left; font: inherit; color: var(--color-text); background: none; border: 0; padding: var(--space-1) var(--space-2); cursor: pointer; }
@@ -332,17 +366,17 @@ fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap
 .doc-note { margin: var(--space-3) 0 0; font-size: 12px; line-height: 1.5; color: var(--color-text-muted); }
 .doc-empty { padding: var(--space-4); }
 .doc-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.doc-filehead { padding: var(--space-3) var(--space-8) var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-line); }
+.doc-filehead { padding: var(--space-2) var(--space-4) var(--space-3); border-bottom: 1px solid var(--color-line); }
 .doc-crumb { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
 .doc-filehead h4 { font-family: var(--font-text); font-size: 18px; line-height: 1.4; margin: var(--space-1) 0; font-weight: 600; color: var(--color-text); letter-spacing: 0; }
 .doc-who { display: flex; gap: var(--space-2); flex-wrap: wrap; font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
 .doc-who i { font-style: normal; color: var(--agent-ink); }
-.doc-toc { display: flex; gap: var(--space-1); flex-wrap: wrap; padding: var(--space-2) var(--space-4) 0; }
-.doc-toc button { font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: 22px; height: 24px; padding: 0 var(--space-2); background: var(--surface-raised); color: var(--color-text-muted); border: 0; cursor: pointer; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%); }
+.doc-toc { display: flex; gap: var(--space-1); flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; padding: var(--space-2) var(--space-4) 0; }
+.doc-toc button { flex: none; white-space: nowrap; font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: 22px; height: 24px; padding: 0 var(--space-2); background: var(--surface-raised); color: var(--color-text-muted); border: 0; cursor: pointer; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%); }
 .doc-toc button[aria-selected='true'] { background: var(--paper); color: var(--paper-ink); }
 .doc-stage { flex: 1; min-height: 0; padding: var(--space-3) var(--space-4) var(--space-4); overflow: auto; }
 .doc-stage > * + * { margin-top: var(--space-4); }
-.doc-paper { position: relative; background: var(--paper); color: var(--paper-ink); padding: var(--space-6) var(--space-6) var(--space-8); font-family: var(--font-text); font-size: 14.5px; line-height: 1.75; box-shadow: 0 1px 0 color-mix(in srgb, var(--paper-ink) 20%, transparent), 0 10px 24px var(--color-halo); max-width: 760px; }
+.doc-paper { position: relative; background: var(--paper); color: var(--paper-ink); padding: var(--space-6) var(--space-6) var(--space-8); font-family: var(--font-text); font-size: 14.5px; line-height: 1.75; box-shadow: 0 1px 0 color-mix(in srgb, var(--paper-ink) 20%, transparent), 0 10px 24px var(--color-halo); max-width: 640px; }
 .doc-paper h5 { font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); letter-spacing: var(--letter-spacing-label); color: var(--paper-muted); margin: var(--space-4) 0 var(--space-1); border-bottom: 1px solid color-mix(in srgb, var(--paper-ink) 18%, transparent); padding-bottom: 2px; }
 .doc-paper h5:first-of-type { margin-top: 0; }
 .doc-paper p { margin: 0 0 var(--space-2); }
@@ -364,7 +398,7 @@ fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap
 .talk .from span { color: var(--paper-muted); }
 .talk .said { position: relative; background: color-mix(in srgb, var(--agent) 14%, var(--paper)); border-left: var(--bubble-stripe) solid var(--agent); padding: var(--space-2) var(--space-3); }
 .talk .said > :last-child { margin-bottom: 0; }
-.talk .line.owner { grid-template-columns: 1fr 76px; }
+.talk .line.owner { grid-template-columns: minmax(60%, 1fr) minmax(52px, 76px); } /* the owner's said column keeps >= 60% at 380px */
 .talk .line.owner .from { order: 2; text-align: left; }
 .talk .line.owner .from b { background: var(--approval-accent); }
 .talk .line.owner .said { order: 1; border-left: 0; border-right: var(--bubble-stripe) solid var(--approval-accent); background: color-mix(in srgb, var(--approval-accent) 18%, var(--paper)); }
@@ -397,15 +431,11 @@ fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap
 :root[data-motion='reduce'] .secret-doc.unsealing { animation-name: cover-fade; }
 @keyframes cover-fade { to { opacity: 0; } }
 /* 주인이 보는 review 본문 위 띠 */
-.doc-band { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; max-width: 760px; padding: var(--space-2) var(--space-3); background: var(--manila); color: var(--manila-ink); font-size: 13px; }
+.doc-band { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; padding: var(--space-2) var(--space-3); background: var(--manila); color: var(--manila-ink); font-size: 13px; }
 .doc-band .t { flex: 1; min-width: 180px; }
 .doc-band .t b { font-family: var(--font-pixel); font-weight: 700; font-size: var(--font-size-1); }
 .doc-band .btn-ghost { color: var(--manila-ink); border-color: var(--manila-ink); }
 @media (max-width: 760px) {
-  .docs-box { top: 0; bottom: 0; left: 0; translate: none; width: 100%; }
-  .doc-viewer { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
-  .doc-nav { border-right: 0; border-bottom: 1px solid var(--color-line); max-height: 220px; }
-  .doc-paper { padding: var(--space-4); }
   .talk .line { grid-template-columns: 60px 1fr; }
   .talk .line.owner { grid-template-columns: 1fr 60px; }
   .secret-doc { padding: var(--space-4); }
@@ -417,7 +447,8 @@ fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap
 /* first-visit camera hint (#111) */
 .cam-hint {
   position: fixed;
-  left: 50%;
+  left: calc((100% - var(--side-w, 0px)) / 2); /* the centre of the area that is still 3D (#170) */
+  transition: left var(--dur-base) var(--ease-out);
   bottom: 14px;
   translate: -50% 0;
   margin: 0;
@@ -429,3 +460,87 @@ fieldset.approval-options { border: 0; margin: 0; padding: 0; display: grid; gap
   white-space: nowrap;
   pointer-events: none;
 }
+.dock-btn.replay-entry:hover { box-shadow: inset 0 0 0 1px var(--color-cyan); color: var(--color-cyan); }
+
+/* ═════════ 옆 패널: 서재 · 결재함 (#170, docs/design/docs-ui.md 4절) ═════════ */
+.side-panel { position: fixed; z-index: 30; top: 0; right: 0; bottom: 0; display: flex; flex-direction: column; background: var(--color-surface); color-scheme: dark; animation: side-in var(--dur-base) var(--ease-out); }
+.side-panel:focus { outline: none; }
+.side-panel[data-closing] { animation: side-out var(--dur-base) var(--ease-out) forwards; pointer-events: none; }
+@keyframes side-in { from { translate: 100% 0; } }
+@keyframes side-out { to { translate: 100% 0; } }
+@keyframes side-fade { from { opacity: 0; } }
+.side-strip { position: absolute; z-index: 2; left: 0; top: 0; bottom: 0; width: 8px; cursor: col-resize; touch-action: none; }
+.side-strip::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 1px; background: var(--color-line); }
+.side-strip:hover::before, .side-strip:focus-visible::before, .side-panel[data-dragging] .side-strip::before { width: 2px; background: var(--color-cyan); }
+.side-strip:focus-visible, .side-handle:focus-visible { outline: none; }
+.side-handle:focus-visible i { background: var(--color-cyan); }
+.side-head { flex: none; height: 48px; display: flex; align-items: stretch; justify-content: space-between; gap: var(--space-2); padding: 0 var(--space-3) 0 var(--space-4); border-bottom: 1px solid var(--color-line); }
+.side-tabs { display: flex; gap: var(--space-1); }
+.side-tabs button { font-family: var(--font-pixel); font-size: var(--font-size-1); background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; color: var(--color-text-muted); padding: 0 var(--space-3); cursor: pointer; }
+.side-tabs button[aria-selected='true'] { color: var(--color-text); border-bottom-color: var(--paper); }
+.side-tabs button:hover { color: var(--color-text); }
+.side-tabs b { font-weight: 400; margin-left: var(--space-2); color: var(--approval-accent); }
+.side-close { align-self: center; width: 32px; height: 32px; font-size: 14px; background: none; border: 1px solid var(--color-line); color: var(--color-text-muted); cursor: pointer; }
+.side-close:hover { color: var(--color-text); }
+.side-tabs button:focus-visible, .side-close:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: -2px; }
+@media (pointer: coarse) { .side-close { width: 44px; height: 44px; } }
+.side-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.side-body > * { flex: 1; min-height: 0; animation: side-fade var(--dur-fast) ease-out; animation-duration: 120ms; }
+.side-handle { flex: none; height: 24px; display: grid; place-items: center; cursor: ns-resize; touch-action: none; }
+.side-handle i { width: 36px; height: 4px; background: var(--color-text-faint); }
+html[data-side='panel'] .corner-dock { right: calc(var(--side-w) + var(--space-4)); }
+html[data-side-drag] .corner-dock, html[data-side-drag] .cam-hint { transition: none; }
+html[data-side='sheet'] p.cam-hint { bottom: calc(55% + 14px); }
+@media (max-width: 640px) {
+  .side-panel { left: 0; top: auto; border-top: 1px solid var(--color-line); animation-name: side-up; transition: height var(--dur-base) var(--ease-out); }
+  .side-panel[data-dragging] { transition: none; }
+  .side-panel[data-closing] { animation-name: side-down; }
+  @keyframes side-up { from { translate: 0 100%; } }
+  @keyframes side-down { to { translate: 0 100%; } }
+}
+@media (prefers-reduced-motion: reduce) { .side-panel, .side-body > *, .cam-hint, .corner-dock { animation: none; transition: none; } }
+html[data-motion='reduce'] .side-panel, html[data-motion='reduce'] .side-body > *, html[data-motion='reduce'] .cam-hint, html[data-motion='reduce'] .corner-dock { animation: none; transition: none; }
+
+/* sound button (#194, docs/design/sound.md 2.5): top of the dock, a 34 px icon; desktop opens a 120 px volume slider
+   to its left on hover/focus; phones get the toggle only; a one-time 4 s hint when opened on its own */
+.dock-slot#dock-sound { justify-content: flex-end; }
+.sound-dock { position: relative; display: flex; align-items: center; justify-content: flex-end; width: 100%; }
+.dock-btn.sound-toggle { flex: none; width: 34px; height: 34px; padding: 0; justify-content: center; background: var(--color-surface-alpha); color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-line); }
+.dock-btn.sound-toggle svg { width: 16px; height: 16px; }
+.dock-btn.sound-toggle.off { color: var(--color-text-muted); }
+.dock-btn.sound-toggle.flash { animation: sound-flash 300ms ease-in-out 3; }
+@keyframes sound-flash { 50% { box-shadow: inset 0 0 0 2px var(--color-cyan); color: var(--color-cyan); } }
+.sound-volume { position: absolute; right: calc(34px + 8px); top: 50%; translate: 0 -50%; width: 120px; display: flex; align-items: center;
+  padding: 0 var(--space-2); height: 34px; background: var(--color-surface-alpha); box-shadow: inset 0 0 0 1px var(--color-line);
+  opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 120ms ease, visibility 0s 120ms; }
+.sound-volume input { width: 100%; accent-color: var(--color-cyan); }
+.sound-dock:hover .sound-volume, .sound-dock:focus-within .sound-volume { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity 120ms ease, visibility 0s; }
+.sound-hint { position: absolute; right: calc(34px + 8px); top: 50%; translate: 0 -50%; margin: 0; padding: var(--space-1) var(--space-2); white-space: nowrap;
+  font-size: 13px; background: var(--color-surface-alpha); color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-cyan); pointer-events: none; }
+.sound-dock:hover .sound-hint, .sound-dock:focus-within .sound-hint { display: none; }
+@media (pointer: coarse), (max-width: 640px) { .sound-volume { display: none; } .dock-btn.sound-toggle { width: 44px; height: 44px; } }
+@media (prefers-reduced-motion: reduce) { .dock-btn.sound-toggle.flash { animation: none; box-shadow: inset 0 0 0 2px var(--color-cyan); } .sound-volume { transition: none; } }
+html[data-motion='reduce'] .dock-btn.sound-toggle.flash { animation: none; box-shadow: inset 0 0 0 2px var(--color-cyan); }
+/* ?debug=1 sound panel (#194): top left, scrolls on its own */
+.sound-debug { position: fixed; z-index: 40; left: var(--space-4); top: 56px; width: min(380px, calc(100vw - 32px)); max-height: 72vh; overflow: auto;
+  padding: var(--space-2) var(--space-3); background: var(--color-surface-alpha); color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-line); font-size: 12px; }
+.sound-debug summary { cursor: pointer; font-family: var(--font-pixel); }
+.sound-debug section, .sound-debug fieldset { margin: var(--space-2) 0; }
+.sound-debug fieldset { border: 1px solid var(--color-line); padding: var(--space-1) var(--space-2); }
+.sound-debug button { font: inherit; padding: 1px 6px; margin: 1px; }
+.sound-debug button[aria-pressed='true'] { background: var(--color-cyan); color: var(--color-ink); }
+.sound-debug .sd-note { color: var(--color-text-muted); margin: var(--space-1) 0; }
+.sound-debug .sd-row { display: grid; grid-template-columns: 64px 1fr 92px; gap: 6px; align-items: center; }
+.sound-debug .sd-cues { list-style: none; padding: 0; margin: 0; }
+.sound-debug .sd-cues li { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 2px 0; border-bottom: 1px solid var(--color-line); }
+.sound-debug .sd-name { flex: 1; min-width: 140px; }
+.sound-debug code { color: var(--color-text-muted); }
+.sound-debug input[readonly] { width: 100%; font: inherit; }
+.sound-debug .sd-layers label { margin-right: 6px; white-space: nowrap; }
+/* phones: the dock is a row and the sound button is its leftmost item, so the hint goes above it */
+@media (max-width: 640px) { .sound-hint { right: auto; left: 0; top: auto; bottom: calc(100% + 8px); translate: none; } }
+/* designer follow-up (#201): the volume number in a fixed 36 px cell right of the slider; on phones the one-time hint
+   sits 28 px higher so it clears the "AGENT OFFICE · 드래그해서 돌려 보기" caption */
+.sound-volume { width: calc(120px + 36px); gap: 4px; }
+.sound-volume-num { flex: none; width: 36px; text-align: right; font-family: var(--font-pixel); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; color: var(--color-text-muted); }
+@media (max-width: 640px) { .sound-hint { bottom: calc(100% + 8px + 28px); } }

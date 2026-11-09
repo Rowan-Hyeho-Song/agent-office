@@ -1,3 +1,5 @@
+import { WATER_PLANTS, standOf } from './water'
+
 // Deterministic play: who does what during free time, from the clock alone. Every visitor computes the same
 // scene for the same minute, so the office looks shared without a server. Pure: no three.js, no Date.
 
@@ -12,6 +14,8 @@ interface PlayDef {
   weight: number
   /** a point to face instead of the spot's own direction (the plant being watered) */
   face?: { x: number; z: number }
+  /** where to stand instead of the spot's own place (watering: close enough that the stream reaches the soil, #184) */
+  stand?: { x: number; z: number }
 }
 
 export const PLAYS: PlayDef[] = [
@@ -19,9 +23,10 @@ export const PLAYS: PlayDef[] = [
   { kind: 'boardgame', label: '보드게임', spots: ['game_a', 'game_b'], pair: true, weight: 3 },
   { kind: 'coffee', label: '커피', spots: ['coffee'], weight: 2 },
   { kind: 'sofa', label: '소파에서 낮잠', spots: ['sofa_0', 'sofa_1', 'sofa_2'], weight: 2 },
-  // the big planter in the lounge corner (office_bake.py: (3.15, 2.35)), watered from the lounge aisle
-  { kind: 'water', label: '화분 물 주기', spots: ['hall_lounge'], weight: 1, face: { x: 3.15, z: 2.35 } },
-  { kind: 'books', label: '책 고르기', spots: ['shelf'], weight: 1 },
+  // one of the floor plants (water.ts), chosen per block, watered from its own stand beside the pot
+  { kind: 'water', label: '화분 물 주기', spots: ['hall_lounge'], weight: 1 },
+  // the book on the side table by the sofa (the model's only book prop): read standing in front of that table, put back after (#184)
+  { kind: 'books', label: '책 고르기', spots: ['shelf'], weight: 1, face: { x: 0.065, z: 2.66 }, stand: { x: 0.07, z: 2.0 } },
 ]
 
 /**
@@ -46,10 +51,11 @@ export interface PlayAssignment {
   /** the other player of a pair activity */
   partner?: string
   face?: { x: number; z: number }
+  stand?: { x: number; z: number }
 }
 
 /** small fast PRNG (mulberry32): same seed, same sequence, in every browser */
-function rng(seed: number) {
+export function rng(seed: number) {
   let a = seed >>> 0
   return () => {
     a = (a + 0x6d2b79f5) >>> 0
@@ -61,7 +67,7 @@ function rng(seed: number) {
 }
 
 /** FNV-1a over a string: a stable seed from the block number and the roster */
-function hash(s: string) {
+export function hash(s: string) {
   let h = 0x811c9dc5
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i)
@@ -115,7 +121,11 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
 
   const assign = (agent: string, p: PlayDef, spot: string, partner?: string) => {
     used.add(spot)
-    out[agent] = { kind: p.kind, label: p.label, spot, ...(partner ? { partner } : {}), ...(p.face ? { face: p.face } : {}) }
+    if (p.kind === 'water') {
+      const plant = WATER_PLANTS[hash(`${block}|water|${agent}`) % WATER_PLANTS.length]
+      p = { ...p, face: { x: plant.x, z: plant.z }, stand: standOf(plant) }
+    }
+    out[agent] = { kind: p.kind, label: p.label, spot, ...(partner ? { partner } : {}), ...(p.face ? { face: p.face } : {}), ...(p.stand ? { stand: p.stand } : {}) }
   }
 
   const solos = PLAYS.filter((p) => !p.pair)
@@ -159,5 +169,5 @@ export function soloAt(minute: number, agent: string): PlayAssignment {
   const rand = rng(hash(`${blockOf(minute)}|solo|${agent}`))
   const choices = PLAYS.filter((p) => NIGHT_PLAYS.includes(p.kind))
   const p = choices[Math.floor(rand() * choices.length)]
-  return { kind: p.kind, label: p.label, spot: p.spots[0], ...(p.face ? { face: p.face } : {}) }
+  return { kind: p.kind, label: p.label, spot: p.spots[0], ...(p.face ? { face: p.face } : {}), ...(p.stand ? { stand: p.stand } : {}) }
 }

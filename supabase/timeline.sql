@@ -15,8 +15,8 @@ create table if not exists public.timeline (
   project text not null,
   at timestamptz not null,
   kind text not null check (kind in ('plan', 'work', 'minutes', 'approval', 'decision', 'deploy')),
-  -- seat of the agent (0 기획 · 1 3D · 2 디자인 · 3 코더); null = before roles were split
-  agent smallint check (agent between 0 and 3),
+  -- seat of the agent (0 기획 · 1 3D · 2 디자인 · 3 코더 · 4 사운드); null = before roles were split
+  agent smallint check (agent between 0 and 4),
   title text not null default '',
   secret boolean not null default false,
   additions int check (additions >= 0),
@@ -39,3 +39,7 @@ alter table public.timeline enable row level security;
 drop policy if exists "visitors read timeline" on public.timeline;
 create policy "visitors read timeline" on public.timeline for select to anon, authenticated
   using (tier = 'public' or (tier = 'review' and title = ''));
+
+-- #193: a fifth seat (에코, sound). Widens the check on a database made for four seats; safe to run again
+alter table public.timeline drop constraint if exists timeline_agent_check;
+alter table public.timeline add constraint timeline_agent_check check (agent between 0 and 4);

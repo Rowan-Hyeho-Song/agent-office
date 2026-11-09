@@ -1,8 +1,10 @@
 // Decides where each agent should be and what it does there, from the status source, the play schedule and
 // the messages in flight. Pure: no three.js; the rigs report arrivals back through `arrivedAt`.
 
+import { DESK_SIDES } from './nav'
 import { playAt, soloAt, type PlayKind } from './play'
 import { activityLabel, type OfficeMessage, type StatusMap } from './status'
+import type { Request } from './traffic'
 
 export type Pose = 'idle' | 'type' | 'post' | 'talk' | 'listen' | 'leave' | 'doze' | PlayKind
 
@@ -13,6 +15,14 @@ export interface Goal {
   face?: { x: number; z: number }
   /** an agent to turn the head toward (talking at a desk) */
   lookAt?: string
+  /** a standing pose of its own instead of the spot's (meeting formations, #141); `spot` is then only its label */
+  slot?: { x: number; z: number; ry: number }
+  /** do not set off before this office time, ms (staggered meeting departures) */
+  depart?: number
+  /** an agent to turn only the head toward (the body keeps the spot's / slot's direction) */
+  gaze?: string
+  /** a short reaction, started once when `key` changes: a 5° nod, with a slight hand lift (skipped with reduced motion) */
+  gesture?: { key: string; hand: boolean }
   /** placeholder speech bubble text (bubble design comes later) */
   bubble?: string
   /** walk clear of the desk sides (the night-duty agent, so it doesn't look like it wakes a sleeper) */
@@ -21,13 +31,23 @@ export interface Goal {
   label: string
 }
 
+/** what the traffic planner is asked for a goal: its spot, or its own slot (#141); `notBefore` is the departure in planner seconds */
+export const requestOf = (goal: Goal, pace: number, notBefore?: number): Request => ({
+  spot: goal.spot,
+  ...(goal.slot ? { slot: goal.slot } : {}),
+  pace,
+  avoid: goal.quiet ? DESK_SIDES : undefined,
+  ...(notBefore !== undefined ? { notBefore } : {}),
+})
+
 /** how long a face-to-face talk lasts, how long to wait for both to arrive, how long a wrap-up takes */
 const TALK_MS = 6000
 const GATHER_MS = 30000
 const POST_MS = 4000
+/** the two talk circles (#147): the floor one by the rug, the board one before the whiteboard; seats 0 and 1 face each other */
 const MEET_PAIRS: [string, string][] = [
-  ['meet_a', 'meet_b'],
-  ['meet_c', 'meet_d'],
+  ['meet_floor_0', 'meet_floor_1'],
+  ['meet_board_0', 'meet_board_1'],
 ]
 // placeholder lines until the bubble design and real message text exist (#2, #4, designer)
 export const BUBBLE_ASK = '잠깐 이것 좀 봐 줄래?'
@@ -40,6 +60,10 @@ interface Talk {
   phase: 'gather' | 'talk'
   until: number
 }
+
+/** a play assignment's own standing place (watering, reading: next to the thing used), as a goal slot facing what it faces */
+export const standSlot = (p: { stand?: { x: number; z: number }; face?: { x: number; z: number } }) =>
+  p.stand ? { slot: { x: p.stand.x, z: p.stand.z, ry: Math.atan2(-((p.face?.x ?? p.stand.x) - p.stand.x), -((p.face?.z ?? p.stand.z - 1) - p.stand.z)) } } : {}
 
 export const deskOf = (agent: string) => Number(agent.split('_')[1])
 
@@ -130,7 +154,7 @@ export class Director {
       // (a source that skipped duty.ts) = resting at the desk. 'leave' stays in the rig but is never chosen.
       if (s.night === 'duty' && s.state === 'idle') {
         const p = soloAt(minute, a)
-        out[a] = { spot: p.spot, pose: p.kind, face: p.face, quiet: true, label: `야간 당번 · ${p.label}` }
+        out[a] = { spot: p.spot, pose: p.kind, face: p.face, ...standSlot(p), quiet: true, label: `야간 당번 · ${p.label}` }
         continue
       }
       if (s.state === 'off') {
@@ -157,7 +181,7 @@ export class Director {
       }
       const p = play[a]
       out[a] = p
-        ? { spot: p.spot, pose: p.kind, face: p.face, label: p.label }
+        ? { spot: p.spot, pose: p.kind, face: p.face, ...standSlot(p), label: p.label }
         : { spot: `work_${desk}`, pose: 'idle', label: '자리에서 쉬는 중' }
     }
     return out

@@ -69,7 +69,7 @@ describe('handle', () => {
     expect((await handle(get('seat=0&since=2026-11-08T00:00:00Z', ''), s, '')).status).toBe(401)
   })
 
-  it.each(['-1', '4', 'x', '1.5'])('400 on bad seat %j', async (seat) => {
+  it.each(['-1', '5', 'x', '1.5'])('400 on bad seat %j', async (seat) => {
     const s = store()
     const res = await handle(get(`seat=${seat}&since=2026-11-08T00:00:00Z`), s, TOKEN)
     expect(res.status).toBe(400)

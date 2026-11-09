@@ -95,6 +95,12 @@
 }
 .ot-chip svg { width: 12px; height: 12px; flex: none; color: var(--agent-ink); }
 .ot-chip span { overflow: hidden; text-overflow: ellipsis; }
+/* #182, another repository's issue: a wider chip; the repo name gives way first, the number never, and the activity keeps at
+   least its first 4 characters (designer) */
+.ot[data-other] .ot-chip { max-width: 260px; }
+.ot[data-other] .ot-repo { flex: 0 1 auto; min-width: 2ch; }
+.ot[data-other] .ot-num { flex: none; }
+.ot[data-other] .ot-act { flex: 1 0 auto; min-width: calc(3ch + 4em); max-width: max-content; }
 .ot[data-kind='private'] .ot-chip { color: var(--color-lock); background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--agent) 12%, transparent) 0 4px, transparent 4px 8px), var(--color-surface-alpha); }
 .ot[data-kind='private'] .ot-chip svg { color: var(--color-lock); }
 /* 조는 중: 머리 위로 떠오르는 z (꼬리표와 별개, 오른쪽 위로 살짝 비켜서) */

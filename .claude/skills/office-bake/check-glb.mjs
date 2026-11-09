@@ -11,7 +11,7 @@
 // Exit code 1 when a --want name is missing or a check fails.
 import { readFileSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { Box3, Vector3 } from 'three'
+import { Box3, Triangle, Vector3 } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 
@@ -131,8 +131,28 @@ if (overlap) {
       }
       if (g < need + 0.3) rows.push({ pair: `${a.name} · ${b.name}`, kinds: `${a.kind}/${b.kind}`, where, gap: g, need, ok: g >= need - 1e-3 })
     }
+  // meeting rings (#147): nav_meet_center_* with extras r; the circle keeps clear of every floor footprint (with its
+  // use room: an agent at a desk counts) and of the other rings, and stays inside the walls
+  const rings = scene.children.filter((o) => o.userData.nav === 'meet_center' && o.userData.r).map((o) => {
+    const p = o.getWorldPosition(new Vector3())
+    return { name: o.name.replace(/^nav_/, ''), x: p.x, z: p.z, r: o.userData.r }
+  })
+  for (const c of rings) {
+    for (const s of items.filter((x) => x.kind !== 'wall')) {
+      const dx = Math.max(s.lo[0] - c.x, 0, c.x - s.hi[0])
+      const dz = Math.max(s.lo[2] - c.z, 0, c.z - s.hi[2])
+      const g = Math.hypot(dx, dz) - c.r
+      if (g < 0.3) rows.push({ pair: `${c.name} · ${s.name}`, kinds: `ring/${s.kind}`, where: 'floor', gap: g, need: 0, ok: g >= -1e-3 })
+    }
+    for (const d of rings.filter((x) => x.name > c.name)) {
+      const g = Math.hypot(c.x - d.x, c.z - d.z) - c.r - d.r
+      rows.push({ pair: `${c.name} · ${d.name}`, kinds: 'ring/ring', where: 'floor', gap: g, need: 0, ok: g >= -1e-3 })
+    }
+    if (room && (c.x - c.r < room.lo[0] || c.x + c.r > room.hi[0] || c.z - c.r < room.lo[2] || c.z + c.r > room.hi[2]))
+      rows.push({ pair: `${c.name} · room`, kinds: 'ring/room', where: 'walls', gap: -1, need: 0, ok: false })
+  }
   rows.sort((x, y) => x.gap - x.need - (y.gap - y.need))
-  console.log('\noverlap: pairs closer than their minimum + 0.3 m (gap < 0 = overlapping)')
+  console.log('\noverlap: pairs closer than their minimum + 0.3 m (gap < 0 = overlapping; ring = a meeting circle, #147)')
   console.log('| pair | kinds | checked | gap (m) | min (m) | |')
   console.log('|---|---|---|---|---|---|')
   for (const r of rows) console.log(`| ${r.pair} | ${r.kinds} | ${r.where} | ${r.gap.toFixed(2)} | ${r.need.toFixed(2)} | ${r.ok ? 'ok' : 'FAIL'} |`)
@@ -142,6 +162,48 @@ if (overlap) {
   for (const s of outside) console.log(`outside the room: ${s.name}`)
   console.log(`overlap: ${items.length} slots, ${bad.length} pairs under their minimum, ${outside.length} outside the room`)
   if (bad.length || outside.length) fail('--overlap: layout rules broken (table above)')
+}
+
+// 5b) #164 hand fits: every prop with a <prop>_grip_r|l child has a contact point or more, and each
+// <prop>_contact_* lies within 2 mm of the prop's surface (the prop and its sibling parts <prop>_* meshes, e.g. the
+// book halves). Contacts with extras state (e.g. "open": a page only there once the book opens) are skipped
+{
+  scene.updateMatrixWorld(true)
+  const props = scene.children.filter((o) => o.children.some((c) => /_grip_[lr]$/.test(c.name)))
+  const tri = new Triangle()
+  const near = new Vector3()
+  let bad = 0
+  for (const p of props) {
+    const contacts = p.children.filter((c) => c.name.startsWith(`${p.name}_contact_`))
+    if (!contacts.length) {
+      console.log(`hand fit: ${p.name} has a grip but no contact point`)
+      bad++
+    }
+    const meshes = []  // a prop with several materials is a group of meshes
+    for (const o of [p, ...scene.children.filter((o) => o !== p && o.name.startsWith(`${p.name}_`))]) o.traverse((m) => m.isMesh && meshes.push(m))
+    for (const c of contacts.filter((c) => !c.userData.state)) {
+      const at = c.getWorldPosition(new Vector3())
+      let best = Infinity
+      for (const m of meshes) {
+        const g = m.geometry
+        const pos = g.attributes.position
+        const idx = g.index
+        const n = idx ? idx.count : pos.count
+        const v = [new Vector3(), new Vector3(), new Vector3()]
+        for (let i = 0; i < n; i += 3) {
+          for (let k = 0; k < 3; k++) v[k].fromBufferAttribute(pos, idx ? idx.getX(i + k) : i + k).applyMatrix4(m.matrixWorld)
+          tri.set(v[0], v[1], v[2]).closestPointToPoint(at, near)
+          best = Math.min(best, near.distanceTo(at))
+        }
+      }
+      if (best > 0.002) {
+        console.log(`hand fit: ${c.name} is ${(best * 1000).toFixed(1)} mm off ${p.name}'s surface`)
+        bad++
+      }
+    }
+  }
+  console.log(`hand fit (#164): ${props.length} props with grips, ${bad} problems`)
+  if (bad) fail('hand fit: contact points (above)')
 }
 
 // 6) --show: world position, bounds and extras

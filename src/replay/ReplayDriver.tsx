@@ -2,11 +2,10 @@ import { useEffect } from 'react'
 import { conversations } from '../docs/library'
 import { setCameraKeysBlocked } from '../office/cameraRig'
 import { setClockClick, setClockTime } from '../office/clock'
-import { prefersReducedMotion, officeNow, type OfficeWorld } from '../office/world'
+import { prefersReducedMotion, type OfficeWorld } from '../office/world'
 import { atMs } from './engine'
-import { scriptFor } from './scene'
+import { startMinutes } from './stage'
 import { replay } from './store'
-import { walkHold } from './walk'
 
 const ENTER_MS = 1200
 const EXIT_MS = 800
@@ -14,7 +13,7 @@ const ease = (k: number) => 1 - (1 - k) * (1 - k)
 
 /**
  * Wires the replay into the office (#82): the whiteboard shows the folded board, the wall clock follows the playhead
- * (hands wind back on the way in and forward on the way out), a minutes point plays a short meeting at x1, the clock
+ * (hands wind back on the way in and forward on the way out), a minutes point plays a short meeting at any speed (on the replay clock), the clock
  * click and ?replay=<project|all>&t=<time> open it.
  */
 export function ReplayDriver({ world }: { world: OfficeWorld }) {
@@ -68,10 +67,11 @@ export function ReplayDriver({ world }: { world: OfficeWorld }) {
     const off = [
       replay.subscribe(sync),
       replay.onPoint((p, via) => {
-        const s = replay.getSnapshot()
         // seeking (drag, keys) only changes the state; a scene starts when the replay plays the point (design 8)
         world.meeting.stop()
-        if (via !== 'play' || p.kind !== 'minutes' || s.speed !== 1 || prefersReducedMotion()) return
+        if (via !== 'play' || p.kind !== 'minutes' || prefersReducedMotion()) return
+        // the meeting starts at the clock of the landing, however long its body takes to load
+        const at = replay.landedClock
         const lib = world.library
         const meta = p.issue === null ? undefined : lib?.getSnapshot().metas?.find((m) => m.kind === 'minutes' && m.repo === p.project && m.folder === p.issue)
         void (async () => {
@@ -83,11 +83,10 @@ export function ReplayDriver({ world }: { world: OfficeWorld }) {
           }
           // the playhead moved on while the body was loading
           if (replay.point !== p) return
-          world.meeting.start(scriptFor(p, meta, convs, false), officeNow(world), replay.scene()!.status, {})
+          startMinutes(world.meeting, p, meta, convs, at, replay.scene()!.status)
         })()
       }),
     ]
-    replay.hold = () => world.meeting.busy || walkHold.busy
     // debug only: window.__replay.open({ project, t }) / .seek(i) / .points / .scene() for screenshot scripts
     if (world.debug) (window as unknown as { __replay: typeof replay }).__replay = replay
     setClockClick(() => void replay.open({ project: 'all' }))
@@ -95,7 +94,6 @@ export function ReplayDriver({ world }: { world: OfficeWorld }) {
       off.forEach((o) => o())
       cancelAnimationFrame(raf)
       setCameraKeysBlocked(false)
-      replay.hold = () => false
       setClockClick(null)
     }
   }, [world])

@@ -15,7 +15,22 @@ export interface AgentStatus {
   night?: 'sleep' | 'duty'
   /** the last test / build outcome the hook reported (#44: the coder's signal light, the 3D ring light) */
   lastResult?: { activity: 'test' | 'build'; ok: boolean; at: number }
+  /** #182: the issue it is on (only while working / wrapping). A private repo carries no repo, number or title. */
+  task?: AgentTask
 }
+
+export type AgentTask = { private: true; repo: null; issue: null; title: null } | { private: false; repo: string; issue: number; title: string | null }
+
+/** the office's own repository: its issues show as "#170"; another repository's with its name ("rowansong.dev#12") */
+export const OWN_REPO = 'agent-office'
+export const taskNumber = (t: Extract<AgentTask, { private: false }>) => (t.repo === OWN_REPO ? `#${t.issue}` : `${t.repo}#${t.issue}`)
+export const PRIVATE_TASK_LABEL = '책상 방 작업(비공개)'
+/** the task as one plain sentence part (screen readers, title attributes): "#170 제목" / the private label */
+export const taskText = (t: AgentTask) => (t.private ? PRIVATE_TASK_LABEL : t.title ? `${taskNumber(t)} ${t.title}` : taskNumber(t))
+/** the task shows only while the agent is at work or wrapping up */
+export const taskOf = (s: AgentStatus | undefined) => (s && (s.state === 'working' || s.state === 'wrapping') ? s.task : undefined)
+/** cut to n characters with an ellipsis */
+export const clip = (text: string, n: number) => (Array.from(text).length > n ? `${Array.from(text).slice(0, n - 1).join('')}…` : text)
 
 /**
  * One agent reaching another (plan.md 4.1, #28 decision): a talk is a face-to-face meeting; a handoff (a message
@@ -62,8 +77,15 @@ export class FakeStatusSource implements StatusSource {
   }
 
   set(agent: string, state: AgentState, activity?: string) {
-    const lastResult = this.snapshot[agent]?.lastResult
-    this.snapshot = { ...this.snapshot, [agent]: { state, activity, since: Date.now(), ...(state === 'off' ? { offReason: 'ended' as const } : {}), ...(lastResult ? { lastResult } : {}) } }
+    const { lastResult, task } = this.snapshot[agent] ?? {}
+    this.snapshot = { ...this.snapshot, [agent]: { state, activity, since: Date.now(), ...(state === 'off' ? { offReason: 'ended' as const } : {}), ...(lastResult ? { lastResult } : {}), ...(task ? { task } : {}) } }
+    for (const l of this.listeners) l()
+  }
+
+  /** the issue an agent is on (the debug panel, #182); undefined clears it */
+  setTask(agent: string, task?: AgentTask) {
+    const { task: _old, ...rest } = this.snapshot[agent] ?? { state: 'idle' as const, since: Date.now() }
+    this.snapshot = { ...this.snapshot, [agent]: { ...rest, ...(task ? { task } : {}) } }
     for (const l of this.listeners) l()
   }
 

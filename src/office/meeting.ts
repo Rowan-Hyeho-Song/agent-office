@@ -42,7 +42,7 @@ export interface MeetingScript {
   /** SECRET for this viewer's eyes (blocks), or private (lock) */
   secret: boolean
   private: boolean
-  /** the agents at the meeting, in order of first appearance (meet_a, meet_b, meet_c, meet_d) */
+  /** the agents at the meeting, in order of first appearance (formation seat 0, 1, 2, 3, formation.ts) */
   seats: number[]
   lines: ScriptLine[]
   /** when the last hold ends */
@@ -201,9 +201,6 @@ export function trimScript(script: MeetingScript, present: number[]): MeetingScr
   const { lines, linesMs } = retime(script.lines.filter(keep).map(({ startMs: _s, typeMs: _t, holdMs: _h, ...l }) => ({ ...l, to: l.to.filter((s) => present.includes(s)) })), script.reduced)
   return { ...script, lines, linesMs, seats: script.seats.filter((s) => present.includes(s)), followUps: script.followUps.filter((s) => present.includes(s)) }
 }
-
-/** meet_a..meet_d for the agents in order: the first two face each other, the next two the same */
-export const meetSpot = (index: number) => `meet_${'abcd'[index]}`
 
 // ---- the script at a moment ----------------------------------------------------------------------------------------
 

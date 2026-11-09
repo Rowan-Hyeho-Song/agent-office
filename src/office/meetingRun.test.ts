@@ -26,7 +26,7 @@ function run(r: MeetingRunner, until: () => boolean, at: Record<string, string |
 }
 
 describe('MeetingRunner', () => {
-  it('gathers at meet spots, plays, pins the decision at the board, sends the follow-up to its seat, ends', () => {
+  it('gathers in the formation, plays, pins the decision at the board, sends the follow-up to its seat, ends', () => {
     const r = new MeetingRunner()
     const events: string[] = []
     r.onDecisionPinned((d) => events.push(`pin:${d.text}`))
@@ -34,8 +34,8 @@ describe('MeetingRunner', () => {
     expect(r.start(buildScript(meta, convs), 0, status())).toBe(true)
     const trail = run(r, () => !r.busy)
     const spots = (g: Record<string, Goal>) => Object.fromEntries(Object.entries(g).map(([a, x]) => [a, x.spot]))
-    expect(spots(trail[0])).toEqual({ agent_2: 'meet_a', agent_3: 'meet_b' })
-    expect(trail.some((g) => g.agent_2?.pose === 'talk' && g.agent_2.lookAt === 'agent_3')).toBe(true)
+    expect(spots(trail[0])).toEqual({ agent_2: 'meet_seat_2', agent_3: 'meet_seat_3' })
+    expect(trail.some((g) => g.agent_2?.pose === 'talk' && g.agent_2.gaze === 'agent_3')).toBe(true)
     expect(trail.some((g) => g.agent_0?.spot === 'whiteboard' && g.agent_0.pose === 'post')).toBe(true)
     expect(trail.some((g) => g.agent_3?.spot === 'work_3')).toBe(true)
     expect(events).toEqual(['pin:정했다.', 'end'])

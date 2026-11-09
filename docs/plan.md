@@ -40,12 +40,12 @@
 | 주소 | 누가 서빙 | 뭐가 보이나 |
 |---|---|---|
 | `/rooms/office` (정확히 이 경로, 끝 `/`만 허용) | 책상 방 앱(SPA 폴백) | 책상 방 + 오피스 iframe. 방문자가 보는 주소는 이것뿐 |
-| `/rooms/office/app/` (그 아래 전부) | 오피스 배포(리라이트) | 오피스 앱 자체. iframe의 `src`(`…/rooms/office/app/?embed=room`). 직접 열면 단독 오피스: "← 책상으로"가 `https://rowansong.dev/`(책상 방 루트)로 간다 |
+| `/rooms/office/app/` (그 아래 전부) | 오피스 배포(리라이트) | 오피스 앱 자체. iframe의 `src`(`…/rooms/office/app/?embed=room`). 직접 열면 단독 오피스: "← 책상으로"가 책상 방 루트(`https://rowansong-dev.vercel.app/`, 도메인을 붙이면 `VITE_DESK_URL`로 바꿈)로 간다 |
 
 - 책상 방 라우터는 `/rooms/office/app`(과 그 아래)를 방 경로로 보지 않는다. 정확히 `/rooms/office`만 방이다.
 - 리라이트 초안(배포 때 `vercel.json`, 지금은 적용 안 함): **`/rooms/office/app/(.*)` → 오피스 배포가 먼저**, 그다음 책상 방 SPA 폴백(`/((?!api/).*)` → `/index.html`). 순서가 바뀌면 오피스 앱 주소가 책상 방으로 먹힌다.
-- 오피스는 `OFFICE_BASE=/rooms/office/app/`로 빌드한다(에셋·`/api/*` 모두 이 base를 따른다).
-- 운영 배포(#10): Vercel 환경 변수 `OFFICE_BASE=/rooms/office/app/`로 빌드하고, `vercel.json`의 리라이트 `/rooms/office/app/:path*` → `/:path*`가 정적 파일과 `/api/*` 함수를 같은 경로로 서빙한다. 그래서 자기 도메인(`agent-office-lovat.vercel.app`)에서도, rowansong.dev의 프록시 뒤에서도 같은 빌드가 열린다. 상대 base(`./`)는 쓰지 않는다: 끝 `/` 없는 주소·깊은 경로에서 에셋·`/api/*`가 어긋난다.
+- 오피스는 base `/rooms/office/app/`로 빌드한다(에셋·`/api/*` 모두 이 base를 따른다). Vercel 빌드(`VERCEL` 환경)는 환경 변수 없이 이 base를 쓰고, 로컬은 `/`, `OFFICE_BASE`가 있으면 그것이 우선한다.
+- 운영 배포(#10): Vercel 빌드가 base `/rooms/office/app/`를 쓰고(`OFFICE_BASE` 설정 불필요), `vercel.json`의 리라이트(`/rooms/office/app`·`/rooms/office/app/` → `/index.html`, `/rooms/office/app/:path+` → `/:path+`)가 정적 파일과 `/api/*` 함수를 같은 경로로 서빙한다. 그래서 자기 도메인(`agent-office-lovat.vercel.app`)에서도, rowansong.dev의 프록시 뒤에서도 같은 빌드가 열린다. 상대 base(`./`)는 쓰지 않는다: 끝 `/` 없는 주소·깊은 경로에서 에셋·`/api/*`가 어긋난다.
 
 **메시지(postMessage)**: 봉투 `{ ns: 'rowansong.room', v: 1, type, ...fields }`. 그 밖의 것은 무시한다.
 
@@ -57,7 +57,7 @@
 | `leaving` | 책상 → 오피스 | 없음 | 나가기 시작(0 ms): 오피스는 열린 패널을 닫고 입력을 무시하며 문 화면으로 파고든다(X1, 700 ms). 책상은 응답을 기다리지 않고 450 ms 뒤 CRT 되감기(X2)를 시작한다 |
 
 허용 origin
-- 오피스: `event.source === window.parent` **이고** `event.origin`이 허용 목록(자기 origin + `VITE_ROOM_PARENT_ORIGINS`, 쉼표 구분, 기본 `https://rowansong.dev`)에 있을 때만 받는다. 부모에게는 명시한 targetOrigin(`'*'` 금지)으로 보낸다: 부모 origin(`location.ancestorOrigins[0]`, 없으면 `document.referrer`의 origin)이 허용 목록에 있을 때만, 아니면 보내지 않는다.
+- 오피스: `event.source === window.parent` **이고** `event.origin`이 허용 목록(자기 origin + `VITE_ROOM_PARENT_ORIGINS`, 쉼표 구분, 기본 `https://rowansong-dev.vercel.app,https://rowansong.dev`: 지금 배포 주소와 나중에 붙일 도메인)에 있을 때만 받는다. 부모에게는 명시한 targetOrigin(`'*'` 금지)으로 보낸다: 부모 origin(`location.ancestorOrigins[0]`, 없으면 `document.referrer`의 origin)이 허용 목록에 있을 때만, 아니면 보내지 않는다.
 - 책상: `event.source === iframe.contentWindow` **이고** `event.origin`이 오피스 origin(`VITE_OFFICE_URL`을 현재 주소 기준으로 푼 값; 배포에서는 같은 출처)일 때만 받는다.
 
 
@@ -92,7 +92,7 @@
 
 ### 5.1 훅이 보내는 것
 
-훅은 이벤트마다 **자리 번호(0..3), 신호 종류, 활동 종류** 셋만 보낸다. 세션 ID·이름·작업 폴더·명령 원문·도구 입력과 출력은 PC 밖으로 나가지 않는다. 자리는 세션 이름(`/rename`)으로 PC 안에서 정하고, Bash 명령도 PC 안에서 종류로 나눈다. 규칙과 설치 방법은 `hooks/README.md`에 있다(#1).
+훅은 이벤트마다 **자리 번호(0..3), 신호 종류, 활동 종류** 셋만 보낸다(세션이 맡은 이슈를 선언했을 때만 저장소 이름과 이슈 번호가 더해진다. #182: 제목은 서버가 공개 사본에서 번호로 찾고, 비공개 저장소는 "책상 방 작업(비공개)"만 보이며, 선언은 `node hooks/task.mjs <저장소> <번호>`). 세션 ID·이름·작업 폴더·명령 원문·도구 입력과 출력은 PC 밖으로 나가지 않는다. 자리는 세션 이름(`/rename`)으로 PC 안에서 정하고, Bash 명령도 PC 안에서 종류로 나눈다. 규칙과 설치 방법은 `hooks/README.md`에 있다(#1).
 
 | 훅 | 보내는 것 | 사무실 상태 |
 |---|---|---|
@@ -103,6 +103,7 @@
 | SessionEnd | `end` | 퇴근 |
 | PostToolUse / PostToolUseFailure(test·build 명령) | `result` + `ok`(성공/실패 하나) | 책상 LIVE 소품: 신호등·링 조명(#44). 어느 이벤트가 불렸는지만 보고, 출력은 읽지 않음 |
 
+- 맡은 이슈(#182): 신호마다 현재 이슈를 실어 보내고 없으면 지운다. 화면에는 작업 중 · 정리 중일 때만 "작업 중 › #170 제목 · 활동"으로 보인다. `agent_status`의 `task_repo`·`task_issue`·`task_title`·`task_private` 열에 저장한다(비공개는 `task_private`만).
 - 하위 에이전트의 도구 호출은 부모 세션(같은 자리)의 활동으로 센다.
 - 서버는 마지막 신호만 기록한다. 신호가 끊긴 뒤의 판단은 페이지가 타임스탬프로 한다. 작업 중에 3분 동안 신호가 없으면 쉬는 중, 정리 중은 2분 뒤 쉬는 중, 2시간 동안 신호가 없으면 퇴근이다.
 

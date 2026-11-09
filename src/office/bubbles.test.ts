@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { leftArea } from './sidePanel/model'
 import { BUBBLE, cardRect, firstSentence, holdMs, maskText, pairSide, placeBubbles, statusTag, typeMs, typedCount, type PlaceInput } from './bubbles'
 
 describe('firstSentence', () => {
@@ -57,6 +58,17 @@ describe('placement', () => {
     expect(facing.side).toBe('right')
     expect(cardRect(item({ x: 900 }), facing).right).toBeLessThanOrEqual(view.w - BUBBLE.safeSide)
   })
+  it('keeps cards out of the side panel: placed in the left area, a card is pushed back inside it (also a hanging one)', () => {
+    const area = leftArea({ w: 1280, h: 800 }, { open: true, width: 480, sheet: 'half' })
+    const v = { ...area, narrow: false }
+    for (const down of [false, true]) {
+      const lone = item({ x: 780, y: 400, down, pair: true })
+      const p = placeBubbles([lone], v).a
+      expect(p.visible).toBe(true)
+      expect(cardRect(lone, p).right).toBeLessThanOrEqual(area.w - BUBBLE.safeSide)
+    }
+    expect(placeBubbles([item({ x: 900 })], v).a.visible).toBe(false) // the head is under the panel
+  })
   it('stacks the later of two overlapping bubbles upward', () => {
     const out = placeBubbles([item({ id: 'a', order: 1 }), item({ id: 'b', order: 2, x: 520, y: 410 })], view)
     expect(out.a.stack).toBe(0)
@@ -108,10 +120,45 @@ describe('statusTag', () => {
   })
 })
 
+describe('status tag with the issue (#182)', () => {
+  const pub = { private: false, repo: 'agent-office', issue: 170, title: '제목' } as const
+  it('shows the number (no title) while working or wrapping', () => {
+    expect(statusTag({ state: 'working', activity: 'edit', since: 0, task: pub })?.label).toBe('#170 · 파일 편집 중')
+    expect(statusTag({ state: 'working', activity: 'edit', since: 0, task: { ...pub, repo: 'rowansong.dev', issue: 12 } })?.label).toBe('rowansong.dev#12 · 파일 편집 중')
+    expect(statusTag({ state: 'working', activity: 'edit', since: 0, task: { private: true, repo: null, issue: null, title: null } })?.label).toBe('🔒 · 파일 편집 중')
+    expect(statusTag({ state: 'wrapping', since: 0, task: pub })?.label).toBe('#170 · 카드 정리 중')
+  })
+  it('nothing extra when idle or off', () => {
+    expect(statusTag({ state: 'idle', since: 0, task: pub })).toBeNull()
+  })
+})
+
 describe('night tags (#110)', () => {
   it('sleepers and the night-duty agent get a tag', () => {
     expect(statusTag({ state: 'off', since: 0, night: 'sleep' })).toEqual({ icon: 'sleep', label: '조는 중', private: false })
     expect(statusTag({ state: 'idle', since: 0, night: 'duty' })).toEqual({ icon: 'coffee', label: '야간 당번', private: false })
     expect(statusTag({ state: 'off', since: 0 })).toBeNull()
+  })
+})
+
+describe('bubbles that hang below the head (a meeting before the whiteboard)', () => {
+  it('open downward even when there is room above, and stack downward without overlapping', () => {
+    const base = { w: 200, h: 60, prefSide: 'right' as const, pair: false, dim: false, down: true }
+    const out = placeBubbles([{ ...base, id: 'a', order: 0, x: 400, y: 400 }, { ...base, id: 'b', order: 1, x: 420, y: 400 }], { w: 1280, h: 800, narrow: false })
+    expect(out.a.dir).toBe('down')
+    expect(out.b.dir).toBe('down')
+    expect(out.b.stack).toBeGreaterThan(0)
+  })
+})
+
+describe('statusTag: another repository (#182 review)', () => {
+  it('gives the parts so the chip can shrink the repo name and keep the activity', () => {
+    const t = statusTag({ state: 'working', activity: 'edit', since: 0, task: { private: false, repo: 'rowansong.dev', issue: 12, title: null } })
+    expect(t?.other).toEqual({ repo: 'rowansong.dev', num: '#12', activity: '파일 편집 중' })
+    expect(t?.label).toBe('rowansong.dev#12 · 파일 편집 중')
+  })
+  it('none for this repo or a private task', () => {
+    expect(statusTag({ state: 'working', activity: 'edit', since: 0, task: { private: false, repo: 'agent-office', issue: 170, title: 'x' } })?.other).toBeUndefined()
+    expect(statusTag({ state: 'working', activity: 'edit', since: 0, task: { private: true, repo: null, issue: null, title: null } })?.other).toBeUndefined()
   })
 })

@@ -45,7 +45,7 @@ export async function handle(request: Request, store: FeedStore, token: string):
   const q = new URL(request.url).searchParams
   const seat = Number(q.get('seat'))
   const since = q.get('since') ?? ''
-  if (!Number.isInteger(seat) || seat < 0 || seat > 3) return Response.json({ error: 'bad seat' }, { status: 400 })
+  if (!Number.isInteger(seat) || seat < 0 || seat > 4) return Response.json({ error: 'bad seat' }, { status: 400 })
   if (Number.isNaN(Date.parse(since))) return Response.json({ error: 'bad since' }, { status: 400 })
   const rows = await store.decidedFor(seat, new Date(since).toISOString(), LIMIT)
   return Response.json({ approvals: rows.map(toFeedItem) })

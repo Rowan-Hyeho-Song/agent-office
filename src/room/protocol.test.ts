@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NS, allowedOrigins, envelope, parentOrigin, parseDeskMessage } from './protocol'
+import { NS, allowedOrigins, envelope, parentOrigin, parseDeskAudio, parseDeskMessage } from './protocol'
 
 const parent = {}
 const allowed = allowedOrigins('http://localhost:5186', 'http://localhost:5187')
@@ -13,7 +13,7 @@ const ev = (over: Partial<{ source: unknown; origin: string; data: unknown }> = 
 describe('allowedOrigins', () => {
   it('is its own origin + the env list, defaulting to the production desk', () => {
     expect(allowed).toEqual(['http://localhost:5186', 'http://localhost:5187'])
-    expect(allowedOrigins('http://a.test', undefined)).toEqual(['http://a.test', 'https://rowansong.dev'])
+    expect(allowedOrigins('http://a.test', undefined)).toEqual(['http://a.test', 'https://rowansong-dev.vercel.app', 'https://rowansong.dev'])
     expect(allowedOrigins('http://a.test', ' , nonsense, https://x.test/path ')).toEqual(['http://a.test', 'https://x.test'])
   })
 })
@@ -55,5 +55,22 @@ describe('parseDeskMessage', () => {
 describe('envelope', () => {
   it('wraps a message in the versioned envelope', () => {
     expect(envelope({ type: 'exit', room: 'office', via: 'door' })).toEqual({ ns: NS, v: 1, type: 'exit', room: 'office', via: 'door' })
+  })
+})
+
+describe('parseDeskAudio (#194)', () => {
+  const audio = (data: Record<string, unknown>) => ev({ data: { ns: NS, v: 1, type: 'audio', ...data } })
+  it('reads muted + volume (clamped) and drops other fields', () => {
+    expect(parseDeskAudio(audio({ muted: false, volume: 0.4, x: 1 }), parent, allowed)).toEqual({ muted: false, volume: 0.4 })
+    expect(parseDeskAudio(audio({ muted: true, volume: 3 }), parent, allowed)).toEqual({ muted: true, volume: 1 })
+  })
+  it('needs the same envelope and allow-list as the rest', () => {
+    expect(parseDeskAudio(audio({ muted: 'yes', volume: 1 }), parent, allowed)).toBeNull()
+    expect(parseDeskAudio({ ...audio({ muted: true, volume: 1 }), origin: 'https://evil.test' }, parent, allowed)).toBeNull()
+    expect(parseDeskAudio({ ...audio({ muted: true, volume: 1 }), source: {} }, parent, allowed)).toBeNull()
+    expect(parseDeskAudio(ev({ data: { ns: NS, v: 2, type: 'audio', muted: true, volume: 1 } }), parent, allowed)).toBeNull()
+  })
+  it('is not an entered/leaving message', () => {
+    expect(parseDeskMessage(audio({ muted: true, volume: 1 }), parent, allowed)).toBeNull()
   })
 })
