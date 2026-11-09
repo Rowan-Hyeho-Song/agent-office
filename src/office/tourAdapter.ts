@@ -8,6 +8,8 @@ import type { OfficeWorld } from './world'
 /** the state a goal pose stands for when there is no live status (the timelapse acts the record out through goals only) */
 const poseState = (pose: string | undefined) => (pose === 'type' ? 'working' : pose === 'post' ? 'wrapping' : 'idle')
 
+const KIND_STATE = { work: 'working', wrap: 'wrapping', rest: 'idle', duty: 'idle', talk: 'idle', off: 'off' } as const
+
 /** a test / build result counts as an event for this long after it (the tour's own 15 s window starts there) */
 const RESULT_MS = 3000
 
@@ -17,6 +19,7 @@ export function observe(world: OfficeWorld, replaying: boolean): AgentObs[] {
     const rig = world.rigs[id]
     const goal = world.goals[id]
     const s = status[id]
+    const shown = world.director.shown[id] // #217: what the body shows (wrapping a card, walking to the desk ...)
     const arrived = !!rig && !!goal && rig.arrived === goal.spot
     const pose = arrived ? goal.pose : undefined
     // a talk circle: the floor one, the board one (director) or the meeting runner's seats; the key drops the seat number
@@ -27,7 +30,7 @@ export function observe(world: OfficeWorld, replaying: boolean): AgentObs[] {
     return {
       id,
       visible: !!rig && rig.visible,
-      state: replaying ? poseState(goal?.pose) : (s?.state ?? 'off'),
+      state: replaying ? poseState(goal?.pose) : shown ? KIND_STATE[shown.kind] : (s?.state ?? 'off'),
       pose: pose ?? (goal?.pose === 'doze' ? 'doze' : undefined),
       ...(meet ? { meet } : {}),
       ...(event ? { event } : {}),

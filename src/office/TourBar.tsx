@@ -11,10 +11,10 @@ const STATE_TEXT = { working: '작업 중', wrapping: '카드 정리 중', idle:
 const COUNT = ['', '한', '두', '세', '네', '다섯', '여섯', '일곱', '여덟']
 
 /** the short name ("루프") and the plain sentence of what the agent is doing ("#182 · 테스트 돌리는 중") */
-export function describe(agent: string, s: AgentStatus | undefined): { name: string; chip: string } {
+export function describe(agent: string, s: AgentStatus | undefined, detail?: string): { name: string; chip: string } {
   const name = (AGENT_INFO[agent]?.name ?? agent).split(' ')[0]
   const task = taskOf(s)
-  const doing = !s ? '' : s.state === 'working' ? activityLabel(s.activity) : s.night === 'sleep' ? '조는 중' : STATE_TEXT[s.state]
+  const doing = detail ?? (!s ? '' : s.state === 'working' ? activityLabel(s.activity) : s.night === 'sleep' ? '조는 중' : STATE_TEXT[s.state])
   const chip = [task ? clip(taskText(task), 28) : '', doing].filter(Boolean).join(' · ')
   return { name, chip }
 }
@@ -48,7 +48,7 @@ export function TourBar({ world }: { world: OfficeWorld }) {
     return () => window.removeEventListener('resize', measure)
   }, [active])
 
-  const d = cut?.type === 'agent' ? describe(cut.agents[0], status[cut.agents[0]]) : null
+  const d = cut?.type === 'agent' ? describe(cut.agents[0], world.director.shown[cut.agents[0]]?.status ?? status[cut.agents[0]], world.director.shown[cut.agents[0]]?.detail) : null
   const label = !cut ? '' : cut.type === 'meeting' ? `회의 · ${COUNT[Math.min(cut.agents.length, COUNT.length - 1)]} 명` : cut.type === 'establishing' ? '사무실 전체' : (d?.name ?? '')
   const spoken = !cut ? '' : cut.type === 'agent' ? `${d?.name}${d?.chip ? `, ${d.chip}` : ''}` : label
 
