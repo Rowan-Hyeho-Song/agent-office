@@ -20,14 +20,13 @@ import { WALL_CUT, wallOf } from './walls'
 import type { OfficeWorld } from './world'
 
 /** The whole office as baked (room, desks, wall, lounge) and the agents moving through it. */
-/** `freeCam`: the normal camera (kept clear of things, #208); off in the debug close-up and top view */
-export function Office({ world, freeCam = true }: { world: OfficeWorld; freeCam?: boolean }) {
+export function Office({ world }: { world: OfficeWorld }) {
   const { scene, nodes, fades } = useOffice()
   return (
     <>
       <primitive object={scene} />
       <Cutaway scene={scene} />
-      <Occluders groups={fades} hide={freeCam} />
+      <Occluders groups={fades} />
       <Outside nodes={nodes} world={world} />
       <Agents world={world} />
       <TrayClick scene={scene} nodes={nodes} />

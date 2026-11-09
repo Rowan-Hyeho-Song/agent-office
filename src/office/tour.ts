@@ -6,7 +6,7 @@
 // desk), not to compass words, so they keep working when the pods are rotated (#195 / #206) and for a fifth seat (#193).
 
 import { ROOM } from './room'
-import { boxDistance, type Box } from './view'
+import { boxDistance, occlusionSegment, segmentHitsBox, type Box } from './view'
 
 export type V3 = [number, number, number]
 export interface Pose {
@@ -241,13 +241,62 @@ export const rightOf = (ry: number): [number, number] => [Math.cos(ry), -Math.si
 export interface Clearance {
   boxes: readonly Box[]
   margin: number
+  /**
+   * the furniture the line of sight must not cross (#253: furniture no longer fades, so the app picks a camera that sees
+   * its subject). Not walls (the cutaway handles them), not robots (they move and are not what hid things; the subject
+   * itself is one). Absent = no sight check.
+   */
+  sight?: readonly Box[]
 }
 const roomInset = 0.3
 export const inRoom = (x: number, z: number) => Math.abs(x) <= ROOM.hx - roomInset && Math.abs(z) <= ROOM.hz - roomInset
 export const isClear = (p: V3, c: Clearance) => inRoom(p[0], p[2]) && c.boxes.every((b) => boxDistance(p, b) >= c.margin - 0.03)
 
-/** the first pose (in order) whose camera is clear, else null */
-export const firstClear = (poses: readonly Pose[], c: Clearance): Pose | null => poses.find((p) => isClear(p.pos, c)) ?? null
+/** is the line from the camera to the target (stopping VIEW.near.targetSkip short of it) free of furniture? */
+export function sightClear(pos: V3, target: V3, c: Clearance): boolean {
+  if (!c.sight || c.sight.length === 0) return true
+  const [a, b] = occlusionSegment(pos, target)
+  return !c.sight.some((bx) => segmentHitsBox(a, b, bx))
+}
+
+/** a camera the app may use: clear of everything, and it sees the target */
+export const usable = (pos: V3, target: V3, c: Clearance) => isClear(pos, c) && sightClear(pos, target, c)
+
+/** the first pose (in order) whose camera is usable (clear and it sees its target), else null */
+export const firstClear = (poses: readonly Pose[], c: Clearance): Pose | null => poses.find((p) => usable(p.pos, p.target, c)) ?? null
+
+/** camera heights tried after the preferred one (m up, looking down) */
+export const RAISE_STEPS = [0.4, 0.8] as const
+/** distances tried after the preferred one (fraction of it, pulled towards the target) */
+export const PULL_STEPS = [0.85, 0.7, 0.55] as const
+const MAX_CAM_Y = 3.6
+
+/** the milder changes first: as is, a bit higher, a bit nearer, higher still, nearer still, nearer and higher */
+const ALTERNATIVES: readonly { k: number; dy: number }[] = [
+  { k: 1, dy: 0 },
+  { k: 1, dy: RAISE_STEPS[0] },
+  { k: PULL_STEPS[0], dy: 0 },
+  { k: 1, dy: RAISE_STEPS[1] },
+  { k: PULL_STEPS[1], dy: 0 },
+  { k: PULL_STEPS[2], dy: 0 },
+  { k: PULL_STEPS[1], dy: RAISE_STEPS[0] },
+]
+/** the pose with its camera pulled towards the target by k and raised by dy */
+export const adjusted = (p: Pose, k: number, dy: number): Pose => ({
+  pos: [p.target[0] + (p.pos[0] - p.target[0]) * k, Math.min(MAX_CAM_Y, p.target[1] + (p.pos[1] - p.target[1]) * k + dy), p.target[2] + (p.pos[2] - p.target[2]) * k],
+  target: p.target,
+})
+/** the first usable pose of the candidates (in order), trying each alternative (pull / raise) over all of them before the next; null when none */
+export function firstUsable(cands: readonly Pose[], c: Clearance): Pose | null {
+  for (const { k, dy } of ALTERNATIVES) {
+    const p = firstClear(
+      cands.map((q) => (k === 1 && dy === 0 ? q : adjusted(q, k, dy))),
+      c,
+    )
+    if (p) return p
+  }
+  return null
+}
 
 const v3 = (x: number, y: number, z: number): V3 => [x, y, z]
 
@@ -281,31 +330,31 @@ export function workCandidates(seat: Frame): Pose[] {
   return out
 }
 
-/** the work cut: over the shoulder when that camera spot is clear, else the next that is; never fails (the last resort is the shoulder pose) */
-export function workPose(seat: Frame, c: Clearance): Pose {
-  const cands = workCandidates(seat)
-  return firstClear(cands, c) ?? cands[0]
+/** the work cut: over the shoulder when that camera spot is clear and sees the seat, else the next that does (nearer / higher / the other side); null = skip the cut */
+export function workPose(seat: Frame, c: Clearance): Pose | null {
+  return firstUsable(workCandidates(seat), c)
 }
 
 /** from the front of a standing / sitting agent (and then to the sides), 2.2 m away, 1.7 m up: the upper body */
-export function standPose(at: Frame, c: Clearance, dist = 2.2, y = 1.7, targetY = 1.0): Pose {
+export function standPose(at: Frame, c: Clearance, dist = 2.2, y = 1.7, targetY = 1.0): Pose | null {
   const [fx, fz] = forward(at.ry)
   const target = v3(at.x, targetY, at.z)
   const angles = [0, 40, -40, 80, -80, 140, -140, 180].map((a) => a * DEG)
-  for (const k of [1, 0.8, 0.65]) {
-    for (const a of angles) {
-      const dx = fx * Math.cos(a) - fz * Math.sin(a)
-      const dz = fx * Math.sin(a) + fz * Math.cos(a)
-      const pos = v3(at.x + dx * dist * k, heightFor(dist * k, dist, y, targetY), at.z + dz * dist * k)
-      if (isClear(pos, c)) return { pos, target }
+  for (const dy of [0, ...RAISE_STEPS]) {
+    for (const k of [1, 0.8, 0.65, 0.5]) {
+      for (const a of angles) {
+        const dx = fx * Math.cos(a) - fz * Math.sin(a)
+        const dz = fx * Math.sin(a) + fz * Math.cos(a)
+        const pos = v3(at.x + dx * dist * k, Math.min(MAX_CAM_Y, heightFor(dist * k, dist, y, targetY) + dy), at.z + dz * dist * k)
+        if (usable(pos, target, c)) return { pos, target }
+      }
     }
   }
-  const [px, pz] = [at.x + fx * dist * 0.65, at.z + fz * dist * 0.65]
-  return { pos: v3(px, y, pz), target }
+  return null
 }
 
 /** across a table: beside its long side (the side the default camera is on first), `dist` away and `y` up, looking at its middle */
-export function tablePose(a: { x: number; z: number }, b: { x: number; z: number }, c: Clearance, home: V3, opt: { dist: number; y: number; targetY: number }): Pose {
+export function tablePose(a: { x: number; z: number }, b: { x: number; z: number }, c: Clearance, home: V3, opt: { dist: number; y: number; targetY: number }): Pose | null {
   const mid = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 }
   const len = Math.hypot(b.x - a.x, b.z - a.z) || 1
   const perp = { x: -(b.z - a.z) / len, z: (b.x - a.x) / len }
@@ -321,25 +370,31 @@ export function tablePose(a: { x: number; z: number }, b: { x: number; z: number
       }
     }
   }
-  const best = cands.sort((x, y) => x.cost - y.cost).find((q) => isClear(q.pos, c))
-  if (best) return { pos: best.pos, target }
-  return { pos: v3(mid.x + perp.x * toHome * opt.dist * 0.68, heightFor(opt.dist * 0.68, opt.dist, opt.y, opt.targetY), mid.z + perp.z * toHome * opt.dist * 0.68), target }
+  cands.sort((x, y) => x.cost - y.cost)
+  for (const dy of [0, ...RAISE_STEPS]) {
+    const up = (q: V3): V3 => v3(q[0], Math.min(MAX_CAM_Y, q[1] + dy), q[2])
+    const best = cands.find((q) => usable(up(q.pos), target, c))
+    if (best) return { pos: up(best.pos), target }
+  }
+  return null
 }
 
 /** a talk circle: 4.0 m from its middle towards the default camera, 2.6 m up, looking at the middle (1.0 m up) */
-export function meetingPose(centre: { x: number; z: number }, c: Clearance, home: V3, dist = 4.0, y = 2.6): Pose {
+export function meetingPose(centre: { x: number; z: number }, c: Clearance, home: V3, dist = 4.0, y = 2.6): Pose | null {
   const hx = home[0] - centre.x
   const hz = home[2] - centre.z
   const base = Math.atan2(hz, hx)
   const target = v3(centre.x, 1.0, centre.z)
-  for (const k of [1, 0.85, 0.7]) {
-    for (const off of [0, 25, -25, 50, -50, 90, -90, 135, -135, 180]) {
-      const a = base + off * DEG
-      const pos = v3(centre.x + Math.cos(a) * dist * k, y, centre.z + Math.sin(a) * dist * k)
-      if (isClear(pos, c)) return { pos, target }
+  for (const dy of [0, ...RAISE_STEPS]) {
+    for (const k of [1, 0.85, 0.7, 0.55]) {
+      for (const off of [0, 25, -25, 50, -50, 90, -90, 135, -135, 180]) {
+        const a = base + off * DEG
+        const pos = v3(centre.x + Math.cos(a) * dist * k, Math.min(MAX_CAM_Y, y + dy), centre.z + Math.sin(a) * dist * k)
+        if (usable(pos, target, c)) return { pos, target }
+      }
     }
   }
-  return { pos: v3(centre.x + Math.cos(base) * dist * 0.7, y, centre.z + Math.sin(base) * dist * 0.7), target }
+  return null
 }
 
 /** turn a camera position about the vertical axis through the target */
@@ -350,6 +405,9 @@ export function orbitYaw(pos: V3, target: V3, yaw: number): V3 {
   const s = Math.sin(yaw)
   return [target[0] + dx * c + dz * s, pos[1], target[2] - dx * s + dz * c]
 }
+
+/** does the sideways drift keep the line of sight clear at both ends? Else the cut stands still */
+export const driftSightClear = (base: Pose, range: [number, number], c: Clearance) => range.every((y) => sightClear(orbitYaw(base.pos, base.target, y), base.target, c))
 
 /** while it stays: 4 degrees sideways over the whole dwell (-2 to +2), the establishing shot +-12 */
 export const DRIFT = { deg: 4, establishingDeg: 24 }

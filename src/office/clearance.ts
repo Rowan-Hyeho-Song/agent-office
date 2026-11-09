@@ -17,6 +17,8 @@ export const setClearFurniture = (groups: readonly { id: string; box: Box3 }[]) 
     clearIds.push(id)
   }
 }
+/** the furniture boxes (no walls, no robots): what a scripted camera's line of sight must not cross (#253) */
+export const furnitureBoxes = (): readonly ClearBox[] => furniture
 /** dev only (screenshot scripts): the furniture boxes by fade-group id */
 export const clearFurnitureForDev = () => furniture.map((b, i) => ({ id: clearIds[i], ...b }))
 

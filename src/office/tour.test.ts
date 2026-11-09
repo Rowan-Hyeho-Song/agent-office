@@ -17,6 +17,7 @@ import {
   dwellMs,
   establishingCut,
   forward,
+  driftSightClear,
   isClear,
   lag,
   leaveEarly,
@@ -25,6 +26,7 @@ import {
   pathClear,
   rightOf,
   shouldFly,
+  sightClear,
   standPose,
   tablePose,
   workCandidates,
@@ -245,7 +247,7 @@ describe('framing relative to the seat', () => {
   })
   it('works for a fifth seat anywhere', () => {
     const seat: Frame = { x: 1.2, z: 0.5, ry: Math.PI }
-    const p = workPose(seat, NO_BOXES)
+    const p = workPose(seat, NO_BOXES)!
     const [fx, fz] = forward(seat.ry)
     expect((p.pos[0] - seat.x) * fx + (p.pos[2] - seat.z) * fz).toBeCloseTo(-SHOULDER.back, 5)
   })
@@ -258,7 +260,7 @@ describe('framing relative to the seat', () => {
     // something stands where the first camera would be
     const [x, y, z] = c[0].pos
     const block: Clearance = { boxes: [{ min: [x - 0.3, y - 0.5, z - 0.3], max: [x + 0.3, y + 0.5, z + 0.3] }], margin: 0.3 }
-    const p = workPose(seat, block)
+    const p = workPose(seat, block)!
     expect(p).not.toEqual(c[0])
     expect(isClear(p.pos, block)).toBe(true)
     expect(c.slice(1)).toContainEqual(p)
@@ -270,7 +272,7 @@ describe('framing relative to the seat', () => {
   it('a table: the long side, away from the table, at the spec distance when the room allows', () => {
     const a = SPOTS.find((s) => s.id === 'pingpong_a')!
     const b = SPOTS.find((s) => s.id === 'pingpong_b')!
-    const p = tablePose(a, b, NO_BOXES, HOME, { dist: 3.8, y: 2.2, targetY: 0.76 })
+    const p = tablePose(a, b, NO_BOXES, HOME, { dist: 3.8, y: 2.2, targetY: 0.76 })!
     expect(p.target[0]).toBeCloseTo((a.x + b.x) / 2)
     expect(isClear(p.pos, NO_BOXES)).toBe(true)
     // across the table (more z than x away from the middle). The default camera side (+z) no longer fits the room since the table moved to z 0.97 (#195):
@@ -279,19 +281,86 @@ describe('framing relative to the seat', () => {
     expect(Math.hypot(p.pos[0] - p.target[0], p.pos[1] - p.target[1], p.pos[2] - p.target[2])).toBeGreaterThan(3.5)
   })
   it('a stander: in front when clear, from the side when the front is a wall, always inside the room', () => {
-    const open = standPose({ x: 0, z: 0, ry: 0 }, NO_BOXES)
+    const open = standPose({ x: 0, z: 0, ry: 0 }, NO_BOXES)!
     expect(open.pos[2]).toBeLessThan(0) // front = -z
-    const atWall = standPose({ x: 3.56, z: -2, ry: -Math.PI / 2 }, NO_BOXES) // the coffee machine, facing the east wall
+    const atWall = standPose({ x: 3.56, z: -2, ry: -Math.PI / 2 }, NO_BOXES)! // the coffee machine, facing the east wall
     expect(isClear(atWall.pos, NO_BOXES)).toBe(true)
     expect(atWall.target).toEqual([3.56, 1.0, -2])
   })
   it('a circle: towards the default camera, 4 m away, 2.6 m up, looking at its middle', () => {
-    const p = meetingPose({ x: -1, z: -0.6 }, NO_BOXES, HOME)
+    const p = meetingPose({ x: -1, z: -0.6 }, NO_BOXES, HOME)!
     expect(dist2(p.pos, p.target)).toBeCloseTo(4, 5)
     expect(p.pos[1]).toBe(2.6)
     expect(p.target).toEqual([-1, 1, -0.6])
     expect(p.pos[0]).toBeGreaterThan(-1)
     expect(p.pos[2]).toBeGreaterThan(-0.6)
+  })
+})
+
+// the app picks a camera that sees its subject (#253): furniture no longer fades, so a pose is used only when the line of sight is free
+describe('line of sight (#253)', () => {
+  const ALL: Clearance = { boxes: [], margin: 0.3, sight: [{ min: [-100, -100, -100], max: [100, 100, 100] }] }
+  const seat = seatOf(3)
+  const preferred = workCandidates(seat)[0]
+  const mid = preferred.pos.map((v, i) => (v + preferred.target[i]) / 2)
+  const wall = (m: readonly number[], r = 0.3): { min: [number, number, number]; max: [number, number, number] } => ({ min: [m[0] - r, -1, m[2] - r], max: [m[0] + r, 6, m[2] + r] })
+
+  it('a box between the shoulder camera and the target: a different pose, clear and seeing the seat', () => {
+    const c: Clearance = { boxes: [], margin: 0.3, sight: [wall(mid)] }
+    expect(sightClear(preferred.pos, preferred.target, c)).toBe(false)
+    const p = workPose(seat, c)!
+    expect(p).not.toBeNull()
+    expect(p).not.toEqual(preferred)
+    expect(isClear(p.pos, c)).toBe(true)
+    expect(sightClear(p.pos, p.target, c)).toBe(true)
+  })
+  it('a box that is not in the way changes nothing', () => {
+    const c: Clearance = { boxes: [], margin: 0.3, sight: [wall([preferred.pos[0] + 3, 0, preferred.pos[2] + 3])] }
+    expect(workPose(seat, c)).toEqual(preferred)
+  })
+  it('every candidate blocked: no pose (the cut is skipped)', () => {
+    expect(workPose(seat, ALL)).toBeNull()
+    expect(standPose({ x: 0, z: 0, ry: 0 }, ALL)).toBeNull()
+    expect(meetingPose({ x: -1, z: -0.6 }, ALL, HOME)).toBeNull()
+    const a = SPOTS.find((s) => s.id === 'pingpong_a')!
+    const b = SPOTS.find((s) => s.id === 'pingpong_b')!
+    expect(tablePose(a, b, ALL, HOME, { dist: 3.8, y: 2.2, targetY: 0.76 })).toBeNull()
+  })
+  it('a stander and a table: a blocked first choice gives another clear, seeing pose', () => {
+    const at = { x: 0, z: 0, ry: 0 }
+    const first = standPose(at, NO_BOXES)!
+    const c: Clearance = { boxes: [], margin: 0.3, sight: [wall([(first.pos[0] + first.target[0]) / 2, 0, (first.pos[2] + first.target[2]) / 2])] }
+    const p = standPose(at, c)!
+    expect(p.pos).not.toEqual(first.pos)
+    expect(sightClear(p.pos, p.target, c)).toBe(true)
+    const a = SPOTS.find((s) => s.id === 'pingpong_a')!
+    const b = SPOTS.find((s) => s.id === 'pingpong_b')!
+    const t0 = tablePose(a, b, NO_BOXES, HOME, { dist: 3.8, y: 2.2, targetY: 0.76 })!
+    const ct: Clearance = { boxes: [], margin: 0.3, sight: [wall([(t0.pos[0] + t0.target[0]) / 2, 0, (t0.pos[2] + t0.target[2]) / 2])] }
+    const t1 = tablePose(a, b, ct, HOME, { dist: 3.8, y: 2.2, targetY: 0.76 })!
+    expect(t1.pos).not.toEqual(t0.pos)
+    expect(sightClear(t1.pos, t1.target, ct)).toBe(true)
+  })
+  it('the sight stops short of the target: what the target stands in does not count', () => {
+    const c: Clearance = { boxes: [], margin: 0.3, sight: [{ min: [-0.2, 0, -0.2], max: [0.2, 1.2, 0.2] }] }
+    expect(sightClear([3, 1, 0], [0, 1, 0], c)).toBe(true)
+  })
+  it('the subject and the walls are not sight boxes: boxes (walls, robots) never block the line', () => {
+    const robotAtTarget = { min: [-0.3, 0, -0.3] as [number, number, number], max: [0.3, 1.6, 0.3] as [number, number, number] }
+    const wallAcross = { min: [1, 0, -5] as [number, number, number], max: [1.2, 2.6, 5] as [number, number, number] }
+    expect(sightClear([3, 1.5, 0], [0, 1, 0], { boxes: [robotAtTarget, wallAcross], margin: 0.3, sight: [] })).toBe(true)
+    expect(sightClear([3, 1.5, 0], [0, 1, 0], { boxes: [robotAtTarget, wallAcross], margin: 0.3 })).toBe(true)
+  })
+  it('the drift: blocked at one end means no drift', () => {
+    const base: Pose = { pos: [3, 2, 0], target: [0, 1, 0] }
+    const range: [number, number] = [-0.3, 0.3]
+    const end = orbitYaw(base.pos, base.target, 0.3)
+    const m = end.map((v, i) => (v + base.target[i]) / 2)
+    const free: Clearance = { boxes: [], margin: 0.3, sight: [] }
+    const blocked: Clearance = { boxes: [], margin: 0.3, sight: [wall(m, 0.05)] }
+    expect(driftSightClear(base, range, free)).toBe(true)
+    expect(sightClear(base.pos, base.target, blocked)).toBe(true) // the middle of the drift is free
+    expect(driftSightClear(base, range, blocked)).toBe(false)
   })
 })
 

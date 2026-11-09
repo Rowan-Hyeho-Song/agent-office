@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 import type { Vector3 } from 'three'
 import { HOME_POS, HOME_TARGET, useCameraBusy } from '../room/Door'
 import { replay } from '../replay/store'
-import { clearBoxes } from './clearance'
+import { clearBoxes, furnitureBoxes } from './clearance'
 import { observe } from './tourAdapter'
 import { noteTourEvent } from './tourEvents'
 import { getSideLayout } from './sidePanel/store'
@@ -14,7 +14,9 @@ import {
   arcAt,
   buildViews,
   driftRange,
+  driftSightClear,
   driftYaw,
+  establishingCut,
   dwellMs,
   inRoom,
   lag,
@@ -93,15 +95,16 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
 
     const speed = () => (replay.getSnapshot().mode === 'office' ? replay.getSnapshot().speed : 1)
     const views = () => buildViews(observe(world, replay.getSnapshot().mode === 'office'), Date.now())
-    const clearance = (): Clearance => ({ boxes: clearBoxes(Object.values(world.rigs)), margin: VIEW.clear.margin })
+    const clearance = (): Clearance => ({ boxes: clearBoxes(Object.values(world.rigs)), margin: VIEW.clear.margin, sight: furnitureBoxes() })
     const spot = (id: string) => world.graph?.spots[id]
     const home: V3 = [HOME_POS.x, HOME_POS.y, HOME_POS.z]
 
     // ---- where a cut is shot from -------------------------------------------------------------------------------
-    function plant(cut: Cut): { base: Pose; follow: Run['follow'] } {
+    // null = no camera that is clear and sees the subject: the cut is skipped (#253)
+    function plant(cut: Cut): { base: Pose; follow: Run['follow'] } | null {
       const c = clearance()
       if (cut.type === 'establishing') return { base: { pos: home, target: [HOME_TARGET.x, HOME_TARGET.y, HOME_TARGET.z] }, follow: null }
-      let base: Pose
+      let base: Pose | null
       let follow: Run['follow'] = null
       if (cut.type === 'meeting') {
         const rigs = cut.agents.map((a) => world.rigs[a]).filter(Boolean)
@@ -123,9 +126,10 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
         else if (seat && (rig?.arrived === seat.id || cut.why === 'working')) base = workPose(seat, c)
         else if (rig) {
           base = standPose({ x: rig.x, z: rig.z, ry: rig.heading }, c)
-          follow = { id, off: [base.target[0] - rig.x, base.target[1], base.target[2] - rig.z] }
+          if (base) follow = { id, off: [base.target[0] - rig.x, base.target[1], base.target[2] - rig.z] }
         } else base = { pos: home, target: [HOME_TARGET.x, HOME_TARGET.y, HOME_TARGET.z] }
       }
+      if (!base) return null
       // every cut's camera goes through the same clearance as the free camera (#208)
       base = { pos: keepClear(base.pos, base.target, c.boxes, c.margin), target: base.target }
       return { base, follow }
@@ -144,21 +148,28 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
     }
 
     // ---- cuts ------------------------------------------------------------------------------------------------------
-    function begin(cut: Cut) {
+    function begin(cut: Cut, skipped = 0) {
       const ctl = live.current.controls
       if (!ctl) return
       const reduced = prefersReducedMotion()
-      const { base, follow } = plant(cut)
+      const planted = plant(cut)
+      if (!planted) {
+        // no usable camera for this cut: the next one; after a few in a row the establishing shot (always plantable)
+        console.info('[tour] cut skipped (no clear line of sight)', cut.id)
+        if (skipped >= 5) return begin(establishingCut(), 0)
+        return begin(plan.next(Date.now(), views(), speed()), skipped + 1)
+      }
+      const { base, follow } = planted
       let range = driftRange(cut, reduced)
       if (cut.type !== 'establishing' && (range[0] !== 0 || range[1] !== 0)) {
-        // the sideways drift must stay clear too, else the cut stands still
+        // the sideways drift must stay clear too (the camera and the line of sight), else the cut stands still
         const c = clearance()
         const ok = range.every((y) => {
           const p = orbitYaw(base.pos, base.target, y)
           const k = keepClear(p, base.target, c.boxes, c.margin)
           return Math.hypot(k[0] - p[0], k[1] - p[1], k[2] - p[2]) < 0.01 && inRoom(p[0], p[2])
         })
-        if (!ok) range = [0, 0]
+        if (!ok || !driftSightClear(base, range, c)) range = [0, 0]
       }
       const from: Pose = { pos: v3(camera.position), target: v3(ctl.target) }
       const end: Pose = { pos: orbitYaw(base.pos, base.target, range[0]), target: base.target }
