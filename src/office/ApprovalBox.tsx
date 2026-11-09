@@ -5,9 +5,9 @@ import { setSideBack, setSideLayout, setSideRaise } from './sidePanel/store'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from 'react'
 import { renderMarkdown } from './approval/markdown'
 import { openApprovalBox, toggleApprovalBox, useApprovalBoxOpen } from './approval/panel'
-import type { ApprovalSource, Cover, Role } from '../approvals/source'
+import type { ApprovalSource, Cover, DecidedCover, Role } from '../approvals/source'
 import type { StoredApproval } from '../approvals/types'
-import { KIND_LABEL, answersFor, decidedText, fmtDate, fmtDay, kindOf, noteHint, shortRepo, type Kind } from '../approvals/view'
+import { KIND_LABEL, answersFor, chosenOption, decidedCoverLabel, decidedLabel, decidedText, elapsedText, fmtDate, fmtDay, fmtStamp, kindOf, noteHint, shortRepo, stampText, type Kind } from '../approvals/view'
 import { Icon } from './ApprovalIcons'
 import { AGENT_INFO, type OfficeWorld } from './world'
 
@@ -115,7 +115,7 @@ function Box({ src }: { src: ApprovalSource }) {
             {role === 'owner' ? (
               <OwnerView src={src} announce={setLive} setThud={setThud} onChange={refresh} back={back} />
             ) : (
-              <VisitorView src={src} role={role} count={count} />
+              <VisitorView src={src} role={role} count={count} back={back} />
             )}
           </div>
         </div>
@@ -124,17 +124,39 @@ function Box({ src }: { src: ApprovalSource }) {
   )
 }
 
-function VisitorView({ src, role, count }: { src: ApprovalSource; role: Role; count: number | null }) {
+function VisitorView({ src, role, count, back }: { src: ApprovalSource; role: Role; count: number | null; back: RefObject<(() => void) | null> }) {
   const [covers, setCovers] = useState<Cover[]>([])
+  const [done, setDone] = useState<DecidedCover[]>([])
+  const [cur, setCur] = useState<DecidedCover | null>(null)
+  const lastId = useRef<number | null>(null)
+  const list = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const load = () => void src.covers().then(setCovers, () => {})
+    const load = () => {
+      void src.covers().then(setCovers, () => {})
+      void src.decidedCovers?.().then(setDone, () => {})
+    }
     load()
     const timer = setInterval(load, 60_000)
     return () => clearInterval(timer)
   }, [src])
+  // one decided cover open: Esc and the back button return to the list, the phone sheet goes tall (like the owner's detail)
+  const toList = useCallback(() => setCur(null), [])
+  useEffect(() => {
+    setSideRaise('approval', !!cur)
+    back.current = cur ? toList : null
+    return () => {
+      back.current = null
+      setSideRaise('approval', false)
+    }
+  }, [cur, toList, back])
+  useEffect(() => {
+    if (cur || lastId.current === null) return
+    list.current?.querySelector<HTMLElement>(`[data-id="${lastId.current}"]`)?.focus()
+  }, [cur])
   const askedForOwner = new URLSearchParams(location.search).has('owner')
+  if (cur) return <DecidedCoverDetail c={cur} onBack={toList} />
   return (
-    <div className="approval-scroll">
+    <div className="approval-scroll" ref={list}>
       <div className="approval-count">
         <b>{count ?? '…'}</b>
         <span>결재 대기 {count ?? '…'}건 · 주인이 확인하면 공개돼요</span>
@@ -161,6 +183,39 @@ function VisitorView({ src, role, count }: { src: ApprovalSource; role: Role; co
             )
           })}
         </ul>
+      )}
+      {done.length > 0 && (
+        <section className="secret-done" aria-label="처리된 결재">
+          <p className="approval-sub">처리된 결재 {done.length}</p>
+          <ul className="secret-list">
+            {done.map((c) => {
+              const who = agentOf(c.requester_seat)
+              return (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    className="secret-cover"
+                    data-seat={who.key}
+                    data-id={c.id}
+                    onClick={() => {
+                      lastId.current = c.id
+                      setCur(c)
+                    }}
+                  >
+                    <span className="sr-only">{decidedCoverLabel(who.first, c.result, c.decided_at)}</span>
+                    <span className="contents" aria-hidden="true">
+                      <span className="k">{stampText(c.result)}</span>
+                      <span className="bar" />
+                      <span className="d">
+                        {who.first} · {fmtDay(c.decided_at)}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
       )}
       {role === 'other' ? (
         <p className="approval-signin">
@@ -254,6 +309,7 @@ function OwnerView({
     }
   }
 
+  if (cur?.status === 'decided') return <DecidedDetail key={cur.id} a={cur} onBack={toList} />
   if (cur) return <Detail key={cur.id} a={cur} src={src} onBack={toList} onDone={finished} announce={announce} setThud={setThud} />
 
   const items = tab === 'pending' ? (pending ?? []) : done
@@ -298,15 +354,25 @@ function OwnerView({
               )
               return (
                 <li key={a.id}>
-                  {tab === 'pending' ? (
-                    <button type="button" className="approval-item" data-seat={who.key} data-id={a.id} onClick={() => open(a)}>
-                      {body}
-                    </button>
-                  ) : (
-                    <div className="approval-item static" data-seat={who.key}>
-                      {body}
-                    </div>
-                  )}
+                  <button
+                    type="button"
+                    className="approval-item"
+                    data-seat={who.key}
+                    data-id={a.id}
+                    onClick={() => open(a)}
+                  >
+                    {/* the decided row is named by one spoken sentence (an sr-only span, not aria-label: axe's label-content-name-mismatch wants the visible words inside an aria-label); the visible words are hidden from readers so nothing is read twice */}
+                    {tab === 'done' ? (
+                      <>
+                        <span className="sr-only">{decidedLabel(who.first, a.title, a.result, a.decided_at)}</span>
+                        <span className="contents" aria-hidden="true">
+                          {body}
+                        </span>
+                      </>
+                    ) : (
+                      body
+                    )}
+                  </button>
                 </li>
               )
             })}
@@ -335,12 +401,156 @@ function OwnerView({
   )
 }
 
-function Badge({ kind }: { kind: Kind }) {
+function Badge({ kind, label = KIND_LABEL[kind] }: { kind: Kind; label?: string }) {
   return (
     <span className="approval-badge" data-kind={kind}>
       <Icon name={kind} />
-      {KIND_LABEL[kind]}
+      {label}
     </span>
+  )
+}
+
+/** the chip of a decided detail: what was asked, in a word */
+const SHORT_KIND: Record<Kind, string> = { decision: '선택', publish: '공개', review: '승인/반려' }
+
+/** the result stamp of a decided approval: 54px, red, tilted, and still (the one stamped in the pending detail is the animated one) */
+function ResultStamp({ result }: { result: string | null }) {
+  const text = stampText(result)
+  const n = [...text].length
+  return (
+    <span className="result-stamp">
+      <span className="sr-only">결과: {text}</span>
+      <svg viewBox="0 0 112 112" aria-hidden="true">
+        <circle cx="56" cy="56" r="50" fill="none" stroke="currentColor" strokeWidth="5" />
+        <circle cx="56" cy="56" r="42" fill="none" stroke="currentColor" strokeWidth="2" />
+        <text
+          x="56"
+          y="56"
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontWeight="700"
+          fontSize={n <= 2 ? 32 : n <= 4 ? 24 : 15}
+          textLength={n > 4 ? 70 : undefined}
+          lengthAdjust="spacingAndGlyphs"
+          fill="currentColor"
+        >
+          {text}
+        </text>
+      </svg>
+    </span>
+  )
+}
+
+/** a decided approval for its owner (#222): read-only, the pending detail's blocks, no action row */
+function DecidedDetail({ a, onBack }: { a: StoredApproval; onBack: () => void }) {
+  const title = useRef<HTMLHeadingElement>(null)
+  useEffect(() => title.current?.focus(), [])
+  const who = agentOf(a.requester_seat, a.requester)
+  const k = kindOf(a.kind)
+  const picked = chosenOption(a)
+  const options = k === 'decision' ? answersFor(a).filter((o) => !o.reject) : []
+  const opinion = (a.opinion ?? '').trim()
+  const took = elapsedText(a.created_at, a.decided_at)
+  return (
+    <div className="approval-scroll">
+      <div className="approval-detail decided" data-seat={who.key}>
+        <button className="approval-back" type="button" onClick={onBack}>
+          ← 처리됨
+        </button>
+        <div className="row1">
+          <span className="who">
+            <i className="dot" aria-hidden="true" />
+            {who.label}
+          </span>
+          <Badge kind={k} label={SHORT_KIND[k]} />
+          <ResultStamp result={a.result} />
+        </div>
+        <h3 className="approval-title" ref={title} tabIndex={-1}>
+          {a.title}
+        </h3>
+        <div className="approval-meta">
+          <span>
+            요청 {fmtStamp(a.created_at)} · 결재 {fmtStamp(a.decided_at)}
+            {took && ` · ${took}`}
+          </span>
+        </div>
+        <div className="approval-content">{renderMarkdown(a.content)}</div>
+        {options.length > 0 && (
+          <div className="approval-options ro">
+            <p className="legend">선택지</p>
+            <ul>
+              {options.map((o) => {
+                const chosen = picked !== null && o.num === String(picked)
+                return (
+                  <li key={o.value} className={`approval-option ro${chosen ? ' chosen' : ' dim'}`}>
+                    <span className="num">{o.num}</span>
+                    <span className="lbl">{o.label}</span>
+                    {o.recommended && <span className="approval-rec">추천</span>}
+                    {chosen && <span className="pick">✓ 고름</span>}
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )}
+        {(opinion || a.result === '반려') && (
+          <div className="approval-note ro">
+            <span className="nl">의견</span>
+            {opinion ? <p className="said">{opinion}</p> : <p className="said none">의견 없음</p>}
+          </div>
+        )}
+        {(a.source_url || a.result_url) && (
+          <p className="approval-links">
+            {a.source_url && (
+              <a href={a.source_url} target="_blank" rel="noreferrer">
+                🖊 요청 원문 ↗<span className="sr-only"> (새 탭)</span>
+              </a>
+            )}
+            {a.result_url && (
+              <a href={a.result_url} target="_blank" rel="noreferrer">
+                ✅ 결과 기록 ↗<span className="sr-only"> (새 탭)</span>
+              </a>
+            )}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** the same detail for a visitor: who, the result, when; the rest stays behind the SECRET cover (nothing private is in the page) */
+function DecidedCoverDetail({ c, onBack }: { c: DecidedCover; onBack: () => void }) {
+  const title = useRef<HTMLHeadingElement>(null)
+  useEffect(() => title.current?.focus(), [])
+  const who = agentOf(c.requester_seat)
+  return (
+    <div className="approval-scroll">
+      <div className="approval-detail decided" data-seat={who.key}>
+        <button className="approval-back" type="button" onClick={onBack}>
+          ← 처리됨
+        </button>
+        <div className="row1">
+          <span className="who">
+            <i className="dot" aria-hidden="true" />
+            {who.label}
+          </span>
+          <ResultStamp result={c.result} />
+        </div>
+        <h3 className="approval-title" ref={title} tabIndex={-1}>
+          결재 서류 1건
+        </h3>
+        <div className="approval-meta">
+          <span>결재 {fmtStamp(c.decided_at)}</span>
+        </div>
+        <div className="secret-seal">
+          <span className="secret-stamp" aria-hidden="true">
+            SECRET
+          </span>
+          <p>주인만 볼 수 있어요</p>
+          <p className="sub">누가 · 언제 · 결과만 보입니다</p>
+        </div>
+      </div>
+    </div>
   )
 }
 

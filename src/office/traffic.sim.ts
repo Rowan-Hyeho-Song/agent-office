@@ -1,11 +1,10 @@
 // A whole day of the real schedule (time-seeded play, working windows, talks, the night shift) driven through the
 // planner the way Agents.tsx drives it, for the day-simulation test and its report. Not part of the app.
 
-import { deskOf, Director, type Goal } from './director'
+import { deskOf, Director, requestOf, type Goal } from './director'
 import { applyDuty } from './duty'
 import { FOOTPRINT_DATA } from './footprint.data'
 import { buildGrid, decodeFootprint } from './grid'
-import { DESK_SIDES } from './nav'
 import { GRAPH } from './navSpots.fixture'
 import type { OfficeMessage, StatusMap } from './status'
 import { TRAFFIC, TrafficPlanner } from './traffic'
@@ -22,6 +21,8 @@ export function mismatch(a: string, sh: Shown | undefined, g: Goal, arrived: str
   const desk = `work_${deskOf(a)}`
   if (!sh) return 'nothing shown'
   const s = sh.status.state
+  // #228: called to work (or off) while carrying the watering can, the agent first brings it back: it shows the errand's words, whatever it is
+  if (g.pose === 'water' && sh.kind !== 'rest') return sh.detail && g.water ? null : 'water errand without its words'
   switch (sh.kind) {
     case 'work':
       if (s !== 'working' || (g.pose !== 'type' && g.pose !== 'listen') || g.spot !== desk) return 'work: not typing at the desk'
@@ -94,6 +95,11 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
     exempt.some(([s1, s2]) => ((near(a, s1) && near(b, s2)) || (near(a, s2) && near(b, s1))) && Math.hypot(a.x - b.x, a.z - b.z) >= Math.hypot(GRAPH.spots[s1].x - GRAPH.spots[s2].x, GRAPH.spots[s1].z - GRAPH.spots[s2].z) - 0.06)
   const worst: { t: number; d: number; who: string; goals: string; at: string }[] = []
   const planMs: number[] = []
+  const departs = new Map<string, number>()
+  // the watering errands (#228): how many entered each stage, and whether two agents ever had one at once
+  const errands: Record<string, number> = { fetch: 0, lift: 0, carry: 0, pour: 0, return: 0, put: 0, done: 0 }
+  const stageOf: Record<string, string | undefined> = {}
+  let errandsAtOnce = 0
   // frames where what is shown and what the body does disagree; the longest an agent went without reaching its goal (the #188 leftover)
   const mism: { t: number; who: string; why: string }[] = []
   let frames = 0
@@ -117,12 +123,33 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
     }
     const arrived = (a: string) => (planner.has(a) ? planner.sample(a, t).arrived : null)
     const goals: Record<string, Goal> = director.goals(now, minute, status, arrived)
+    // as Agents.tsx does: forget the departures no goal holds any more, keep the held ones
+    const held = new Set(Object.entries(goals).filter(([, g]) => g.depart !== undefined).map(([id, g]) => `${id}|${g.spot}|${g.depart}`))
+    for (const k of [...departs.keys()]) if (!held.has(k)) departs.delete(k)
     for (const a of AGENTS) {
       const g = goals[a]
-      const req = { spot: g.spot, pace: 1, avoid: g.quiet ? DESK_SIDES : undefined }
+      // a goal that sets off later (a play ending: the prop goes back first) is held to that time, as Agents.tsx does
+      let notBefore: number | undefined
+      if (g.depart !== undefined) {
+        const key = `${a}|${g.spot}|${g.depart}`
+        notBefore = departs.get(key) ?? t + Math.max(0, (g.depart - now) / 1000)
+        departs.set(key, notBefore)
+      }
+      const req = requestOf(g, 1, notBefore)
       if (first) planner.place(a, req, t, AGENTS.indexOf(a))
       else planner.request(a, req, t, AGENTS.indexOf(a))
     }
+    let onErrand = 0
+    for (const a of AGENTS) {
+      const st = goals[a].water?.stage
+      if (st) onErrand++
+      if (st !== stageOf[a]) {
+        if (st) errands[st]++
+        else if (stageOf[a] === 'put') errands.done++
+        stageOf[a] = st
+      }
+    }
+    errandsAtOnce = Math.max(errandsAtOnce, onErrand)
     for (const a of AGENTS) {
       const g = goals[a]
       const at = planner.has(a) ? planner.sample(a, t).arrived : null
@@ -167,5 +194,5 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
     t += step
   }
   planMs.sort((a, b) => a - b)
-  return { min, minExempt, replans, worst, samples, planMs, stats: planner.stats, mismatch: mism, frames, maxWait, longWaits }
+  return { min, minExempt, replans, worst, samples, planMs, stats: planner.stats, mismatch: mism, frames, maxWait, longWaits, errands, errandsAtOnce }
 }

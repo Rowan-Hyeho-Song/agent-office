@@ -41,4 +41,13 @@ describe('a whole day through the planner', () => {
     expect(r.mismatch.slice(0, 5)).toEqual([])
     expect(r.longWaits).toEqual([])
   }, 120_000)
+
+  // #228: the watering errand is walked like any other (the planner keeps the carrier clear of the others, the two tests above), one can, and it happens
+  it('watering errands run through the day: the can is fetched, carried, brought back and put down, one agent at a time', () => {
+    const r = wholeDay()
+    console.log(`day sim (#228): watering errands ${JSON.stringify(r.errands)}; most at once ${r.errandsAtOnce}`)
+    expect(r.errands.fetch, 'errands started').toBeGreaterThan(5)
+    expect(r.errands.done, 'errands finished').toBeGreaterThanOrEqual(r.errands.fetch - 4) // a few are called away at the day's end or give up on a taken stand
+    expect(r.errandsAtOnce, 'one can').toBeLessThanOrEqual(1)
+  }, 120_000)
 })

@@ -184,3 +184,73 @@ describe('silenceReasons', async () => {
     expect(codes({ muted: true, volume: 0, ctx: null })).toEqual(['muted', 'volume0', 'noContext'])
   })
 })
+
+describe('#194 thock keyboard', async () => {
+  const { spread, KEY_VOICES } = await import('./keys')
+  const { overlapping, CUES, MAX_KEYS } = await import('./cues')
+  const { keysBetween } = await import('./typing')
+  const { BUS_LEVEL } = await import('./engine')
+  it('every key a little different: ±1 semitone, ±20% length', () => {
+    expect(spread(0, 0).pitch).toBeCloseTo(Math.pow(2, -1 / 12))
+    expect(spread(1, 1).pitch).toBeCloseTo(Math.pow(2, 1 / 12))
+    expect(spread(0.5, 0.5)).toEqual({ pitch: 1, len: 1 })
+  })
+  it('four voices, thock first (the default)', () => expect(KEY_VOICES[0]).toBe('thock'))
+  it('typing has its own bus, 5 dB under the effects', () => {
+    expect(CUES.type.bus).toBe('keys')
+    expect(20 * Math.log10(BUS_LEVEL.keys / BUS_LEVEL.sfx)).toBeCloseTo(-5, 0)
+    expect(MAX_KEYS).toBe(4)
+  })
+  it('overlap counts spans that meet [t, t + len)', () => {
+    const spans: [number, number][] = [[0, 0.1], [0.05, 0.15], [0.5, 0.6]]
+    expect(overlapping(spans, 0.08, 0.01)).toBe(2)
+    expect(overlapping(spans, 0.2, 0.1)).toBe(0)
+    expect(overlapping(spans, 0.55, 0.1)).toBe(1)
+  })
+  it('words end in a space, bursts sometimes in enter, typos in backspaces', () => {
+    let seed = 7
+    const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+    let s = keysBetween(null, 0, rand).next
+    const kinds: string[] = []
+    for (let t = 0.05; t <= 120; t += 0.05) {
+      const r = keysBetween(s, t, rand)
+      kinds.push(...r.kinds)
+      s = r.next
+    }
+    const count = (k: string) => kinds.filter((x) => x === k).length
+    expect(count('char')).toBeGreaterThan(count('space'))
+    expect(count('space')).toBeGreaterThan(0)
+    expect(count('enter')).toBeGreaterThan(0)
+    expect(count('backspace') % 2).toBe(0)
+  })
+})
+
+describe('#240 approval chime', async () => {
+  const { shouldChime } = await import('./notify')
+  const { CUES } = await import('./cues')
+  const n = (count: number, newestAt?: string) => ({ count, newestAt })
+  it('chimes once when the count goes up, never on first load or a drop', () => {
+    expect(shouldChime(null, n(3), true)).toBe(false)
+    expect(shouldChime(n(2), n(3), true)).toBe(true)
+    expect(shouldChime(n(2), n(5), true)).toBe(true) // several at once = one chime (one call)
+    expect(shouldChime(n(3), n(3), true)).toBe(false)
+    expect(shouldChime(n(3), n(2), true)).toBe(false)
+  })
+  it('one decided + one new in the same refresh: the newest request moved on (coder, #245)', () => {
+    expect(shouldChime(n(3, '2026-11-10T01:00:00Z'), n(3, '2026-11-10T01:05:00Z'), true)).toBe(true)
+    expect(shouldChime(n(3, '2026-11-10T01:05:00Z'), n(2, '2026-11-10T01:05:00Z'), true)).toBe(false)
+    expect(shouldChime(n(3, '2026-11-10T01:05:00Z'), n(3, undefined), true)).toBe(false)
+    expect(shouldChime(n(3, 'nonsense'), n(3, '2026-11-10T01:05:00Z'), true)).toBe(false)
+  })
+  it('only the owner by default', () => {
+    expect(shouldChime(n(1), n(2), false)).toBe(false)
+    expect(shouldChime(n(1), n(2), false, false, 'everyone')).toBe(true)
+  })
+  it('stays quiet in a hidden tab, and does not save it up', () => {
+    expect(shouldChime(n(1), n(2), true, true)).toBe(false)
+  })
+  it('is a screen sound, not in the room', () => {
+    expect(CUES['approval.new'].spatial).toBe(false)
+    expect(CUES['approval.new'].kind).toBe('ui')
+  })
+})

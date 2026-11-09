@@ -1,35 +1,35 @@
 /// <reference types="node" />
-// No prop moves on its own (#184): a prop that is not in a hand is at its home, every frame, through each scene (pick up, use, put back,
-// walk away), and a hand takes a prop only where the prop is. Headless: PlayStage + PropBank on the baked model.
+// No prop moves on its own (#184, #228): a prop that is not in a hand is at its home, every frame, through each scene (pick up, use, put back,
+// walk away), and a hand takes a prop only where the prop is: no jump at the grasp or the release (≤ 5 mm), and the prop is within the holder's
+// reach (water.ts REACH, 0.75 m: the farthest the hands' own poses go is 0.6 m, plus 0.15 m of lean) when taken, while carried, and when put down.
+// #184 missed the watering can: its test stood the agent at the plant, where the can was never within reach, and only asked that the can not jump.
+// Headless: PlayStage + PropBank on the baked model; the watering errand and a stretch of the real schedule run through Director + TrafficPlanner.
 import { appendFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { Matrix4, Quaternion, Vector3 } from 'three'
-import { loadOffice, stubCanvas } from './glbLoad'
-import { PlayStage } from './playStage'
-import { AgentRig, PropBank, buildRig } from './rig'
+import { stubCanvas } from './glbLoad'
+import { Guard, IDS, JUMP, expectClean, reachOf, world } from './errandWorld.fixture'
 import { SPOTS } from './navSpots.fixture'
 import { PLAYS } from './play'
 import { GRIPS } from './grip'
 import type { Goal } from './director'
-import { WATERED, standOf } from './water'
 
 stubCanvas()
 const LOG = process.env.FIT_LOG
 const FINGER_NAMES = ['index', 'middle', 'ring', 'little', 'thumb'] as const
 const PALM = new Set(['watering_can', 'stamp'])
-const IDS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
-
 interface Scene {
   name: string
   agent: string
   goal: Goal
   kind: string
+  /** the node the scene takes, when the kind has several (the markers: one per seat) */
+  prop?: string
   tablet?: boolean
   stamp?: boolean
 }
 
 const plays = (kind: string) => PLAYS.find((p) => p.kind === kind)!
-const water = { face: { x: WATERED.x, z: WATERED.z }, stand: standOf(WATERED) }
 const books = plays('books')
 const slotOf = (p: { stand?: { x: number; z: number }; face?: { x: number; z: number } }, spot: string) => {
   const sp = SPOTS.find((s) => s.id === spot)!
@@ -40,20 +40,13 @@ const slotOf = (p: { stand?: { x: number; z: number }; face?: { x: number; z: nu
 
 const SCENES: Scene[] = [
   { name: 'coffee', agent: 'agent_3', kind: 'cup', goal: { spot: 'coffee', pose: 'coffee', label: '' } },
-  { name: 'water', agent: 'agent_1', kind: 'watering_can', goal: { spot: 'hall_lounge', pose: 'water', face: water.face, slot: slotOf(water, 'hall_lounge'), label: '' } },
   { name: 'books', agent: 'agent_0', kind: 'book', goal: { spot: 'shelf', pose: 'books', face: books.face, slot: slotOf(books, 'shelf'), label: '' } },
-  { name: 'marker', agent: 'agent_0', kind: 'marker', goal: { spot: 'whiteboard', pose: 'post', label: '' } },
+  { name: 'marker', agent: 'agent_0', kind: 'marker', prop: 'prop_marker_0', goal: { spot: 'whiteboard', pose: 'post', label: '' } },
+  { name: 'marker 1', agent: 'agent_1', kind: 'marker', prop: 'prop_marker_1', goal: { spot: 'whiteboard', pose: 'post', label: '' } },
+  { name: 'marker 2', agent: 'agent_2', kind: 'marker', prop: 'prop_marker_2', goal: { spot: 'whiteboard', pose: 'post', label: '' } },
   { name: 'tablet pen', agent: 'agent_2', kind: 'tablet_pen', goal: { spot: 'work_2', pose: 'type', label: '' }, tablet: true },
   { name: 'stamp', agent: 'agent_0', kind: 'stamp', goal: { spot: 'work_0', pose: 'type', label: '' }, stamp: true },
 ]
-
-async function world() {
-  const { scene, nodes } = await loadOffice()
-  const props = new PropBank(scene, nodes)
-  const rigs = Object.fromEntries(IDS.map((id, i) => [id, new AgentRig(id, i, buildRig(scene, nodes, i), '#ffffff')]))
-  const stage = new PlayStage(scene, nodes, props)
-  return { scene, nodes, props, rigs, stage }
-}
 
 describe('props stay home unless a hand has them', () => {
   for (const sc of SCENES) {
@@ -72,6 +65,8 @@ describe('props stay home unless a hand has them', () => {
       rig.parts.root.rotation.set(0, place.ry, 0)
       rig.parts.root.updateMatrixWorld(true)
       const idle: Goal = { spot: 'work_1', pose: 'idle', label: '' }
+      const guard = new Guard(w)
+      const propOf = () => (sc.prop ? w.nodes[sc.prop] : propNodes.find((n) => n.userData.prop === sc.kind))!
       let loose = 0
       let worst = 0
       let grasp: number | null = null
@@ -92,10 +87,11 @@ describe('props stay home unless a hand has them', () => {
         w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
         w.props.update(dt)
         w.scene.updateMatrixWorld(true)
+        guard.frame(t)
         const attached = !!rig.want?.attached
         if (attached) heldFrames++
         if (attached && !was) {
-          const prop = w.nodes[rig.want!.prefer ?? ''] ?? propNodes.find((n) => n.userData.prop === sc.kind)!
+          const prop = w.nodes[rig.want!.prefer ?? ''] ?? propOf()
           const side = rig.want!.side
           // 3: the prop does not jump to the hand
           jump = prev ? prop.position.distanceTo(prev) : 0
@@ -121,7 +117,7 @@ describe('props stay home unless a hand has them', () => {
             }
           }
         }
-        if (!attached) prev = propNodes.find((n) => n.userData.prop === sc.kind)?.position.clone() ?? prev
+        if (!attached) prev = propOf()?.position.clone() ?? prev
         was = attached
         for (const n of propNodes) {
           const holding = rig.want && rig.want.attached && (rig.want.prefer === n.name || (rig.want.kind === n.userData.prop && !rig.want.prefer))
@@ -138,7 +134,9 @@ describe('props stay home unless a hand has them', () => {
       // the hand reaches the prop: its grip frame is within 2 cm of the prop's grip for the palm grips, and within the solved fingertip offset otherwise
       expect(grasp).not.toBeNull()
       expect(grasp!, 'sanity: the hand is at the prop').toBeLessThan(0.07)
-      expect(jump, sc.name + ' the prop does not jump to the hand').toBeLessThanOrEqual(0.005)
+      expect(jump, sc.name + ' the prop does not jump to the hand').toBeLessThanOrEqual(JUMP)
+      expectClean(sc.name, guard.stats, sc.kind)
+      if (LOG) appendFileSync(LOG, 'props reach ' + sc.name + ': grasp jump ' + (guard.stats.graspJump * 1000).toFixed(2) + ' mm, release jump ' + (guard.stats.releaseJump * 1000).toFixed(2) + ' mm, reach at grasp ' + guard.stats.graspReach.toFixed(3) + ' m, at release ' + guard.stats.releaseReach.toFixed(3) + ' m, worst held ' + guard.stats.heldReach.toFixed(3) + ' m (limit ' + reachOf(sc.kind) + ')\n')
       if (PALM.has(sc.kind)) expect(grasp!, sc.name + ' hand grip on the prop grip').toBeLessThan(0.02)
       else {
         expect(tips.length, sc.name + ' contact fingers measured').toBeGreaterThan(0)
@@ -171,6 +169,7 @@ describe('pair games: paddles and stones', () => {
         r.parts.root.rotation.set(0, sp.ry, 0)
         r.parts.root.updateMatrixWorld(true)
       })
+      const guard = new Guard(w)
       let loose = 0
       let held = 0
       const dt = 0.02
@@ -183,6 +182,8 @@ describe('pair games: paddles and stones', () => {
         w.stage.update({ now, t, dt, reduced: false, replaying: false, rigs: w.rigs, goals, status: {}, tablet: false, stamp: false, colors: {} })
         w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
         w.props.update(dt)
+        w.scene.updateMatrixWorld(true)
+        guard.frame(t)
         for (const n of propNodes) {
           const holding = Object.values(w.rigs).some((r) => r.want?.attached && r.want.prefer === n.name)
           if (holding) {
@@ -194,6 +195,8 @@ describe('pair games: paddles and stones', () => {
       }
       expect(held).toBeGreaterThan(100)
       expect(loose).toBe(0)
+      expectClean(kind, guard.stats, kind === 'pingpong' ? 'paddle' : 'piece')
+      if (LOG) appendFileSync(LOG, 'props reach ' + kind + ': grasps ' + guard.stats.grasps + ', grasp jump ' + (guard.stats.graspJump * 1000).toFixed(2) + ' mm, release jump ' + (guard.stats.releaseJump * 1000).toFixed(2) + ' mm, reach at grasp ' + guard.stats.graspReach.toFixed(3) + ' m, at release ' + guard.stats.releaseReach.toFixed(3) + ' m, worst held ' + guard.stats.heldReach.toFixed(3) + ' m\n')
       if (LOG) appendFileSync(LOG, 'props home ' + kind + ': held-prop frames ' + held + ', loose-away-from-home frames ' + loose + '\n')
     }, 60000)
   }
