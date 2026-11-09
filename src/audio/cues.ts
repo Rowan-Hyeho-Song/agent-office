@@ -306,6 +306,8 @@ export type CueOpts = {
   at?: number
   /** a stable id of the event (e.g. `pingpong:<session>:<shot>`): the replay keeps or drops the same ones every time */
   key?: string
+  /** internal: already waited once for the context to start */
+  retried?: boolean
 }
 
 // ── replay speed (sound.md 6): ×1 as is, ×4 half the busywork and events −3 dB, ×16 events only at −6 dB ──
@@ -337,7 +339,16 @@ let active: number[] = [] // end times (ctx seconds) of sounding sfx
 /** play a cue now. Returns whether it sounded (for tests and the debug panel). */
 export function cue(name: CueName, opts: CueOpts = {}): boolean {
   const g = audioGraph()
-  if (!g || g.ctx.state !== 'running' || getSetting().muted) return false
+  if (!g || getSetting().muted) return false
+  if (g.ctx.state !== 'running') {
+    // the very first click builds the context, which starts 'suspended' and runs a moment later: play once it does
+    // (#194 levels fix: the first ▶ in the debug panel was silent)
+    if (g.ctx.state === 'suspended' && !document.hidden && !opts.retried)
+      void g.ctx.resume().then(() => {
+        if (g.ctx.state === 'running') cue(name, { ...opts, retried: true })
+      })
+    return false
+  }
   const def = CUES[name] as CueDef
   const now = performance.now()
   if (now - (lastAt.get(name) ?? -1e9) < def.gap) return false
