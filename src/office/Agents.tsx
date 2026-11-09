@@ -22,6 +22,7 @@ import { ScreenLive } from './screenLive'
 import { deskProps } from './props'
 import { AgentRig, PropBank, buildRig } from './rig'
 import { PlayStage } from './playStage'
+import { makeTypingTools } from './debugPlay'
 import { replay } from '../replay/store'
 import { atMs } from '../replay/engine'
 import { boardDistance, REPLAY_PACE } from '../replay/walk'
@@ -88,6 +89,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
   const props = useMemo(() => (scene.userData.props ??= new PropBank(scene, nodes)) as PropBank, [scene, nodes])
   // what the hands do with things: play in 3D, grips (#135, #164); once per loaded scene
   const playStage = useMemo(() => (scene.userData.playStage ??= new PlayStage(scene, nodes, props)) as PlayStage, [scene, nodes, props])
+  if (world.debug && !world.typing) world.typing = makeTypingTools(world, playStage.typist)
   const tagEl = useRef<HTMLDivElement | null>(null)
   const tagAt = useRef<[number, number, number]>([0, 0, 0])
   // the LIVE desk props (#44): what each desk shows about its agent
