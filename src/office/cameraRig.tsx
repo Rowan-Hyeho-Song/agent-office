@@ -4,6 +4,7 @@ import { Vector3 } from 'three'
 import { HOME_POS, HOME_TARGET, useCameraBusy } from '../room/Door'
 import { clearCamera, clearFurnitureForDev } from './clearance'
 import type { OfficeWorld } from './world'
+import { isTouring } from './tourStore'
 import { KEY_DIR, NO_KEYS, VIEW, clampTarget, easeVelocity, focusAllowsCameraKeys, keySpeed, wantDir, type Keys } from './view'
 
 // Camera behaviour on top of OrbitControls (#111): the target stays inside the room (also for right-drag / two-finger
@@ -71,6 +72,7 @@ export function CameraRig({ limits, world }: { limits: boolean; world: OfficeWor
   useEffect(() => {
     if (!controls || !limits) return
     const fix = () => {
+      if (isTouring()) return // the tour owns the camera (#207)
       clampNow(controls)
       clearNow(controls)
     }
@@ -123,7 +125,7 @@ export function CameraRig({ limits, world }: { limits: boolean; world: OfficeWor
 
   useFrame((_, dt) => {
     const c = live.current.controls
-    if (!c || !limits) return
+    if (!c || !limits || isTouring()) return // the tour owns the camera (#207)
     const a = anim.current
     if (a) {
       const k = Math.min(1, (performance.now() - a.t0) / VIEW.resetMs)

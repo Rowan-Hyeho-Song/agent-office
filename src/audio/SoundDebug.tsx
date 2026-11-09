@@ -8,6 +8,8 @@ import { measureCue, type Level } from './levels'
 import { LAYERS, TEMPOS, getMusicState, getTempo, isLayerMuted, setMusicState, setTempo, toggleLayer, type MusicState, type Tempo } from './music'
 import { getSetting, setSetting, subscribe } from './settings'
 import { midi, tone } from './synth'
+import { KEY_VOICES, KEY_VOICE_LABEL, getKeyVoice, setKeyVoice, type KeyKind } from './keys'
+import { keysBetween } from './typing'
 
 // ?debug=1 sound panel (docs/design/sound.md 8.1): where the user listens and judges, since the session can't hear.
 // Top to bottom (designer): meter → master → buses → position → cues (good / loud / quiet + a copy line) → room tone
@@ -16,7 +18,7 @@ import { midi, tone } from './synth'
 type Verdict = '좋음' | '크다' | '작다'
 type Where = 'near' | 'far' | 'left' | 'right'
 const WHERE: Record<Where, string> = { near: '가까이', far: '멀리', left: '왼쪽', right: '오른쪽' }
-const BUSES: Bus[] = ['music', 'sfx', 'voice', 'ambience']
+const BUSES: Bus[] = ['music', 'sfx', 'keys', 'voice', 'ambience']
 const PERIOD_NAMES = ['새벽', '낮', '저녁', '밤']
 const STATE_NAMES: Record<MusicState, string> = { off: '끔', work: '일할 때 (−12 dB)', break: '쉴 때' }
 
@@ -92,9 +94,29 @@ export function SoundDebug() {
     cue(name, { pos: placeOf(where), agent: name === 'voice' ? 'agent_4' : undefined, dur: 2 })
   }
   const judge = (key: string, v: Verdict) => setVerdicts((o) => ({ ...o, [key]: v }))
-  const copyLine = Object.entries(verdicts)
-    .map(([k, v]) => `${k}=${v}`)
-    .join(' ')
+  // bus faders move in dB around the defaults; any change goes into the copy line so a "louder/quieter" comes back as numbers
+  const busDb = (b: Bus) => Math.round(20 * Math.log10(Math.max(1e-6, getBusLevel(b) / BUS_LEVEL[b])))
+  const busLine = BUSES.filter((b) => busDb(b) !== 0).map((b) => `bus.${b}=${busDb(b) > 0 ? '+' : ''}${busDb(b)}dB`)
+  const copyLine = [...Object.entries(verdicts).map(([k, v]) => `${k}=${v}`), ...busLine, `keys.voice=${getKeyVoice()}`].join(' ')
+  // keyboard demo: one agent typing a few seconds with the live rhythm, or several at once, or one special key
+  const typeDemo = (typists: number, seconds = 4) => {
+    start()
+    const g = audioGraph()
+    if (!g) return
+    for (let a = 0; a < typists; a++) {
+      // start typing at once, and step through in small slices (a jump over 1 s is a fresh start with no keys)
+      let s = { ...keysBetween(null, 0).next, next: 0.05 + a * 0.07, burstEnd: seconds }
+      for (let t = 0.05; t <= seconds; t += 0.05) {
+        const r = keysBetween(s, t)
+        r.keys.forEach((k, i) => cue('type', { agent: `agent_${a}`, at: k, keyKind: r.kinds[i] }))
+        s = r.next
+      }
+    }
+  }
+  const oneKey = (k: KeyKind) => {
+    start()
+    cue('type', { agent: 'agent_3', keyKind: k })
+  }
   const measureAll = async () => {
     const out: Partial<Record<CueName, Level>> = {}
     for (const n of CUE_NAMES) out[n] = await measureCue(n)
@@ -188,16 +210,19 @@ export function SoundDebug() {
             <span>{b}</span>
             <input
               type="range"
-              min={0}
-              max={100}
-              value={Math.round(getBusLevel(b) * 100)}
+              min={-12}
+              max={12}
+              step={1}
+              value={busDb(b)}
+              aria-valuetext={`${busDb(b)} dB`}
               onChange={(e) => {
-                setBusLevel(b, Number(e.target.value) / 100)
+                setBusLevel(b, BUS_LEVEL[b] * Math.pow(10, Number(e.target.value) / 20))
                 tick()
               }}
             />
             <span>
-              {getBusLevel(b).toFixed(2)} <small>(기준 {BUS_LEVEL[b]})</small>
+              {busDb(b) > 0 ? '+' : ''}
+              {busDb(b)} dB <small>({getBusLevel(b).toFixed(3)})</small>
             </span>
           </label>
         ))}
@@ -211,6 +236,47 @@ export function SoundDebug() {
           </label>
         ))}
       </fieldset>
+
+      <section aria-label="키보드 소리">
+        <b>키보드 소리</b>
+        <div>
+          {KEY_VOICES.map((v) => (
+            <label key={v} style={{ marginRight: 8 }}>
+              <input
+                type="radio"
+                name="sd-keys"
+                checked={getKeyVoice() === v}
+                onChange={() => {
+                  setKeyVoice(v)
+                  tick()
+                }}
+              />{' '}
+              {KEY_VOICE_LABEL[v]}
+            </label>
+          ))}
+        </div>
+        <div>
+          <button type="button" onClick={() => typeDemo(1)}>
+            한 명 4초 치기
+          </button>
+          <button type="button" onClick={() => typeDemo(5)}>
+            다섯 명 동시에
+          </button>{' '}
+          <button type="button" onClick={() => oneKey('char')}>
+            키
+          </button>
+          <button type="button" onClick={() => oneKey('space')}>
+            스페이스
+          </button>
+          <button type="button" onClick={() => oneKey('enter')}>
+            엔터
+          </button>
+          <button type="button" onClick={() => oneKey('backspace')}>
+            백스페이스
+          </button>
+        </div>
+        <small>고른 소리와 위 keys 버스 크기가 맨 아래 복사 줄에 들어가요.</small>
+      </section>
 
       <section aria-label="효과음">
         <div className="sd-head">

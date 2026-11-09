@@ -12,18 +12,33 @@
 import { getSetting, subscribe } from './settings'
 import { makeEcho } from './synth'
 
-export type Bus = 'music' | 'sfx' | 'voice' | 'ambience'
+export type Bus = 'music' | 'sfx' | 'voice' | 'ambience' | 'keys'
 
 /**
- * base bus gains (sound.md 2.2), set from the live output (#194 levels fix): the desk room's music sits at about −39 dBFS
- * RMS, so the office music at a break is about −38 and the room tone about 17 dB under it (it masked every cue at 0.1).
+ * base bus gains (sound.md 2.2), set from the live output.
+ * - #205: the room tone masked every cue at 0.1 → 0.009; music matched to the desk room (RMS −39).
+ * - #194 louder (user, 2026-11-10: "거의 안 들려"): music and sfx/voice +6 dB. The room tone stays (it must not mask).
+ * - #194 thock (user: "타이핑 소리는 살짝 작아져도. 너무 저 소리만 들린다"): typing has its own bus, 5 dB under sfx,
+ *   through a compressor so five typists together don't add up (KEYS_GLUE).
  * The desk room: music 0.14, sfx 0.55.
  */
-export const BUS_LEVEL: Record<Bus, number> = { music: 0.24, sfx: 0.55, voice: 0.5, ambience: 0.009 }
+export const BUS_LEVEL: Record<Bus, number> = { music: 0.48, sfx: 1.1, voice: 1.0, ambience: 0.009, keys: 0.62 }
 
-/** the default camera is about 15 m from the room (room.ts DEFAULT_CAMERA → DEFAULT_TARGET): sounds there play at full level */
-export const REF_DISTANCE = 16
-export const MAX_DISTANCE = 40
+/** the keys bus glue: a firm compressor so the sum of many typists stays near one typist's level */
+export const KEYS_GLUE = { threshold: -34, knee: 6, ratio: 8, attack: 0.002, release: 0.15 }
+/**
+ * Chrome adds its own make-up gain to a DynamicsCompressor: with KEYS_GLUE every signal under the threshold comes out
+ * +16.7 dB (measured offline, a 300 Hz sine from −60 to −34 dBFS). Taken back right after it, so a single key passes at
+ * its own level and only a pile of typists is squeezed.
+ */
+export const KEYS_GLUE_MAKEUP_DB = 16.7
+
+/**
+ * the default camera is 11–20 m from the room's corners (room.ts DEFAULT_CAMERA (8.5, 8, 9.5) → the far corner
+ * (−4.5, 0, −3.5)), so anything in the room plays at full level from the default view and only pans left/right
+ */
+export const REF_DISTANCE = 20
+export const MAX_DISTANCE = 45
 
 /** most one-shot sfx sounding at once (sound.md 6) */
 export const MAX_SFX = 6
@@ -62,12 +77,19 @@ export function ensureAudio(): Graph | null {
     const comp = ctx.createDynamicsCompressor()
     comp.threshold.value = -18
     comp.ratio.value = 3
+    // a safety limiter after the glue compressor: nothing past −1 dBFS whatever piles up (#194 louder)
+    const limiter = ctx.createDynamicsCompressor()
+    limiter.threshold.value = -2
+    limiter.knee.value = 0
+    limiter.ratio.value = 20
+    limiter.attack.value = 0.001
+    limiter.release.value = 0.1
     const analyser = ctx.createAnalyser()
     analyser.fftSize = 2048
     const master = ctx.createGain()
     master.gain.value = masterGain()
-    master.connect(comp).connect(ctx.destination)
-    comp.connect(analyser)
+    master.connect(comp).connect(limiter).connect(ctx.destination)
+    limiter.connect(analyser)
     const room = ctx.createGain()
     room.gain.value = 1
     room.connect(master)
@@ -75,7 +97,17 @@ export function ensureAudio(): Graph | null {
     for (const b of Object.keys(BUS_LEVEL) as Bus[]) {
       bus[b] = ctx.createGain()
       bus[b].gain.value = busLevel[b]
-      bus[b].connect(room)
+      if (b === 'keys') {
+        const glue = ctx.createDynamicsCompressor()
+        glue.threshold.value = KEYS_GLUE.threshold
+        glue.knee.value = KEYS_GLUE.knee
+        glue.ratio.value = KEYS_GLUE.ratio
+        glue.attack.value = KEYS_GLUE.attack
+        glue.release.value = KEYS_GLUE.release
+        const trim = ctx.createGain()
+        trim.gain.value = Math.pow(10, -KEYS_GLUE_MAKEUP_DB / 20)
+        bus[b].connect(glue).connect(trim).connect(room)
+      } else bus[b].connect(room)
     }
     const echo = makeEcho(ctx, bus.sfx)
     g = { ctx, master, room, bus, echo, analyser }
