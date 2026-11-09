@@ -401,7 +401,7 @@ html[data-motion='reduce'] .corner-dock { transition: none; }
 .doc-toc button[aria-selected='true'] { background: var(--paper); color: var(--paper-ink); }
 .doc-stage { flex: 1; min-height: 0; padding: var(--space-3) var(--space-4) var(--space-4); overflow: auto; scrollbar-gutter: stable; }
 .doc-stage > * + * { margin-top: var(--space-4); }
-.doc-paper { position: relative; overflow-wrap: anywhere; background: var(--paper); color: var(--paper-ink); padding: var(--space-6) var(--space-6) var(--space-8); font-family: var(--font-text); font-size: 14.5px; line-height: 1.75; box-shadow: 0 1px 0 color-mix(in srgb, var(--paper-ink) 20%, transparent), 0 10px 24px var(--color-halo); max-width: 640px; }
+.doc-paper { position: relative; overflow-wrap: anywhere; background: var(--paper); color: var(--paper-ink); padding: var(--space-6) var(--space-6) var(--space-8); font-family: var(--font-text); font-size: 14.5px; line-height: 1.75; box-shadow: 0 1px 0 color-mix(in srgb, var(--paper-ink) 20%, transparent), 0 10px 24px var(--color-halo); max-width: 640px; margin-inline: auto; }
 .doc-paper h5 { font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); letter-spacing: var(--letter-spacing-label); color: var(--paper-muted); margin: var(--space-4) 0 var(--space-1); border-bottom: 1px solid color-mix(in srgb, var(--paper-ink) 18%, transparent); padding-bottom: 2px; }
 .doc-paper h5:first-of-type { margin-top: 0; }
 .doc-paper p { margin: 0 0 var(--space-2); }
