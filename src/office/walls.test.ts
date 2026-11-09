@@ -1,7 +1,7 @@
-import { BoxGeometry, Box3, Group, Mesh, MeshStandardMaterial, Vector3 } from 'three'
+import { BoxGeometry, Box3, Group, Mesh, MeshStandardMaterial, Vector3, type Intersection, type Material } from 'three'
 import { describe, expect, it } from 'vitest'
-import { SHELF, fadeGroupOfNode, prepareView, wallOfLoose } from './walls'
-import { backToOpacity, NONE_HIDDEN, VIEW } from './view'
+import { SHELF, WALL_HIDDEN, fadeGroupOfNode, hitAllowed, prepareView, setWallCut, wallOfLoose } from './walls'
+import { NONE_HIDDEN, VIEW, WALLS } from './view'
 import { ROOM, floorRect, setRoomFromExtras, wallRect } from './room'
 
 const box = (min: [number, number, number], max: [number, number, number]) => new Box3(new Vector3(...min), new Vector3(...max))
@@ -31,13 +31,9 @@ describe('prepareView with the glb extras', () => {
   const scene = new Group()
   scene.add(mesh('shelf', 3.75, { backTo: 'n', atlas: 'wall_items' }), mesh('shelf_r0_b0', 3.5), mesh('desk_0', -2), mesh('wall_n', 0, { wall: 'n' }))
   const groups = prepareView(scene)
-  it('furniture with extras backTo is a group that knows its wall; the shelf binders join it', () => {
+  it('furniture with extras backTo is one group; the shelf binders join it', () => {
     const shelf = groups.find((g) => g.id === SHELF)!
-    expect(shelf.backTo).toBe('n')
     expect(shelf.meshes.map((m) => m.name).sort()).toEqual(['shelf', 'shelf_r0_b0'])
-  })
-  it('furniture without backTo (desks, the coffee counter) is unaffected', () => {
-    expect(groups.find((g) => g.id === 'desk0')!.backTo).toBeUndefined()
   })
   it('the wall extra is used as is: nothing is re-tagged or split', () => {
     expect(scene.getObjectByName('wall_n')!.userData.wall).toBe('n')
@@ -45,15 +41,26 @@ describe('prepareView with the glb extras', () => {
   })
 })
 
-describe('backTo fade', () => {
-  it('goes to the minimum while its wall is lowered, untouched while it stands', () => {
-    expect(backToOpacity(1, 'n', { ...NONE_HIDDEN, n: true })).toBe(VIEW.near.minOpacity)
-    expect(backToOpacity(1, 'n', { ...NONE_HIDDEN, s: true })).toBe(1)
-    expect(backToOpacity(1, 'n', NONE_HIDDEN)).toBe(1)
-    expect(backToOpacity(1, undefined, { n: true, e: true, s: true, w: true })).toBe(1)
-  })
-  it('never raises a near-faded object', () => {
-    expect(backToOpacity(0.1, 'n', { ...NONE_HIDDEN, n: true })).toBe(0.1)
+describe('furniture never fades (#253)', () => {
+  const scene = new Group()
+  scene.add(mesh('shelf', 3.75, { backTo: 'n', atlas: 'wall_items' }), mesh('desk_0', -2), mesh('wall_n', 0, { wall: 'n' }))
+  const groups = prepareView(scene)
+  it('furniture keeps full opacity and no transparency, and takes clicks, with every wall lowered', () => {
+    for (const w of WALLS) setWallCut(w, 0.15)
+    Object.assign(WALL_HIDDEN, { n: true, e: true, s: true, w: true })
+    for (const g of groups)
+      for (const m of g.meshes) {
+        const mat = m.material as Material
+        expect(mat.opacity).toBe(1)
+        expect(mat.transparent).toBe(false)
+        expect(mat.alphaHash).toBe(false)
+        expect(hitAllowed({ object: m, point: new Vector3(0, 1, 0) } as unknown as Intersection)).toBe(true)
+      }
+    // the wall itself still goes: above its lowered top a hit does not count
+    const wall = scene.getObjectByName('wall_n')!
+    expect(hitAllowed({ object: wall, point: new Vector3(0, 1, 0) } as unknown as Intersection)).toBe(false)
+    for (const w of WALLS) setWallCut(w, VIEW.wallH)
+    Object.assign(WALL_HIDDEN, NONE_HIDDEN)
   })
 })
 

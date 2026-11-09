@@ -62,7 +62,7 @@ export function App() {
           <hemisphereLight args={['#fffaf3', '#c2b6a6', 1.82]} />
           <directionalLight position={[-2, 4.5, 2]} intensity={1.3} color="#fff8ef" />
           <pointLight position={[...LAMP_POS]} intensity={3} distance={5} decay={1.6} color="#ffcf8a" />
-          <Office world={world} freeCam={limits} />
+          <Office world={world} />
           <EffectComposer multisampling={0} stencilBuffer>
             <Bloom mipmapBlur intensity={0.9} luminanceThreshold={1} luminanceSmoothing={0.3} />
             <Vignette offset={0.3} darkness={0.6} />

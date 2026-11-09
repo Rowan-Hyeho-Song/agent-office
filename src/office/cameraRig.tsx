@@ -28,6 +28,7 @@ const easeInOut = (k: number) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 
 export function CameraRig({ limits, world }: { limits: boolean; world: OfficeWorld }) {
   const camera = useThree((s) => s.camera)
   const gl = useThree((s) => s.gl)
+  const scene = useThree((s) => s.scene)
   const controls = useThree((s) => s.controls) as unknown as Orbit | null
   const busy = useCameraBusy()
   const reduced = useMemo(reducedMotion, [])
@@ -66,8 +67,10 @@ export function CameraRig({ limits, world }: { limits: boolean; world: OfficeWor
           controls?.update()
         },
         __clearBoxes: clearFurnitureForDev,
+        __scene: scene,
+        __camera: camera,
       })
-  }, [camera, controls])
+  }, [camera, controls, scene])
 
   useEffect(() => {
     if (!controls || !limits) return

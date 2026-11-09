@@ -10,7 +10,7 @@ const convs = conversations({
   minutes: [{ date: null, rows: [{ order: 1, from: { seat: 2 }, to: [{ seat: 3 }], text: '하나.' }, { order: 2, from: { seat: 3 }, to: [{ seat: 2 }], text: '둘.' }], decision: '정했다.', followUp: '루프가 한다.' }],
 })
 const status = (over: Record<string, 'working' | 'idle' | 'off'> = {}): StatusMap =>
-  Object.fromEntries([0, 1, 2, 3].map((i) => [`agent_${i}`, { state: over[`agent_${i}`] ?? 'idle', since: 0 }]))
+  Object.fromEntries([0, 1, 2, 3, 4].map((i) => [`agent_${i}`, { state: over[`agent_${i}`] ?? 'idle', since: 0 }]))
 
 /** step the runner like the scene: agents arrive wherever they are sent */
 function run(r: MeetingRunner, until: () => boolean, at: Record<string, string | null> = {}) {
@@ -26,6 +26,18 @@ function run(r: MeetingRunner, until: () => boolean, at: Record<string, string |
 }
 
 describe('MeetingRunner', () => {
+  it('five attendees (#193): echo takes the fifth slot of the ring and the five slots are distinct', () => {
+    const five = conversations({
+      minutes: [{ date: null, rows: [0, 1, 2, 3, 4].map((s, k) => ({ order: k + 1, from: { seat: s }, to: [{ seat: (s + 1) % 5 }], text: '말.' })), decision: null, followUp: null }],
+    })
+    const r = new MeetingRunner()
+    expect(r.start(buildScript(meta, five), 0, status())).toBe(true)
+    const trail = run(r, () => r.phase === 'lines')
+    const first = trail[0]
+    expect(Object.keys(first).sort()).toEqual(['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4'])
+    expect(first.agent_4.spot).toBe('meet_seat_4')
+    expect(new Set(Object.values(first).map((g) => g.spot)).size).toBe(5)
+  })
   it('gathers in the formation, plays, pins the decision at the board, sends the follow-up to its seat, ends', () => {
     const r = new MeetingRunner()
     const events: string[] = []

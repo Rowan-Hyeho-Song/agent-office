@@ -35,7 +35,7 @@ import { gameAt, N, type OmokView } from '../play/omok'
 import { rallyAt, type Dims, type Rally } from '../play/pingpong'
 import { CARRY_HOLD, HOLD_DEFAULT, PLANTS, canPose, dropAt, landing, lerpHold, plantsFrom, pourAt, solvePour, spoutOf, type Plant } from './water'
 import { WATER_S } from './waterRun'
-import { type Place, ease, followWeight, habitOf, placeSequence, swingTilt, swingTravel } from '../play/choreo'
+import { type Place, SEQ, ease, followWeight, habitOf, placeSequence, swingTilt, swingTravel } from '../play/choreo'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
 
@@ -130,6 +130,8 @@ export class PlayStage {
   private reactedGame = new Map<string, number>()
   /** each mover's place sequence of this frame (tests read it) */
   readonly lastPlace: Record<string, Place> = {}
+  /** per mover: whether the move's hand began from the pick (a move first seen after its pick, a seat taken mid-move, is left to the board: no hand ever took its stone) */
+  private handMove: Record<string, { key: string; ok: boolean }> = {}
   private stoneFrames = new Map<string, StoneGrip[]>()
 
   // water and the book
@@ -695,6 +697,9 @@ export class PlayStage {
     const habit = habitOf(id)
     const p = placeSequence(mv.sinceMs, mv.thinkMs, habit)
     this.lastPlace[id] = p
+    const mk = `${s.seed}:${view.game}:${mv.cell}`
+    if (this.handMove[id]?.key !== mk) this.handMove[id] = { key: mk, ok: mv.sinceMs < SEQ.pick }
+    if (!this.handMove[id].ok) return
     if (p.stage === 'rest' && !p.landed) return
     const stone = this.props.info(rig, 'piece', `prop_piece_${wantColor === 1 ? 'a' : 'b'}`)
     // the opponent's last stone: a 10° glance while thinking; the chin hand and the 5° tilt of the defensive one
@@ -863,7 +868,7 @@ export class PlayStage {
       }
       return
     }
-    if (goal.pose === 'idle' && resting && goal.spot === `work_${seat}` && (seat === 0 || seat === 1 || seat === 3)) {
+    if (goal.pose === 'idle' && resting && goal.spot === `work_${seat}` && (seat === 0 || seat === 1 || seat === 3 || seat === 4)) {
       this.grip(rig, 'r', 'mouse', `desk_${seat}_mouse`, true, null, inp)
     }
   }

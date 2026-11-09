@@ -17,7 +17,14 @@ import {
   dwellMs,
   establishingCut,
   forward,
+  driftSightClear,
   isClear,
+  isParked,
+  coverShare,
+  inFrameShare,
+  shotOk,
+  screenBox,
+  type Shot,
   lag,
   leaveEarly,
   meetingPose,
@@ -25,6 +32,7 @@ import {
   pathClear,
   rightOf,
   shouldFly,
+  sightClear,
   standPose,
   tablePose,
   workCandidates,
@@ -33,6 +41,7 @@ import {
   type Clearance,
   type Frame,
   type Pose,
+  type V3,
 } from './tour'
 
 const NOW = 1_000_000
@@ -245,7 +254,7 @@ describe('framing relative to the seat', () => {
   })
   it('works for a fifth seat anywhere', () => {
     const seat: Frame = { x: 1.2, z: 0.5, ry: Math.PI }
-    const p = workPose(seat, NO_BOXES)
+    const p = workPose(seat, NO_BOXES)!
     const [fx, fz] = forward(seat.ry)
     expect((p.pos[0] - seat.x) * fx + (p.pos[2] - seat.z) * fz).toBeCloseTo(-SHOULDER.back, 5)
   })
@@ -258,7 +267,7 @@ describe('framing relative to the seat', () => {
     // something stands where the first camera would be
     const [x, y, z] = c[0].pos
     const block: Clearance = { boxes: [{ min: [x - 0.3, y - 0.5, z - 0.3], max: [x + 0.3, y + 0.5, z + 0.3] }], margin: 0.3 }
-    const p = workPose(seat, block)
+    const p = workPose(seat, block)!
     expect(p).not.toEqual(c[0])
     expect(isClear(p.pos, block)).toBe(true)
     expect(c.slice(1)).toContainEqual(p)
@@ -270,7 +279,7 @@ describe('framing relative to the seat', () => {
   it('a table: the long side, away from the table, at the spec distance when the room allows', () => {
     const a = SPOTS.find((s) => s.id === 'pingpong_a')!
     const b = SPOTS.find((s) => s.id === 'pingpong_b')!
-    const p = tablePose(a, b, NO_BOXES, HOME, { dist: 3.8, y: 2.2, targetY: 0.76 })
+    const p = tablePose(a, b, NO_BOXES, HOME, { dist: 3.8, y: 2.2, targetY: 0.76 })!
     expect(p.target[0]).toBeCloseTo((a.x + b.x) / 2)
     expect(isClear(p.pos, NO_BOXES)).toBe(true)
     // across the table (more z than x away from the middle). The default camera side (+z) no longer fits the room since the table moved to z 0.97 (#195):
@@ -279,19 +288,173 @@ describe('framing relative to the seat', () => {
     expect(Math.hypot(p.pos[0] - p.target[0], p.pos[1] - p.target[1], p.pos[2] - p.target[2])).toBeGreaterThan(3.5)
   })
   it('a stander: in front when clear, from the side when the front is a wall, always inside the room', () => {
-    const open = standPose({ x: 0, z: 0, ry: 0 }, NO_BOXES)
+    const open = standPose({ x: 0, z: 0, ry: 0 }, NO_BOXES)!
     expect(open.pos[2]).toBeLessThan(0) // front = -z
-    const atWall = standPose({ x: 3.56, z: -2, ry: -Math.PI / 2 }, NO_BOXES) // the coffee machine, facing the east wall
+    const atWall = standPose({ x: 3.56, z: -2, ry: -Math.PI / 2 }, NO_BOXES)! // the coffee machine, facing the east wall
     expect(isClear(atWall.pos, NO_BOXES)).toBe(true)
     expect(atWall.target).toEqual([3.56, 1.0, -2])
   })
   it('a circle: towards the default camera, 4 m away, 2.6 m up, looking at its middle', () => {
-    const p = meetingPose({ x: -1, z: -0.6 }, NO_BOXES, HOME)
+    const p = meetingPose({ x: -1, z: -0.6 }, NO_BOXES, HOME)!
     expect(dist2(p.pos, p.target)).toBeCloseTo(4, 5)
     expect(p.pos[1]).toBe(2.6)
     expect(p.target).toEqual([-1, 1, -0.6])
     expect(p.pos[0]).toBeGreaterThan(-1)
     expect(p.pos[2]).toBeGreaterThan(-0.6)
+  })
+})
+
+// the app picks a camera that sees its subject (#253): furniture no longer fades, so a pose is used only when the line of sight is free
+describe('line of sight (#253)', () => {
+  const ALL: Clearance = { boxes: [], margin: 0.3, sight: [{ min: [-100, -100, -100], max: [100, 100, 100] }] }
+  const seat = seatOf(3)
+  const preferred = workCandidates(seat)[0]
+  const mid = preferred.pos.map((v, i) => (v + preferred.target[i]) / 2)
+  const wall = (m: readonly number[], r = 0.3): { min: [number, number, number]; max: [number, number, number] } => ({ min: [m[0] - r, -1, m[2] - r], max: [m[0] + r, 6, m[2] + r] })
+
+  it('a box between the shoulder camera and the target: a different pose, clear and seeing the seat', () => {
+    const c: Clearance = { boxes: [], margin: 0.3, sight: [wall(mid)] }
+    expect(sightClear(preferred.pos, preferred.target, c)).toBe(false)
+    const p = workPose(seat, c)!
+    expect(p).not.toBeNull()
+    expect(p).not.toEqual(preferred)
+    expect(isClear(p.pos, c)).toBe(true)
+    expect(sightClear(p.pos, p.target, c)).toBe(true)
+  })
+  it('a box that is not in the way changes nothing', () => {
+    const c: Clearance = { boxes: [], margin: 0.3, sight: [wall([preferred.pos[0] + 3, 0, preferred.pos[2] + 3])] }
+    expect(workPose(seat, c)).toEqual(preferred)
+  })
+  it('every candidate blocked: no pose (the cut is skipped)', () => {
+    expect(workPose(seat, ALL)).toBeNull()
+    expect(standPose({ x: 0, z: 0, ry: 0 }, ALL)).toBeNull()
+    expect(meetingPose({ x: -1, z: -0.6 }, ALL, HOME)).toBeNull()
+    const a = SPOTS.find((s) => s.id === 'pingpong_a')!
+    const b = SPOTS.find((s) => s.id === 'pingpong_b')!
+    expect(tablePose(a, b, ALL, HOME, { dist: 3.8, y: 2.2, targetY: 0.76 })).toBeNull()
+  })
+  it('a stander and a table: a blocked first choice gives another clear, seeing pose', () => {
+    const at = { x: 0, z: 0, ry: 0 }
+    const first = standPose(at, NO_BOXES)!
+    const c: Clearance = { boxes: [], margin: 0.3, sight: [wall([(first.pos[0] + first.target[0]) / 2, 0, (first.pos[2] + first.target[2]) / 2])] }
+    const p = standPose(at, c)!
+    expect(p.pos).not.toEqual(first.pos)
+    expect(sightClear(p.pos, p.target, c)).toBe(true)
+    const a = SPOTS.find((s) => s.id === 'pingpong_a')!
+    const b = SPOTS.find((s) => s.id === 'pingpong_b')!
+    const t0 = tablePose(a, b, NO_BOXES, HOME, { dist: 3.8, y: 2.2, targetY: 0.76 })!
+    const ct: Clearance = { boxes: [], margin: 0.3, sight: [wall([(t0.pos[0] + t0.target[0]) / 2, 0, (t0.pos[2] + t0.target[2]) / 2])] }
+    const t1 = tablePose(a, b, ct, HOME, { dist: 3.8, y: 2.2, targetY: 0.76 })!
+    expect(t1.pos).not.toEqual(t0.pos)
+    expect(sightClear(t1.pos, t1.target, ct)).toBe(true)
+  })
+  it('the sight stops short of the target: what the target stands in does not count', () => {
+    const c: Clearance = { boxes: [], margin: 0.3, sight: [{ min: [-0.2, 0, -0.2], max: [0.2, 1.2, 0.2] }] }
+    expect(sightClear([3, 1, 0], [0, 1, 0], c)).toBe(true)
+  })
+  it('the subject and the walls are not sight boxes: boxes (walls, robots) never block the line', () => {
+    const robotAtTarget = { min: [-0.3, 0, -0.3] as [number, number, number], max: [0.3, 1.6, 0.3] as [number, number, number] }
+    const wallAcross = { min: [1, 0, -5] as [number, number, number], max: [1.2, 2.6, 5] as [number, number, number] }
+    expect(sightClear([3, 1.5, 0], [0, 1, 0], { boxes: [robotAtTarget, wallAcross], margin: 0.3, sight: [] })).toBe(true)
+    expect(sightClear([3, 1.5, 0], [0, 1, 0], { boxes: [robotAtTarget, wallAcross], margin: 0.3 })).toBe(true)
+  })
+  it('the drift: blocked at one end means no drift', () => {
+    const base: Pose = { pos: [3, 2, 0], target: [0, 1, 0] }
+    const range: [number, number] = [-0.3, 0.3]
+    const end = orbitYaw(base.pos, base.target, 0.3)
+    const m = end.map((v, i) => (v + base.target[i]) / 2)
+    const free: Clearance = { boxes: [], margin: 0.3, sight: [] }
+    const blocked: Clearance = { boxes: [], margin: 0.3, sight: [wall(m, 0.05)] }
+    expect(driftSightClear(base, range, free)).toBe(true)
+    expect(sightClear(base.pos, base.target, blocked)).toBe(true) // the middle of the drift is free
+    expect(driftSightClear(base, range, blocked)).toBe(false)
+  })
+})
+
+// the picture (#270): parked robots may cover the subject only a little; a work cut shows the monitor or the face
+describe('the picture (#270)', () => {
+  const FOV = (32 * Math.PI) / 180
+  const AR = 1.6
+  const at: Frame = { x: 0, z: 0, ry: 0 } // faces -z; its monitor is 0.678 m ahead
+  const head = { min: [-0.25, 0.8, -0.25] as [number, number, number], max: [0.25, 1.3, 0.25] as [number, number, number] }
+  const shot = (blockers: Shot['blockers'] = [], work?: Frame): Shot => ({ heads: [head], blockers, fovY: FOV, aspect: AR, work })
+
+  it('only robots parked at a place count, not the ones passing by', () => {
+    expect(isParked({ visible: true, arrived: 'work_1' }, 'work_1')).toBe(true)
+    expect(isParked({ visible: true, arrived: null }, 'work_1')).toBe(false) // walking
+    expect(isParked({ visible: true, arrived: 'hall_front' }, 'work_1')).toBe(false) // passing a spot, not its goal
+    expect(isParked({ visible: false, arrived: 'work_1' }, 'work_1')).toBe(false)
+  })
+  it('a blocker in front of the head covers it; one behind or beside does not', () => {
+    const cam: V3 = [0, 1.1, 3]
+    const tg: V3 = [0, 1.05, 0]
+    const inFront = { min: [-0.5, 0, 1.4] as V3, max: [0.5, 1.5, 1.8] as V3 }
+    const behind = { min: [-0.5, 0, -2] as V3, max: [0.5, 1.5, -1.6] as V3 }
+    const beside = { min: [1.5, 0, 1.4] as V3, max: [2.5, 1.5, 1.8] as V3 }
+    expect(coverShare([head], [inFront], cam, tg, FOV, AR)).toBeGreaterThan(0.9)
+    expect(coverShare([head], [behind], cam, tg, FOV, AR)).toBe(0)
+    expect(coverShare([head], [beside], cam, tg, FOV, AR)).toBe(0)
+    expect(shotOk(cam, tg, shot([inFront]))).toBe(false)
+    expect(shotOk(cam, tg, shot([beside]))).toBe(true)
+    expect(shotOk(cam, tg, shot([]))).toBe(true)
+  })
+  it('35 percent is the limit', () => {
+    const cam: V3 = [0, 1.05, 3]
+    const tg: V3 = [0, 1.05, 0]
+    // a wall of a blocker whose edge covers about half of the head's picture: over; about a fifth: allowed
+    const cover = (frac: number) => ({ min: [-1 + 2 * frac * 0.5 - 0.5 + 0.25 - 0.25, 0, 1.4] as V3, max: [-0.25 + 0.5 * frac, 1.5, 1.8] as V3 })
+    expect(shotOk(cam, tg, shot([cover(0.5)]))).toBe(false)
+    expect(shotOk(cam, tg, shot([cover(0.2)]))).toBe(true)
+  })
+  it('a work cut: the monitor in the picture (and seen from its front) or the face seen from the front', () => {
+    const screen = screenBox(at)
+    expect(screen.min[2]).toBeLessThan(-0.5)
+    // behind the seat, monitor in the middle of the picture
+    expect(inFrameShare(screen, [0, 1.7, 2.3], [0, 1.0, -0.7], FOV, AR)).toBeGreaterThan(0.99)
+    expect(shotOk([0, 1.7, 2.3], [0, 1.0, -0.7], shot([], at))).toBe(true)
+    // behind the seat, aimed past the monitor: it is cut off and the face is not seen
+    expect(inFrameShare(screen, [0, 1.7, 2.3], [3, 1.0, -0.7], FOV, AR)).toBeLessThan(0.7)
+    expect(shotOk([0, 1.7, 2.3], [3, 1.0, -0.7], shot([], at))).toBe(false)
+    // in front of the monitor, face seen from the front (within 60 degrees), even when the monitor is cut off
+    expect(shotOk([0.8, 1.7, -2.6], [3, 1.0, -2.6], shot([], at))).toBe(true)
+    // 3/4 from the front, 60 degrees: ok; from the side (90 degrees) with the monitor cut off: not
+    expect(shotOk([2.6 * Math.sin(Math.PI / 3), 1.7, -2.6 * Math.cos(Math.PI / 3)], [9, 1.0, 9], shot([], at))).toBe(true)
+    expect(shotOk([2.6, 1.7, 0], [9, 1.0, 9], shot([], at))).toBe(false)
+    // the monitor in the picture but seen edge-on (87 degrees off its front) and the face not seen: no
+    expect(inFrameShare(screenBox(at), [2.6, 1.7, -0.55], [0, 1.1, -0.678], FOV, AR)).toBeGreaterThan(0.99)
+    expect(shotOk([2.6, 1.7, -0.55], [0, 1.1, -0.678], shot([], at))).toBe(false)
+    // the monitor seen from its back (camera ahead of the screen, looking at it, 90+ degrees off the front): only the face rule can pass
+    expect(shotOk([0, 1.7, -3], [0, 1.0, 0], shot([], at))).toBe(true) // that is in front: the face is seen
+  })
+  it('a pose that fails the picture is skipped for the next candidate; none passes: no pose', () => {
+    const seat = seatOf(3)
+    const first = workCandidates(seat)[0]
+    const hd = { min: [seat.x - 0.25, 0.8, seat.z - 0.25] as V3, max: [seat.x + 0.25, 1.3, seat.z + 0.25] as V3 }
+    // a parked robot right in front of the first camera, between it and the seat
+    const d = [seat.x - first.pos[0], seat.z - first.pos[2]]
+    const l = Math.hypot(d[0], d[1])
+    const bx = first.pos[0] + (d[0] / l) * 0.9
+    const bz = first.pos[2] + (d[1] / l) * 0.9
+    const blocker = { min: [bx - 0.5, 0, bz - 0.5] as V3, max: [bx + 0.5, 3.5, bz + 0.5] as V3 }
+    const c: Clearance = { boxes: [], margin: 0.3, shot: { heads: [hd], blockers: [blocker], fovY: FOV, aspect: AR, work: seat } }
+    expect(shotOk(first.pos, first.target, c.shot)).toBe(false)
+    const p = workPose(seat, c)
+    expect(p).not.toBeNull()
+    expect(p).not.toEqual(first)
+    expect(shotOk(p!.pos, p!.target, c.shot)).toBe(true)
+    // everything covered: skipped
+    const all = { min: [-100, -100, -100] as V3, max: [100, 100, 100] as V3 }
+    expect(workPose(seat, { boxes: [], margin: 0.3, shot: { heads: [hd], blockers: [all], fovY: FOV, aspect: AR, work: seat } })).toBeNull()
+  })
+  it('every seat: a work pose that meets the rules, or the cut is skipped', () => {
+    for (const s of SPOTS.filter((p) => /^work_d+$/.test(p.id))) {
+      const seat: Frame = { x: s.x, z: s.z, ry: s.ry }
+      const hd = { min: [seat.x - 0.25, 0.8, seat.z - 0.25] as V3, max: [seat.x + 0.25, 1.3, seat.z + 0.25] as V3 }
+      const c: Clearance = { boxes: [], margin: 0.3, shot: { heads: [hd], blockers: [], fovY: FOV, aspect: AR, work: seat } }
+      const p = workPose(seat, c)
+      if (p) expect(shotOk(p.pos, p.target, c.shot)).toBe(true)
+      expect(p === null || isClear(p.pos, c)).toBe(true)
+    }
   })
 })
 

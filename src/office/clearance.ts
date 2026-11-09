@@ -17,6 +17,8 @@ export const setClearFurniture = (groups: readonly { id: string; box: Box3 }[]) 
     clearIds.push(id)
   }
 }
+/** the furniture boxes (no walls, no robots): what a scripted camera's line of sight must not cross (#253) */
+export const furnitureBoxes = (): readonly ClearBox[] => furniture
 /** dev only (screenshot scripts): the furniture boxes by fade-group id */
 export const clearFurnitureForDev = () => furniture.map((b, i) => ({ id: clearIds[i], ...b }))
 
@@ -26,6 +28,14 @@ const wallBoxes = (): ClearBox[] =>
     const r = wallRect(w)
     return { min: [r.cx - r.sx / 2, 0, r.cz - r.sz / 2], max: [r.cx + r.sx / 2, WALL_CUT[w], r.cz + r.sz / 2], slide: true } as ClearBox
   })
+
+/** a robot's body box (its root node, re-measured) */
+export function robotBox(group: Object3D): ClearBox {
+  tmp.setFromObject(group)
+  return { min: tmp.min.toArray() as [number, number, number], max: tmp.max.toArray() as [number, number, number] }
+}
+/** the upper part of a robot's box: its head (and what sits on it) */
+export const headBox = (b: ClearBox, share = 0.4): ClearBox => ({ min: [b.min[0], b.max[1] - (b.max[1] - b.min[1]) * share, b.min[2]], max: [b.max[0], b.max[1], b.max[2]] })
 
 /** every box the camera keeps clear of: furniture, robots (their root nodes, re-measured) and the walls at their current height */
 export function clearBoxes(robots: Iterable<{ visible: boolean; group: Object3D }> = []): ClearBox[] {

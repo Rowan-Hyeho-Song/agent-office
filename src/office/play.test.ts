@@ -166,3 +166,64 @@ describe('soloAt (night duty, #110)', () => {
     }
   })
 })
+
+describe('five agents (#193)', () => {
+  const FIVE = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
+  it('everybody free gets a place of their own, five at a time, and echo takes part in pairs', () => {
+    let echoPairs = 0
+    let echoBoard = 0
+    for (let b = 0; b < 600; b++) {
+      const out = playAt(b * BLOCK_MINUTES, FIVE)
+      expect(Object.keys(out).sort()).toEqual(FIVE)
+      const spots = Object.values(out).map((o) => o.spot)
+      expect(new Set(spots).size).toBe(5)
+      const e = out.agent_4
+      if (e.partner) {
+        echoPairs++
+        expect(out[e.partner].partner).toBe('agent_4')
+        if (e.kind === 'boardgame') echoBoard++
+      }
+    }
+    expect(echoPairs).toBeGreaterThan(100)
+    expect(echoBoard).toBeGreaterThan(0)
+  })
+  it('with echo busy at its desk the other four are the same as the four-agent roster would give them where they do not depend on echo', () => {
+    const out = playAt(777, FIVE, new Set(['agent_4']))
+    expect(out.agent_4).toBeUndefined()
+    expect(Object.keys(out).sort()).toEqual(['agent_0', 'agent_1', 'agent_2', 'agent_3'])
+  })
+})
+
+describe('reading and ping-pong never share a block (#193)', () => {
+  it('the side-table reader closes the aisle to the sofa and the lounge: with five agents no block has both', () => {
+    const FIVE = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
+    let books = 0
+    let pingpong = 0
+    for (let b = 0; b < 2000; b++) {
+      const out = playAt(b * BLOCK_MINUTES, FIVE)
+      const kinds = Object.values(out).map((o) => o.kind)
+      if (kinds.includes('books')) books++
+      if (kinds.includes('pingpong')) pingpong++
+      expect(kinds.includes('books') && kinds.includes('pingpong'), `block ${b}`).toBe(false)
+    }
+    // both still happen
+    expect(books).toBeGreaterThan(100)
+    expect(pingpong).toBeGreaterThan(100)
+  })
+})
+
+describe('no head-on change of places between the sofa and the side table (#193)', () => {
+  it('nobody goes from the sofa to the book the block after somebody else read', () => {
+    const FIVE = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
+    let readers = 0
+    for (let b = 1; b < 2000; b++) {
+      const now = playAt(b * BLOCK_MINUTES, FIVE)
+      const was = playAt((b - 1) * BLOCK_MINUTES, FIVE, new Set(), 0) // the draw the rule looks back at
+      const reader = Object.entries(now).find(([, o]) => o.kind === 'books')
+      if (!reader) continue
+      readers++
+      if (Object.values(was).some((o) => o.kind === 'books')) expect(was[reader[0]]?.kind, `block ${b}`).not.toBe('sofa')
+    }
+    expect(readers).toBeGreaterThan(100)
+  })
+})

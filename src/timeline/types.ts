@@ -5,8 +5,8 @@
 export const POINT_KINDS = ['plan', 'work', 'minutes', 'approval', 'decision', 'deploy'] as const
 export type PointKind = (typeof POINT_KINDS)[number]
 
-/** seats as in agent identity (0 기획 · 1 3D · 2 디자인 · 3 코더); null = before roles existed */
-export type Seat = 0 | 1 | 2 | 3
+/** seats as in agent identity (0 기획 · 1 3D · 2 디자인 · 3 코더 · 4 사운드); null = before roles existed */
+export type Seat = 0 | 1 | 2 | 3 | 4
 
 /** plan.md 6.3. `private` is never collected, so a stored point is public or review */
 export type PointTier = 'public' | 'review'

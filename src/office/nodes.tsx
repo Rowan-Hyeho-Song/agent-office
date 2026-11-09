@@ -33,12 +33,11 @@ export const ATLASES = ['room', 'walls_nw', 'walls_se', 'work', 'wall_items', 'l
 const ATLAS_URLS = ATLASES.map((a) => assetUrl(`models/${a}.webp`))
 
 /**
- * Seats of the model that have no agent yet: the glb carries agent_<i>_* for them (echo = 4, #193 2/2), but the app builds rigs for agent_0..3 only.
- * Their nodes are taken out of the scene (the `nodes` map still has them), so no loose beam / glow / floor shows in the aisle and neither the
- * footprint, the camera clearance nor the occluders ever see them. When #193 2/2 gives echo a rig, empty this list (the desk, props and nav
- * spot of the seat are not affected: they stay).
+ * Seats of the model that have no agent in the app yet: the glb carries agent_<i>_* for them, but no rig is built, so a loose beam / glow / floor
+ * would show in the aisle. Their nodes are taken out of the scene (the `nodes` map still has them), so neither the footprint, the camera
+ * clearance nor the sight check ever see them (the desk, props and nav spot of the seat are not affected). Empty since #193 2/2: echo (seat 4) has a rig.
  */
-export const HIDDEN_AGENTS: readonly number[] = [4]
+export const HIDDEN_AGENTS: readonly number[] = []
 
 /** runtime glow per live kind (the bake used its own strengths for the light the emitters cast) */
 export const GLOW: Record<string, number> = { screen: 1.1, face: 1.4, neon: 2.6, door: 1.0 }

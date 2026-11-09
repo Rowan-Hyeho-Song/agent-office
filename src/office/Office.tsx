@@ -1,11 +1,12 @@
 import { Html } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Box3, Vector3, type Object3D } from 'three'
 import { openApprovalBox } from './approval/panel'
 import { Door } from '../room/Door'
 import { ReadyPing } from '../room/RoomUi'
 import { ClockRig } from './ClockRig'
+import { SpeakerClick } from './SpeakerClick'
 import { Agents } from './Agents'
 import { useRole } from './ApprovalBox'
 import { Icon } from './ApprovalIcons'
@@ -14,24 +15,25 @@ import { hitBox, useCanvasPick } from './pick'
 import { Shelf } from './Shelf'
 import { Whiteboard } from './Whiteboard'
 import { Cutaway } from './cutaway'
-import { Occluders } from './occluders'
+import { setClearFurniture } from './clearance'
 import { Outside } from './OutsideView'
 import { WALL_CUT, wallOf } from './walls'
 import type { OfficeWorld } from './world'
 
 /** The whole office as baked (room, desks, wall, lounge) and the agents moving through it. */
-/** `freeCam`: the normal camera (kept clear of things, #208); off in the debug close-up and top view */
-export function Office({ world, freeCam = true }: { world: OfficeWorld; freeCam?: boolean }) {
+export function Office({ world }: { world: OfficeWorld }) {
   const { scene, nodes, fades } = useOffice()
+  // the furniture boxes keep the camera clear of the furniture (#208); nothing fades (#253)
+  useEffect(() => setClearFurniture(fades), [fades])
   return (
     <>
       <primitive object={scene} />
       <Cutaway scene={scene} />
-      <Occluders groups={fades} hide={freeCam} />
       <Outside nodes={nodes} world={world} />
       <Agents world={world} />
       <TrayClick scene={scene} nodes={nodes} />
       <ClockRig scene={scene} nodes={nodes} />
+      <SpeakerClick nodes={nodes} />
       <Shelf world={world} scene={scene} nodes={nodes} />
       <Whiteboard world={world} scene={scene} />
       {world.approvals && <DoorKey world={world} nodes={nodes} />}
