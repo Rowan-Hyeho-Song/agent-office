@@ -68,6 +68,16 @@ const STATES = [
     },
   },
   { name: '방문자 · 처리된 결재 표지', url: '/?debug=1&approvals=visitor', act: (p) => p.locator('.secret-done button').first().click() },
+  // the library (#236): file list and a file's head with the topic badges
+  { name: '서재 · 파일철 목록 + 주제 뱃지', url: '/?debug=1&approvals=owner', act: async (p) => {
+      await p.evaluate(() => window.__office.docs.open(28))
+      await p.locator('.doc-path button').nth(1).click()
+      await p.waitForSelector('.doc-file .topic')
+    } },
+  { name: '서재 · 파일철 머리 + 주제 뱃지 (390px)', url: '/?debug=1&approvals=visitor', viewport: { width: 390, height: 844 }, act: async (p) => {
+      await p.evaluate(() => window.__office.docs.open(28))
+      await p.waitForSelector('.doc-filehead .topic')
+    } },
   // new-item dots (#240): a request and a document arrive while the page is open; the dock buttons carry the words, then the tabs
   {
     name: '방문자 · 새 항목 점(도크)',

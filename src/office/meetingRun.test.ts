@@ -5,7 +5,7 @@ import { buildScript } from './meeting'
 import { MeetingRunner } from './meetingRun'
 import type { StatusMap } from './status'
 
-const meta: DocMeta = { id: 7, kind: 'minutes', repo: 'o/r', folder: 28, title: 'T', agents: [], grade: 'public', approved: true, readable: true, created_at: '', updated_at: '' }
+const meta: DocMeta = { id: 7, kind: 'minutes', repo: 'o/r', folder: 28, title: 'T', agents: [], labels: [], grade: 'public', approved: true, readable: true, created_at: '', updated_at: '' }
 const convs = conversations({
   minutes: [{ date: null, rows: [{ order: 1, from: { seat: 2 }, to: [{ seat: 3 }], text: '하나.' }, { order: 2, from: { seat: 3 }, to: [{ seat: 2 }], text: '둘.' }], decision: '정했다.', followUp: '루프가 한다.' }],
 })
