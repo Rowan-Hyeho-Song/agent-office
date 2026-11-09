@@ -5,18 +5,25 @@
 #
 #   scripts/gh-image.sh shot.png [more.png ...]          # prints ![shot](https://github.com/…/shot-<stamp>.png)
 #   scripts/gh-image.sh -p 12 before.png after.png        # prefix with the issue/PR number: 12-before-<stamp>.png
+#   scripts/gh-image.sh -k shot.png                       # keep the local file (default: delete it once uploaded)
+#
+# #275: a file is deleted locally only after its upload succeeded, so captures stop piling up on the PC.
 #
 # The release must stay a published pre-release (not a draft): draft assets 404 for anyone not logged in.
 set -euo pipefail
 
 TAG=image-assets
 prefix=""
-if [[ "${1:-}" == "-p" ]]; then
-  prefix="$2-"
-  shift 2
-fi
+keep=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -p) prefix="$2-"; shift 2 ;;
+    -k) keep=1; shift ;;
+    *) break ;;
+  esac
+done
 if [[ $# -eq 0 ]]; then
-  echo "usage: scripts/gh-image.sh [-p <issue#>] image..." >&2
+  echo "usage: scripts/gh-image.sh [-p <issue#>] [-k] image..." >&2
   exit 1
 fi
 
@@ -42,4 +49,6 @@ for f in "$@"; do
   cp "$f" "$tmp/$out"
   gh release upload "$TAG" "$tmp/$out" --repo "$repo" >/dev/null
   echo "![${name}](https://github.com/${repo}/releases/download/${TAG}/${out})"
+  # set -e stopped above if the upload failed, so reaching here means it is on GitHub
+  [[ $keep -eq 1 ]] || rm -f -- "$f"
 done
