@@ -2,6 +2,7 @@
 //   window.__office.play.force(agent, kind, plant?, reduced?)   kind: water | books | coffee | pingpong | boardgame (a pair game takes the next agent too);
 //                                             water sends the agent for the can (the whole errand, waterRun.ts); plant: plant_corner | plant_sofa | plant_desk
 //   window.__office.play.clear()
+//   window.__office.play.stone('current' | 'alt')   the go-grip variant (grip.ts STONE_VARIANT_DEFAULT): call before the stone game starts
 //   window.__office.grip.demo(agent, prop)    prop: marker | pen | stamp | mouse | cup | paddle | can | book: walks the agent to it and
 //                                             repeats reach, pre-grip, close, hold, put back, after, every 6 s
 //   window.__office.grip.stop()
@@ -13,6 +14,7 @@
 import type { Goal } from './director'
 import { standSlot } from './director'
 import { ALL_POSES, type AnyPoseId } from './handPose'
+import { setStoneVariant, type StoneVariant } from './grip'
 import { CAN_HOME, WATER_PLANTS, canStand } from './water'
 import { hash } from './play'
 import { SETTLE_MS, type PlaySession } from '../play/session'
@@ -156,6 +158,9 @@ export function makePlayTools(world: OfficeWorld) {
         books: { spot: 'shelf', pose: 'books', face: BOOK.face, ...standSlot(BOOK) },
       }
       if (goals[kind]) world.forceGoal[agent] = goals[kind]
+    },
+    stone(variant: StoneVariant) {
+      setStoneVariant(variant)
     },
     clear() {
       world.forceGoal = null

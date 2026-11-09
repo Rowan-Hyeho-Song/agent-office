@@ -286,12 +286,12 @@ const PRIOR_W = 2e-6
  * table's angles (`a0`, `b0`: tableJoints) and prefers the least change from them, so a grip that already fits stays as tabled; a tip that
  * would go through is bent less. Deterministic: a coarse grid over the angles that matter most, then a coordinate search with shrinking steps.
  */
-export function fitContact(m: FingerModel, target: Vector3, normal: Vector3, a0: number, b0 = 0, G = 14, radius = 0, priorW = PRIOR_W): Fit {
+export function fitContact(m: FingerModel, target: Vector3, normal: Vector3, a0: number, b0 = 0, G = 14, radius = 0, priorW = PRIOR_W, from?: readonly number[]): Fit {
   const n = normal.clone().normalize()
   const goal = target.clone().addScaledVector(n, SKIN)
   const full = G >= 10
-  const start = clampJoints(m, tableJoints(m, a0, b0))
-  const raw = tableJoints(m, a0, b0)
+  const raw = from ? from.slice() : tableJoints(m, a0, b0)
+  const start = clampJoints(m, raw)
   const dim = start.length
   const scale = m.thumb ? PRIOR_SCALE.thumb : PRIOR_SCALE.finger
   const tip = new Vector3()
@@ -503,7 +503,21 @@ export function solveContacts(contacts: ContactIn[], keepNear = 0.02): Solved {
 /** a go stone's thickness, m (omok_grid extras stone_h) */
 export const STONE_H = 0.008
 /** the stone's contacts are discs, not points (agents.md 2.10): the middle pad lands anywhere on a disc of this radius on the top face, the index nail on the bottom face's */
-export const STONE_DISC_R = 0.008
+export let STONE_DISC_R = 0.008
+/**
+ * The two go-grip variants (#282 omok comparison). 'current': the posture preference start is the table's (index c 0.55, middle c 0.12) and the contact discs
+ * are r 8 mm. 'alt' (the designer's alternative): index MCP / PIP about 60 / 55 and middle about 70 / 50 as the start, the discs r 10 mm.
+ * STONE_VARIANT_DEFAULT is the one the app uses; setStoneVariant switches it (debug / tests; call before an agent's stone frames are built).
+ */
+export type StoneVariant = 'current' | 'alt'
+export const STONE_VARIANT_DEFAULT: StoneVariant = 'current'
+export const STONE_ALT = { disc: 0.01, index: [60, 55], middle: [70, 50] } as const
+let stoneVariant: StoneVariant = STONE_VARIANT_DEFAULT
+export const getStoneVariant = () => stoneVariant
+export function setStoneVariant(v: StoneVariant) {
+  stoneVariant = v
+  STONE_DISC_R = v === 'alt' ? STONE_ALT.disc : 0.008
+}
 /**
  * THE abduction exception of the go grip (designer, agents.md 2.10) and only of it: the index may swing −12 … 20° and the middle ±12° (degrees,
  * the total angle, not scaled by the MCP), against the general limits of hand-poses.md 1. stoneGrip fits with these, and the stone's drive tells the rig
@@ -555,15 +569,20 @@ export function stoneGrip(models: { index: FingerModel; middle: FingerModel }, t
   const n = new Vector3(-cp * sr, -sp, -cp * cr)
   const f = new Vector3(-sp * sr, cp, -sp * cr) // the forward direction along the board, in the hand's frame
   const tableB = tableJoints(fm[bottom], hold[bottom], 0)
-  const costOf = (v: number[], fit: Fit) => fit.err + STONE_POSTURE_W * (Math.abs(v[0] - tableB[0]) / 85 + Math.abs(v[1] - tableB[1]) / 100 + Math.abs(v[2] - tableB[2]) / 57.3)
+  // the posture preference start: the table's, or the alternative's MCP / PIP (the table's abduction stays)
+  const alt = stoneVariant === 'alt'
+  const startOf = (finger: 'index' | 'middle', tj: number[]) => (alt ? [...STONE_ALT[finger], tj[2]] : tj)
+  const prefB = startOf(bottom, tableB)
+  const prefT = alt ? startOf(top, tableJoints(fm[top], hold[top], 0)) : undefined
+  const costOf = (v: number[], fit: Fit) => fit.err + STONE_POSTURE_W * (Math.abs(v[0] - prefB[0]) / 85 + Math.abs(v[1] - prefB[1]) / 100 + Math.abs(v[2] - prefB[2]) / 57.3)
   const eval2 = (v: number[]) => {
     const w = clampJoints(fm[bottom], v)
     const B = tipAtJoints(fm[bottom], w)
-    const fit = fitContact(fm[top], B.clone().addScaledVector(n, STONE_H), n, hold[top], 0, 8, STONE_DISC_R, STONE_POSTURE_W_TOP)
+    const fit = fitContact(fm[top], B.clone().addScaledVector(n, STONE_H), n, hold[top], 0, 8, STONE_DISC_R, STONE_POSTURE_W_TOP, prefT)
     return { v: w, fit, cost: costOf(w, fit) }
   }
   // a coarse walk over the bottom finger's bend (its table abduction), then a coordinate search in its three joints
-  let cur = eval2(tableB)
+  let cur = eval2(prefB)
   for (let cb = 0.05; cb <= 0.8; cb += 0.05) {
     const r = eval2(tableJoints(fm[bottom], cb, 0))
     if (r.cost < cur.cost) cur = r

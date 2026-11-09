@@ -25,6 +25,7 @@ import { DOZE } from './doze'
 import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
 import { GLOW } from './nodes'
 import type { FingerModel } from './grip'
+import { reachFrame, reachTurn } from './reach'
 import {
   ALL_POSES,
   DEFAULT_FAN,
@@ -71,6 +72,22 @@ const EXIT_DEPTH = 0.9
 const EXIT = '__exit'
 /** hand spring (#28: critically damped, ω ≈ 12 → about 0.12 s behind the head) */
 const HAND_OMEGA = 12
+/**
+ * The walking hands (#257, agents.md 2.5): while walking a hand is attached to its body-relative place (no spring lag) and swings with the step, the other hand in
+ * the opposite phase. hz: one swing back and forth, scaled by sqrt(v / cruise) within hzMin .. hzMax; amp: +- metres forward / back x v / cruise, never over ampMax;
+ * arc / inward: the pendulum's rise at the ends and the inward step at the front; wristDeg: the wrist's swing; startS: the swing grows over this; stillV / stillBand: no
+ * swing below stillV (turning on the spot); settleS: on a stop the swing sinks to nothing, without overshoot, then bobS blends the standing bob in; attachS: the
+ * hand's spring state (when it is farther than attachNear from the place) blends into the attached place (a hand that was elsewhere does not jump); carryShare: the free hand beside a carrying one swings this much.
+ */
+const WALK = { hz: 0.8, hzMin: 0.5, hzMax: 1.0, cruise: 0.75, amp: 0.05, ampMax: 0.07, arc: 0.012, inward: 0.01, wristDeg: 10, startS: 0.4, stillV: 0.1, stillBand: 0.1, settleS: 0.5, bobS: 0.3, attachS: 0.25, attachNear: 0.15, carryShare: 0.6, heldBob: 0.006, canBob: 0.01 } as const
+interface Swing {
+  dx: number
+  dy: number
+  dz: number
+  /** about the agent's x axis, rad: + tips the fingers forward */
+  wrist: number
+}
+const smooth01 = (u: number) => u * u * (3 - 2 * u)
 /** finger bends ease at this rate (1/s): ~95 % of a change in 120 ms (agents.md 2.7) */
 const FINGER_RATE = 25
 /** a closing hand: each finger starts this much after the one before it (index first); opening is the reverse (hand-poses.md 2) */
@@ -145,6 +162,8 @@ export interface HandDrive {
   abdLimits?: readonly (Range | undefined)[] | null
   wc: number
   spread: readonly number[] | null
+  /** #255 (grips.md 1.1): while the hand reaches for this (0 < w < 1) its fingers follow the reach direction and its palm faces the object; the grip's own pose wins at w = 1 */
+  reach?: boolean
 }
 
 export interface RigParts {
@@ -602,6 +621,10 @@ interface HandPose {
   turn: Quaternion
   /** how the fingers bend: joint angles (a named pose of handPose.ts) or an old curl */
   curl: PoseSpec
+  /** the walking place (#257): the hand is attached to it and swings with the step */
+  walk?: boolean
+  /** the standing rest place: the walking swing sinks into it when the agent stops */
+  rest?: boolean
 }
 
 /**
@@ -621,6 +644,7 @@ const shape = (f: Four, thumb: [number, number]): HandShape => ({ f, thumb })
 const v = (x: number, y: number, z: number) => new Vector3(x, y, z)
 const qz = (a: number) => new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), a)
 const qy = (a: number) => new Quaternion().setFromAxisAngle(UP, a)
+const AXIS_X = new Vector3(1, 0, 0)
 const NONE = new Quaternion()
 /**
  * The hand's frame (#148, measured in Blender and in the app): at rest the palms face each other, the right palm toward
@@ -754,6 +778,12 @@ export class AgentRig {
   /** grips and play (PlayStage): what each hand is made to do this frame (null = just its pose) */
   drive: Record<'l' | 'r', HandDrive | null> = { l: null, r: null }
   private spring: Record<'l' | 'r', { pos: Vector3; quat: Quaternion } | null> = { l: null, r: null }
+  /** the walking swing (#257): phase of the left hand (the right is PI behind), time since the start / the stop, the offsets now and at the stop */
+  private walkSt = { held: 0, mode: 'none' as 'none' | 'walk' | 'settle', phase: 0, ramp: 0, since: 0, bob: 1, off: { l: { dx: 0, dy: 0, dz: 0, wrist: 0 }, r: { dx: 0, dy: 0, dz: 0, wrist: 0 } } as Record<'l' | 'r', Swing>, from: { l: { dx: 0, dy: 0, dz: 0, wrist: 0 }, r: { dx: 0, dy: 0, dz: 0, wrist: 0 } } as Record<'l' | 'r', Swing> }
+  /** 0 -> 1 while a hand blends into its attached place */
+  private attachT: Record<'l' | 'r', number> = { l: 0, r: 0 }
+  /** where the hand was from its walking place (the agent's frame) when the blend began; it shrinks to 0 over WALK.attachS */
+  private attachOff: Record<'l' | 'r', Vector3> = { l: new Vector3(), r: new Vector3() }
   /** a small extra head turn while playing (the omok thinker's 5° tilt, 10° toward the last stone); rad */
   headExtra = { pitch: 0, yaw: 0, roll: 0 }
   /** a point the head glances at, up to `glanceMax` rad of yaw (the opponent's last stone) */
@@ -1312,8 +1342,21 @@ export class AgentRig {
         curl = WAVE_POSE
       }
     }
-    if (!base) return { pos: lift(target), turn: NONE, curl }
-    return { pos: lift(base.pos.clone().lerp(target, a.arm)), turn: a.arm > 0.3 ? NONE : base.turn, curl: a.arm > 0.3 ? curl : base.curl }
+    // #255: the hand points along the reach (shoulder -> target); a catching hand's palm faces the plane (toward it from the hand), a throwing one has no object
+    let palm: Vector3 | null = null
+    if (g.kind === 'catch' && !g.caught && g.at) {
+      palm = this.parts.root.worldToLocal(this.tmpAt.copy(g.at)).sub(target)
+      if (palm.lengthSq() < 1e-6) palm = null
+    }
+    const reach = reachTurn(side, target, sit, palm, this.parts.hands[side].restQuat)
+    if (!base) return { pos: lift(target), turn: reach, curl }
+    return { pos: lift(base.pos.clone().lerp(target, a.arm)), turn: base.turn.clone().slerp(reach, a.arm), curl: a.arm > 0.3 ? curl : base.curl }
+  }
+  private tmpAt = new Vector3()
+
+  /** #255: the hand turn (a pose's `turn`) for a hand at `pos` whose palm faces `palm` (agent frame; null: no object) */
+  private reachAt(side: 'l' | 'r', pos: Vector3, palm: Vector3 | null): Quaternion {
+    return reachTurn(side, pos, this.seat, palm, this.parts.hands[side].restQuat)
   }
 
   /** each hand's target in the root's frame for this pose */
@@ -1334,7 +1377,7 @@ export class AgentRig {
     if (g?.kind === 'catch' && (side === 'r' || !g.oneHand)) {
       // once caught, the pinching hand moves out a little so it doesn't cover the face screen (its reaction shows)
       const caught = side === 'r' && g.caught
-      return at(sx * (0.16 + (caught ? CAUGHT_OUT : 0)), 1.32 + sit, -0.32, NONE, caught ? PINCH_POSE : WAVE_POSE)
+      return at(sx * (0.16 + (caught ? CAUGHT_OUT : 0)), 1.32 + sit, -0.32, this.reachAt(side, v(sx * (0.16 + (caught ? CAUGHT_OUT : 0)), 1.32 + sit, -0.32), v(0, 0.2, -1)), caught ? PINCH_POSE : WAVE_POSE)
     }
     // the yield gesture: the hand on the passer's side opens palm up in front and sweeps toward them ("after you")
     const cue = this.cue()
@@ -1421,7 +1464,8 @@ export class AgentRig {
         return at(sx * 0.1, 0.82, -0.42, down, STAMP_POSE)
       }
       case 'move':
-        return at(rest.x, rest.y - 0.03, rest.z + 0.08)
+        // #257: the body-relative place; the walking swing (stepWalk) and the attachment (updateHands) are added on top
+        return { ...at(rest.x, rest.y, rest.z), walk: true }
       case 'type':
       case 'listen':
         // the hand rests over the keys; the fingers' real key presses (#225) are the typist's drive (typist.ts), on top of this
@@ -1429,7 +1473,7 @@ export class AgentRig {
       case 'talk':
         return at(sx * 0.24, 0.98 + sit + s(3, sx) * 0.05, -0.28, qy(-sx * 0.3), side === 'r' ? POINT_POSE : REST_POSE)
       case 'post':
-        return side === 'r' ? at(0.12, 1.42 + s(2.5) * 0.03, -0.32, qz(0.4), HOLD_POSE) : at(rest.x, rest.y, rest.z)
+        return side === 'r' ? at(0.12, 1.42 + s(2.5) * 0.03, -0.32, this.reachAt(side, v(0.12, 1.42, -0.32), v(0, 0, -1)), HOLD_POSE) : at(rest.x, rest.y, rest.z)
       case 'pingpong':
         return side === 'r'
           ? at(0.26 + s(5.5) * 0.12, 0.92, -0.3 - Math.cos(t * 5.5 + this.phase) * 0.1 * m, qy(s(5.5) * 0.6), HOLD_POSE)
@@ -1452,10 +1496,99 @@ export class AgentRig {
       case 'water':
         return side === 'r' ? at(0.16, 0.86 + s(1.2) * 0.02, -0.42, NONE, HOLD_POSE) : at(rest.x, rest.y, rest.z)
       case 'books':
-        return side === 'r' ? at(0.14, 1.3 + Math.max(0, s(0.6)) * 0.12, -0.4, qz(0.3), LOOSE_POSE) : at(rest.x, rest.y, rest.z)
+        return side === 'r' ? at(0.14, 1.3 + Math.max(0, s(0.6)) * 0.12, -0.4, this.reachAt(side, v(0.14, 1.3 + Math.max(0, s(0.6)) * 0.12, -0.4), v(0, 0, -1)), LOOSE_POSE) : at(rest.x, rest.y, rest.z)
       default:
-        return at(rest.x, rest.y + s(1.1, sx) * 0.01, rest.z)
+        return { ...at(rest.x, rest.y + s(1.1, sx) * 0.01 * this.walkSt.bob, rest.z), rest: true }
     }
+  }
+
+  /**
+   * The walking swing of this frame (#257, agents.md 2.5), once per update: while the agent walks (pose 'move') each hand swings forward and back, the two in
+   * opposite phase, WALK.hz * sqrt(v / cruise) times a second, +- WALK.amp * v / cruise metres (the pendulum rises 1.2 cm at the ends, steps 1 cm inward at the front,
+   * and the wrist tips +-10 deg). It grows over WALK.startS from phase 0, is 0 while turning on the spot (v < 0.1) and under reduced motion. On a stop it sinks to 0 in
+   * WALK.settleS (a smoothstep from where it was: no overshoot, no oscillation); the standing bob (basePose default) blends in over the next WALK.bobS.
+   */
+  private stepWalk(dt: number, walking: boolean, reduced: boolean) {
+    const W = this.walkSt
+    const sides = ['l', 'r'] as const
+    if (this.snapHands) {
+      W.mode = 'none'
+      W.bob = 1
+      for (const side of sides) W.off[side] = { dx: 0, dy: 0, dz: 0, wrist: 0 }
+      return
+    }
+    if (walking) {
+      if (W.mode !== 'walk') {
+        W.mode = 'walk'
+        W.phase = 0
+        W.ramp = 0
+        for (const side of sides) W.from[side] = { ...W.off[side] }
+      }
+      const v = this.speed
+      const band = MathUtils.clamp((v - WALK.stillV) / WALK.stillBand, 0, 1)
+      if (band > 0 && !reduced) {
+        W.ramp = Math.min(1, W.ramp + dt / WALK.startS)
+        W.phase += Math.PI * 2 * MathUtils.clamp(WALK.hz * Math.sqrt(v / WALK.cruise), WALK.hzMin, WALK.hzMax) * dt
+      }
+      const amp = reduced ? 0 : Math.min((WALK.amp * v) / WALK.cruise, WALK.ampMax) * band * W.ramp
+      const ratio = amp / WALK.amp
+      const carry = 1 - smooth01(W.ramp) // what a swing from before (a stop that was interrupted) still has
+      for (const side of sides) {
+        const sx = side === 'l' ? -1 : 1
+        const f = Math.sin(W.phase + (side === 'l' ? Math.PI : 0)) // + = forward
+        const o = W.from[side]
+        W.off[side] = {
+          dx: -sx * WALK.inward * ratio * Math.max(0, f) + o.dx * carry,
+          dy: WALK.arc * ratio * f * f + o.dy * carry,
+          dz: -amp * f + o.dz * carry,
+          wrist: WALK.wristDeg * MathUtils.DEG2RAD * Math.min(1, ratio) * f + o.wrist * carry,
+        }
+      }
+      W.bob = 1
+      // a hand that holds something bobs up and down at twice the step rate instead (heldBob, applyDrive); 0 under reduced motion (ratio is 0)
+      W.held = Math.sin(2 * W.phase) * Math.min(1, ratio)
+      return
+    }
+    W.held = 0
+    if (W.mode === 'walk') {
+      if (reduced) W.mode = 'none'
+      else {
+        W.mode = 'settle'
+        W.since = 0
+        for (const side of sides) W.from[side] = { ...W.off[side] }
+      }
+    }
+    if (W.mode === 'settle') {
+      W.since += dt
+      const k = 1 - smooth01(MathUtils.clamp(W.since / WALK.settleS, 0, 1))
+      for (const side of sides) {
+        const o = W.from[side]
+        W.off[side] = { dx: o.dx * k, dy: o.dy * k, dz: o.dz * k, wrist: o.wrist * k }
+      }
+      W.bob = smooth01(MathUtils.clamp((W.since - WALK.settleS) / WALK.bobS, 0, 1))
+      if (W.since >= WALK.settleS + WALK.bobS) {
+        W.mode = 'none'
+        W.bob = 1
+      }
+      return
+    }
+    W.bob = 1
+    for (const side of sides) W.off[side] = { dx: 0, dy: 0, dz: 0, wrist: 0 }
+  }
+
+  /** how much a hand holds something now (0 .. 1): the grip's place weight of the last frame, or the object attached to it */
+  private heldAmount(side: 'l' | 'r') {
+    return Math.max(this.drive[side]?.w ?? 0, this.want?.attached && this.want.side === side ? 1 : 0)
+  }
+
+  /** this hand's swing for the frame, or null when it is not on the walking place / the standing rest place (a gesture, typing, a grip own it) */
+  private swingFor(side: 'l' | 'r', p: HandPose): Swing | null {
+    const W = this.walkSt
+    if (!((p.walk && W.mode === 'walk') || (p.rest && W.mode === 'settle'))) return null
+    // a hand that holds something does not swing (the carry pose is the grip's); the free hand beside it swings less
+    const share = (1 - this.heldAmount(side)) * (1 - (1 - WALK.carryShare) * this.heldAmount(side === 'l' ? 'r' : 'l'))
+    const o = W.off[side]
+    return { dx: o.dx * share, dy: o.dy * share, dz: o.dz * share, wrist: o.wrist * share }
   }
 
   /** put these joint angles on a hand right now, through the rig's own finger path (limits, then the joint math): the measuring tool (pnpm hand:measure) */
@@ -1500,9 +1633,17 @@ export class AgentRig {
     const { root } = this.parts
     root.getWorldQuaternion(this.rootQuat)
     const k = 1 - Math.exp(-HAND_OMEGA * dt)
+    this.stepWalk(dt, pose === 'move', reduced)
     for (const side of ['l', 'r'] as const) {
       const hand = this.parts.hands[side]
       const p = this.handPose(side, pose, t, reduced)
+      const swing = this.swingFor(side, p)
+      if (swing) {
+        p.pos.x += swing.dx
+        p.pos.y += swing.dy
+        p.pos.z += swing.dz
+        p.turn = new Quaternion().setFromAxisAngle(AXIS_X, swing.wrist).multiply(p.turn)
+      }
       if (this.forced[side]) p.curl = this.forced[side]!
       const sp = this.spring[side]
       if (sp) {
@@ -1535,6 +1676,24 @@ export class AgentRig {
           hand.node.position.addScaledVector(hand.vel, h)
         }
         hand.node.quaternion.slerp(this.tmpQuat, k)
+        if (swing) {
+          // walking (#257): attached to the body-relative place, no lag (also while the body turns on the spot). A hand that was far from it (at the keys,
+          // say) blends in over WALK.attachS, so it does not jump
+          if (this.attachT[side] === 0) {
+            if (hand.node.position.distanceTo(this.tmpPos) < WALK.attachNear) this.attachT[side] = 1
+            else this.attachOff[side].copy(root.worldToLocal(this.tmpAt.copy(hand.node.position))).sub(p.pos)
+          }
+          const a = (this.attachT[side] = Math.min(1, this.attachT[side] + dt / WALK.attachS))
+          if (a >= 1) {
+            hand.node.position.copy(this.tmpPos)
+            hand.node.quaternion.copy(this.tmpQuat)
+          } else {
+            // the distance to the place shrinks by a smoothstep (never grows, never jumps), the place carried by the body
+            hand.node.position.copy(root.localToWorld(this.tmpAt.copy(p.pos).addScaledVector(this.attachOff[side], 1 - smooth01(a))))
+            hand.node.quaternion.slerp(this.tmpQuat, smooth01(a))
+          }
+          hand.vel.set(0, 0, 0)
+        } else this.attachT[side] = 0
       }
       // blend the joint angles over ~120 ms (agents.md 2.7); at once with reduced motion
       const c = this.curls[side]
@@ -1661,8 +1820,21 @@ export class AgentRig {
     if (dv?.target && dv.w > 0) {
       if (!this.spring[side]) this.spring[side] = { pos: hand.node.position.clone(), quat: hand.node.quaternion.clone() }
       dv.target.decompose(this.tmpPos, this.tmpQuat, this.tmpScl)
+      // walking with it in the hand (#257): +-0.6 cm up and down at twice the step rate (the watering can +-1 cm); no swing, no bob under reduced motion
+      if (this.walkSt.mode === 'walk') this.tmpPos.y += this.walkSt.held * (this.want?.kind === 'watering_can' ? WALK.canBob : WALK.heldBob)
       hand.node.position.lerp(this.tmpPos, dv.w)
-      hand.node.quaternion.slerp(this.tmpQuat, dv.w)
+      if (dv.reach && dv.w < 1) {
+        // #255: on the way to it the fingers follow the reach direction (shoulder -> the hand's place) and the palm faces the object the grip takes (the grip's own
+        // palm direction); the pose's rotation first turns into that (w 0 -> 0.5), then the grip's own pose takes over (0.6 -> 1) and wins
+        const root = this.parts.root
+        root.getWorldQuaternion(this.rootQuat)
+        const palm = this.tmpAt.set(0, 0, 1).applyQuaternion(this.tmpQuat).applyQuaternion(this.tmpQuat2.copy(this.rootQuat).invert())
+        const at = root.worldToLocal(hand.node.position.clone())
+        const r = reachFrame(side, at, this.seat, palm)
+        const reachQ = this.tmpQuat2.copy(this.rootQuat).multiply(r.quat)
+        const q = hand.node.quaternion.clone().slerp(reachQ, smooth01(MathUtils.clamp(dv.w * 2, 0, 1)))
+        hand.node.quaternion.copy(q.slerp(this.tmpQuat, smooth01(MathUtils.clamp((dv.w - 0.6) / 0.4, 0, 1))))
+      } else hand.node.quaternion.slerp(this.tmpQuat, dv.w)
     }
     hand.node.updateMatrixWorld(true)
   }
