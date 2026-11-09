@@ -202,7 +202,18 @@ describe('#194 thock keyboard', async () => {
     expect(spread(1, 1).pitch).toBeCloseTo(Math.pow(2, 1 / 12))
     expect(spread(0.5, 0.5)).toEqual({ pitch: 1, len: 1 })
   })
-  it('four voices, thock first (the default)', () => expect(KEY_VOICES[0]).toBe('thock'))
+  it('thock first (the default), then the two A/B candidates (#194 thock2)', () => expect(KEY_VOICES.slice(0, 3)).toEqual(['thock', 'thock2', 'sample']))
+  it('the recorded strokes: 24 kHz 16-bit mono WAV, 8 × 160 ms, under 64 KB', async () => {
+    const fs = await import('node:fs')
+    const { SAMPLE_STROKES, SAMPLE_LEN_S, SAMPLE_URL } = await import('./keys')
+    const b = fs.readFileSync(new URL(`../../public/${SAMPLE_URL}`, import.meta.url))
+    expect(b.toString('ascii', 0, 4)).toBe('RIFF')
+    expect(b.readUInt16LE(22)).toBe(1) // mono
+    expect(b.readUInt32LE(24)).toBe(24000)
+    expect(b.readUInt16LE(34)).toBe(16)
+    expect(b.readUInt32LE(40) / 2 / 24000).toBeCloseTo(SAMPLE_STROKES * SAMPLE_LEN_S, 2)
+    expect(b.length).toBeLessThan(64 * 1024)
+  })
   it('typing has its own bus, 5 dB under the effects', () => {
     expect(CUES.type.bus).toBe('keys')
     expect(20 * Math.log10(BUS_LEVEL.keys / BUS_LEVEL.sfx)).toBeCloseTo(-5, 0)
