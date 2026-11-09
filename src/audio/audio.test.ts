@@ -156,3 +156,14 @@ describe('② play sounds', async () => {
     expect(keysBetween(s, 100).keys).toEqual([])
   })
 })
+
+describe('ping-pong point end', async () => {
+  const { pingpongEvents } = await import('./playSounds')
+  it('a point ending (phase → dead) is the dull thud', () => {
+    const r = (phase: string) => ({ ballPos: [0, 0.4, 0], phase, hitter: 0, swing: null, score: [0, 0], server: 0, game: 0 }) as never
+    const a = pingpongEvents(null, 1, 0, r('flight'), 0.02)
+    expect(pingpongEvents(a.next, 1, 16, r('dead'), 0.02).events).toEqual(['floor'])
+    const b = pingpongEvents(a.next, 1, 16, r('flight'), 0.02)
+    expect(pingpongEvents(b.next, 1, 32, r('flight'), 0.02).events).toEqual([])
+  })
+})

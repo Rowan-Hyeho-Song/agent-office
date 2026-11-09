@@ -13,27 +13,30 @@ export const JUMP_MS = 250
 export type PingpongEvent = 'hit' | 'bounce' | 'floor'
 
 /** what the ping-pong tracker remembers of the last frame */
-export type PingpongPrev = { seed: number; tMs: number; swingSide: number | null; swingT: number; y: number | null; vy: number }
+export type PingpongPrev = { seed: number; tMs: number; swingSide: number | null; swingT: number; y: number | null; vy: number; phase?: Rally['phase'] }
 
 /**
  * Events between two frames of the same rally (pure, tested).
  * - hit: the same side's swing passes contact (t01 0.5; a miss swings late and still sounds like air, not a ball)
- * - bounce: the ball turns upward within 3 cm of the table top (table-local y = ball radius)
- * - floor: it turns upward below the table (a miss going long or into the net)
+ * - bounce: the ball turns upward within 8 cm of the table top (at 60 fps it moves ~5 cm a frame, so the lowest sample
+ *   can sit above the surface; table-local y = ball radius at contact)
+ * - floor: it turns upward below the table, or the point ends (a miss into the net or long: the ball is gone before
+ *   it reaches the floor, so the end of the point is where the dull "툭" goes)
  */
 export function pingpongEvents(prev: PingpongPrev | null, seed: number, tMs: number, r: Rally, ballR: number): { events: PingpongEvent[]; next: PingpongPrev } {
   const y = r.ballPos ? r.ballPos[1] : null
   const dt = prev ? tMs - prev.tMs : 0
   const vy = prev && prev.y !== null && y !== null && dt > 0 ? (y - prev.y) / dt : 0
-  const next: PingpongPrev = { seed, tMs, swingSide: r.swing?.side ?? null, swingT: r.swing?.t01 ?? 0, y, vy }
+  const next: PingpongPrev = { seed, tMs, swingSide: r.swing?.side ?? null, swingT: r.swing?.t01 ?? 0, y, vy, phase: r.phase }
   if (!prev || prev.seed !== seed || dt <= 0 || dt > JUMP_MS) return { events: [], next }
   const events: PingpongEvent[] = []
   if (r.swing && prev.swingSide === r.swing.side && prev.swingT < 0.5 && r.swing.t01 >= 0.5) events.push('hit')
   // the turning point is last frame's height (the lowest one)
   if (y !== null && prev.y !== null && prev.vy < 0 && vy >= 0) {
-    if (prev.y < ballR + 0.03 && prev.y > -0.05) events.push('bounce')
+    if (prev.y < ballR + 0.08 && prev.y > -0.05) events.push('bounce')
     else if (prev.y < -0.3) events.push('floor')
   }
+  if (prev.phase && prev.phase !== 'dead' && r.phase === 'dead' && !events.includes('floor')) events.push('floor')
   return { events, next }
 }
 
