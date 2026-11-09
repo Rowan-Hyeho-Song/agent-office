@@ -413,6 +413,9 @@ const toMatrix = (t: { pos?: number[]; rot?: number[] } | undefined) => {
 }
 
 /** every prop in the office, who holds it, and how it moves between its home and a hand */
+/** a prop this close (m) to its home is back in place */
+const PROP_HOME_EPS = 0.015
+
 export class PropBank {
   private props: Prop[] = []
 
@@ -484,6 +487,16 @@ export class PropBank {
 
   /** props someone else moves right now (the paper plane in flight, plane.ts); update() leaves them alone */
   readonly borrowed = new Set<Object3D>()
+
+  private home = new Matrix4()
+  /** a prop an agent has out of its place: held, placed by an activity, flown by someone else, or still on its way back home (the fade group of the shelf leaves it opaque meanwhile, occluders.tsx) */
+  isAway(node: Object3D): boolean {
+    const p = this.props.find((x) => x.node === node)
+    if (!p) return false
+    if (p.holder || p.forced || this.borrowed.has(node)) return true
+    this.homeWorld(node, this.home)
+    return this.pos.setFromMatrixPosition(this.home).distanceToSquared(node.position) > PROP_HOME_EPS * PROP_HOME_EPS
+  }
 
   /** a prop node of this kind (the first), with its grip offset, for animations that move it themselves */
   find(kind: string): { node: Object3D; gripLocal: Matrix4 } | undefined {

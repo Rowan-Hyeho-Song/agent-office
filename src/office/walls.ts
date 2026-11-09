@@ -1,4 +1,4 @@
-import { Box3, BufferAttribute, BufferGeometry, Mesh, MeshStandardMaterial, Plane, Vector3, type Intersection, type Object3D } from 'three'
+import { Box3, BufferAttribute, BufferGeometry, Material, Mesh, Plane, Vector3, type Intersection, type Object3D } from 'three'
 import { ROOM } from './room'
 import { VIEW, WALLS, type Hidden, type Wall } from './view'
 
@@ -69,6 +69,31 @@ export interface FadeGroup {
   box: Box3
   /** furniture with its back to this wall fades while the wall is lowered */
   backTo?: Wall
+  /** member mesh -> the prop an agent can take out (a book) it belongs to. While that prop is away from its place its meshes leave the group (occluders.tsx) */
+  props?: Map<Mesh, Object3D>
+}
+
+/**
+ * The bookshelf group, defined once, from the model (#253). A mesh is in when
+ *  1. its node (or an ancestor) carries extras `fade_group: "<id>"` (the marker the 3D side should put on every node of the shelf and of what stands on / in it);
+ *  2. or its node is the `backTo` furniture itself or named as part of it (fadeGroupOfNode: shelf_*, screen_shelf_*, hit_library);
+ *  3. or it sits inside the volume of the `backTo` furniture and its things: the group's meshes so far, grown by VOLUME_PAD and open
+ *     upwards by VOLUME_HEADROOM, so what stands on top follows too. The books (prop_shelfbook_*, their _l / _r halves and _page sheets)
+ *     and anything placed in a compartment or on top join without a name or a rule. Agents, walls, the room and the lounge never join by volume.
+ * Computed once at load, with every prop at its home.
+ */
+export const VOLUME_PAD = 0.03
+export const VOLUME_HEADROOM = 1.5
+const NOT_BY_VOLUME = /^(agent_|room$|wall_|lounge)/
+
+/** the prop a mesh belongs to: an ancestor that is a prop, or one named `<prop>_l|_r|_page` (a book's halves and sheet are nodes of their own) */
+function propOf(m: Mesh, props: Set<string>, byName: Map<string, Object3D>): Object3D | null {
+  for (let o: Object3D | null = m; o; o = o.parent) {
+    if (o.userData.prop) return o
+    const base = /^(.*)_(?:l|r|page)$/.exec(o.name)?.[1]
+    if (base && props.has(base)) return byName.get(base) ?? null
+  }
+  return null
 }
 
 const meshesUnder = (o: Object3D) => {
@@ -171,6 +196,7 @@ export function prepareView(scene: Object3D): FadeGroup[] {
 
   const byId = new Map<string, Mesh[]>()
   const toGroup = (id: string, m: Mesh) => {
+    if (m.userData.fadeGroup === id) return
     m.userData.fadeGroup = id
     byId.set(id, [...(byId.get(id) ?? []), m])
   }
@@ -194,28 +220,54 @@ export function prepareView(scene: Object3D): FadeGroup[] {
     m.visible = false
   }
 
-  // 2. desk things fade with their desk; `backTo` furniture is one group with the things attached to it
+  // 2. desk things fade with their desk; `backTo` furniture is one group with everything attached to it or standing in it
   const backTo = new Map<string, Wall>()
+  const explicit = (o: Object3D): string | null => {
+    for (let a: Object3D | null = o; a; a = a.parent) if (typeof a.userData.fade_group === 'string') return a.userData.fade_group
+    return null
+  }
   scene.traverse((o) => {
-    const id = fadeGroupOfNode(o.name) ?? (o.userData.backTo && o.name ? o.name : null)
+    const id = explicit(o) ?? fadeGroupOfNode(o.name) ?? (o.userData.backTo && o.name ? o.name : null)
     if (!id) return
-    o.userData.fadeGroup = id
     if (o.userData.backTo && WALLS.includes(o.userData.backTo)) backTo.set(id, o.userData.backTo as Wall)
-    if (o instanceof Mesh) toGroup(id, o)
-    else if (o.userData.backTo) for (const m of meshesUnder(o)) toGroup(id, m)
+    // desks: the node's own mesh; the shelf and anything marked: the node's whole subtree
+    const whole = !(o instanceof Mesh) && (o.userData.backTo || explicit(o) || /^(?:shelf_|screen_shelf_|hit_library$)/.test(o.name))
+    for (const m of o instanceof Mesh ? [o] : whole ? meshesUnder(o) : []) toGroup(id, m)
   })
   scene.updateMatrixWorld(true)
+  const props = new Set<string>()
+  scene.traverse((o) => o.userData.prop && o.name && props.add(o.name))
+  const owners = new Map<string, Map<Mesh, Object3D>>()
+  for (const [id] of backTo) {
+    const own = new Map<Mesh, Object3D>()
+    owners.set(id, own)
+    const vol = new Box3()
+    for (const m of byId.get(id) ?? []) vol.union(new Box3().setFromObject(m))
+    vol.expandByScalar(VOLUME_PAD)
+    vol.max.y += VOLUME_HEADROOM
+    scene.traverse((o) => {
+      if (!(o instanceof Mesh) || o.userData.fadeGroup || wallOf(o)) return
+      for (let a: Object3D | null = o; a; a = a.parent) if (NOT_BY_VOLUME.test(a.name)) return
+      const b = new Box3().setFromObject(o)
+      if (!b.isEmpty() && vol.containsBox(b)) toGroup(id, o)
+    })
+    for (const m of byId.get(id) ?? []) {
+      const p = propOf(m, props, byName)
+      if (p) own.set(m, p)
+    }
+  }
   for (const [id, meshes] of byId) {
     meshes.forEach((m) => (m.userData.fadeGroup = id))
     const box = new Box3()
     for (const m of meshes) box.union(new Box3().setFromObject(m))
-    groups.push({ id, meshes, box, backTo: backTo.get(id) })
+    groups.push({ id, meshes, box, backTo: backTo.get(id), props: owners.get(id) })
   }
 
-  // 3. wall and fade meshes get their own material (the exported lit ones are shared with other meshes)
+  // 3. wall and fade meshes get their own material (lit ones exported by the glb are shared with other meshes, e.g. every book cover)
+  const inGroup = new Set(groups.flatMap((g) => g.meshes))
   scene.traverse((o) => {
-    if (!(o instanceof Mesh) || !(o.material instanceof MeshStandardMaterial)) return
-    if (wallOf(o) || groups.some((g) => g.meshes.includes(o))) o.material = o.material.clone()
+    if (!(o instanceof Mesh) || !(wallOf(o) || inGroup.has(o))) return
+    o.material = Array.isArray(o.material) ? o.material.map((x: Material) => x.clone()) : o.material.clone()
   })
   return groups
 }

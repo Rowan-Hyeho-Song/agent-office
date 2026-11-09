@@ -26,7 +26,7 @@ export function Office({ world }: { world: OfficeWorld }) {
     <>
       <primitive object={scene} />
       <Cutaway scene={scene} />
-      <Occluders groups={fades} />
+      <Occluders groups={fades} scene={scene} />
       <Outside nodes={nodes} world={world} />
       <Agents world={world} />
       <TrayClick scene={scene} nodes={nodes} />
