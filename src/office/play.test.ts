@@ -211,3 +211,19 @@ describe('reading and ping-pong never share a block (#193)', () => {
     expect(pingpong).toBeGreaterThan(100)
   })
 })
+
+describe('no head-on change of places between the sofa and the side table (#193)', () => {
+  it('nobody goes from the sofa to the book the block after somebody else read', () => {
+    const FIVE = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
+    let readers = 0
+    for (let b = 1; b < 2000; b++) {
+      const now = playAt(b * BLOCK_MINUTES, FIVE)
+      const was = playAt((b - 1) * BLOCK_MINUTES, FIVE, new Set(), 0) // the draw the rule looks back at
+      const reader = Object.entries(now).find(([, o]) => o.kind === 'books')
+      if (!reader) continue
+      readers++
+      if (Object.values(was).some((o) => o.kind === 'books')) expect(was[reader[0]]?.kind, `block ${b}`).not.toBe('sofa')
+    }
+    expect(readers).toBeGreaterThan(100)
+  })
+})

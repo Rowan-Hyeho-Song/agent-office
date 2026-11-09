@@ -429,6 +429,10 @@ export class TrafficPlanner {
         const ob = this.px(olds.get(seq[j].id)!, t, B)
         const d0 = Math.hypot(oa.x - ob.x, oa.z - ob.z)
         const end = Math.min(Math.max(ta.endT, tb.endT) + 0.5, t + 20)
+        // the planner lets an agent come close to a designed neighbour of its own destination (limit(): a sofa seat beside the next); this check
+        // must allow the same approach, or it flags the plan the search was right to make and reorders the pair for ever (#193)
+        const goalA = seq[i].req && this.spots[seq[i].req!.spot] ? { idx: this.idx.get(seq[i].req!.spot) ?? -1, ...this.pointOf(seq[i].req!) } : null
+        const goalB = seq[j].req && this.spots[seq[j].req!.spot] ? { idx: this.idx.get(seq[j].req!.spot) ?? -1, ...this.pointOf(seq[j].req!) } : null
         for (let tt = t; tt < end; tt += 0.1) {
           this.px(ta, tt, A)
           this.px(tb, tt, B)
@@ -439,6 +443,10 @@ export class TrafficPlanner {
           const ia = Math.max(0, Math.min(ta.n - 1, Math.round((tt - ta.t0) / TRAFFIC.sampleDt)))
           const ib = Math.max(0, Math.min(tb.n - 1, Math.round((tt - tb.t0) / TRAFFIC.sampleDt)))
           if (ta.at[ia] >= 0 && tb.at[ib] >= 0 && this.exempt.has(ta.at[ia] * KEY + tb.at[ib])) continue
+          // B walking in beside A resting at a spot next to B's destination, or A beside B's
+          const approach = (g: { idx: number; x: number; z: number } | null, p: { x: number; z: number }, other: Traj, oi: number) =>
+            g !== null && g.idx >= 0 && other.at[oi] >= 0 && d >= this.limit({ goalIdx: g.idx, gx: g.x, gz: g.z } as Ctx, p.x, p.z, other, oi, TRAFFIC.planGap) ? true : false
+          if (approach(goalB, B, ta, ia) || approach(goalA, A, tb, ib)) continue
           return { early: seq[i], late: seq[j] }
         }
       }
