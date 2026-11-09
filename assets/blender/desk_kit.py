@@ -337,8 +337,10 @@ def oak():
     wave.inputs["Distortion"].default_value = 7.0
     wave.inputs["Detail"].default_value = 5
     ramp = nodes.new("ShaderNodeValToRGB")
-    ramp.color_ramp.elements[0].color = rgba("#c1ad8b")  # 6% darker
-    ramp.color_ramp.elements[1].color = rgba("#cdb894")
+    # #195: the work light is cool (#dfe6ff + the monitors): the bake came out ~1.5x bluer than #cdb894, so the albedo is
+    # warmed by (1, 0.9, 0.67) in linear to land on the designer's range (#c1ad8b-#cdb894) in the atlas
+    ramp.color_ramp.elements[0].color = rgba("#c1a573")  # 6% darker
+    ramp.color_ramp.elements[1].color = rgba("#cdae7b")
     links.new(tc.outputs["Object"], mp.inputs["Vector"])
     links.new(mp.outputs["Vector"], wave.inputs["Vector"])
     links.new(wave.outputs["Fac"], ramp.inputs["Fac"])

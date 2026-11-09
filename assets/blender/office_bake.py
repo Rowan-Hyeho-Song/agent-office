@@ -115,11 +115,11 @@ WORK_Z = 0.5  # where an agent hovers in front of its desk (from the desk center
 AGENTS = [  # desk frame (x, z, ry): the agent sits on local +z and faces local -z (the monitor)
     # #195 plan 2 (desks.md 2.1.3): an island pod, two rows of two back to back running north-south (west row x -3.01,
     # east row x -2.39, desks 1.2 long), MEMO's head desk across their north end in front of the window
-    {"color": "#ffb347", "at": (-2.70, -2.12, math.pi)},  # 0 MEMO amber: head desk, faces south
-    {"color": "#8f9bff", "at": (-3.01, -0.01, -math.pi / 2)},  # 1 MESH lavender: west row south, faces east
-    {"color": "#ff3ea5", "at": (-3.01, -1.21, -math.pi / 2)},  # 2 HUE magenta: west row north, faces east
-    {"color": "#4df3ff", "at": (-2.39, -1.21, math.pi / 2)},  # 3 LOOP cyan: east row north, faces west
-    {"color": "#f2ffc4", "at": (-2.39, -0.01, math.pi / 2)},  # 4 ECHO phosphor (#193): east row south, faces west
+    {"color": "#ffb347", "at": (-2.50, -2.12, math.pi)},  # 0 MEMO amber: head desk, faces south
+    {"color": "#8f9bff", "at": (-2.81, -0.01, -math.pi / 2)},  # 1 MESH lavender: west row south, faces east
+    {"color": "#ff3ea5", "at": (-2.81, -1.21, -math.pi / 2)},  # 2 HUE magenta: west row north, faces east
+    {"color": "#4df3ff", "at": (-2.19, -1.21, math.pi / 2)},  # 3 LOOP cyan: east row north, faces west
+    {"color": "#f2ffc4", "at": (-2.19, -0.01, math.pi / 2)},  # 4 ECHO phosphor (#193): east row south, faces west
 ]
 WINDOW_X = -1.9  # the window over desks 0-1 (2.6 m wide)
 WHITEBOARD_X, BULLETIN_X = 1.1, 2.55
@@ -132,7 +132,7 @@ ATLAS_GAIN = {"work": float(next((a.split("=")[1] for a in sys.argv if a.startsw
               "desk_props": float(next((a.split("=")[1] for a in sys.argv if a.startswith("--gain-desk=")), 0.27))}  # calibrated: tops linear ~(2.26, 1.91, 1.57) at 1.0
 MEET_RING, MEET_R, MEET_RY = 0.9, 1.16, math.radians(-3.0)
 CHAT_SPOTS = ((-1.45, -2.95), (-0.45, -2.95))  # the second conversation: two spots by the window, facing each other
-RUG_WORK = (-2.70, -0.92, 2.46, 4.24)  # x, z, width, depth (desks.md 2.1.5)
+RUG_WORK = (-2.50, -0.92, 2.46, 4.24)  # x, z, width, depth (desks.md 2.1.5)
 RUG_LOUNGE = (2.2, 2.55, 2.5, 1.3)
 RUG_MEET_D = 2.92
 DOOR_Z = 2.6
@@ -865,6 +865,9 @@ def spring(name, a, b, r, turns, material, group, wire=0.0008, per_turn=6):
     return o
 
 
+PEN_CUP_Z = 0.0  # HUE's pen cup, desk frame z (was -0.06: 0.78 m from the seat, past the 0.75 reach)
+
+
 def seat_hue(G):
     """desk-props.md 3 HUE: the swatch fan (+ a grey number band under each chip, a domed pin head), a pen tablet
     0.26 x 0.17 (active-area outline live, four shortcut buttons on the left, a cable off the top, a pen cup), an
@@ -902,11 +905,11 @@ def seat_hue(G):
     tcab = rail("tablet_cable", [(bx - 0.06, h + 0.006, bz - bd / 2), (bx - 0.065, h + 0.003, bz - bd / 2 - 0.03), (bx - 0.04, h + 0.003, -0.25), (bx - 0.03, h - 0.01, -0.315)], 0.0018, cable_m, G)
     tcab.data.resolution_u, tcab.data.bevel_resolution = 4, 0
     s += [tcab, lathe("pen_cup", [(0, 0), (0.017, 0), (0.018, 0.002), (0.018, 0.05), (0.0165, 0.05), (0.0165, 0.004), (0, 0.004)],
-                      (0.53, h, -0.06), dark, G, seg=18)]
+                      (0.53, h, PEN_CUP_Z), dark, G, seg=18)]  # #195: 0.73 m from the seat (reach 0.75, coder)
     # the pen's home (designer): standing in the cup, tilted 15 deg back. prop_tablet_pen keeps its #164 mesh (along
     # local z, tip at -z, 7 cm from the centre pivot); only its home moves: tip on the cup's floor, local z up and back
     a15 = math.radians(15)
-    P.append(("prop_tablet_pen", None, Mx((0.53, h + 0.004 + 0.07 * math.cos(a15), -0.06 - 0.07 * math.sin(a15)), rx=-math.radians(90) - a15)))
+    P.append(("prop_tablet_pen", None, Mx((0.53, h + 0.004 + 0.07 * math.cos(a15), PEN_CUP_Z - 0.07 * math.sin(a15)), rx=-math.radians(90) - a15)))
     # 3 succulent (as before, #126)
     s += plant_tris("succulent", echeveria("succulent", 0.24, h, -0.18, G))
     # 4 architect lamp: base (switch, cable), two arms each with a spring beside it, knobs at the joints, the shade
@@ -3176,7 +3179,7 @@ SPAWN = [  # where each agent hovers in the exported (idle) pose: ping-pong, cof
     (PINGPONG[0] + 1.33, PINGPONG[1], math.pi / 2),
     (COUNTER[0] - 0.62, COUNTER[1], -math.pi / 2),  # nav_coffee: in front of the counter, facing +x
     (WHITEBOARD_X, -HZ + 0.9, 0.0),
-    (-1.0, -0.6, math.pi / 2),  # ECHO: hall_mid, facing west toward its desk
+    (-0.75, -0.6, math.pi / 2),  # ECHO: hall_mid, facing west toward its desk
 ]
 POSTIT = ["#ffe27a", "#ffc46b", "#fff1b8"]
 # the #20 grip offsets were defined on the old hand empty: agent frame, arm hanging (-y = away from the
@@ -3705,7 +3708,7 @@ COFFEE_SPOT = (0.62, 0.0)  # in the counter frame: in front of the machine
 
 # #195 (desks.md 2.1.6): the pod's desks touch, so a visitor stands off its four corners (the row desks) and beside
 # MEMO's head desk on its west (the window's east end holds the chat spots)
-DESK_SIDES = [(-3.55, -2.75), (-3.62, 0.85), (-3.62, -2.0), (-1.78, -2.0), (-1.78, 0.85)]
+DESK_SIDES = [(-3.35, -2.75), (-3.42, 0.85), (-3.42, -2.0), (-1.58, -2.0), (-1.58, 0.85)]
 
 
 def build_nav():
@@ -3742,8 +3745,8 @@ def build_nav():
     mc = nav("meet_center", MEET_CENTER[0], MEET_CENTER[1], MEET_RY, "meet_center")
     mc["r"], mc["ring"] = MEET_R, MEET_RING
     # hall nodes: the aisles between the zones (#195 layout; the app's nav check #17 links and tests them)
-    for name, x, z in (("door", -3.3, DOOR_Z), ("west", -3.0, 1.4), ("work", -1.0, -1.9), ("north", -0.95, -2.3),
-                       ("mid", -1.0, -0.6), ("back", 1.0, -0.1), ("east", 3.1, -1.3), ("front", 0.2, 1.3),
+    for name, x, z in (("door", -3.3, DOOR_Z), ("west", -3.0, 1.4), ("work", -0.75, -1.9), ("north", -0.75, -2.3),
+                       ("mid", -0.75, -0.6), ("back", 1.0, -0.1), ("east", 3.1, -1.3), ("front", 0.2, 1.3),
                        ("lounge", 3.95, 1.6), ("game", -1.6, 1.2), ("ne", 4.1, 0.0)):
         nav(f"hall_{name}", x, z, 0.0, "hall")
 
