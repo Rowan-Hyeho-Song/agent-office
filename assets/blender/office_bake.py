@@ -1033,8 +1033,128 @@ def seat_loop(G):
 
 
 
-# ECHO (seat 4): stage 3 of #195
-SEATS = [seat_memo, seat_mesh, seat_hue, seat_loop, lambda G: ([], [], [])]
+# ================================================================ ECHO (seat 4, #193)
+def seat_echo(G):
+    """desks.md ECHO + desk-props.md 3: a pair of near-field speakers (bevelled baffle, silver woofer ring + live cone,
+    tweeter dome, bass port, rubber feet, a power LED), a 4-channel mixer (channel strips, a gain knob each (live),
+    fader slots + live faders, an 8-cell level meter (live), four screws), a headphone stand with the headphones
+    (prop_headphones: padded band, swivel yokes, cups + cushions, a coiled cable), three cassettes (cases, reel
+    windows, labels, five screws), an acoustic foam tile (8 wedges) behind the monitor"""
+    h = DESK_H
+    s, L, P = [], [], []
+    black = plastic("#16171b", 0.7, 0.1, 0.05, "spk_body")
+    baffle = plastic("#1d1f24", 0.6, 0.1, 0.05, "spk_baffle")
+    cone_m = plastic("#3a3d44", 0.85, 0, 0.3, "spk_cone")
+    silver = plastic("#b9bec6", 0.3, 0.85, 0.05, "spk_ring")
+    dark = plastic("#0c0d10", 0.8, 0, 0, "spk_port")
+    rubber = plastic("#0e0f12", 0.9, 0, 0.3, "rubber_foot")
+    lime = AGENTS[4]["color"]
+    leds = []
+    # 1 near-field speakers either side of the monitor, toed in 0.3 rad toward the seat; local +z = their front
+    sw, sh_, sd = 0.12, 0.20, 0.14
+    for side, sx in (("l", -1), ("r", 1)):
+        Ms = Mx((sx * 0.42, h + 0.004, -0.20), ry=-sx * 0.3)
+        parts = [box("spk_body", (sw, sh_, sd), (0, sh_ / 2, 0), black, G, bev=0.005, seg=2),
+                 box("spk_baffle", (sw - 0.008, sh_ - 0.008, 0.004), (0, sh_ / 2, sd / 2 + 0.001), baffle, G, bev=0.003, seg=1),
+                 torus("spk_woofer_ring", 0.043, 0.0028, (0, 0.075, sd / 2 + 0.004), silver, G, axis="z", seg=28, rseg=4),
+                 torus("spk_tweeter_ring", 0.019, 0.002, (0, 0.158, sd / 2 + 0.004), silver, G, axis="z", seg=20, rseg=4),
+                 place([sphere("spk_tweeter", 0.015, (0, 0, 0), plastic("#2b2e35", 0.4, 0.3, 0.05, "spk_tweeter"), G, half=True, seg=16, rings=6)],
+                       Mx((0, 0.158, sd / 2 + 0.003), rx=math.pi / 2))[0],
+                 box("spk_port", (0.06, 0.012, 0.004), (0, 0.02, sd / 2 + 0.0015), dark, G, bev=0.003, seg=1)]
+        for fx in (-1, 1):
+            for fz in (-1, 1):
+                parts.append(cyl("spk_foot", 0.008, 0.004, (fx * 0.04, -0.002, fz * 0.05), rubber, G, 10))
+        s += place(parts, Ms)
+        leds += place([cyl("spk_led", 0.0022, 0.002, (sx * -0.04, 0.188, sd / 2 + 0.0035), emitter(lime, 3.0, "spk_led"), "export", 10, axis="z")], Ms)
+        Mc = Ms @ Mx((0, 0.075, sd / 2 + 0.002))  # the woofer cone: moves along local z (travel 3 mm)
+        cone = [lathe("spk_cone", [(0.0, 0.004), (0.012, 0.0025), (0.04, -0.008), (0.042, -0.006), (0.0405, -0.004)], (0, 0, 0), cone_m, G, seg=24),
+                place([sphere("spk_dust_cap", 0.012, (0, 0, 0), cone_m, G, half=True, seg=14, rings=4, scale=(1, 0.5, 1))], Mx((0, 0, 0.003)))[0]]
+        cone = place(cone, Mx(rx=math.pi / 2))  # lathe axis (web y) -> local +z (out of the baffle)
+        L.append(LIVE(f"desk_4_spk_{side}", "bot", place(cone, Mc), Mc, travel=0.003, axis="z"))
+    L.append(LIVE("desk_4_spk_led", "neon", leds))
+    # 2 the mixer, front left: a sloped case, four channel strips (gain knob, fader slot), an 8-cell meter, 4 screws
+    mx, mz = -0.46, 0.10
+    body = plastic("#2a2d33", 0.6, 0.2, 0.05, "mixer")
+    panel = plastic("#33373e", 0.55, 0.2, 0.05, "mixer_panel")
+    ivory = plastic("#ece6d8", 0.45, 0, 0.1, "fader_cap")
+    Mm = Mx((mx, h, mz), rx=-math.radians(6))  # its top tilts 6 deg toward the seat
+    mw, mh, md = 0.16, 0.03, 0.12
+    s += place([box("mixer_case", (mw, mh, md), (0, mh / 2, 0), body, G, bev=0.004, seg=2),
+                box("mixer_panel", (mw - 0.008, 0.001, md - 0.008), (0, mh + 0.0004, 0), panel, G)], Mm)
+    for k in range(4):
+        cx = -mw / 2 + 0.018 + k * 0.03
+        s += place([box("mixer_div", (0.0008, 0.0006, md - 0.016), (cx + 0.015, mh + 0.001, 0), dark, G),
+                    box("fader_slot", (0.003, 0.0006, 0.055), (cx, mh + 0.001, 0.02), dark, G)], Mm)
+        Kn = Mm @ Mx((cx, mh + 0.001, -0.035))
+        knob = [cyl("knob", 0.0065, 0.008, (0, 0.004, 0), plastic("#16171b", 0.5, 0, 0.05, "knob"), G, 14, bev=0.001),
+                box("knob_mark", (0.0012, 0.0005, 0.005), (0, 0.0083, -0.003), ivory, G)]
+        L.append(LIVE(f"desk_4_knob_{k}", "bot", place(knob, Kn), Kn, axis="y"))
+        Fz = Mm @ Mx((cx, mh + 0.001, 0.02 + 0.0225))  # the fader at zero (the slot's front end); pushed = local -z
+        cap_ = [box("fader", (0.012, 0.008, 0.007), (0, 0.004, 0), ivory, G, bev=0.0012, seg=1),
+                box("fader_line", (0.012, 0.0004, 0.001), (0, 0.0082, 0), dark, G)]
+        L.append(LIVE(f"desk_4_fader_{k}", "bot", place(cap_, Fz), Fz, travel=0.045, axis="-z", zero=0.0))
+    meter_m = emitter(lime, 2.5, "meter")
+    for k in range(8):  # bottom (front) to top (back); the app lights them from the music's level
+        Mk = Mm @ Mx((mw / 2 - 0.016, mh + 0.0012, 0.04 - k * 0.0095))
+        L.append(LIVE(f"desk_4_meter_{k}", "neon", place([box("meter", (0.012, 0.0008, 0.006), (0, 0, 0), meter_m, "export")], Mk), Mk))
+    for fx in (-1, 1):
+        for fz in (-1, 1):
+            s += place([cyl("mixer_screw", 0.0018, 0.0008, (fx * (mw / 2 - 0.007), mh + 0.0008, fz * (md / 2 - 0.007)), silver, G, 8)], Mm)
+    # 3 the headphone stand (baked) and the headphones on it (prop_headphones; origin = the band's top centre)
+    hx, hz = 0.50, 0.08  # 4 cm right of desks.md: clear of the kit's mouse pad (its right edge at x 0.425)
+    st = plastic("#1a1b1f", 0.5, 0.3, 0.05, "hp_stand")
+    s += [lathe("hp_base", [(0, 0), (0.048, 0), (0.05, 0.003), (0.046, 0.008), (0.012, 0.01), (0, 0.01)], (hx, h, hz), st, G, seg=24),
+          cyl("hp_pole", 0.0055, 0.2, (hx, h + 0.11, hz), st, G, 10)]
+    s.append(cyl("hp_saddle", 0.008, 0.06, (hx, h + 0.21, hz), st, G, 12, axis="z", bev=0.002))  # the band rests on it
+    band_m = plastic("#1c1d22", 0.5, 0.3, 0.05, "hp_band")
+    pad_m = plastic("#2e3036", 0.95, 0, 0.5, "hp_pad")
+    cup_m = plastic("#202227", 0.5, 0.2, 0.05, "hp_cup")
+    R = 0.085
+    arc = [(R * math.sin(a), -R * (1 - math.cos(a)), 0.0) for a in [math.radians(d) for d in range(-90, 91, 15)]]
+    hp = [rail("hp_band", arc, 0.005, band_m, G),
+          rail("hp_pad", arc[3:-3], 0.009, pad_m, G)]
+    for c in hp:
+        c.data.resolution_u, c.data.bevel_resolution = 2, 1
+    for sx in (-1, 1):
+        hp += [box("hp_yoke", (0.006, 0.05, 0.012), (sx * R, -R - 0.01, 0), band_m, G, bev=0.002, seg=1),
+               cyl("hp_cup", 0.045, 0.03, (sx * (R + 0.012), -R - 0.045, 0), cup_m, G, 24, axis="x", bev=0.003),
+               place([torus("hp_cushion", 0.036, 0.011, (0, 0, 0), pad_m, G, axis="x", seg=24, rseg=6)], Mx((sx * (R - 0.006), -R - 0.045, 0)))[0]]
+    hp.append(spring("hp_cable", (-(R + 0.03), -R - 0.07, 0.0), (-(R + 0.03), -R - 0.2, 0.01), 0.005, 9, band_m, G, wire=0.0012, per_turn=6))
+    P.append(("prop_headphones", hp, Mx((hx, h + 0.21 + 0.008 + 0.009, hz), ry=math.pi / 2)))
+    # 4 three cassettes stacked flat behind left of the monitor: smoky case, two reel windows, a label, five screws
+    case_m = plastic("#5f646d", 0.35, 0.1, 0.05, "cassette_case")
+    label = plastic("#efe8d8", 0.85, 0, 0.1, "cassette_label")
+    win = plastic("#1e2026", 0.3, 0, 0, "cassette_window")
+    for k, (rot, col) in enumerate(((0.05, "#ffb347"), (-0.08, "#8f9bff"), (0.12, "#4df3ff"))):
+        Mk = Mx((-0.30, h + 0.006 + k * 0.012, -0.24), ry=rot)
+        c = [box("cassette", (0.1, 0.012, 0.064), (0, 0, 0), case_m, G, bev=0.0015, seg=1),
+             box("cassette_label", (0.08, 0.0004, 0.03), (0, 0.0062, -0.008), label, G),
+             box("cassette_stripe", (0.08, 0.0005, 0.005), (0, 0.0064, -0.018), plastic(col, 0.6, 0, 0.1, f"cassette_{k}"), G)]
+        for wx in (-0.022, 0.022):
+            c.append(cyl("cassette_window", 0.009, 0.0006, (wx, 0.0062, 0.01), win, G, 14))
+        for px_, pz_ in ((-0.045, -0.027), (0.045, -0.027), (-0.045, 0.027), (0.045, 0.027), (0.0, 0.027)):
+            c.append(cyl("cassette_screw", 0.0014, 0.0005, (px_, 0.0062, pz_), silver, G, 6))
+        s += place(c, Mk)
+    # 5 the acoustic foam tile behind the monitor, standing on its base plate: 8 vertical wedges on a backing
+    foam = plastic("#3a4452", 0.98, 0, 0.6, "foam")
+    fw, fh = 0.3, 0.15
+    Mf = Mx((0.0, h + 0.008, -0.287))
+    bm = bmesh.new()
+    for k in range(8):
+        x0, x1 = -fw / 2 + k * fw / 8, -fw / 2 + (k + 1) * fw / 8
+        xm = (x0 + x1) / 2
+        prof = [(x0, 0.0), (xm, 0.02), (x1, 0.0)]  # (x, z out toward the seat)
+        lo = [bm.verts.new(W(x, 0.0, z)) for x, z in prof]
+        hi = [bm.verts.new(W(x, fh, z)) for x, z in prof]
+        for a in range(2):
+            bm.faces.new((lo[a], lo[a + 1], hi[a + 1], hi[a]))
+        bm.faces.new((hi[0], hi[1], hi[2]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    s += place([mesh_obj("foam_wedges", bm, foam, G), box("foam_back", (fw, fh, 0.01), (0, fh / 2, -0.005), foam, G)], Mf)
+    return s, L, P
+
+
+SEATS = [seat_memo, seat_mesh, seat_hue, seat_loop, seat_echo]
 
 
 def place_desk_live(F, entries):
@@ -2808,7 +2928,7 @@ def build_props():
     out.append(prop("prop_stamp", "stamp", objs, *web_pose(H), grip_pos=(0, -0.03, 0), grip_rot=(-math.pi / 2, 0, 0)))
     # #187 (desk-props.md 5): LOOP's rubber duck and one teal keycap are props now (the duck is held up to talk to on a
     # failure, the keycap fiddled with); their grips and contacts are in build_hands
-    for name, kind in (("prop_duck", "duck"), ("prop_keycap_0", "keycap")):
+    for name, kind in (("prop_duck", "duck"), ("prop_keycap_0", "keycap"), ("prop_headphones", "headphones")):
         objs, H = SEAT_PROPS[name]
         out.append(prop(name, kind, objs, *web_pose(H), grip_pos=(0, -0.03, 0), grip_rot=(-math.pi / 2, 0, 0)))
     # #164: things written with are props now (HUE draws with the tablet pen, MEMO writes with a marker). Pens lie
@@ -2910,6 +3030,9 @@ def build_hands():
     grip_at(O["prop_keycap_0"], R, (0, 0.025, 0), (0, -0.3, -1), (0, -1, 0))
     contact(O["prop_keycap_0"], "thumb", (0, 0.0036, 0.0077), (0, 0.36, 0.93))
     contact(O["prop_keycap_0"], "index", (0, 0.0036, -0.0077), (0, 0.36, -0.93))
+    # #187: the headphones held by the band's middle (grips.md), the palm on the right cup's back when held to an ear
+    grip_at(O["prop_headphones"], R, (0, 0.03, 0), (0, 0, -1), (0, -1, 0))
+    contact(O["prop_headphones"], "palm", (0.085 + 0.012 + 0.015, -0.085 - 0.045, 0), (1, 0, 0))
     # pens (tripod): MEMO's pen (tip = the capped end, -z), the tablet pen, the markers
     tripod(O["agent_0_pen"], -0.085, 0.009)
     tripod(O["prop_tablet_pen"], -0.07, 0.006)
