@@ -197,7 +197,10 @@ describe('#240 approval chime', async () => {
   })
   it('only the owner by default', () => {
     expect(shouldChime(1, 2, false)).toBe(false)
-    expect(shouldChime(1, 2, false, 'everyone')).toBe(true)
+    expect(shouldChime(1, 2, false, false, 'everyone')).toBe(true)
+  })
+  it('stays quiet in a hidden tab, and does not save it up', () => {
+    expect(shouldChime(1, 2, true, true)).toBe(false)
   })
   it('is a screen sound, not in the room', () => {
     expect(CUES['approval.new'].spatial).toBe(false)

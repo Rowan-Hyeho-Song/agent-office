@@ -217,7 +217,7 @@ export const CUES = {
     kind: 'ui',
     bus: 'sfx',
     spatial: false,
-    gap: 2000,
+    gap: 5000, // several within 5 s = one (docs-ui.md 1.6)
     length: 0.9,
     play: (o) => {
       for (const [n, at] of [
