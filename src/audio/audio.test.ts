@@ -96,6 +96,48 @@ describe('cues', () => {
     expect(CUES.approve.spatial).toBe(false)
     expect(CUES['omok.place'].spatial).toBe(true)
   })
+  it('has the mouse (#225) on the keys bus, in the room, released softer than pressed', async () => {
+    const { MOUSE_SCALE } = await import('./mouse')
+    for (const n of ['mouse.down', 'mouse.up', 'mouse.wheel'] as const) {
+      expect(CUES[n].bus).toBe('keys')
+      expect(CUES[n].spatial).toBe(true)
+      expect(CUES[n].kind).toBe('repeat')
+    }
+    expect(MOUSE_SCALE.up).toBeLessThan(MOUSE_SCALE.down)
+    expect(MOUSE_SCALE.wheel).toBeLessThan(MOUSE_SCALE.up)
+  })
+})
+
+describe('input events → cues (#225)', () => {
+  const pos = { x: 0, y: 0.8, z: 0 }
+  const key = (t: number, kind: 'char' | 'space' = 'char', type: 'key' | 'keyUp' = 'key') => ({ type, agent: 'agent_1', kind, t, pos })
+  it('a key is a type cue of its kind, a key-up is silent', async () => {
+    const { inputCues } = await import('./inputSound')
+    const out = inputCues([key(10, 'space'), key(10.05, 'space', 'keyUp')])
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ name: 'type', keyKind: 'space', agent: 'agent_1', at: 0 })
+  })
+  it('spreads a late frame by its scene times, over the replay speed', async () => {
+    const { inputCues } = await import('./inputSound')
+    expect(inputCues([key(5), key(5.12), key(5.2)]).map((c) => c.at)).toEqual([0, expect.closeTo(0.12), expect.closeTo(0.2)])
+    expect(inputCues([key(5), key(5.4)], 4).map((c) => c.at)).toEqual([0, expect.closeTo(0.1)])
+  })
+  it('drops what is more than 250 ms behind the newest, never a catch-up burst', async () => {
+    const { inputCues } = await import('./inputSound')
+    const out = inputCues([key(1), key(1.5), key(1.6)])
+    expect(out).toHaveLength(2)
+    expect(out[0].at).toBe(0)
+    expect(inputCues([])).toEqual([])
+    expect(inputCues([key(1, 'char', 'keyUp')])).toEqual([])
+  })
+  it('maps the mouse, a wheel notch to one tick, and gives every event a stable key', async () => {
+    const { inputCues } = await import('./inputSound')
+    const m = (kind: 'down' | 'up' | 'wheel', t: number, ticks?: number) => ({ type: 'mouse' as const, agent: 'agent_2', kind, t, pos, ticks })
+    const out = inputCues([m('down', 2), m('up', 2.09), m('wheel', 2.2, 1)])
+    expect(out.map((c) => c.name)).toEqual(['mouse.down', 'mouse.up', 'mouse.wheel'])
+    expect(inputCues([m('wheel', 3, 3)])).toHaveLength(3)
+    expect(inputCues([m('down', 2)])[0].key).toBe(inputCues([m('down', 2)])[0].key)
+  })
 })
 
 describe('momentaryMax', () => {
