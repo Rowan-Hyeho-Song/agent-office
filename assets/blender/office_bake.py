@@ -3074,6 +3074,31 @@ def build_hands():
         F = frame(a["at"])
         grip_at(f"desk_{i}_mouse", R, (0.3, DESK_H + 0.055, 0.085), (0, -0.3, -1), (0, -1, 0), M=F)  # #187 kit mouse (pad z 0.10)
         contact(f"desk_{i}_mouse", "index", (0.288, DESK_H + 0.0301, 0.04), (0, 1, 0), M=F)  # on desk_<i>_mouse_l
+        contact(f"desk_{i}_mouse", "middle", (0.312, DESK_H + 0.0301, 0.04), (0, 1, 0), M=F)  # #187: on desk_<i>_mouse_r
+    # #187 (grips.md rows 49-63): the desk things' hand points, in each desk's frame (positions as in seat_*)
+    h = DESK_H
+    Fd = [frame(a["at"]) for a in AGENTS]
+    tx, tz = TRAY[0], TRAY[1]
+    top = h + 0.075 + 0.003 + 5 * 0.003  # MEMO's IN stack, 5 sheets: the top sheet's right front corner
+    contact("desk_0_in", "thumb", (tx + 0.095, top, tz + 0.012 + 0.12), (0, 1, 0), M=Fd[0])
+    contact("desk_0_in", "index", (tx + 0.095, top - 0.003, tz + 0.012 + 0.12), (0, -1, 0), M=Fd[0])
+    Hg = Fd[0] @ Mx((-0.50, h + 0.055, -0.22))  # the hourglass: palm over the top plate, thumb on a post
+    grip_at("desk_0_hourglass", R, (0, 0.07, 0), (0, 0, -1), (0, -1, 0), M=Hg)
+    contact("desk_0_hourglass", "palm", (0, 0.055, 0), (0, 1, 0), M=Hg)
+    contact("desk_0_hourglass", "thumb", (0.0305, 0.0, 0.0), (1, 0, 0), M=Hg)
+    ttx, ttz = -0.43, -0.18  # MESH's turntable: the button, the platter's rim
+    contact("desk_1_turntable", "index", (ttx, h + 0.0105, ttz + 0.103), (0, 0, 1), M=Fd[1])
+    contact("desk_1_turntable_rim", "index", (ttx, h + 0.018 + 0.01, ttz + 0.075), (0, 1, 0), M=Fd[1])
+    kx_, ky_, kz_ = 0.46 + 0.012, h + 0.282, -0.20  # the ring light's angle knob, pinched from above and below
+    contact("desk_1_ringlight", "thumb", (kx_, ky_ + 0.011, kz_), (0, 1, 0), M=Fd[1])
+    contact("desk_1_ringlight", "index", (kx_, ky_ - 0.011, kz_), (0, -1, 0), M=Fd[1])
+    contact("desk_2_lamp", "index", (-0.52 + 0.022, h + 0.0185, -0.26 + 0.02), (0, 1, 0), M=Fd[2])  # the base switch
+    grip_at("desk_2_swatch", "l", (-0.40, h + 0.04, -0.16 + 0.04), (0, -1, 0), (0, 0, -1), M=Fd[2])  # the fan's pin
+    contact("desk_2_swatch", "index", (-0.40 + 0.06, h + 0.12, -0.16 + 0.006), (0, 0, 1), M=Fd[2])  # a chip's face
+    contact("desk_3_signal", "index", (0.47, h + 0.069 + 0.0225 + 2 * 0.045, -0.24 + 0.025), (0, 0, 1), M=Fd[3])  # top cell
+    Mm = Fd[4] @ Mx((-0.46, h, 0.10), rx=-math.radians(6))  # ECHO's faders: the fingertip on the cap's top
+    for k in range(4):
+        contact(f"desk_4_fader_{k}", "index", (-0.08 + 0.018 + k * 0.03, 0.03 + 0.001 + 0.0084, 0.0425), (0, 1, 0), M=Mm)
     contact("coffee_button", "index", COFFEE_BUTTON, (1, 0, 0), M=counter_frame())
 
 
