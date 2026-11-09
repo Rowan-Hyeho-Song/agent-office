@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { NavGraph } from './nav'
 import { GRAPH } from './navSpots.fixture'
 import { PaperPlanes } from './plane'
+import { planGesture } from './aim'
 import type { AgentRig, PropBank } from './rig'
 
 // #224: after a handoff the plane (or the receiver) was seen going to 메모's desk. The plane's home is the planner's tray,
@@ -35,14 +36,25 @@ function rig(seat: number, visible: boolean): AgentRig {
   const grip = new Object3D()
   grip.position.copy(hand)
   grip.updateMatrixWorld(true)
-  return {
+  const me = {
     id: `agent_${seat}`,
     visible,
-    gesture: null,
+    x: s.x,
+    z: s.z,
+    gesture: null as AgentRig['gesture'],
+    /** the real rig plans the turn from its own position and heading (seated at a desk here) */
+    startGesture(kind: 'throw' | 'catch', t: number, at: Vector3, o: { reduced?: boolean; flyFor?: number; holdS?: number; oneHand?: boolean } = {}) {
+      const theta = Math.atan2(-(at.x - s.x), -(at.z - s.z)) - s.ry
+      const plan = planGesture(kind, Math.atan2(Math.sin(theta), Math.cos(theta)), { seated: true, reduced: !!o.reduced, fast: false, minTurn: 0, bodyOk: true, flyFor: o.flyFor, holdS: o.holdS })
+      return (me.gesture = { kind, until: t + plan.times.end, oneHand: o.oneHand, t0: t, at, plan })
+    },
     parts: { hands: { r: { grip, node: grip } } },
     pinchPoint: (_side: string, out = new Vector3()) => out.copy(hand),
     fingerDir: (_side: string, out = new Vector3()) => out.copy(fwd),
-  } as unknown as AgentRig
+    /** the test moves the catching hand */
+    hand,
+  }
+  return me as unknown as AgentRig
 }
 
 const flat = (a: Vector3, b: Vector3) => Math.hypot(a.x - b.x, a.z - b.z)
@@ -96,5 +108,81 @@ describe('the paper plane stays with the receiver (#224)', () => {
     for (let t = 0; t < 4; t += 0.1) planes.update(t, graph, rigs, true)
     expect(flier.visible).toBe(false)
     expect(tray.position.distanceTo(trayAt)).toBe(0)
+  })
+})
+
+describe('looking before throwing, turning to catch (#224)', () => {
+  const run = (from: number, to: number, step: (t: number, rigs: Record<string, AgentRig>, planes: PaperPlanes) => void) => {
+    const { planes } = world()
+    const rigs = Object.fromEntries(SEATS.map((n) => [`agent_${n}`, rig(n, true)]))
+    planes.receive({ kind: 'handoff', from: `agent_${from}`, to: `agent_${to}` } as never)
+    for (let t = 0; t < 12; t += 1 / 60) {
+      planes.update(t, graph, rigs, false)
+      step(t, rigs, planes)
+    }
+    return { planes, rigs }
+  }
+
+  it('the plane is released only after the aim hold: in the hand until 1.0 s, flying right after', () => {
+    let release = -1
+    let inHandUntil = 0
+    let plan: { holdEnd: number; release: number } | undefined
+    run(0, 3, (t, rigs, planes) => {
+      plan ??= rigs.agent_0.gesture?.plan?.times
+      if (planes.phase === 'fold') inHandUntil = t
+      if (planes.phase === 'fly' && release < 0) release = t
+    })
+    expect(plan!.holdEnd).toBeCloseTo(0.85, 6)
+    // the aim hold (0.55 - 0.85) is over before the plane leaves the hand
+    expect(inHandUntil).toBeGreaterThan(0.85)
+    expect(release).toBeGreaterThanOrEqual(0.85)
+    expect(release).toBeLessThanOrEqual(1.0 + 1 / 30)
+    expect(inHandUntil).toBeLessThan(release)
+  })
+
+  it('the flight ends at the receiver catching hand, wherever it has reached to', () => {
+    let worst = 0
+    let seen = 0
+    run(0, 3, (_t, rigs, planes) => {
+      const r = rigs.agent_3 as unknown as { hand: Vector3 }
+      // the hand reaches sideways 0.3 m once the catch begins (a back-to-back catch)
+      if (rigs.agent_3.gesture?.kind === 'catch') r.hand.x = graph.spots.work_3.x + 0.3
+      if (planes.phase === 'held') {
+        const at = rigs.agent_3.pinchPoint('r', new Vector3())
+        worst = Math.max(worst, planes['plane']!.node.position.distanceTo(at))
+        seen++
+      }
+    })
+    expect(seen).toBeGreaterThan(10)
+    expect(worst).toBeLessThan(0.1)
+  })
+
+  it('the receiver gets a catch gesture covering the flight, the hold and the 0.6 s turn back; the sender follows the plane', () => {
+    let catching: NonNullable<AgentRig['gesture']> | undefined
+    let throwing: NonNullable<AgentRig['gesture']> | undefined
+    let followed = false
+    const { planes } = run(0, 3, (_t, rigs, p) => {
+      catching ??= rigs.agent_3.gesture ?? undefined
+      throwing ??= rigs.agent_0.gesture ?? undefined
+      if (p.phase === 'fly' && rigs.agent_0.gesture?.at === p['plane']!.node.position) followed = true
+    })
+    expect(catching!.kind).toBe('catch')
+    expect(catching!.until - catching!.t0!).toBeCloseTo(catching!.plan!.times.end, 6)
+    expect(catching!.plan!.times.end).toBeGreaterThan(1.8)
+    expect(catching!.at).toBe(planes['plane']!.node.position)
+    expect(throwing!.kind).toBe('throw')
+    expect(followed).toBe(true)
+  })
+
+  it('reduced motion: both heads turn (no body turn, no hold), the plane is on the desk', () => {
+    const { planes } = world()
+    const rigs = Object.fromEntries(SEATS.map((n) => [`agent_${n}`, rig(n, true)]))
+    planes.receive({ kind: 'handoff', from: 'agent_0', to: 'agent_3' } as never)
+    planes.update(0, graph, rigs, true)
+    for (const id of ['agent_0', 'agent_3']) {
+      const g = rigs[id].gesture!
+      expect(g.plan!.body, id).toBe(0)
+      expect(g.plan!.opts.reduced, id).toBe(true)
+    }
   })
 })

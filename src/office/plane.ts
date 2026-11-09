@@ -9,10 +9,9 @@
 import { Box3, MathUtils, Matrix4, MeshStandardMaterial, Quaternion, Raycaster, Vector3, type Mesh, type Object3D } from 'three'
 import { cue } from '../audio/cues'
 import type { NavGraph } from './nav'
-import { GESTURE_S, type AgentRig, type PropBank } from './rig'
+import type { AgentRig, PropBank } from './rig'
 import type { OfficeMessage } from './status'
 
-const FOLD_S = GESTURE_S.throw
 /** long enough to see what was caught (#62) */
 const HOLD_S = 1.2
 /** from the hand down onto the desk after the catch (#224) */
@@ -31,6 +30,8 @@ const REDUCED_S = 2.5
 const QUEUE_MAX = 8
 /** the desk top, a little in from the front edge, in front of a seat */
 const DESK_Y = 0.78
+/** the height the sender looks at on a receiver: its head */
+const AIM_Y = 1.15
 const DESK_IN = 0.33
 /** look for the desk's surface (its keyboard, papers, …) from this height down: below the monitor and lamp heads */
 const PROBE_Y = 1.0
@@ -44,6 +45,10 @@ interface Flight {
   /** scene clock time the phase started */
   since: number
   flyFor: number
+  /** how long the sender looks, turns, aims and winds up before the plane leaves its hand (aim.ts: 1.0 s) */
+  foldFor: number
+  /** what the sender looks at while it aims: the receiver's head (or its desk when it isn't in); kept up to date */
+  aimAt: Vector3
   start: Vector3
   /** where it ends: the receiver's hand, or its desk when it isn't in */
   toHand: boolean
@@ -201,12 +206,15 @@ export class PaperPlanes {
       const receiver = rigs[next.to]
       if (!sender || !receiver) return
       this.flown++
+      const toHandNow = !reduced && receiver.visible
       this.flight = {
         from: next.from,
         to: next.to,
         phase: reduced ? 'landed' : sender.visible ? 'fold' : 'fly',
         since: t,
         flyFor: 1,
+        foldFor: 0,
+        aimAt: toHandNow ? new Vector3(receiver.x, AIM_Y, receiver.z) : this.restPoint(graph, next.to, new Vector3()),
         // a sender that isn't in: from its own desk (never from the planner's tray)
         start: this.restPoint(graph, next.from, new Vector3()),
         toHand: !reduced && receiver.visible,
@@ -214,7 +222,9 @@ export class PaperPlanes {
       }
       plane.node.position.copy(this.flight.start)
       plane.node.visible = true
-      if (!reduced && sender.visible) sender.gesture = { kind: 'throw', until: t + FOLD_S }
+      if (sender.visible) this.flight.foldFor = sender.startGesture('throw', t, this.flight.aimAt, { reduced }).plan!.times.release
+      // reduced motion: the plane is on the receiver's desk at once; the heads turn to it (information, not movement)
+      if (reduced && receiver.visible) receiver.startGesture('catch', t, this.restPoint(graph, next.to, new Vector3()), { reduced: true })
       if (this.flight.phase === 'fly') this.beginFlight(t, graph, rigs)
     }
 
@@ -225,9 +235,10 @@ export class PaperPlanes {
 
     switch (f.phase) {
       case 'fold':
-        // folded in the sender's hand while the arm winds up
+        // folded in the sender's hand while it looks at the receiver, turns, aims and throws (#224)
         this.inHand(sender, plane.node.position, plane.node.quaternion)
-        if (age >= FOLD_S) {
+        if (f.toHand) f.aimAt.set(receiver.x, AIM_Y, receiver.z)
+        if (age >= f.foldFor) {
           f.start.copy(plane.node.position)
           this.beginFlight(t, graph, rigs)
         }
@@ -289,8 +300,11 @@ export class PaperPlanes {
     f.phase = 'fly'
     f.since = t
     cue('plane.throw', { pos: f.start.clone(), agent: f.from })
-    // the receiver looks up and raises its hands as the plane comes (the coder catches one-handed)
-    if (f.toHand) receiver.gesture = { kind: 'catch', until: t + f.flyFor + HOLD_S, oneHand: receiver.id === 'agent_3' }
+    // the sender's eyes follow the plane; the receiver looks at it, turns and raises its hand as it comes (the coder
+    // catches one-handed) and keeps looking until it has been looked at (#224)
+    const sender = rigs[f.from]
+    if (sender.visible && sender.gesture?.kind === 'throw' && this.plane) sender.gesture.at = this.plane.node.position
+    if (f.toHand && this.plane) receiver.startGesture('catch', t, this.plane.node.position, { flyFor: f.flyFor, holdS: HOLD_S, oneHand: receiver.id === 'agent_3' })
   }
 
   /** gone: it does not travel anywhere (#224) */
