@@ -9,7 +9,8 @@ export interface Slot extends P {
   ry: number
 }
 
-export const SEAT_R = 0.75
+/** the ring of the model's meeting circle (nav_meet_center extras ring, 0.9 m, desks.md 2.1.2) */
+export const SEAT_R = 0.9
 /**
  * The board side (0° ± 60°) stays empty in an open circle. Three and four seats stand 66-67° apart (the design says 60° and 50°: 0.75 m and 0.63 m): the traffic
  * planner keeps resting agents 2R + planGap = 0.72 m apart, and a cell of its grid can shift a seat by up to a cell's half diagonal
@@ -19,10 +20,12 @@ const OPEN: Record<number, number[]> = { 1: [180], 2: [90, 270], 3: [113, 180, 2
 const CLOSED: Record<number, number[]> = { 1: [180], 2: [90, 270], 3: [60, 180, 300], 4: [45, 135, 225, 315] }
 
 /** `count` seats round `centre`, every one facing the centre; seat i of the script takes slot i */
-export function formation(centre: P, count: number, open: boolean): Slot[] {
+export function formation(centre: P & { ry?: number }, count: number, open: boolean): Slot[] {
+  // 0° is the board side: the centre's ry is the way to the whiteboard (nav_meet_center extras), so the whole ring turns by -ry
+  const turn = -(centre.ry ?? 0)
   const angles = (open ? OPEN : CLOSED)[Math.min(4, Math.max(1, count))]
   return angles.slice(0, count).map((deg) => {
-    const a = (deg * Math.PI) / 180
+    const a = (deg * Math.PI) / 180 + turn
     const p = { x: centre.x + Math.sin(a) * SEAT_R, z: centre.z - Math.cos(a) * SEAT_R }
     return { ...p, ry: facing(p, centre) }
   })

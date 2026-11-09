@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { conversations, type DocMeta } from '../docs/library'
 import type { Goal } from './director'
-import { formation } from './formation'
+import { formation, SEAT_R } from './formation'
 import { buildScript, type MeetingScript } from './meeting'
 import { CHOREO, MeetingRunner, reaction, seatLabel, type Place } from './meetingRun'
 import { GRAPH } from './navSpots.fixture'
@@ -16,10 +16,10 @@ const status: StatusMap = Object.fromEntries([0, 1, 2, 3].map((i) => [`agent_${i
 const SEATS = [0, 1, 2, 3]
 
 const start: Record<string, { x: number; z: number }> = {
-  agent_0: { x: -2.8, z: -2.57 },
-  agent_1: { x: -1, z: -2.57 },
-  agent_2: { x: -3.64, z: -1.12 },
-  agent_3: { x: -3.64, z: 0.68 },
+  agent_0: { x: -2.7, z: -2.62 },
+  agent_1: { x: -3.51, z: -0.01 },
+  agent_2: { x: -3.51, z: -1.21 },
+  agent_3: { x: -1.89, z: -1.21 },
 }
 let where = { ...start }
 const place: Place = { at: (a) => where[a] ?? null, spot: (s) => GRAPH.spots[s] ?? null }
@@ -44,7 +44,7 @@ describe('gathering (#141)', () => {
     r.start(make('정했다.', null), 1000, status)
     const g = stepper(r, { agent_2: 'pingpong' })(1000, false)
     const dep = SEATS.map((i) => ({ i, d: g[`agent_${i}`].depart! - 1000 - (i === 2 ? CHOREO.playDelayMs : 0) }))
-    const seats = formation(GRAPH.spots.meet_center_board, 4, true)
+    const seats = formation(GRAPH.spots.meet_center, 4, true)
     const far = (i: number) => Math.hypot(where[`agent_${i}`].x - seats[i].x, where[`agent_${i}`].z - seats[i].z)
     expect([...dep].sort((a, b) => a.d - b.d).map((d) => d.i)).toEqual([...SEATS].sort((a, b) => far(b) - far(a)))
     const ds = dep.map((d) => d.d).sort((a, b) => a - b)
@@ -65,14 +65,14 @@ describe('gathering (#141)', () => {
     const r = new MeetingRunner()
     r.start(make('정했다.', null), 0, status)
     const g = stepper(r)(0, false)
-    const want = formation(GRAPH.spots.meet_center_board, 4, true)
+    const want = formation(GRAPH.spots.meet_center, 4, true)
     SEATS.forEach((i) => {
       expect(g[`agent_${i}`].spot).toBe(seatLabel(i))
       expect(g[`agent_${i}`].slot).toEqual(want[i])
     })
     const q = new MeetingRunner()
     q.start(make(null, null), 0, status)
-    expect(stepper(q)(0, false).agent_1.slot).toEqual(formation(GRAPH.spots.meet_center_floor, 4, false)[1])
+    expect(stepper(q)(0, false).agent_1.slot).toEqual(formation(GRAPH.spots.meet_center, 4, false)[1])
   })
   it('an early arriver looks at someone still coming; when the last is within 1 m they all face the centre', () => {
     where = { ...start }
@@ -83,7 +83,7 @@ describe('gathering (#141)', () => {
     r.apply(2000, (a) => at[a] ?? null, goals, undefined, place)
     expect(goals.agent_1.lookAt).toMatch(/^agent_/)
     // only agent_3 is left, and it stands next to its seat
-    const slot = formation(GRAPH.spots.meet_center_board, 4, true)[3]
+    const slot = formation(GRAPH.spots.meet_center, 4, true)[3]
     for (const i of [0, 1, 2]) at[`agent_${i}`] = seatLabel(i)
     where.agent_3 = { x: slot.x + 0.5, z: slot.z }
     const g2 = directors()
@@ -159,8 +159,8 @@ describe('deciding and dispersing (#141)', () => {
     const step = stepper(r)
     let now = until(r, step, 'decide')
     const g = step(now + 50)
-    expect(g.agent_0).toMatchObject({ spot: 'whiteboard', pose: 'post' })
-    const seats = formation(GRAPH.spots.meet_center_board, 4, true)
+    expect(g.agent_0).toMatchObject({ spot: 'board_tray', pose: 'post' })
+    const seats = formation(GRAPH.spots.meet_center, 4, true)
     for (const i of [1, 2, 3]) {
       const x = g[`agent_${i}`]
       expect(x.spot).toBe(seatLabel(i))
@@ -211,8 +211,8 @@ describe('deciding and dispersing (#141)', () => {
       expect(d).toBeGreaterThanOrEqual(CHOREO.restGapMs[0] - 20)
       expect(d).toBeLessThanOrEqual(CHOREO.restGapMs[1] + 20)
     }
-    const centre = GRAPH.spots.meet_center_floor
-    for (const i of SEATS) expect(Math.hypot(stepped[i].slot!.x - centre.x, stepped[i].slot!.z - centre.z)).toBeCloseTo(0.75 + CHOREO.stepBackM)
+    const centre = GRAPH.spots.meet_center
+    for (const i of SEATS) expect(Math.hypot(stepped[i].slot!.x - centre.x, stepped[i].slot!.z - centre.z)).toBeCloseTo(SEAT_R + CHOREO.stepBackM)
   })
   it('under reduced motion everybody leaves at once', () => {
     where = { ...start }

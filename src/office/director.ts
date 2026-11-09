@@ -5,7 +5,7 @@ import { DESK_SIDES } from './nav'
 import { blockOf, playAt, PLAYS, soloAt, type PlayKind } from './play'
 import { activityLabel, type AgentStatus, type OfficeMessage, type StatusMap } from './status'
 import type { Request } from './traffic'
-import { STAND_BLOCKERS, WATER_PLANTS } from './water'
+import { PATH_BLOCKERS, STAND_BLOCKERS, WATER_PLANTS } from './water'
 import { holding, placeOf, startWater, stepWater, WATER_LABEL, type WaterRun, type WaterStage } from './waterRun'
 import { startWrap, stepWrap, viewOf, WALKING_TO_DESK, type BeatKind, type Shown, type WrapRun } from './wrap'
 
@@ -58,10 +58,13 @@ const PUT_AWAY_MS = 800
 /** how long a face-to-face talk lasts, how long to wait for both to arrive */
 const TALK_MS = 6000
 const GATHER_MS = 30000
-/** the two talk circles (#147): the floor one by the rug, the board one before the whiteboard; seats 0 and 1 face each other */
+/**
+ * the two talk places (desks.md 2.1.2, #195): the first talk stands in the meeting circle (its talk seats, nav.ts meetSeats), a second one at
+ * the same time goes to the two chat spots by the window (one circle never holds two pairs); seats 0 and 1 face each other
+ */
 const MEET_PAIRS: [string, string][] = [
-  ['meet_floor_0', 'meet_floor_1'],
-  ['meet_board_0', 'meet_board_1'],
+  ['meet_talk_0', 'meet_talk_1'],
+  ['chat_0', 'chat_1'],
 ]
 // placeholder lines until the bubble design and real message text exist (#2, #4, designer)
 export const BUBBLE_ASK = '잠깐 이것 좀 봐 줄래?'
@@ -239,7 +242,7 @@ export class Director {
         // the scheduled plant, or the next one whose stand is not taken by somebody resting beside it (water.ts STAND_BLOCKERS)
         const names = WATER_PLANTS.map((p) => p.name)
         const first = Math.max(0, names.indexOf(play[a].plant ?? ''))
-        const free = (n: string) => !(STAND_BLOCKERS[n] ?? []).some((spot) => this.agents.some((x) => x !== a && (this.lastGoal[x]?.spot === spot || arrivedAt(x) === spot)))
+        const free = (n: string) => ![...(STAND_BLOCKERS[n] ?? []), ...(PATH_BLOCKERS[n] ?? [])].some((spot) => this.agents.some((x) => x !== a && (this.lastGoal[x]?.spot === spot || arrivedAt(x) === spot)))
         const plant = [0, 1, 2].map((k) => names[(first + k) % names.length]).find(free)
         if (plant) this.waters[a] = startWater(plant, block, now, !!opts.reduced)
       }

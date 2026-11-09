@@ -5,11 +5,12 @@ import { buildGrid, cellAt, decodeFootprint } from './grid'
 import { dist } from './nav'
 import { GRAPH } from './navSpots.fixture'
 
-const board = GRAPH.spots.meet_center_board
-const floor = GRAPH.spots.meet_center_floor
+// one meeting circle (#195): its ry is the way to the whiteboard, the ring is turned with it
+const board = GRAPH.spots.meet_center
+const floor = board
 const deg = (a: number) => (a * 180) / Math.PI
-/** angle of a seat seen from the centre, 0° = toward the board (-z), + toward +x */
-const angleOf = (c: { x: number; z: number }, p: { x: number; z: number }) => (deg(Math.atan2(p.x - c.x, -(p.z - c.z))) + 360) % 360
+/** angle of a seat seen from the centre, 0° = toward the board (the centre's ry), + toward +x */
+const angleOf = (c: { x: number; z: number; ry?: number }, p: { x: number; z: number }) => (deg(Math.atan2(p.x - c.x, -(p.z - c.z)) + (c.ry ?? 0)) + 360) % 360
 /** the angle between where a slot faces and the direction to a point */
 const off = (s: { x: number; z: number; ry: number }, to: { x: number; z: number }) => Math.abs(deg(Math.atan2(Math.sin(Math.atan2(-(to.x - s.x), -(to.z - s.z)) - s.ry), Math.cos(Math.atan2(-(to.x - s.x), -(to.z - s.z)) - s.ry))))
 

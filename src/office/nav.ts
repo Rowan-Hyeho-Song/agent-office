@@ -1,7 +1,7 @@
 // Navigation graph over the glb's nav_* empties (office_bake.py build_nav): agents glide from spot to spot
 // along these edges only, so they never teleport and never cross furniture. Pure: no three.js.
 
-export type NavKind = 'work' | 'stand' | 'sofa' | 'stool' | 'play' | 'meet' | 'meet_center' | 'door' | 'hall'
+export type NavKind = 'work' | 'stand' | 'sofa' | 'stool' | 'play' | 'meet' | 'meet_center' | 'chat' | 'door' | 'hall'
 
 /** one nav_<id> empty: floor position (web meters, y = 0) and the way an agent faces there */
 export interface NavSpot {
@@ -17,23 +17,40 @@ export interface NavGraph {
   adj: Record<string, string[]>
 }
 
-const desks = [0, 1, 2, 3]
+/** five desks (#195 안 2: a pod of five); the fifth has no agent yet (echo, #193 2/2) */
+const desks = [0, 1, 2, 3, 4]
 
 /**
  * The aisles. Every edge was checked against the baked furniture (?debug=1 casts rays along each one and
  * draws a blocked edge red). Spots on furniture (sofa, stools) are entered from the open side only.
  */
 export const EDGES: [string, string][] = [
-  // work corner: desks 0-1 under the window, 2-3 along the west wall
-  ...desks.flatMap((i): [string, string][] => [[`work_${i}`, 'hall_work']]),
-  ['work_3', 'hall_west'],
-  ['desk_side_0', 'hall_work'],
-  ['desk_side_1', 'hall_mid'],
-  ['desk_side_2', 'hall_work'],
+  // work pod (#195 안 2): two rows back to back, x -3.01 (seats 1, 2, facing east) and x -2.39 (seats 3, 4, facing west), the memo head
+  // desk 0 at the north end under the window. The west row sits in a 0.7 m lane along the wall: its two ends open to the north / south
+  // and nobody passes a seated agent there, so work_1 leaves south, work_2 north: each seat's door is its desk side (#110: a quiet route
+  // never walks through a side, so those two seats are only reachable through theirs).
+  ['work_0', 'desk_side_0'],
+  ['work_0', 'chat_0'],
+  ['work_1', 'desk_side_1'],
+  ['work_2', 'desk_side_2'],
+  ['desk_side_2', 'desk_side_0'],
+  ['desk_side_0', 'chat_0'],
+  ['desk_side_1', 'hall_west'],
+  ['work_3', 'hall_work'],
+  ['work_4', 'hall_mid'],
   ['desk_side_3', 'hall_work'],
-  ['desk_side_3', 'hall_west'],
+  ['desk_side_4', 'hall_mid'],
+  ['desk_side_4', 'hall_game'],
+  ['hall_north', 'hall_work'],
   ['hall_work', 'hall_mid'],
-  ['hall_work', 'hall_west'],
+  // north lane along the window: the second talk place (chat_0, chat_1 face each other) and the way to the whiteboard
+  ['hall_north', 'chat_0'],
+  ['hall_north', 'chat_1'],
+  ['hall_north', 'whiteboard'],
+  // the marker tray stand (#228): within reach of the markers on the whiteboard's tray
+  ['board_tray', 'whiteboard'],
+  ['board_tray', 'hall_north'],
+  ['board_tray', 'chat_1'],
   // left front: door, board game
   ['hall_west', 'hall_door'],
   ['hall_west', 'game_a'],
@@ -41,11 +58,10 @@ export const EDGES: [string, string][] = [
   ['hall_door', 'door'],
   ['hall_game', 'hall_front'],
   ['hall_game', 'hall_mid'],
-  // middle: the two talk circles (#147; their seats hang off the centre, meetSeats), whiteboard
-  ['hall_mid', 'meet_center_floor'],
-  ['hall_mid', 'meet_center_board'],
-  ['meet_center_board', 'whiteboard'],
-  ['meet_center_board', 'hall_back'],
+  // middle: the meeting circle (#195: one circle; its talk seats hang off the centre, meetSeats), whiteboard
+  ['hall_mid', 'meet_center'],
+  ['meet_center', 'whiteboard'],
+  ['meet_center', 'hall_back'],
   ['hall_mid', 'whiteboard'],
   ['hall_mid', 'hall_back'],
   ['hall_mid', 'hall_front'],
@@ -94,26 +110,27 @@ export function patchSpots(spots: NavSpot[], spec: string): NavSpot[] {
   return [...byId.values()]
 }
 
-/** how far from a meet_center its seats stand (inside the furniture-free circle of r 1.0 m, #147) */
+/** how far from the meeting centre its talk seats stand (inside the furniture-free circle; 1.0 m apart like the chat spots) */
 export const MEET_SEAT_R = 0.5
 /** a seat closer than this to another destination is left out (two bodies of R 0.3 m) */
 const SEAT_CLEAR = 0.6
-/** seat order around a centre, in floor angle (x = cos, z = sin): left, right (two face each other), front (+z), back */
+/** seat order around a centre, in floor angle (x = cos, z = sin) with the board direction at -z: left, right (two face each other), front (+z), back */
 const SEAT_ANGLES = [Math.PI, 0, Math.PI / 2, -Math.PI / 2]
 
 /**
- * The seats of a talk circle: meet_center_<name> → meet_<name>_0.. (a minimal stand-in for the old meet_a..d until
- * #141 lays out the real formation). The first two face each other across the centre (±90° from the board line), a
- * third and fourth close the circle; every seat faces the centre. A seat that would stand on another destination is skipped.
+ * The talk seats of the meeting circle (nav_meet_center): meet_talk_0.. at MEET_SEAT_R round the centre, turned with the centre's own ry
+ * (the way to the whiteboard). The first two face each other across the centre (±90° from the board line), a third and fourth close the
+ * circle; every seat faces the centre. A seat that would stand on another destination is skipped. This is the first talk place; the
+ * second is the pair of chat spots by the window (desks.md 2.1.2: one circle never holds two pairs).
  */
 export function meetSeats(center: NavSpot, others: NavSpot[]): NavSpot[] {
-  const name = center.id.replace(/^meet_center_/, '')
   const out: NavSpot[] = []
-  for (const a of SEAT_ANGLES) {
+  for (const a0 of SEAT_ANGLES) {
+    const a = a0 - center.ry
     const p = { x: center.x + Math.cos(a) * MEET_SEAT_R, z: center.z + Math.sin(a) * MEET_SEAT_R }
-    // only destinations count (an aisle point like hall_mid, which shares the floor centre, is never stood on)
+    // only destinations count (an aisle point, which may share the floor centre, is never stood on)
     if (others.some((o) => o.kind !== 'meet_center' && o.kind !== 'hall' && dist(o, p) < SEAT_CLEAR)) continue
-    out.push({ id: `meet_${name}_${out.length}`, ...p, ry: facing(p, center), kind: 'meet' })
+    out.push({ id: `meet_talk_${out.length}`, ...p, ry: facing(p, center), kind: 'meet' })
   }
   return out
 }

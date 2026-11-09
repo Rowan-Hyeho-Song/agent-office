@@ -250,7 +250,9 @@ describe('framing relative to the seat', () => {
     expect((p.pos[0] - seat.x) * fx + (p.pos[2] - seat.z) * fz).toBeCloseTo(-SHOULDER.back, 5)
   })
   it('over the shoulder when that spot is clear, else the next that is (no ids anywhere)', () => {
-    const seat = seatOf(0)
+    // seat 3 (east row, faces west): the camera behind it is inside the room. (Seat 0, the memo head, faces the room from under the window: the spot
+    // behind it is outside the north wall, so its first candidate is never clear and the next one is taken, #195.)
+    const seat = seatOf(3)
     const c = workCandidates(seat)
     expect(workPose(seat, NO_BOXES)).toEqual(c[0])
     // something stands where the first camera would be
@@ -271,8 +273,9 @@ describe('framing relative to the seat', () => {
     const p = tablePose(a, b, NO_BOXES, HOME, { dist: 3.8, y: 2.2, targetY: 0.76 })
     expect(p.target[0]).toBeCloseTo((a.x + b.x) / 2)
     expect(isClear(p.pos, NO_BOXES)).toBe(true)
-    // across the table (more z than x away from the middle), on the side of the default camera (+z)
-    expect(p.pos[2]).toBeGreaterThan(p.target[2])
+    // across the table (more z than x away from the middle). The default camera side (+z) no longer fits the room since the table moved to z 0.97 (#195):
+    // 3.8 m south of it is outside, so the pose takes the far side (-z), clear of the walls
+    expect(Math.abs(p.pos[2] - p.target[2])).toBeGreaterThan(Math.abs(p.pos[0] - p.target[0]))
     expect(Math.hypot(p.pos[0] - p.target[0], p.pos[1] - p.target[1], p.pos[2] - p.target[2])).toBeGreaterThan(3.5)
   })
   it('a stander: in front when clear, from the side when the front is a wall, always inside the room', () => {

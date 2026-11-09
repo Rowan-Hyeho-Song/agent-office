@@ -186,9 +186,9 @@ describe('traffic planner on the grid', () => {
     p.place('a', req('work_0'), 0, 0)
     p.place('b', req('work_1'), 0, 1)
     p.update(0)
-    const slot = { x: 0.2, z: -0.2, ry: 1 }
+    const slot = { x: -0.6, z: 0.9, ry: 1 }
     p.request('a', req('ring_0', { slot }), 0)
-    p.request('b', req('ring_1', { slot: { x: 0.5, z: -0.2, ry: -1 } }), 0)
+    p.request('b', req('ring_1', { slot: { x: -0.3, z: 0.9, ry: -1 } }), 0)
     const min = run(p, ['a', 'b'], 0, 60)
     expect(min).toBeGreaterThanOrEqual(R2)
     const a = p.sample('a', 60)

@@ -240,7 +240,7 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
   for (const s of ['_face', '_tip', '_glow', '_orbit', '_ear_glow', '_postit_0', '_postit_1', '_postit_2', '_postit_3', '_postit_4']) {
     if (n(s)) head.attach(n(s))
   }
-  for (const s of ['_beam', '_floor']) if (n(s)) root.attach(n(s))
+  for (const s of ['_beam', '_floor', '_floor_ring']) if (n(s)) root.attach(n(s))
   root.updateMatrixWorld(true)
   const rootQuatInv = root.getWorldQuaternion(new Quaternion()).invert()
   const hand = (side: 'l' | 'r'): Hand => {

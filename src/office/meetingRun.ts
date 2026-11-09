@@ -63,7 +63,7 @@ export interface Place {
   /** an agent's floor position */
   at(agent: string): { x: number; z: number } | null
   /** a nav spot's floor position */
-  spot(id: string): { x: number; z: number } | null
+  spot(id: string): { x: number; z: number; ry?: number } | null
 }
 
 type Phase = 'gather' | 'lines' | 'decide' | 'follow'
@@ -72,6 +72,8 @@ const id = (seat: number) => `agent_${seat}`
 /** the label a seat of the formation reports as `arrived` (the planner's slot name) */
 export const seatLabel = (seat: number) => `meet_seat_${seat}`
 const PLANNER = 0
+/** where the poster stands to pin a decision: the tray stand within arm's reach of the markers (nav_board_tray, #228 / #195), not the whiteboard spot 0.9 m from them */
+export const BOARD_STAND = 'board_tray'
 /** poses that are not a play kind: anyone else was playing and puts its props down before leaving */
 const NOT_PLAY = new Set(['idle', 'type', 'post', 'talk', 'listen', 'leave', 'doze', 'write', 'carry', 'cardpost', 'tidy'])
 
@@ -87,7 +89,7 @@ export function reaction(scriptId: string, line: ScriptLine, seat: number): { ke
 const gap = (r: () => number, [lo, hi]: number[]) => lo + r() * (hi - lo)
 
 interface Plan {
-  centre: { x: number; z: number }
+  centre: { x: number; z: number; ry?: number }
   slots: Map<number, Slot>
   /** when each one sets off, office ms */
   depart: Map<number, number>
@@ -167,7 +169,7 @@ export class MeetingRunner {
   private planOf(c: Cur, goals: Record<string, Goal>, place?: Place): Plan {
     if (c.plan) return c.plan
     const { script } = c
-    const centre = place?.spot(script.decision ? 'meet_center_board' : 'meet_center_floor') ?? { x: 0, z: 0 }
+    const centre = place?.spot('meet_center') ?? { x: 0, z: 0 }
     // with a decision the planner takes the first seat, an end of the open arc: it walks out through the gap to the board
     // (the others stand at least 0.72 m from the gap's axis, so from an inner seat it could not get out)
     const first = script.decision && script.seats.includes(PLANNER) && this.status[id(PLANNER)]?.state !== 'off' ? [PLANNER] : []
@@ -226,7 +228,7 @@ export class MeetingRunner {
     if (c.phase === 'gather' && (script.seats.every(there) || now - c.since > GATHER_MS)) this.go('lines', now)
     if (c.phase === 'lines' && now - c.t0 >= script.linesMs) this.go(script.decision && planner !== null ? 'decide' : 'follow', now)
     if (c.phase === 'decide' && planner !== null) {
-      if (arrivedAt(id(planner)) === 'whiteboard') c.postAt ??= now
+      if (arrivedAt(id(planner)) === BOARD_STAND) c.postAt ??= now
       if (c.pinnedAt === null && ((c.postAt !== null && now - c.postAt >= PIN_MS) || now - c.since > BOARD_MS)) {
         for (const cb of this.pinned) cb({ script, text: script.decision ?? '' })
         c.pinnedAt = now
@@ -293,7 +295,7 @@ export class MeetingRunner {
         const goTo = script.followUps.includes(seat) ? `work_${seat}` : null
         if (now < at) {
           // the planner stays at the board; the others keep the circle until their turn
-          goals[me] = posted ? { spot: 'whiteboard', pose: 'idle', label: '결정을 붙이고 정리하는 중' } : { ...own, pose: 'talk', label: '회의 정리하는 중' }
+          goals[me] = posted ? { spot: BOARD_STAND, pose: 'idle', label: '결정을 붙이고 정리하는 중' } : { ...own, pose: 'talk', label: '회의 정리하는 중' }
         } else if (now < at + CHOREO.stepMs && !posted) {
           // a step back and a turn toward where it is going, so nobody spins on the spot
           const to = goTo ? place?.spot(goTo) : place?.spot(goals[me]?.spot ?? '')
@@ -301,7 +303,7 @@ export class MeetingRunner {
         } else if (goTo) goals[me] = { spot: goTo, pose: 'idle', label: '후속 일하러 자리로' }
       }
     }
-    if (c.phase === 'decide' && planner !== null) goals[id(planner)] = { spot: 'whiteboard', pose: 'post', label: '결정을 화이트보드에 붙이는 중' }
+    if (c.phase === 'decide' && planner !== null) goals[id(planner)] = { spot: BOARD_STAND, pose: 'post', label: '결정을 화이트보드에 붙이는 중' }
     // a follow-up owner who was not at the meeting still goes to its seat
     if (c.phase === 'follow') for (const seat of script.followUps) if (!script.seats.includes(seat) && now >= (c.leave.get(seat) ?? now)) goals[id(seat)] = { spot: `work_${seat}`, pose: 'idle', label: '후속 일하러 자리로' }
   }
