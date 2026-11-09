@@ -64,7 +64,9 @@ create or replace view public.docs_cover with (security_invoker = false) as
     approved,
     (grade = 'public' and approved) as readable,
     created_at,
-    updated_at
+    updated_at,
+    -- the issue's GitHub labels are topic info like the title (#236): shown only where the title is
+    case when grade = 'public' and approved then coalesce(data->'labels', '[]'::jsonb) else '[]'::jsonb end as labels
   from public.docs;
 
 grant select on public.docs_cover to anon, authenticated;

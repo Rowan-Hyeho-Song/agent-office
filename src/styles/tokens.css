@@ -113,6 +113,17 @@
   --approval-accent: #ffb347; /* 탭·주 버튼·선택 표시. 판 위 10.9:1, 버튼 위 검정 글자 10.9:1 */
   --approval-panel-w: 440px;
   --surface-raised: #161a21; /* 판 안의 카드 */
+  /* 서재 주제 뱃지(#236, docs/design/docs-ui.md 3.6): 에이전트 다섯 색과 겹치지 않게 채도를 낮춤. 글자 대비는 판 #0b0e13 위 */
+  --topic-feature: #8fd19e; /* 10.8:1 */
+  --topic-bug: #ff9a8a; /* 9.4:1 */
+  --topic-design: #e9b8d8; /* 11.3:1 */
+  --topic-asset: #b9c0e8; /* 10.8:1 */
+  --topic-plan: #e8cf8f; /* 12.7:1 */
+  --topic-docs: #c9c2b2; /* 10.9:1 */
+  --topic-perf: #9fd8d0; /* 12.2:1 */
+  --topic-ui: #c8b6f0; /* 10.5:1 */
+  --topic-a11y: #f0c49a; /* 12.0:1 */
+  --topic-sound: #dfe8b0; /* 15.0:1 */
   --stamp-red: #ff5a5f; /* 어두운 판 위 결재 도장 6.3:1 */
   --approval-stamp-ms: 400; /* 도장 쾅 */
   --approval-next-ms: 1200; /* 도장 뒤 다음 건으로 */
