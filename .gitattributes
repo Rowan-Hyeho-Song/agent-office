@@ -1,1 +1,5 @@
 *.sh text eol=lf
+# generated from the glb by tests (modelData.test.ts, gripFit.test.ts FIT_WRITE): always LF, whatever core.autocrlf says
+src/office/navSpots.fixture.ts text eol=lf
+src/office/footprint.data.ts text eol=lf
+src/office/gripFit.data.ts text eol=lf

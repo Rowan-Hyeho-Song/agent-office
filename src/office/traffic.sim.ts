@@ -26,7 +26,11 @@ export function mismatch(a: string, sh: Shown | undefined, g: Goal, arrived: str
   switch (sh.kind) {
     case 'work':
       if (s !== 'working' || (g.pose !== 'type' && g.pose !== 'listen') || g.spot !== desk) return 'work: not typing at the desk'
-      return (sh.detail === undefined) === (arrived === desk) ? null : 'work: says at-desk while away (or the reverse)'
+      // at the desk = within 0.6 m of it, as for the wrap-up steps: a seated agent nudged a few cm aside for a passer (the planner's yield,
+      // e.g. 6 cm for 0.8 s in the west row of #195) is still working at its desk, and its tag rightly keeps saying so
+      // (and "on the way" is wrong only once it has really arrived; walking the last 0.6 m it rightly says so)
+      if (sh.detail === undefined) return near(desk) ? null : 'work: says at-desk while away'
+      return arrived === desk ? 'work: says on-the-way while at the desk' : null
     case 'wrap': {
       if (s !== 'wrapping' || !sh.detail || !sh.step || !WRAP_POSES.includes(g.pose)) return 'wrap: no wrap step'
       const want = { write: 'write', walk: 'carry', post: 'cardpost', tidy: 'tidy', seat: 'idle' }[sh.step]

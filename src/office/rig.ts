@@ -206,23 +206,40 @@ export function fingerModelOf(hand: Hand, finger: number | 'thumb', side: 'l' | 
   return { p: chain.map((j) => j!.node.position.clone()), rest: chain.map((j) => j!.rest.clone()), tip: tip.clone(), thumb: finger === 'thumb', sx: side === 'l' ? -1 : 1 }
 }
 
-/** the vertex of a part farthest from its pivot, in the part's own frame (a finger's tip) */
+/** two vertices this close to the farthest distance count as equally far (the glb's quantization noise is far below it) */
+const TIP_TIE_M = 2e-5
+
+/**
+ * the vertex of a part farthest from its pivot, in the part's own frame (a finger's tip). A fingertip mesh is symmetric, so several
+ * vertices are equally far (±8 mm across the pad); the quantized glb breaks that tie differently from bake to bake, and a tip picked
+ * on the other side moved the fingertip 16 mm sideways (#195: omok fingers 2.3 mm into the stone). Ties go to the +z side (the side
+ * every grip and fit was made with), and there to the farthest vertex as before.
+ */
 function tipOf(part: Object3D | undefined): Vector3 | null {
   if (!part) return null
   part.updateWorldMatrix(true, true)
   const inv = new Matrix4().copy(part.matrixWorld).invert()
   const rel = new Matrix4()
   const v = new Vector3()
-  let best: Vector3 | null = null
+  const all: Vector3[] = []
+  let far = 0
   part.traverse((o) => {
     const pos = (o as Mesh).geometry?.getAttribute('position')
     if (!pos) return
     rel.multiplyMatrices(inv, o.matrixWorld)
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i).applyMatrix4(rel)
-      if (!best || v.lengthSq() > best.lengthSq()) best = v.clone()
+      all.push(v.clone())
+      far = Math.max(far, v.length())
     }
   })
+  // among the (near-)farthest: the +z side first, then the truly farthest one there
+  let best: Vector3 | null = null
+  const side = (p: Vector3) => (p.z > 1e-6 ? 1 : 0)
+  for (const p of all) {
+    if (p.length() < far - TIP_TIE_M) continue
+    if (!best || side(p) > side(best) || (side(p) === side(best) && p.lengthSq() > best.lengthSq())) best = p
+  }
   return best
 }
 
