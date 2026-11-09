@@ -1337,7 +1337,8 @@ def fiddle_fig(name, x, z, group):
         stems.append(torus(f"{name}_scar", 0.021 - 0.006 * f, 0.0008, (x - 0.01 * f, y, z - 0.005 * f), scar, group, seg=16, rseg=4))
     fol = Foliage(f"{name}_leaves", colors=FIG_GREENS, under=(1, 1, 2, 3))
     fol.mats[0] = plastic(FIG_GREENS[0], 0.6, 0, 0.1, "fig_leaf_top")  # a little gloss (leathery)
-    fol.vein = fol.mats[3]
+    # vein colours (designer #210): a quiet step lighter than the leaf, the midrib a little more (not a variegated leaf)
+    fol.vein = (plastic("#86ad6e", 0.85, 0, 0.1, "vein_fig_mid"), plastic("#6f9a5c", 0.85, 0, 0.1, "vein_fig_side"))
     fol.vein_fol = Foliage(f"{name}_veins", colors=(), under=())
     golden = math.radians(137.5)
 
@@ -1372,7 +1373,7 @@ def fiddle_fig(name, x, z, group):
             base = at + (along * math.cos(pa) + out * math.sin(pa)) * plen
             stems.append(petiole(f"{name}_petiole", at, base, stalk, group))
             laid_leaf(fol, base, out, -up, size, mi, fig_outline(PRNG), fold=PRNG.uniform(10, 15), droop=PRNG.uniform(8, 16),
-                      curve=0.3, sub=0.12, veins_w=((0.022, 0.015, 4), (0.016, 0.012, 2)))
+                      curve=0.3, sub=0.12, veins_w=((0.003, 0.003, 4), (0.002, 0.0015, 2)))
     for path in (leader, br1, br2):  # the terminal bud: a pointed sheath (stipule) on every tip
         tip = path[-1]
         d = (path[-1] - path[-2]).normalized()
@@ -1525,12 +1526,12 @@ def monstera_leaf(fol, attach, out, tilt, size, mi, splits=0, holes=False, fold=
     laid_leaf(fol, attach, out, max(15.0, tilt - 8.0), size, mi, leaf_outline(splits, holes, rng or PRNG), fold, droop)
 
 
-def laid_leaf(fol, attach, out, tilt, size, mi, outline, fold=12.0, droop=20.0, curve=0.55, sub=0.07, veins_w=((0.024, 0.016, 8), (0.016, 0.012, 4))):
+def laid_leaf(fol, attach, out, tilt, size, mi, outline, fold=12.0, droop=20.0, curve=0.55, sub=0.07, veins_w=((0.003, 0.003, 8), (0.002, 0.0015, 4))):
     """a leaf from a 2D outline (outer loop, hole loops, vein polylines; leaf units: u along the midrib from the
     petiole 0 .. tip 1, v across), filled and subdivided, laid on a curved blade (#156). It leaves the petiole at
     attach and runs outward (out, horizontal), `tilt` degrees below the horizontal (negative: above); V-folded along
     the midrib (fold °) and rounded across (curve); the tip third droops in a curve (droop °). Smooth normals. Light
-    veins as strips just over the face: veins_w = (start width, end width, segments) for the midrib, then the rest."""
+    veins as strips just over the face: veins_w = (start width, end width in m, segments) for the midrib, then the rest."""
     out = Vector((out.x, 0.0, out.z)).normalized()
     side = UP.cross(out).normalized()
     a = math.radians(tilt)
@@ -1584,15 +1585,19 @@ def laid_leaf(fol, attach, out, tilt, size, mi, outline, fold=12.0, droop=20.0, 
     fol.surface(pts, faces, [mi] * len(faces), n0)
     # veins: thin light strips 0.4 mm over the face
     vf_target = getattr(fol, "vein_fol", None) or fol  # #156: veins in their own node (baked at VEIN_DENSITY)
-    vm = vf_target.mat(fol.vein) if hasattr(fol, "vein") else mi
+    vms = [vf_target.mat(m) for m in fol.vein] if hasattr(fol, "vein") else [mi, mi]  # (midrib, side veins)
     for k, (A, B) in enumerate(veins):
         w0, w1, segs = veins_w[0] if k == 0 else veins_w[1]
+        vm = vms[0] if k == 0 else vms[1]
+        if k:  # side veins stop 1 cm short of the edge (designer #210)
+            B = B - (B - A).normalized() * min(0.01 / size, (B - A).length * 0.5)
         vp, vf = [], []
         for s in range(segs + 1):
             q = A.lerp(B, s / segs)
             t = (B - A).normalized()
-            nn = Vector((-t.y, t.x)) * ((w0 + (w1 - w0) * s / segs) / 2)
-            vp += [P(q.x + nn.x, q.y + nn.y, 0.001), P(q.x - nn.x, q.y - nn.y, 0.001)]  # 1 mm up, 4–6 mm wide (designer: thinner strips z-fought and broke up)
+            nn = Vector((-t.y, t.x)) * ((w0 + (w1 - w0) * s / segs) / size / 2)  # veins_w in m
+            # 1 mm up (closer, the strips z-fought and broke up), midrib 3 mm, side veins 2 -> 1.5 mm (designer #210)
+            vp += [P(q.x + nn.x, q.y + nn.y, 0.001), P(q.x - nn.x, q.y - nn.y, 0.001)]
         for s in range(segs):
             i = 2 * s
             vf.append(orient(vp, [i, i + 2, i + 3, i + 1], n0))
@@ -1613,7 +1618,7 @@ def monstera(name, x, z, group):
     side, cam = camera_side(x, z)
     cam_a = math.atan2(cam.z, cam.x)
     fol = Foliage(f"{name}_leaves", colors=MONSTERA_GREENS, under=(1, 1, 2, 3))
-    fol.vein = fol.mats[3]
+    fol.vein = (plastic("#7aa56a", 0.85, 0, 0.1, "vein_monstera_mid"), plastic("#5f8d55", 0.85, 0, 0.1, "vein_monstera_side"))
     fol.vein_fol = Foliage(f"{name}_veins", colors=(), under=())
     stems = []
     # (azimuth from the camera direction °, petiole length m, arc °, blade tilt °, size m, cuts, holes)
