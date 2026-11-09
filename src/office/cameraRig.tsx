@@ -50,7 +50,8 @@ export function CameraRig({ limits, world }: { limits: boolean; world: OfficeWor
   )
   /** the camera kept clear of furniture, robots and walls (#208): zoom, pinch, WASD and robots walking into it all end here */
   const clearNow = useMemo(
-    () => (c: Orbit) => void clearCamera(camera.position, c.target, Object.values(world.rigs)),
+    // not while the door flies the camera (room mode intro / dive end 0.35 m from the door screen: that path is the door's)
+    () => (c: Orbit) => void (live.current.busy || clearCamera(camera.position, c.target, Object.values(world.rigs))),
     [camera, world],
   )
 
