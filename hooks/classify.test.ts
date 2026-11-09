@@ -160,6 +160,31 @@ describe('seatFor', () => {
   })
 })
 
+describe('DEFAULT_SEATS: the five session names of today (#193)', () => {
+  it.each([
+    ['프로젝트 기획·설계 총괄', 0],
+    ['기획·설계 총괄', 0],
+    ['3D 엔지니어', 1],
+    ['프로젝트 3D 엔지니어', 1],
+    ['프로젝트 Blender 작업', 1],
+    ['그래픽 디자이너', 2],
+    ['코더', 3],
+    ['사운드 엔지니어', 4],
+    ['프로젝트 사운드 엔지니어', 4],
+    ['ECHO', 4],
+  ])('%j -> %i', (title, seat) => {
+    expect(seatFor(title, DEFAULT_SEATS)).toBe(seat)
+  })
+  it('"3D" counts only as a whole word, and "엔지니어" alone is no seat', () => {
+    expect(seatFor('3dmax 작업', DEFAULT_SEATS)).toBeNull()
+    expect(seatFor('엔지니어', DEFAULT_SEATS)).toBeNull()
+  })
+  it('a message to "3D 엔지니어" or "사운드 엔지니어" is a paper plane to that seat', () => {
+    expect(handoffFor({ tool_name: 'SendMessage', tool_input: { to: '3D 엔지니어' } })).toEqual({ kind: 'handoff', to: 1 })
+    expect(handoffFor({ tool_name: 'SendMessage', tool_input: { to: '사운드 엔지니어' } })).toEqual({ kind: 'handoff', to: 4 })
+  })
+})
+
 describe('signalFor', () => {
   it('maps hook events', () => {
     expect(signalFor({ hook_event_name: 'SessionStart' })).toEqual({ kind: 'start' })
@@ -235,7 +260,9 @@ describe('DEFAULT_SEATS (#34)', () => {
     ['LOOP', 3],
     // common English words no longer pick a seat
     ['design review', null],
-    ['3d printing notes', null],
+    // (#193: a whole-word "3D" is seat 1 now, the 3D session is called "3D 엔지니어"; only office project folders report, #34)
+    ['3d printing notes', 1],
+    ['3dprinter notes', null],
     ['sprint planning', null],
     ['coder interview', null],
     ['loophole hunt', null],

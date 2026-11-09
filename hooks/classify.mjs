@@ -109,14 +109,17 @@ export function classifyTool(tool, input, rules) {
 }
 
 /**
- * Default title → seat (#26: 0 기획 메모, 1 3D 메시, 2 디자인 휴, 3 코더 루프). Role words and agent names only;
- * common English words like design / 3d / planning are left out (#34). Override with "seats" in hook.json.
+ * Default title → seat (#26: 0 기획 메모, 1 3D 메시, 2 디자인 휴, 3 코더 루프; #193: 4 사운드 에코). Role words and
+ * agent names only; common English words like design / planning are left out (#34). "3D" counts only as a whole
+ * word (the session is called "3D 엔지니어" now); "엔지니어" alone is not used (3D and sound both have it).
+ * Override with "seats" in hook.json.
  */
 export const DEFAULT_SEATS = [
   { seat: 0, title: '기획|메모|\\bmemo\\b' },
-  { seat: 1, title: 'blender|메시|\\bmesh\\b' },
+  { seat: 1, title: 'blender|메시|\\bmesh\\b|\\b3d\\b' },
   { seat: 2, title: '디자이너|디자인|\\bhue\\b' },
   { seat: 3, title: '코더|루프|\\bloop\\b' },
+  { seat: 4, title: '사운드|에코|\\becho\\b' },
 ]
 
 /**

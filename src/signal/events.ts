@@ -5,7 +5,8 @@
 // nothing else arrives here (plan.md 5.1). Anything outside the lists below is rejected, so a buggy or
 // hostile client can't smuggle text into the public tables.
 
-export const SEATS = [0, 1, 2, 3] as const
+/** the five desks (#193: seat 4 = 에코, sound) */
+export const SEATS = [0, 1, 2, 3, 4] as const
 export const ACTIVITIES = ['edit', 'read', 'test', 'build', 'install', 'git', 'run', 'other', 'delegate', 'think', 'private'] as const
 export type Activity = (typeof ACTIVITIES)[number]
 /** the activities whose outcome is reported (the coder's signal light, the 3D turntable, #44) */

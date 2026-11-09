@@ -36,7 +36,7 @@ create table if not exists public.approvals (
   source_url text not null unique,
   kind text not null, -- 결정 요청 | 문서 공개 | 산출물 확인, as written
   requester text not null default '',
-  requester_seat smallint check (requester_seat between 0 and 3),
+  requester_seat smallint check (requester_seat between 0 and 4),
   content text not null default '',
   options jsonb not null default '[]',
   recommended int,
@@ -89,3 +89,7 @@ begin
     alter publication supabase_realtime add table public.approvals;
   end if;
 end $$;
+
+-- #193: a fifth seat (에코, sound). Widens the check on a database made for four seats; safe to run again
+alter table public.approvals drop constraint if exists approvals_requester_seat_check;
+alter table public.approvals add constraint approvals_requester_seat_check check (requester_seat between 0 and 4);
