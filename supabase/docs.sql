@@ -66,7 +66,10 @@ create or replace view public.docs_cover with (security_invoker = false) as
     created_at,
     updated_at,
     -- the issue's GitHub labels are topic info like the title (#236): shown only where the title is
-    case when grade = 'public' and approved then coalesce(data->'labels', '[]'::jsonb) else '[]'::jsonb end as labels
+    case when grade = 'public' and approved then coalesce(data->'labels', '[]'::jsonb) else '[]'::jsonb end as labels,
+    -- how far the issue is (#241: stage, 완료 기준 count, pending 🖊). The pace of the work is not a secret, so a SECRET
+    -- document shows it too; a private project's only the stage (no count, no pending). Added last: a view can only append
+    case when grade = 'private' then jsonb_build_object('stage', data->'progress'->'stage') else data->'progress' end as progress
   from public.docs;
 
 grant select on public.docs_cover to anon, authenticated;

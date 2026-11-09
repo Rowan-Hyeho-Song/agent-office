@@ -20,8 +20,12 @@ describe('library store with the fake source', () => {
     expect(review.length).toBeGreaterThan(0)
     expect(review.every((m) => m.title === null && !m.readable)).toBe(true)
     const priv = metas.filter((m) => m.grade === 'private')
-    expect(priv).toHaveLength(2)
+    expect(priv).toHaveLength(3)
     expect(priv.every((m) => m.title === null && m.repo === null && m.folder === null)).toBe(true)
+    // progress (#241): a private plan shows its stage and nothing of its count or pending requests; the others in full
+    expect(priv.map((m) => m.progress)).toContainEqual({ stage: 'doing', checks: null, pending: 0 })
+    expect(JSON.stringify(priv)).not.toMatch(/"total":4/)
+    expect(metas.find((m) => m.progress?.pending === 2)?.progress).toEqual({ stage: 'doing', checks: { done: 1, total: 3 }, pending: 2 })
     expect(JSON.stringify(metas)).not.toMatch(/비공개 회의|비공개 보고|private\/x/)
     // asking for every body returns only the readable (public + approved) ones
     const bodies = await fake.read(

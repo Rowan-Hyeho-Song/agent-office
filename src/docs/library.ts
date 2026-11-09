@@ -2,6 +2,7 @@
 // is allowed to see of a document (the same rules as supabase/docs.sql docs_cover), the folders and files, the
 // minutes as a conversation, the stable address of a minutes row and the bookshelf's binders. The components only draw.
 
+import { sanitizeProgress, type Progress } from './progress.js'
 import { topicsOf, type TopicId } from './topics.js'
 import type { ApprovalRequest, ApprovalResult, DocKind, Grade, Minutes, Speaker } from './types.js'
 
@@ -18,6 +19,8 @@ export interface DocMeta {
   agents: number[]
   /** the issue's GitHub labels (#236); [] while the title is hidden, like the title: topic info is not for a SECRET */
   labels: string[]
+  /** a plan's progress (#241): stage, 완료 기준 count, pending 🖊. Only the stage for `private`; null / absent = the document has none (not a plan, or filed before progress existed) */
+  progress?: Progress | null
   grade: Grade
   approved: boolean
   /** this viewer gets the body (visitors: public + approved; the owner: everything but private) */
@@ -39,12 +42,20 @@ export interface DocBody {
 export type CoverSource = Pick<DocMeta, 'id' | 'kind' | 'repo' | 'folder' | 'title' | 'agents' | 'grade' | 'approved' | 'created_at' | 'updated_at'> & {
   /** the plan's GitHub labels (docs.data.labels); absent on rows that have none */
   labels?: unknown
+  /** the plan's progress (docs.data.progress); absent on rows that have none */
+  progress?: unknown
 }
 
 const HIDDEN = { repo: null, folder: null, title: null } as const
 
 /** whatever the server sent as labels (jsonb) -> only the strings */
 export const stringsOnly = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+
+/** the stage and nothing else: no bar, no pending count */
+function stageOnly(v: unknown): Progress | null {
+  const p = sanitizeProgress(v)
+  return p && { stage: p.stage, checks: null, pending: 0 }
+}
 
 /**
  * What a visitor may know of any document: the docs_cover view. A SECRET one shows no title, a `private` one not even
@@ -59,6 +70,8 @@ export function coverOf(row: CoverSource): DocMeta {
     ...(priv ? HIDDEN : { repo: row.repo, folder: row.folder, title: readable ? row.title : null }),
     agents: row.agents,
     labels: readable ? stringsOnly(row.labels) : [],
+    // not private: all of it (SECRET included, the work's pace is not a secret); private: the stage alone (docs_cover)
+    progress: priv ? stageOnly(row.progress) : sanitizeProgress(row.progress),
     grade: row.grade,
     approved: row.approved,
     readable,
@@ -70,7 +83,7 @@ export function coverOf(row: CoverSource): DocMeta {
 /** the owner reads the table (RLS: is_owner): review documents in full, `private` still only as a cover */
 export function ownerMeta(row: CoverSource): DocMeta {
   if (row.grade === 'private') return coverOf(row)
-  return { ...coverOf(row), repo: row.repo, folder: row.folder, title: row.title, labels: stringsOnly(row.labels), readable: true }
+  return { ...coverOf(row), repo: row.repo, folder: row.folder, title: row.title, labels: stringsOnly(row.labels), progress: sanitizeProgress(row.progress), readable: true }
 }
 
 // ---- table of contents ---------------------------------------------------------------------------------------------
@@ -104,6 +117,8 @@ export interface DocFile {
   seats: number[]
   /** up to two topics for the badges: from the plan (the issue) when it has any, else the first document that does */
   topics: TopicId[]
+  /** the plan's progress (#241); a file the pipeline sent none for gets a guessed one (`guessed`, see guessProgress): every file has a status */
+  progress: Progress
   /** newest document's time */
   date: string
 }
@@ -131,6 +146,11 @@ function fileTopics(sorted: DocMeta[]): TopicId[] {
   return []
 }
 
+/** no progress from the pipeline (designer, #301): closed (a merged PR's report) = 완료, open = 대기; no count, no pending */
+export function guessProgress(docs: readonly DocMeta[]): Progress {
+  return { stage: docs.some((d) => d.kind === 'report') ? 'done' : 'waiting', checks: null, pending: 0, guessed: true }
+}
+
 function makeFile(key: string, docs: DocMeta[]): DocFile {
   const sorted = [...docs].sort(byTocThenTime)
   const priv = sorted.some((d) => d.grade === 'private')
@@ -143,6 +163,7 @@ function makeFile(key: string, docs: DocMeta[]): DocFile {
     secret: priv ? 'private' : sorted.some((d) => !d.approved) ? 'review' : null,
     seats: uniqSorted(sorted.flatMap((d) => d.agents)),
     topics: fileTopics(sorted),
+    progress: sorted.find((d) => d.kind === 'plan' && d.progress)?.progress ?? guessProgress(sorted),
     date: sorted.reduce((m, d) => (d.created_at > m ? d.created_at : m), ''),
   }
 }

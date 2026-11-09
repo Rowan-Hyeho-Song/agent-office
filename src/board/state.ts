@@ -57,7 +57,9 @@ export function splitDecision(title: string): { title: string; note: string | nu
 
 /**
  * The board from the library's files (what this role may see; nothing is filtered here, see library.ts coverOf).
- * The client has no issue / PR state, only which documents exist, so:
+ * The stage is the docs pipeline's (#241, the plan's progress: scripts/docs/build.mjs progressFor), the same one the library
+ * shows: 진행 중 / 검토 / 완료 map to their columns, and a 대기 issue (no branch, no PR yet) is not on the board. A file without
+ * one (filed before progress existed) is guessed from which documents exist, as before:
  *   완료    the file has a report (a merged PR's report)
  *   검토    no report yet, but a document still SECRET (waiting for the owner's approval)
  *   진행 중 everything else
@@ -71,7 +73,9 @@ export function boardFromLibrary(folders: DocFolder[], bodies: Readonly<Record<n
   for (const folder of folders) {
     for (const file of folder.files) {
       if (file.secret === 'private' || file.repo === null || file.n === null) continue
-      const col: Column = file.docs.some((d) => d.kind === 'report') ? 'done' : file.secret === 'review' ? 'review' : 'doing'
+      const stage = file.progress.guessed ? undefined : file.progress.stage
+      if (stage === 'waiting') continue
+      const col: Column = stage ?? (file.docs.some((d) => d.kind === 'report') ? 'done' : file.secret === 'review' ? 'review' : 'doing')
       out[col].push({ key: file.key, repo: file.repo, n: file.n, title: file.secret ? null : file.title, seat: asSeat(mainSeat(file)), at: file.date })
       for (const d of file.docs) {
         if (d.kind !== 'decision' || !d.readable || !d.title) continue
