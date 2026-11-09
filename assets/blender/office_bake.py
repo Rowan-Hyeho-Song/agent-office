@@ -3618,6 +3618,9 @@ def build_nav():
     nav("chat_1", bx, bz, facing(bx, bz, ax, az), "chat")
     stand_z = -HZ + 0.9  # in front of the back wall's boards and the shelf
     nav("whiteboard", WHITEBOARD_X, stand_z, 0.0, "stand")
+    # #228: where an agent stands to take or put back a marker on the board's tray (0.5 m from the markers, facing the
+    # board): outside the meeting circle, in the strip along the north wall
+    nav("board_tray", WHITEBOARD_X - 0.28, -HZ + 0.55, 0.0, "stand")  # the middle marker's x (markers at -0.42 + 0.14 k)
     nav("bulletin", BULLETIN_X, stand_z, 0.0, "stand")
     nav("shelf", SHELF_X, stand_z, 0.0, "stand")
     cs = (counter_frame() @ Mx((COFFEE_SPOT[0], 0, COFFEE_SPOT[1]))).to_translation()
