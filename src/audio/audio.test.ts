@@ -184,3 +184,33 @@ describe('silenceReasons', async () => {
     expect(codes({ muted: true, volume: 0, ctx: null })).toEqual(['muted', 'volume0', 'noContext'])
   })
 })
+
+describe('#240 approval chime', async () => {
+  const { shouldChime } = await import('./notify')
+  const { CUES } = await import('./cues')
+  const n = (count: number, newestAt?: string) => ({ count, newestAt })
+  it('chimes once when the count goes up, never on first load or a drop', () => {
+    expect(shouldChime(null, n(3), true)).toBe(false)
+    expect(shouldChime(n(2), n(3), true)).toBe(true)
+    expect(shouldChime(n(2), n(5), true)).toBe(true) // several at once = one chime (one call)
+    expect(shouldChime(n(3), n(3), true)).toBe(false)
+    expect(shouldChime(n(3), n(2), true)).toBe(false)
+  })
+  it('one decided + one new in the same refresh: the newest request moved on (coder, #245)', () => {
+    expect(shouldChime(n(3, '2026-11-10T01:00:00Z'), n(3, '2026-11-10T01:05:00Z'), true)).toBe(true)
+    expect(shouldChime(n(3, '2026-11-10T01:05:00Z'), n(2, '2026-11-10T01:05:00Z'), true)).toBe(false)
+    expect(shouldChime(n(3, '2026-11-10T01:05:00Z'), n(3, undefined), true)).toBe(false)
+    expect(shouldChime(n(3, 'nonsense'), n(3, '2026-11-10T01:05:00Z'), true)).toBe(false)
+  })
+  it('only the owner by default', () => {
+    expect(shouldChime(n(1), n(2), false)).toBe(false)
+    expect(shouldChime(n(1), n(2), false, false, 'everyone')).toBe(true)
+  })
+  it('stays quiet in a hidden tab, and does not save it up', () => {
+    expect(shouldChime(n(1), n(2), true, true)).toBe(false)
+  })
+  it('is a screen sound, not in the room', () => {
+    expect(CUES['approval.new'].spatial).toBe(false)
+    expect(CUES['approval.new'].kind).toBe('ui')
+  })
+})
