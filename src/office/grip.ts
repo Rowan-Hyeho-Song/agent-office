@@ -8,12 +8,8 @@
 //    stays on the outside of the surface (the contact node's +y, the exported form of Blender's +z).
 
 import { Euler as EulerCtor, Matrix4, Quaternion, Vector3 } from 'three'
+import { DEG, clampFinger, clampThumb, fingerFromC, fingerRootQuat, segmentQuat, thumbFromCurl, thumbRootQuat, type JointSpec } from './handPose'
 
-const DEG = Math.PI / 180
-/** degrees per unit of c at the root, middle and tip knuckle (agents.md 2.7) */
-export const KNUCKLE_DEG = [75, 90, 60] as const
-/** the thumb: root bend, root opposition (about local z), tip bend, degrees per unit */
-export const THUMB_DEG = { bend1: 55, oppose: 60, bend2: 70 } as const
 
 /** four finger bends (index … little), then the thumb's bend and opposition */
 export type Curl = readonly [number, number, number, number, number, number]
@@ -188,43 +184,48 @@ export function mixCurl(side: GripSide, out: GripOut, pose: readonly number[], h
 
 /** a finger (or the thumb) as plain data: where each segment hangs off the one before, its rest turn, and the tip */
 export interface FingerModel {
-  /** segment origin in its parent's frame (the hand for the first), and the rest rotation */
+  /** segment origin in its parent's frame (the hand for the first), and the rest rotation; the thumb has three (_t_0, _t_1, _t_2) */
   p: Vector3[]
   rest: Quaternion[]
   /** the tip in the last segment's frame */
   tip: Vector3
   thumb: boolean
-  /** +1 right hand, −1 left (the sideways swing and the thumb's opposition mirror) */
+  /** +1 right hand, −1 left */
   sx: 1 | -1
+  /** which finger, 0 = index … 3 = little (fingers only; default 0) */
+  finger?: number
+  /** each segment's joint extras (axis, sign) from the glb; without them: flex about local x, abduct about z */
+  joint?: (JointSpec | undefined)[]
+  /** the fan angle baked into the finger root, degrees (rest_abduct) */
+  restAbd?: number
 }
 
-const AX = new Vector3(1, 0, 0)
-const AZ = new Vector3(0, 0, 1)
 const q1 = new Quaternion()
-const q2 = new Quaternion()
 const m1 = new Matrix4()
-const m2 = new Matrix4()
 const one = new Vector3(1, 1, 1)
+const NO_JOINT: JointSpec[] = []
 
 /**
- * The tip in the hand's frame. A finger: `a` = c (0 straight … 1 fully bent), `b` = the sideways swing, radians about the
- * hand's palm normal. The thumb: `a` = bend, `b` = opposition.
+ * The tip in the hand's frame, with exactly the rig's joint math (handPose.ts). A finger: `a` = c (0 straight … 1 fully bent: MCP 85c,
+ * PIP 100c, DIP k · PIP), `b` = the sideways swing on top of the baked fan, radians; limits applied. The thumb: `a` = bend, `b` = opposition
+ * (hand-poses.md 3: CMC flex / abduct / twist from the opposition, MCP 50a, IP 70a).
  */
 export function tipAt(m: FingerModel, a: number, b: number, out = new Vector3()): Vector3 {
   const acc = new Matrix4()
+  const j = m.joint ?? NO_JOINT
   if (m.thumb) {
-    q1.copy(m.rest[0]).multiply(q2.setFromAxisAngle(AZ, m.sx * THUMB_DEG.oppose * DEG * b))
-    q1.multiply(new Quaternion().setFromAxisAngle(AX, THUMB_DEG.bend1 * DEG * a))
-    acc.compose(m.p[0], q1, one)
-    q1.copy(m.rest[1]).multiply(q2.setFromAxisAngle(AX, THUMB_DEG.bend2 * DEG * a))
-    acc.multiply(m2.compose(m.p[1], q1, one))
+    const t = clampThumb(thumbFromCurl(a, b))
+    acc.compose(m.p[0], thumbRootQuat(m.rest[0], j[0], t, q1), one)
+    acc.multiply(m1.compose(m.p[1], segmentQuat(m.rest[1], j[1], t.mcp, q1), one))
+    acc.multiply(m1.compose(m.p[2], segmentQuat(m.rest[2], j[2], t.ip, q1), one))
   } else {
-    q1.setFromAxisAngle(AZ, m.sx * b).multiply(m.rest[0]).multiply(q2.setFromAxisAngle(AX, KNUCKLE_DEG[0] * DEG * a))
-    acc.compose(m.p[0], q1, one)
-    for (let k = 1; k < 3; k++) {
-      q1.copy(m.rest[k]).multiply(q2.setFromAxisAngle(AX, KNUCKLE_DEG[k] * DEG * a))
-      acc.multiply(m1.compose(m.p[k], q1, one))
-    }
+    const k = m.finger ?? 0
+    const restAbd = m.restAbd ?? 0
+    const f = clampFinger(fingerFromC(k, a, restAbd + b / DEG), k)
+    const spec = j[0] ?? { flex: { axis: 'x' as const, sign: 1 }, abduct: { axis: 'z' as const, sign: m.sx } }
+    acc.compose(m.p[0], fingerRootQuat(m.rest[0], spec, restAbd, f.abd, f.mcp, q1), one)
+    acc.multiply(m1.compose(m.p[1], segmentQuat(m.rest[1], j[1], f.pip, q1), one))
+    acc.multiply(m1.compose(m.p[2], segmentQuat(m.rest[2], j[2], f.dip!, q1), one))
   }
   return out.copy(m.tip).applyMatrix4(acc)
 }

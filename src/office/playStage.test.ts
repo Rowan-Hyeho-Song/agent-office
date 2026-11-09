@@ -56,7 +56,7 @@ const inp = (w: W, goals: Record<string, Goal>, now: number, t: number, over: Pa
 
 const tipWorld = (rig: AgentRig, side: 'l' | 'r', f: number | 'thumb', out = new Vector3()) => {
   const h = rig.parts.hands[side]
-  const j = f === 'thumb' ? h.thumb[1]!.node : h.fingers[f][2]!.node
+  const j = f === 'thumb' ? h.thumb[2]!.node : h.fingers[f][2]!.node
   const tip = f === 'thumb' ? h.thumbTip! : h.tips[f]!
   j.updateWorldMatrix(true, false)
   return out.copy(tip).applyMatrix4(j.matrixWorld)

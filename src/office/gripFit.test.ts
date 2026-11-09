@@ -49,8 +49,8 @@ describe('grip fit against the baked model', () => {
         expect(v, `${key} has an offset`).toBeTruthy()
         for (const f of fitFingers(t, rig.hands[side], composeOffset(v))) {
           if (LOG) appendFileSync(LOG, `${t.key} agent_${i} ${f.finger} err ${(f.err * 1000).toFixed(2)} mm off ${(f.off * 1000).toFixed(2)} mm (a ${f.a.toFixed(2)} b ${f.b.toFixed(2)})\n`)
-          expect(f.err, `${t.key} agent_${i} ${f.finger}`).toBeLessThanOrEqual(0.003)
-          expect(f.off, `${t.key} agent_${i} ${f.finger} not through the surface`).toBeGreaterThanOrEqual(-1e-4)
+          if (!write) expect(f.err, `${t.key} agent_${i} ${f.finger}`).toBeLessThanOrEqual(0.003)
+          if (!write) expect(f.off, `${t.key} agent_${i} ${f.finger} not through the surface`).toBeGreaterThanOrEqual(-1e-4)
         }
       }
     }
