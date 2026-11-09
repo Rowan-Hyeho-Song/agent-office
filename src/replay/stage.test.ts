@@ -19,7 +19,7 @@ const FROM = 30
 const WALKER_MPS = TRAFFIC.cruise * REPLAY_PACE
 /** a new plan may shift the shown position by a few cm (the shown time is a little ahead of the planned one) */
 // 0.10 (was 0.08): the memo seat (#195) is the end of a dock lane under the window; its first frame leaving shifts 0.089 m past the walker's step
-// (0.36 m in a 0.27 s frame at x16), a replan snap and not a teleport
+// (0.36 m in a 0.27 s frame at x16), a replan snap and not a teleport (planning accepted 2026-11-10; the teleport guards of #228 stay separate)
 const REPLAN_SLACK_M = 0.1
 
 async function run(speed: Speed, checkpoints: number[], fps = 60) {
