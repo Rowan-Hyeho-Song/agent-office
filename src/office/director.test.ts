@@ -240,15 +240,32 @@ describe('one place for one agent (#186, left over from #188)', () => {
     }
   })
 
-  it('the sofa middle seat is not given out between two seated agents', () => {
+  it('the sofa never has all three seats given out (nobody squeezed in the middle)', () => {
     const d = new Director(AGENTS)
-    const arrived: Record<string, string | null> = { agent_0: 'sofa_0', agent_1: 'sofa_2' }
-    let any = false
     for (let minute = 0; minute < 3000; minute += 3) {
-      const g = d.goals(minute * 60_000, minute, allIdle(), (a) => arrived[a] ?? null)
-      if (g.agent_2.spot === 'sofa_1' || g.agent_3.spot === 'sofa_1') any = true
+      const g = d.goals(minute * 60_000, minute, allIdle(), () => null)
+      const seats = AGENTS.map((a) => g[a].spot).filter((s) => s.startsWith('sofa_'))
+      expect(seats.includes('sofa_0') && seats.includes('sofa_1') && seats.includes('sofa_2'), `minute ${minute}`).toBe(false)
     }
-    expect(any).toBe(false)
+  })
+
+  // the day simulation went from 18 s to 220 s: a seat rule that read "arrived" swapped two agents between the sofa and
+  // a desk every few frames (an agent stepping aside for a passer is briefly not arrived), and every swap was a replan
+  it('who gets which place does not change when someone briefly stops being "arrived"', () => {
+    for (let minute = 0; minute < 3000; minute += 3) {
+      const d = new Director(AGENTS)
+      const t = minute * 60_000
+      const g0 = d.goals(t, minute, allIdle(), () => null)
+      const there = (a: string) => g0[a].spot
+      const g1 = d.goals(t + 100, minute, allIdle(), there)
+      const key = (g: Record<string, { spot: string }>) => AGENTS.map((a) => g[a].spot).join(',')
+      for (const away of AGENTS) {
+        const g2 = d.goals(t + 200, minute, allIdle(), (a) => (a === away ? null : there(a)))
+        const g3 = d.goals(t + 300, minute, allIdle(), there)
+        expect(key(g2), `minute ${minute}, ${away} steps aside`).toBe(key(g1))
+        expect(key(g3), `minute ${minute}, ${away} back`).toBe(key(g1))
+      }
+    }
   })
 })
 

@@ -246,43 +246,37 @@ export class Director {
       if (p) playing.push(a)
       out[a] = p ? { spot: p.spot, pose: p.kind, face: p.face, ...standSlot(p), label: p.label } : deskIdle(desk)
     }
-    this.settle(out, playing, arrivedAt, deskIdle)
+    this.settle(out, playing, deskIdle)
     this.setShown(shown)
     return out
   }
 
   /**
-   * One place for one agent (#186, left over from #188): a play spot another agent holds or is heading to is not given out.
-   * The agent that already has it keeps it; the others take the next free seat of the same activity, or stay at their desk
-   * until it is free. The sofa's middle seat is not given out between two seated agents, and a side seat waits while someone
-   * is still on the way to the middle.
+   * One place for one agent (#186, left over from #188): a play spot given to one agent this frame is not given to another.
+   * Who gets it: the agent that had it last frame, then roster order; the others take the next free seat of the same
+   * activity, or stay at their desk until it is free. Nothing here reads where agents physically are: "arrived" flickers
+   * (an agent steps aside for a passer), and rules reading it handed sofa seats back and forth every few frames, each
+   * swap a replan (the day simulation went from 18 s to 220 s). An agent leaving a spot does not hold it; the planner keeps
+   * the newcomer clear until it has gone. The sofa never has all three seats given out (nobody squeezed in the middle).
    */
-  private settle(out: Record<string, Goal>, playing: string[], arrivedAt: (a: string) => string | null, deskIdle: (desk: number) => Goal) {
+  private settle(out: Record<string, Goal>, playing: string[], deskIdle: (desk: number) => Goal) {
     const keyOf = (g: Goal) => (g.slot ? `${g.spot}|${g.slot.x.toFixed(1)},${g.slot.z.toFixed(1)}` : g.spot)
-    const holdKey = (b: string) => {
-      const at = arrivedAt(b)
-      const last = this.lastGoal[b]
-      return at ? (last && last.spot === at ? last.key : at) : null
-    }
     const claimed = new Map<string, string>()
     for (const a of this.agents) if (!playing.includes(a)) claimed.set(keyOf(out[a]), a)
     // a goal with a standing slot (watering, reading) is its own place; one without takes the whole spot, slot or not
     const same = (k: string, key: string) => (key.includes('|') ? k === key : k.split('|')[0] === key)
-    const used = (key: string, a: string) =>
-      [...claimed].some(([k, c]) => c !== a && same(k, key)) || this.agents.some((b) => b !== a && !!holdKey(b) && same(holdKey(b)!, key))
+    const used = (key: string, a: string) => [...claimed].some(([k, c]) => c !== a && same(k, key))
     const blocked = (g: Goal, a: string) => {
       const key = keyOf(g)
       if (used(key, a)) return true
-      if (g.spot === 'sofa_1') return used('sofa_0', a) || used('sofa_2', a)
-      if (g.spot === 'sofa_0' || g.spot === 'sofa_2') {
-        const mid = claimed.get('sofa_1')
-        return !!mid && mid !== a && arrivedAt(mid) !== 'sofa_1'
-      }
-      return false
+      // never all three sofa seats (nobody squeezed between two; two sit side by side, sofa_0 + sofa_1 is the schedule's own
+      // pair), whichever seat would be the third
+      const sofa = ['sofa_0', 'sofa_1', 'sofa_2']
+      return sofa.includes(g.spot) && sofa.every((x) => x === g.spot || used(x, a))
     }
-    // agents that already have their place first, then in roster order
-    const had = (x: string) => Number(this.lastGoal[x]?.key === keyOf(out[x]))
-    const order = [...playing].sort((x, y) => had(y) - had(x) || this.agents.indexOf(x) - this.agents.indexOf(y))
+    // had it last frame, then roster order: the same answer frame after frame
+    const rank = (x: string) => (this.lastGoal[x]?.key === keyOf(out[x]) ? 1 : 0)
+    const order = [...playing].sort((x, y) => rank(y) - rank(x) || this.agents.indexOf(x) - this.agents.indexOf(y))
     for (const a of order) {
       let g = out[a]
       if (blocked(g, a)) {
