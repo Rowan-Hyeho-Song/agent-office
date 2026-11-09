@@ -140,7 +140,13 @@ describe('the re-baked contact axes (#172 909aa69)', () => {
     ]
     for (const [name, want] of cases) z(name).toArray().forEach((v, i) => expect(v, name).toBeCloseTo(want[i], 2))
     const spout = new Vector3(0, 0, 1).transformDirection(scene.getObjectByName('prop_watering_can_spout')!.matrixWorld)
-    expect(spout.y, 'the spout aims up').toBeGreaterThan(0.5)
-    expect(spout.x, 'and out').toBeCloseTo(0.654, 2)
+    // #156 (designer): the rose is bent 10° down from the 38° spout, so the stream leaves at 28° up (sin 28° = 0.469), ± 3°
+    const up = (Math.asin(spout.y) * 180) / Math.PI
+    expect(up, 'the stream aims 28° up').toBeGreaterThan(25)
+    expect(up, 'the stream aims 28° up').toBeLessThan(31)
+    // and out: since #156 the spout turns to the room, so "out" is the way from the can body to the rose, on the floor plane
+    const w = (n: string) => scene.getObjectByName(n)!.getWorldPosition(new Vector3())
+    const away = w('prop_watering_can_spout').sub(w('prop_watering_can')).setY(0).normalize()
+    expect(spout.clone().setY(0).normalize().dot(away), 'and out, along the spout').toBeGreaterThan(0.99)
   })
 })
