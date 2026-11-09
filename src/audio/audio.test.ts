@@ -193,7 +193,7 @@ describe('silenceReasons', async () => {
 })
 
 describe('#194 thock keyboard', async () => {
-  const { spread, KEY_VOICES } = await import('./keys')
+  const { spread, KEY_VOICES, STROKE_RULE, pickStroke, SAMPLE_STROKES: N } = await import('./keys')
   const { overlapping, CUES, MAX_KEYS } = await import('./cues')
   const { keysBetween } = await import('./typing')
   const { BUS_LEVEL } = await import('./engine')
@@ -202,7 +202,26 @@ describe('#194 thock keyboard', async () => {
     expect(spread(1, 1).pitch).toBeCloseTo(Math.pow(2, 1 / 12))
     expect(spread(0.5, 0.5)).toEqual({ pitch: 1, len: 1 })
   })
-  it('thock first (the default), then the two A/B candidates (#194 thock2)', () => expect(KEY_VOICES.slice(0, 3)).toEqual(['thock', 'thock2', 'sample']))
+  it('the recording is the key sound, the synth its fallback (#194 user: 녹음 파일 쓰자)', () => expect(KEY_VOICES).toEqual(['sample', 'thock2']))
+  it('each kind plays its own strokes: letters the light six, enter and space the two heavy ones, lower', () => {
+    const all = new Set(Object.values(STROKE_RULE).flatMap((r) => [...r.pool]))
+    expect([...all].every((k) => k >= 0 && k < N)).toBe(true)
+    expect(STROKE_RULE.char.pool).not.toContain(7)
+    expect(STROKE_RULE.space.pool).toContain(7)
+    expect(STROKE_RULE.space.rate).toBeLessThan(STROKE_RULE.enter.rate)
+    expect(STROKE_RULE.enter.rate).toBeLessThan(STROKE_RULE.backspace.rate)
+    expect(STROKE_RULE.backspace.rate).toBeLessThan(STROKE_RULE.char.rate)
+    expect(STROKE_RULE.mod.db).toBeLessThan(0)
+  })
+  it('never the same stroke twice in a row when there is a choice', () => {
+    for (let i = 0; i < 50; i++) {
+      const r = i / 50
+      expect(pickStroke('char', r, 4)).not.toBe(4)
+      expect(STROKE_RULE.char.pool).toContain(pickStroke('char', r, 4))
+      expect(pickStroke('space', r, 7)).toBe(3)
+    }
+    expect(pickStroke('char', 0.9999, -1)).toBe(6)
+  })
   it('the recorded strokes: 24 kHz 16-bit mono WAV, 8 × 160 ms, under 64 KB', async () => {
     const fs = await import('node:fs')
     const { SAMPLE_STROKES, SAMPLE_LEN_S, SAMPLE_URL } = await import('./keys')
@@ -214,9 +233,9 @@ describe('#194 thock keyboard', async () => {
     expect(b.readUInt32LE(40) / 2 / 24000).toBeCloseTo(SAMPLE_STROKES * SAMPLE_LEN_S, 2)
     expect(b.length).toBeLessThan(64 * 1024)
   })
-  it('typing has its own bus, 5 dB under the effects', () => {
+  it('typing has its own bus, 3 dB under the effects (+2 dB: 타이핑 사운드 아주 살짝만 더 높여)', () => {
     expect(CUES.type.bus).toBe('keys')
-    expect(20 * Math.log10(BUS_LEVEL.keys / BUS_LEVEL.sfx)).toBeCloseTo(-5, 0)
+    expect(20 * Math.log10(BUS_LEVEL.keys / BUS_LEVEL.sfx)).toBeCloseTo(-3, 0)
     expect(MAX_KEYS).toBe(4)
   })
   it('overlap counts spans that meet [t, t + len)', () => {

@@ -8,6 +8,7 @@ import { ROOM_MODE, onDeskAudio, onEntered, onLeaveStart, postToParent } from '.
 import { setAmbienceMinute, startAmbience } from './ambience'
 import { cue, setCueSpeed } from './cues'
 import { audioGraph, ensureAudio, fadeRoom, setListener } from './engine'
+import { loadKeySample } from './keys'
 import { getSetting, setSetting, subscribe } from './settings'
 import { speakerFrame } from './speaker'
 import { keysBetween, type TypeState } from './typing'
@@ -21,8 +22,11 @@ const OUT_S = 0.6
 
 function wake() {
   if (getSetting().muted) return
-  if (!ensureAudio()) return
+  const g = ensureAudio()
+  if (!g) return
   startAmbience()
+  // the key sound is a recording (#194): fetch it now so the first key already sounds like it
+  void loadKeySample(g.ctx)
 }
 
 export function SoundRoot({ world }: { world: OfficeWorld }) {

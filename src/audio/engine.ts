@@ -20,9 +20,10 @@ export type Bus = 'music' | 'sfx' | 'voice' | 'ambience' | 'keys'
  * - #194 louder (user, 2026-11-10: "거의 안 들려"): music and sfx/voice +6 dB. The room tone stays (it must not mask).
  * - #194 thock (user: "타이핑 소리는 살짝 작아져도. 너무 저 소리만 들린다"): typing has its own bus, 5 dB under sfx,
  *   through a compressor so five typists together don't add up (KEYS_GLUE).
+ * - #194 keys sample (user: "타이핑 사운드 아주 살짝만 더 높여"): keys +2 dB (0.62 → 0.78), 3 dB under sfx.
  * The desk room: music 0.14, sfx 0.55.
  */
-export const BUS_LEVEL: Record<Bus, number> = { music: 0.48, sfx: 1.1, voice: 1.0, ambience: 0.009, keys: 0.62 }
+export const BUS_LEVEL: Record<Bus, number> = { music: 0.48, sfx: 1.1, voice: 1.0, ambience: 0.009, keys: 0.78 }
 
 /** the keys bus glue: a firm compressor so the sum of many typists stays near one typist's level */
 export const KEYS_GLUE = { threshold: -34, knee: 6, ratio: 8, attack: 0.002, release: 0.15 }
