@@ -92,9 +92,10 @@ export function SoundDebug() {
     cue(name, { pos: placeOf(where), agent: name === 'voice' ? 'agent_4' : undefined, dur: 2 })
   }
   const judge = (key: string, v: Verdict) => setVerdicts((o) => ({ ...o, [key]: v }))
-  const copyLine = Object.entries(verdicts)
-    .map(([k, v]) => `${k}=${v}`)
-    .join(' ')
+  // bus faders move in dB around the defaults; any change goes into the copy line so a "louder/quieter" comes back as numbers
+  const busDb = (b: Bus) => Math.round(20 * Math.log10(Math.max(1e-6, getBusLevel(b) / BUS_LEVEL[b])))
+  const busLine = BUSES.filter((b) => busDb(b) !== 0).map((b) => `bus.${b}=${busDb(b) > 0 ? '+' : ''}${busDb(b)}dB`)
+  const copyLine = [...Object.entries(verdicts).map(([k, v]) => `${k}=${v}`), ...busLine].join(' ')
   const measureAll = async () => {
     const out: Partial<Record<CueName, Level>> = {}
     for (const n of CUE_NAMES) out[n] = await measureCue(n)
@@ -188,16 +189,19 @@ export function SoundDebug() {
             <span>{b}</span>
             <input
               type="range"
-              min={0}
-              max={100}
-              value={Math.round(getBusLevel(b) * 100)}
+              min={-12}
+              max={12}
+              step={1}
+              value={busDb(b)}
+              aria-valuetext={`${busDb(b)} dB`}
               onChange={(e) => {
-                setBusLevel(b, Number(e.target.value) / 100)
+                setBusLevel(b, BUS_LEVEL[b] * Math.pow(10, Number(e.target.value) / 20))
                 tick()
               }}
             />
             <span>
-              {getBusLevel(b).toFixed(2)} <small>(기준 {BUS_LEVEL[b]})</small>
+              {busDb(b) > 0 ? '+' : ''}
+              {busDb(b)} dB <small>({getBusLevel(b).toFixed(3)})</small>
             </span>
           </label>
         ))}
