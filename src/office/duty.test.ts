@@ -3,7 +3,7 @@ import { DutySource, NIGHT, applyDuty, dutyOf, dutyStatus, nightDuty } from './d
 import { isNight, kstMinutes, kstTimeToMs, minutesIntoNight, nightDate } from './kst'
 import { FakeStatusSource, type AgentStatus } from './status'
 
-const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
+const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
 /** an instant from a Seoul wall time, independent of the machine's zone */
 const kst = (s: string) => Date.parse(`${s.replace(' ', 'T')}:00+09:00`)
 
@@ -47,7 +47,7 @@ describe('KST day and night', () => {
 })
 
 describe('night duty pick', () => {
-  it('is deterministic for a night and one of the four', () => {
+  it('is deterministic for a night and one of the five', () => {
     const t = kst('2026-11-08 23:30')
     const a = nightDuty(AGENTS, t)
     expect(AGENTS).toContain(a)
@@ -132,5 +132,23 @@ describe('DutySource', () => {
     expect(src.getSnapshot()).not.toBe(a)
     expect(src.getSnapshot().agent_0.state).toBe('off')
     src.dispose()
+  })
+})
+
+describe('five agents (#193)', () => {
+  it('night duty falls on all five over a month, and the lights go out one seat at a time up to seat 4', () => {
+    const picks = new Set<string>()
+    for (let d = 1; d <= 30; d++) picks.add(nightDuty(AGENTS, kst(`2026-11-${String(d).padStart(2, '0')} 23:30`)))
+    expect(picks.size).toBeGreaterThanOrEqual(4)
+    expect(AGENTS.length).toBe(5)
+    // exactly one of the five stays up deep in the night; the other four are asleep
+    const deep = kst('2026-11-09 03:00')
+    const raw = Object.fromEntries(AGENTS.map((a) => [a, { state: 'idle', since: 0 } as AgentStatus]))
+    const out = applyDuty(raw, AGENTS, deep)
+    expect(AGENTS.filter((a) => out[a].night === 'duty')).toHaveLength(1)
+    expect(AGENTS.filter((a) => out[a].night === 'sleep')).toHaveLength(4)
+    // seat 4's light is the last to go (stagger x 4 minutes)
+    const t0 = kst('2026-11-08 23:00') + (NIGHT.staggerMin * 4 - 1) * 60_000
+    expect(dutyStatus({ state: 'idle', since: 0 }, 'agent_4', AGENTS, t0).night).toBeUndefined()
   })
 })

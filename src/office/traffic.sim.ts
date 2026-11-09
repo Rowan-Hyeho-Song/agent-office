@@ -47,7 +47,7 @@ export function mismatch(a: string, sh: Shown | undefined, g: Goal, arrived: str
   }
 }
 
-export const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
+export const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
 export const DAY0 = Date.parse('2026-11-09T00:00:00+09:00')
 
 function rng(seed: number) {
@@ -117,7 +117,7 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
       status = applyDuty(rawStatus(kmin, now), AGENTS, now)
       // a talk now and then between two agents
       if (rand() < 0.12) {
-        const m: OfficeMessage = { id: `m${msgId++}`, kind: 'talk', from: AGENTS[Math.floor(rand() * 4)], to: AGENTS[Math.floor(rand() * 4)], at: now }
+        const m: OfficeMessage = { id: `m${msgId++}`, kind: 'talk', from: AGENTS[Math.floor(rand() * AGENTS.length)], to: AGENTS[Math.floor(rand() * AGENTS.length)], at: now }
         director.receive(m)
       }
     }
@@ -180,8 +180,8 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
       const tt = t + k * 0.05
       const s = AGENTS.map((a) => planner.sample(a, tt))
       samples++
-      for (let i = 0; i < 4; i++) {
-        for (let j = i + 1; j < 4; j++) {
+      for (let i = 0; i < AGENTS.length; i++) {
+        for (let j = i + 1; j < AGENTS.length; j++) {
           const d = Math.hypot(s[i].x - s[j].x, s[i].z - s[j].z)
           if (isExempt(s[i], s[j])) minExempt = Math.min(minExempt, d)
           else {

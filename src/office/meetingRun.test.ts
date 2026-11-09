@@ -10,7 +10,7 @@ const convs = conversations({
   minutes: [{ date: null, rows: [{ order: 1, from: { seat: 2 }, to: [{ seat: 3 }], text: '하나.' }, { order: 2, from: { seat: 3 }, to: [{ seat: 2 }], text: '둘.' }], decision: '정했다.', followUp: '루프가 한다.' }],
 })
 const status = (over: Record<string, 'working' | 'idle' | 'off'> = {}): StatusMap =>
-  Object.fromEntries([0, 1, 2, 3].map((i) => [`agent_${i}`, { state: over[`agent_${i}`] ?? 'idle', since: 0 }]))
+  Object.fromEntries([0, 1, 2, 3, 4].map((i) => [`agent_${i}`, { state: over[`agent_${i}`] ?? 'idle', since: 0 }]))
 
 /** step the runner like the scene: agents arrive wherever they are sent */
 function run(r: MeetingRunner, until: () => boolean, at: Record<string, string | null> = {}) {

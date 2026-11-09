@@ -27,6 +27,7 @@ import { GLOW } from './nodes'
 import { KNUCKLE_DEG, THUMB_DEG, type FingerModel } from './grip'
 import { TRAFFIC, type Sample } from './traffic'
 import type { AgentStatus } from './status'
+import { roomSound } from './echoLive'
 
 const SPEED = 0.75 // m/s cruising
 const ACCEL = 1.4 // m/s²
@@ -112,6 +113,9 @@ export interface RigParts {
   orbit: Object3D | undefined
   ring: Object3D | undefined
   ear: Object3D | undefined
+  /** echo (#193): the tuning fork over the head (swings about its local x) and the light ring round the speaker grille on the back of the head */
+  fork: Object3D | undefined
+  grille: Object3D | undefined
   postits: Object3D[]
 }
 
@@ -237,7 +241,7 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
   const root = n('')
   const head = n('_head')
   root.attach(head)
-  for (const s of ['_face', '_tip', '_glow', '_orbit', '_ear_glow', '_postit_0', '_postit_1', '_postit_2', '_postit_3', '_postit_4']) {
+  for (const s of ['_face', '_tip', '_glow', '_orbit', '_ear_glow', '_fork', '_ring', '_postit_0', '_postit_1', '_postit_2', '_postit_3', '_postit_4']) {
     if (n(s)) head.attach(n(s))
   }
   for (const s of ['_beam', '_floor', '_floor_ring']) if (n(s)) root.attach(n(s))
@@ -282,6 +286,7 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
     m.opacity = FLOOR_POOL.opacity
   }
   keepHue(n('_glow'))
+  keepHue(n('_ring'))
   keepHue(n('_hand_l_cuff'))
   keepHue(n('_hand_r_cuff'))
   const beam = n('_beam')
@@ -299,6 +304,8 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
     orbit: n('_orbit'),
     ring: i === 3 ? n('_tip') : undefined,
     ear: n('_ear_glow'),
+    fork: n('_fork'),
+    grille: n('_ring'),
     postits: [0, 1, 2, 3, 4].map((k) => n(`_postit_${k}`)).filter(Boolean),
   }
   rig.postits.forEach((p, k) => (p.visible = k < POSTITS))
@@ -653,6 +660,8 @@ export class AgentRig {
   /** the current bends per hand (eased toward the pose's shape): four fingers, then the thumb's bend and opposition */
   private curls: Record<'l' | 'r', number[]> = { l: [...REST_CURL.f, ...REST_CURL.thumb], r: [...REST_CURL.f, ...REST_CURL.thumb] }
   private spin = { orbit: 0, ring: 0 }
+  /** echo's fork: how hard it rings now (0..1), decays over ~0.4 s after the sound stops */
+  private forkAmp = 0
   private blinkAt = 0
   /** what it is holding this frame (read by the PropBank) */
   want: { kind: string; side: 'l' | 'r'; prefer?: string; attached?: boolean } | null = null
@@ -725,7 +734,7 @@ export class AgentRig {
       })
       old.dispose()
     }
-    for (const node of [parts.ring, parts.ear]) node?.traverse((o) => {
+    for (const node of [parts.ring, parts.ear, parts.grille]) node?.traverse((o) => {
       const mat = (o as Mesh).material as MeshBasicMaterial | undefined
       if (mat?.color) this.glowBase.set(o as Mesh, mat.color.clone())
     })
@@ -1470,7 +1479,7 @@ export class AgentRig {
   private tmpColor = new Color()
 
   /** the 3D agent's orbit and the coder's ring spin; the coder's ear cups glow while it works (#28) */
-  private updateRole(dt: number, _t: number, status: AgentStatus | undefined, reduced: boolean) {
+  private updateRole(dt: number, t: number, status: AgentStatus | undefined, reduced: boolean) {
     const working = status?.state === 'working'
     const running = working && (status?.activity === 'test' || status?.activity === 'build')
     const failed = !running && status?.lastResult?.ok === false
@@ -1492,6 +1501,23 @@ export class AgentRig {
       tint(ring, (base) => (failed ? FAIL_RED : base))
     }
     tint(this.parts.ear, (base) => this.tmpColor.copy(base).multiplyScalar(working ? 1 : 0.15))
+    if (this.parts.fork || this.parts.grille) this.updateEcho(dt, t, reduced, tint)
+  }
+
+  /**
+   * Echo (agents.md 2.11): the fork's prongs ring at 24 Hz, +-0.6 deg about local x, while the visitor hears the office (0.4 s decay); the
+   * grille's light ring breathes 0.35..0.6 over 4 s, and follows the loudness 0.4..1.0 while there is sound. Reduced motion: no ringing, steady light.
+   */
+  private updateEcho(dt: number, t: number, reduced: boolean, tint: (node: Object3D | undefined, color: (base: Color) => Color) => void) {
+    const s = roomSound(t, dt)
+    const fork = this.parts.fork
+    if (fork) {
+      this.forkAmp = s.audible && s.level > 0.05 ? Math.max(this.forkAmp, Math.min(1, s.level * 1.6)) : Math.max(0, this.forkAmp - dt / 0.4)
+      fork.rotation.x = reduced ? 0 : this.forkAmp * 0.6 * MathUtils.DEG2RAD * Math.sin(t * Math.PI * 2 * 24)
+    }
+    const breath = reduced ? 0.475 : 0.475 + 0.125 * Math.sin((t / 4) * Math.PI * 2)
+    const k = s.audible ? 0.4 + 0.6 * s.level : breath
+    tint(this.parts.grille, (base) => this.tmpColor.copy(base).multiplyScalar(k))
   }
 
   private updateFace(t: number, pose: string, status: AgentStatus | undefined, reduced: boolean) {

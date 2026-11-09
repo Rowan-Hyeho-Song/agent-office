@@ -38,6 +38,8 @@ export const LIKES: Record<string, Partial<Record<PlayKind, number>>> = {
   agent_0: { boardgame: 3, pingpong: 0.4 },
   agent_1: { boardgame: 3, pingpong: 0.4 },
   agent_3: { pingpong: 3 },
+  // echo (#193): drums along to the rally rather than playing it, and likes the click of the omok stones
+  agent_4: { boardgame: 2, pingpong: 0.5 },
 }
 const like = (agent: string, kind: PlayKind) => LIKES[agent]?.[kind] ?? 1
 

@@ -56,7 +56,7 @@ describe('watering lands on the soil (#184)', () => {
   it('in the pour stage the stream lands on the soil of each plant for each agent (the can is in its hand; the stage time drives the tilt)', async () => {
     const { scene, nodes } = await loadOffice()
     const props = new PropBank(scene, nodes)
-    const rigs = Object.fromEntries([0, 1, 2, 3].map((i) => [`agent_${i}`, new AgentRig(`agent_${i}`, i, buildRig(scene, nodes, i), '#ffffff')]))
+    const rigs = Object.fromEntries([0, 1, 2, 3, 4].map((i) => [`agent_${i}`, new AgentRig(`agent_${i}`, i, buildRig(scene, nodes, i), '#ffffff')]))
     const stage = new PlayStage(scene, nodes, props)
     for (const plant of WATER_PLANTS) {
       const st = standOf(plant)

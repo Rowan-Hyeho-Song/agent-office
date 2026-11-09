@@ -94,7 +94,7 @@ function PropsDebug({ world, now }: { world: OfficeWorld; now: number }) {
             <button onClick={() => fake.setTask('agent_0', { private: false, repo: 'rowansong.dev', issue: 12, title: '다른 저장소의 이슈' })}>다른 저장소</button>
             <button
               onClick={() => {
-                for (const a of ['agent_0', 'agent_1', 'agent_2', 'agent_3']) fake.setTask(a)
+                for (const a of ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']) fake.setTask(a)
               }}
             >
               지우기
@@ -119,6 +119,13 @@ function PropsDebug({ world, now }: { world: OfficeWorld; now: number }) {
             >
               실패
             </button>
+          </div>
+          <div className="row">
+            에코
+            <button onClick={() => fake.set('agent_4', 'working', 'edit')}>소리 작업</button>
+            <button onClick={() => fake.set('agent_4', 'idle')}>출근</button>
+            <button onClick={() => fake.set('agent_4', 'off')}>퇴근</button>
+            <button onClick={() => fake.setTask('agent_4', { private: false, repo: 'agent-office', issue: 194, title: '사무실 소리 믹스' })}>이슈</button>
           </div>
         </>
       )}

@@ -30,7 +30,7 @@ export function tokens(): Tokens {
   const v = (n: string, d = '') => cs.getPropertyValue(n).trim() || d
   const num = (n: string, d: number) => parseFloat(v(n)) || d
   cached = {
-    color: { 0: v('--agent-0', '#ffb347'), 1: v('--agent-1', '#8f9bff'), 2: v('--agent-2', '#ff3ea5'), 3: v('--agent-3', '#4df3ff'), o: v('--color-text', '#f3ead8'), n: v('--color-text-muted', '#a39d90') },
+    color: { 0: v('--agent-0', '#ffb347'), 1: v('--agent-1', '#8f9bff'), 2: v('--agent-2', '#ff3ea5'), 3: v('--agent-3', '#4df3ff'), 4: v('--agent-4', '#f2ffc4'), o: v('--color-text', '#f3ead8'), n: v('--color-text-muted', '#a39d90') },
     text: v('--color-text', '#f3ead8'),
     muted: v('--color-text-muted', '#a39d90'),
     faint: v('--color-text-faint', '#6f6a60'),

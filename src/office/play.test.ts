@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { BLOCK_MINUTES, NIGHT_PLAYS, PLAYS, blockOf, playAt, soloAt } from './play'
 
-const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
+const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
 const ALL_SPOTS = new Set(PLAYS.flatMap((p) => p.spots))
 const PAIR_KINDS = new Set(PLAYS.filter((p) => p.pair).map((p) => p.kind))
 const BLOCKS = 500
@@ -164,5 +164,32 @@ describe('soloAt (night duty, #110)', () => {
       expect(p.partner).toBeUndefined()
       expect(soloAt(m + 1, 'agent_2')).toEqual(p)
     }
+  })
+})
+
+describe('five agents (#193)', () => {
+  const FIVE = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
+  it('everybody free gets a place of their own, five at a time, and echo takes part in pairs', () => {
+    let echoPairs = 0
+    let echoBoard = 0
+    for (let b = 0; b < 600; b++) {
+      const out = playAt(b * BLOCK_MINUTES, FIVE)
+      expect(Object.keys(out).sort()).toEqual(FIVE)
+      const spots = Object.values(out).map((o) => o.spot)
+      expect(new Set(spots).size).toBe(5)
+      const e = out.agent_4
+      if (e.partner) {
+        echoPairs++
+        expect(out[e.partner].partner).toBe('agent_4')
+        if (e.kind === 'boardgame') echoBoard++
+      }
+    }
+    expect(echoPairs).toBeGreaterThan(100)
+    expect(echoBoard).toBeGreaterThan(0)
+  })
+  it('with echo busy at its desk the other four are the same as the four-agent roster would give them where they do not depend on echo', () => {
+    const out = playAt(777, FIVE, new Set(['agent_4']))
+    expect(out.agent_4).toBeUndefined()
+    expect(Object.keys(out).sort()).toEqual(['agent_0', 'agent_1', 'agent_2', 'agent_3'])
   })
 })

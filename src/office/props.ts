@@ -47,6 +47,8 @@ export interface DeskProps {
   signal: Signal
   /** desk_3_duck_look: the coder turns to the duck when a test fails */
   duckLook: boolean
+  /** desk_4_meter_*: echo's session is working (the level meter moves even when the visitor has no sound on, #193) */
+  echoWorking: boolean
 }
 
 export const MAX_SHEETS = 5
@@ -88,5 +90,6 @@ export function deskProps(i: PropsInput): DeskProps {
     lamp: !!s(2) && s(2).state !== 'off',
     signal,
     duckLook: signal === 'red',
+    echoWorking: s(4)?.state === 'working',
   }
 }

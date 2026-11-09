@@ -863,7 +863,7 @@ export class PlayStage {
       }
       return
     }
-    if (goal.pose === 'idle' && resting && goal.spot === `work_${seat}` && (seat === 0 || seat === 1 || seat === 3)) {
+    if (goal.pose === 'idle' && resting && goal.spot === `work_${seat}` && (seat === 0 || seat === 1 || seat === 3 || seat === 4)) {
       this.grip(rig, 'r', 'mouse', `desk_${seat}_mouse`, true, null, inp)
     }
   }

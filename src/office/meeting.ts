@@ -9,9 +9,9 @@
 import { whoOf, type Conversation, type DocMeta } from '../docs/library'
 import { firstSentence, lineChars, holdMs, logLine, maskText, typeMs, typedCount } from './bubbles'
 
-export const ROLE = ['기획', '3D', '디자인', '코더']
+export const ROLE = ['기획', '3D', '디자인', '코더', '사운드']
 /** `메모(기획)`: the name the screen-reader log uses */
-export const seatName = (seat: number) => `${whoOf({ seat: seat as 0 | 1 | 2 | 3 }).ko}(${ROLE[seat]})`
+export const seatName = (seat: number) => `${whoOf({ seat: seat as 0 | 1 | 2 | 3 | 4 }).ko}(${ROLE[seat]})`
 const MAX_LINES = 8
 
 export interface ScriptLine {
@@ -56,14 +56,14 @@ export interface MeetingScript {
   reduced: boolean
 }
 
-const seatOf = (who: { seat: string }) => (/^[0-3]$/.test(who.seat) ? Number(who.seat) : null)
+const seatOf = (who: { seat: string }) => (/^[0-4]$/.test(who.seat) ? Number(who.seat) : null)
 
 /** which agents a free-text line names ("루프가 …", "기획", "3D"), in order of appearance */
 export function namedSeats(text: string): number[] {
   const out: number[] = []
   const re = /(?<![가-힣])(메모|메시|휴|루프)(?:가|는|은|를|을|에게|의|와|과|한테|이)?(?![가-힣])|(기획|3D|디자인|코더)/g
   for (const m of text.matchAll(re)) {
-    const seat = m[1] ? ['메모', '메시', '휴', '루프'].indexOf(m[1]) : ['기획', '3D', '디자인', '코더'].indexOf(m[2])
+    const seat = m[1] ? ['메모', '메시', '휴', '루프'].indexOf(m[1]) : ['기획', '3D', '디자인', '코더', '사운드'].indexOf(m[2])
     if (seat >= 0 && !out.includes(seat)) out.push(seat)
   }
   return out
@@ -110,10 +110,10 @@ function bars(rand: () => number, len: number): string {
 /** a scene for a document the viewer cannot read: who attended (the cover) takes turns, the words hidden */
 function inventedLines(meta: DocMeta, isPrivate: boolean): Omit<ScriptLine, 'startMs' | 'typeMs' | 'holdMs'>[] {
   const rand = mulberry32(meta.id * 7919 + 17)
-  let seats = ordered(meta.agents.filter((s) => s >= 0 && s <= 3))
+  let seats = ordered(meta.agents.filter((s) => s >= 0 && s <= 4))
   // a meeting needs two: fill up deterministically from the document's id
-  for (let k = 0; seats.length < 2 && k < 4; k++) {
-    const s = (meta.id + k) % 4
+  for (let k = 0; seats.length < 2 && k < 5; k++) {
+    const s = (meta.id + k) % 5
     if (!seats.includes(s)) seats = [...seats, s]
   }
   const count = 3 + Math.floor(rand() * 3)
@@ -139,7 +139,7 @@ function realLines(convs: Conversation[], mask: boolean): Omit<ScriptLine, 'star
   for (const c of convs) {
     for (const u of c.lines) {
       const from = u.owner ? 'owner' : seatOf(u.from)
-      if (from === null) continue // a name that is not one of the four: nobody to stand there
+      if (from === null) continue // a name that is not one of the five: nobody to stand there
       const shown = firstSentence(u.text, lineChars())
       if (!shown) continue
       out.push({

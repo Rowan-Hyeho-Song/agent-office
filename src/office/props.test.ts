@@ -3,7 +3,7 @@ import { BLINK_MS, STAMP_MS, deskProps, type PropsInput } from './props'
 import type { AgentStatus, StatusMap } from './status'
 
 const NOW = new Date(2026, 10, 8, 9, 0).getTime()
-const idle = (): StatusMap => Object.fromEntries([0, 1, 2, 3].map((i) => [`agent_${i}`, { state: 'idle', since: 0 } satisfies AgentStatus]))
+const idle = (): StatusMap => Object.fromEntries([0, 1, 2, 3, 4].map((i) => [`agent_${i}`, { state: 'idle', since: 0 } satisfies AgentStatus]))
 const input = (over: Partial<PropsInput> = {}, status: Record<string, AgentStatus> = {}): PropsInput => ({
   status: { ...idle(), ...status },
   pending: 0,
@@ -31,6 +31,13 @@ describe('deskProps', () => {
       signal: 'off',
       duckLook: false,
     })
+  })
+
+  it("echo's level meter moves while the sound seat works (#193)", () => {
+    expect(deskProps(input()).echoWorking).toBe(false)
+    expect(deskProps(input({}, { agent_4: working('edit') })).echoWorking).toBe(true)
+    expect(deskProps(input({}, { agent_4: working('test'), agent_3: working('test') })).echoWorking).toBe(true)
+    expect(deskProps(input({}, { agent_3: working('edit') })).echoWorking).toBe(false)
   })
 
   it('inbox / outbox clamp to 0..5', () => {
