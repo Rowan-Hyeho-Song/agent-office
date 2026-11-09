@@ -16,9 +16,8 @@ export interface Cover {
 }
 
 /**
- * What a visitor could see of a DECIDED approval (#222): who asked, which result, when. Still no title, content, options,
- * opinion or links. No query returns this yet: supabase/approvals.sql has only the pending cover view, so a source leaves
- * `decidedCovers` out until a cover view for decided rows exists (then a visitor's 처리된 결재 section appears by itself).
+ * What a visitor sees of a DECIDED approval (#222): who asked, which result, when. Still no title, content, options,
+ * opinion or links (supabase/approvals.sql approvals_decided_cover; until that view exists the list is empty).
  */
 export interface DecidedCover {
   id: number
