@@ -52,6 +52,8 @@ const BLADE_Y = 0.175
 const FACE_GAP = 0.023
 /** the held object rises from where it rests to where it is held in this long, s */
 const LIFT_S = 0.35
+/** the grips whose approach turns the hand along the reach direction (#255, grips.md 1.1): the high-shelf book, the board marker, the ping-pong paddle */
+const REACH_KINDS = new Set(['book', 'marker', 'paddle'])
 /** carrying a prop back to where it rests, s */
 const PUT_S = 0.4
 
@@ -311,7 +313,7 @@ export class PlayStage {
     } else if (out.stage !== 'rest') this.lastHand.set(lastKey, target.clone())
     if (out.stage === 'rest') return false
     const fit = this.holdFit(rig, side, tgt)
-    rig.drive[side] = { target, w: out.wHand, curl: null, angles: mixVec(rig.curlVec(side, spec.pre), fit.hold, rig.curlVec(side, spec.after), out.mix), wc: out.wCurl, spread: null }
+    rig.drive[side] = { target, w: out.wHand, curl: null, angles: mixVec(rig.curlVec(side, spec.pre), fit.hold, rig.curlVec(side, spec.after), out.mix), wc: out.wCurl, spread: null, reach: REACH_KINDS.has(kind) }
     if (tgt.obj && info) {
       rig.want = { kind, side: 'r' === side || kind !== 'book' ? side : side, prefer: prefer ?? objName, attached: out.attached }
       if (out.attached) {
