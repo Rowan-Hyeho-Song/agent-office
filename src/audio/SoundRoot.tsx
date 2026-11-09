@@ -6,13 +6,13 @@ import { officeNow, type OfficeWorld } from '../office/world'
 import { replay } from '../replay/store'
 import { ROOM_MODE, onDeskAudio, onEntered, onLeaveStart, postToParent } from '../room/link'
 import { setAmbienceMinute, startAmbience } from './ambience'
-import { cue, setCueSpeed } from './cues'
+import { onInput, type InputEvent } from '../office/inputEvents'
+import { cue, getCueSpeed, setCueSpeed } from './cues'
+import { inputCues } from './inputSound'
 import { audioGraph, ensureAudio, fadeRoom, setListener } from './engine'
 import { loadKeySample } from './keys'
 import { getSetting, setSetting, subscribe } from './settings'
 import { speakerFrame } from './speaker'
-import { keysBetween, type TypeState } from './typing'
-
 // Wires the office's sound to the page (docs/design/sound.md 2): the first gesture, the room door, the desk's
 // setting, the clock for the room tone, and the replay speed. Renders nothing.
 
@@ -93,14 +93,23 @@ const isResting = (r: OfficeWorld['rigs'][string]) => {
 
 const frustum = new Frustum()
 const viewProj = new Matrix4()
-const head = new Vector3()
 
 /**
- * inside the canvas: the listener is the camera, and the typing sound (#194 ②): agents at their desk, typing, on
- * screen (busywork off-camera stays silent, sound.md 6), with the ambient motion on (off at the timelapse's ×16)
+ * inside the canvas: the listener is the camera, and the agents' keys and mouse (#225): the input bus
+ * (office/inputEvents.ts) sends each press when the hand makes it; the ones of a frame become cues here
+ * (inputSound.ts), on screen only (busywork off-camera stays silent, sound.md 6). The bus sends nothing at ×16.
+ * Listening only while sound plays, so the bus skips building events when nobody hears them.
  */
 export function SoundListener({ world }: { world: OfficeWorld }) {
-  const typing = useRef(new Map<string, TypeState | null>())
+  const pending = useRef<InputEvent[]>([])
+  const off = useRef<(() => void) | null>(null)
+  useEffect(
+    () => () => {
+      off.current?.()
+      off.current = null
+    },
+    [],
+  )
   useFrame(({ camera }) => {
     camera.getWorldDirection(fwd)
     up.set(0, 1, 0).applyQuaternion(camera.quaternion)
@@ -119,23 +128,22 @@ export function SoundListener({ world }: { world: OfficeWorld }) {
     speakerFrame(resting, playing, isNight(ms), ms / 1000)
 
     const g = audioGraph()
-    if (!g || g.ctx.state !== 'running' || getSetting().muted) return
-    const t = g.ctx.currentTime
+    const hearing = !!g && g.ctx.state === 'running' && !getSetting().muted
+    if (hearing !== !!off.current) {
+      if (hearing) off.current = onInput((e) => void pending.current.push(e))
+      else {
+        off.current?.()
+        off.current = null
+      }
+      pending.current = []
+    }
+    if (!hearing || !pending.current.length) return
+    const batch = pending.current
+    pending.current = []
     viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
     frustum.setFromProjectionMatrix(viewProj)
-    for (const id in world.rigs) {
-      const r = world.rigs[id]
-      r.parts.head.getWorldPosition(head)
-      const on = r.visible && r.ambient > 0 && r.doing === 'type' && frustum.containsPoint(head)
-      if (!on) {
-        typing.current.set(id, null)
-        continue
-      }
-      const { keys, kinds, next } = keysBetween(typing.current.get(id) ?? null, t)
-      typing.current.set(id, next)
-      // the keyboard is in front of and below the head (agents.md 2.1: hands at 0.80 m, 0.32 m ahead)
-      keys.forEach((k, i) => cue('type', { pos: { x: head.x, y: head.y - 0.35, z: head.z }, agent: id, at: Math.max(0, k - t), keyKind: kinds[i] }))
-    }
+    const seen = batch.filter((e) => frustum.containsPoint(e.pos))
+    for (const c of inputCues(seen, getCueSpeed())) cue(c.name, { pos: c.pos, agent: c.agent, at: c.at, keyKind: c.keyKind, key: c.key })
   })
   return null
 }
