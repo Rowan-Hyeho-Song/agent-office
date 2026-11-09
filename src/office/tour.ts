@@ -75,7 +75,11 @@ export function buildViews(obs: readonly AgentObs[], now: number): AgentView[] {
   const views: AgentView[] = []
   const circles = new Map<string, AgentView>()
   for (const o of obs) {
-    if (!o.visible || o.state === 'off' || o.pose === 'doze') continue
+    if (!o.visible) continue
+    // off / dozing is score 0, but not with something happening at it (a plane on a sleeper's desk, a result at night):
+    // the designer's check at night saw no event cut because everyone but the night shift was off (#223)
+    const happening = !!o.event && now - o.event.at <= TOUR.eventWindowMs
+    if (!happening && (o.state === 'off' || o.pose === 'doze')) continue
     if (o.meet) {
       const c = circles.get(o.meet)
       if (c) c.agents.push(o.id)

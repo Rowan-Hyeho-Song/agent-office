@@ -63,6 +63,18 @@ describe('scores', () => {
     expect(views.map((v) => [v.id, v.score])).toEqual([['a', 4], ['b', 3], ['c', 2], ['d', 1], ['h', 6]])
     expect(SCORE.meeting).toBe(5)
   })
+  it('an event at an agent that is off or dozing still counts (a plane on a sleeper desk, a result at night, #223); an old one does not', () => {
+    const views = buildViews(
+      [
+        obs('e', { state: 'off', event: { at: NOW - 1000, until: NOW + 5000 } }),
+        obs('f', { pose: 'doze', event: { at: NOW - 2000, until: NOW + 4000 } }),
+        obs('g', { visible: false, state: 'off', event: { at: NOW - 1000, until: NOW + 5000 } }),
+        obs('o', { state: 'off', event: { at: NOW - 20_000, until: NOW - 15_000 } }),
+      ],
+      NOW,
+    )
+    expect(views.map((v) => [v.id, v.why])).toEqual([['e', 'event'], ['f', 'event']])
+  })
   it('an event counts for 15 s only', () => {
     const old = buildViews([obs('a', { state: 'working', event: { at: NOW - 16_000, until: NOW - 13_000 } })], NOW)
     expect(old[0].why).toBe('working')

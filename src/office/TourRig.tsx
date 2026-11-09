@@ -380,6 +380,8 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
         next: advance,
         prev: stepBack,
         stop: stopTour,
+        /** the designer's check (#223): an event at an agent now, e.g. tour.event('agent_3') */
+        event: (agent: string, ms = 6000) => noteTourEvent(agent, ms),
         state: () => ({ ...getTourState(), phase: run?.phase ?? null, history: plan.history.map((c) => `${c.id}:${c.why}`), views: views() }),
       }
     }
