@@ -4,6 +4,7 @@
 import { CanvasTexture, MathUtils, MeshBasicMaterial, SRGBColorSpace, Vector3, type Color, type Mesh, type Object3D } from 'three'
 import type { DeskProps } from './props'
 import { TrayPile } from './tray'
+import { PlaySounds } from '../audio/playSounds'
 
 /** an emitter's own colors (a node may hold several meshes), so it can be dimmed and brought back */
 function emitter(node: Object3D | undefined) {
@@ -37,6 +38,9 @@ export class DeskLive {
   private lamp: (k: number) => void
   private signal: Record<'g' | 'y' | 'r', (k: number) => void>
   private duck: Object3D | undefined
+  /** where the test pass / fail chime comes from (#194 ②) */
+  private signalAt: Object3D | undefined
+  private sounds = new PlaySounds()
   private calendar: { ctx: CanvasRenderingContext2D; texture: CanvasTexture; drawn: string } | null = null
   private flip = { angle: 0, target: 0, nextAt: 0 }
   private spin = 0
@@ -52,6 +56,7 @@ export class DeskLive {
     this.lamp = emitter(n('desk_2_lamp'))
     this.signal = { g: emitter(n('desk_3_signal_g')), y: emitter(n('desk_3_signal_y')), r: emitter(n('desk_3_signal_r')) }
     this.duck = n('desk_3_duck_look')
+    this.signalAt = n('desk_3_signal_y')
     const cal = n('screen_cal_0') as Mesh | undefined
     if (cal) {
       // one canvas per scene (StrictMode builds this twice): the texture shown is the one drawn on
@@ -131,5 +136,6 @@ export class DeskLive {
     this.signal.g(p.signal === 'green' ? 1 : OFF)
     this.signal.y(p.signal === 'yellow' ? (reduced ? 1 : 0.65 + 0.35 * Math.sin(t * 6)) : OFF)
     this.signal.r(p.signal === 'red' ? 1 : OFF)
+    this.sounds.signalLight(p.signal, this.signalAt ? this.signalAt.getWorldPosition(new Vector3()) : null)
   }
 }

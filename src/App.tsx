@@ -83,7 +83,7 @@ export function App() {
         )}
         <CameraRig limits={limits} />
         <SideViewOffset />
-        <SoundListener />
+        <SoundListener world={world} />
       </Canvas>
       <p className="hud">
         <b>AGENT OFFICE</b> · 드래그해서 돌려 보기

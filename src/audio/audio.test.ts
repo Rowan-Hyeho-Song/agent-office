@@ -111,3 +111,48 @@ describe('keyRoll', () => {
     expect(kept).toBeLessThan(240)
   })
 })
+
+describe('② play sounds', async () => {
+  const { pingpongEvents, stampPressed, JUMP_MS } = await import('./playSounds')
+  const { keysBetween } = await import('./typing')
+  const rally = (y: number | null, swing: { side: 0 | 1; t01: number } | null) =>
+    ({ ballPos: y === null ? null : [0, y, 0], phase: 'flight', hitter: 0, swing: swing ? { ...swing, at: [0, 0, 0] } : null, score: [0, 0], server: 0, game: 0 }) as never
+
+  it('ping-pong: a hit when the swing passes contact, a bounce at the table, a thud below it', () => {
+    let p = pingpongEvents(null, 7, 1000, rally(0.3, { side: 0, t01: 0.4 }), 0.02)
+    expect(p.events).toEqual([])
+    p = pingpongEvents(p.next, 7, 1016, rally(0.2, { side: 0, t01: 0.55 }), 0.02)
+    expect(p.events).toEqual(['hit'])
+    p = pingpongEvents(p.next, 7, 1032, rally(0.021, null), 0.02)
+    p = pingpongEvents(p.next, 7, 1048, rally(0.05, null), 0.02)
+    expect(p.events).toEqual(['bounce'])
+    let q = pingpongEvents(null, 7, 0, rally(-0.6, null), 0.02)
+    q = pingpongEvents(q.next, 7, 16, rally(-0.7, null), 0.02)
+    q = pingpongEvents(q.next, 7, 32, rally(-0.65, null), 0.02)
+    expect(q.events).toEqual(['floor'])
+  })
+  it('ping-pong: a jump or another session plays nothing', () => {
+    const a = pingpongEvents(null, 7, 1000, rally(0.3, { side: 0, t01: 0.4 }), 0.02)
+    expect(pingpongEvents(a.next, 7, 1000 + JUMP_MS + 1, rally(0.2, { side: 0, t01: 0.6 }), 0.02).events).toEqual([])
+    expect(pingpongEvents(a.next, 8, 1016, rally(0.2, { side: 0, t01: 0.6 }), 0.02).events).toEqual([])
+  })
+  it('stamp: one press per 1.2 s cycle, none across a jump', () => {
+    expect(stampPressed(0.5, 0.56)).toBe(true) // 550 ms
+    expect(stampPressed(0.56, 0.6)).toBe(false)
+    expect(stampPressed(1.74, 1.76)).toBe(true) // 1750 ms
+    expect(stampPressed(0.1, 2)).toBe(false)
+    expect(stampPressed(null, 0.56)).toBe(false)
+  })
+  it('typing: 6–9 keys a second in bursts, no catch-up after a jump', () => {
+    let s = keysBetween(null, 0, () => 0.5).next
+    let n = 0
+    for (let t = 0.05; t <= 20; t += 0.05) {
+      const r = keysBetween(s, t, () => 0.5)
+      n += r.keys.length
+      s = r.next
+    }
+    expect(n / 20).toBeGreaterThan(3)
+    expect(n / 20).toBeLessThan(9)
+    expect(keysBetween(s, 100).keys).toEqual([])
+  })
+})
