@@ -213,18 +213,19 @@ const ACTIVITY_ICON: Record<string, string> = {
 }
 
 /** the chip over a working agent's head ("파일 편집 중"), or a night shift's (#110); null otherwise */
-export function statusTag(status: AgentStatus | undefined): Tag | null {
+export function statusTag(status: AgentStatus | undefined, detail?: string): Tag | null {
   if (!status) return null
   const task = taskOf(status)
   // #182: "#170 · 파일 편집 중" (other repo: "rowansong.dev#12 · …", private: "🔒 · …"); no title on the 3D chip
   const withTask = (label: string) => (task ? `${task.private ? '🔒' : taskNumber(task)} · ${label}` : label)
   const other = (label: string) => (task && !task.private && !taskNumber(task).startsWith('#') ? { repo: task.repo, num: `#${task.issue}`, activity: label } : undefined)
-  if (status.state === 'wrapping') return { icon: 'card', label: withTask('카드 정리 중'), private: false, other: other('카드 정리 중') }
-  if (status.state === 'off' && status.night === 'sleep') return { icon: 'sleep', label: '조는 중', private: false }
+  if (status.state === 'wrapping') return { icon: 'card', label: withTask(detail ?? '카드 정리 중'), private: false, other: other(detail ?? '카드 정리 중') }
+  if (status.state === 'off' && status.night === 'sleep') return { icon: 'sleep', label: detail ?? '조는 중', private: false }
   if (status.state === 'idle' && status.night === 'duty') return { icon: 'coffee', label: '야간 당번', private: false }
   if (status.state !== 'working') return null
   const key = status.activity ?? 'other'
-  return { icon: ACTIVITY_ICON[key] ?? 'cmd', label: withTask(activityLabel(status.activity)), private: key === 'private', other: other(activityLabel(status.activity)) }
+  const words = detail ?? activityLabel(status.activity)
+  return { icon: ACTIVITY_ICON[key] ?? 'cmd', label: withTask(words), private: key === 'private', other: other(words) }
 }
 
 // ---- what the layer draws --------------------------------------------------------------------------------------------

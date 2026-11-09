@@ -194,7 +194,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
       goals = st.goals
     } else {
       replayNow.current = null
-      goals = world.director.goals(now, Math.floor(now / 60000), world.source.getSnapshot(), (a) => rigs[a].arrived)
+      goals = world.director.goals(now, Math.floor(now / 60000), world.source.getSnapshot(), (a) => rigs[a].arrived, { reduced })
       // a replayed meeting calls its agents in (plan 6.4); the director's goals are the fallback for everyone else
       world.replay?.tick()
       const door = graph.spots.door
@@ -308,7 +308,9 @@ export function Agents({ world }: { world: OfficeWorld }) {
     planes.update(state.clock.elapsedTime, graph, rigs, reduced)
     props.update(Math.min(dt, 0.1))
     desks.update(desk, t, Math.min(dt, 0.1), reduced)
-    screens?.update({ t, now, status, reduced, camera: state.camera, forced: world.debug ? world.screens.force : undefined })
+    // the monitors show what the director says each agent is doing now (#186); the timelapse shows its record's statuses
+    const shownStatus = st ? status : world.director.shownStatus
+    screens?.update({ t, now, status: shownStatus, reduced, camera: state.camera, forced: world.debug ? world.screens.force : undefined })
     drawBubbles(state, now)
   })
 
@@ -374,7 +376,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
       head.set(rig.group.position.x, rig.parts.head.position.y + 0.3, rig.group.position.z).project(state.camera)
       anchors[id] = { x: rect.left + ((head.x + 1) / 2) * rect.width, y: rect.top + ((1 - head.y) / 2) * rect.height, visible: head.z < 1 && !rig.hidden }
       if (anchors[id].x > area.w || anchors[id].y > area.h) anchors[id].visible = false
-      const tag = replaying ? null : statusTag(status[id])
+      const tag = replaying ? null : statusTag(world.director.shown[id]?.status ?? status[id], world.director.shown[id]?.detail)
       if (tag) tags.push({ id, seat: Number(id.split('_')[1]), ...tag })
     }
     l.update([...byId.values()], tags, anchors, { w: area.w, h: area.h, narrow: narrow.matches })

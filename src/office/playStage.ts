@@ -854,7 +854,7 @@ export class PlayStage {
       }
       return
     }
-    if (goal.pose === 'type' && seat === 2 && inp.tablet && resting) {
+    if (((goal.pose === 'type' && inp.tablet) || goal.pose === 'write') && seat === 2 && resting) {
       const pen = this.props.info(rig, 'tablet_pen')
       const tab = this.nodes.desk_2_tablet
       if (pen && tab) {
