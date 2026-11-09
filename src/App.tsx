@@ -48,7 +48,7 @@ export function App() {
     <>
       <Canvas
         dpr={[1, 1.5]}
-        camera={{ fov: 32, near: 0.1, far: CAMERA_FAR, position: close ? (close.slice(0, 3) as [number, number, number]) : top ? TOP : CAMERA }}
+        camera={{ fov: 32, near: VIEW.cameraNear, far: CAMERA_FAR, position: close ? (close.slice(0, 3) as [number, number, number]) : top ? TOP : CAMERA }}
         gl={{ antialias: true, stencil: true }}
       >
         <Suspense fallback={null}>
@@ -81,7 +81,7 @@ export function App() {
           maxPolarAngle={close ? Math.PI : VIEW.polar[1]}
         />
         )}
-        <CameraRig limits={limits} />
+        <CameraRig limits={limits} world={world} />
         <SideViewOffset />
         <SoundListener />
       </Canvas>
