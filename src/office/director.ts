@@ -266,10 +266,10 @@ export class Director {
     }
     const claimed = new Map<string, string>()
     for (const a of this.agents) if (!playing.includes(a)) claimed.set(keyOf(out[a]), a)
-    const used = (key: string, a: string) => {
-      const c = claimed.get(key)
-      return (!!c && c !== a) || this.agents.some((b) => b !== a && holdKey(b) === key)
-    }
+    // a goal with a standing slot (watering, reading) is its own place; one without takes the whole spot, slot or not
+    const same = (k: string, key: string) => (key.includes('|') ? k === key : k.split('|')[0] === key)
+    const used = (key: string, a: string) =>
+      [...claimed].some(([k, c]) => c !== a && same(k, key)) || this.agents.some((b) => b !== a && !!holdKey(b) && same(holdKey(b)!, key))
     const blocked = (g: Goal, a: string) => {
       const key = keyOf(g)
       if (used(key, a)) return true
@@ -287,7 +287,7 @@ export class Director {
       let g = out[a]
       if (blocked(g, a)) {
         const def = PLAYS.find((p) => p.kind === g.pose && !p.pair)
-        const alt = def?.spots.find((s) => !blocked({ ...g, spot: s, slot: undefined }, a))
+        const alt = def?.spots.find((s) => s !== g.spot && !blocked({ ...g, spot: s, slot: undefined }, a))
         g = alt ? { spot: alt, pose: g.pose, label: g.label } : deskIdle(deskOf(a))
         out[a] = g
       }

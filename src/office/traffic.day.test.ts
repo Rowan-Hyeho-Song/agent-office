@@ -17,10 +17,13 @@ function incidents(w: { t: number; d: number; who: string; goals: string; at: st
   return out
 }
 
+let day: ReturnType<typeof simulateDay> | undefined
+const wholeDay = () => (day ??= simulateDay({ fromMin: 0, toMin: 24 * 60 }))
+
 describe('a whole day through the planner', () => {
   it('no two agents ever come closer than 2R', () => {
     const t0 = Date.now()
-    const r = simulateDay({ fromMin: 0, toMin: 24 * 60 })
+    const r = wholeDay()
     const q = (p: number) => r.planMs[Math.min(r.planMs.length - 1, Math.floor(r.planMs.length * p))]?.toFixed(1)
     const line = `day sim: min pair distance ${r.min.toFixed(3)} m (2R = ${2 * TRAFFIC.bodyR}); min between exempt sofa pairs ${r.minExempt.toFixed(3)} m; replans ${r.replans} (median ${q(0.5)} ms, p95 ${q(0.95)} ms, max ${q(1)} ms); ${r.samples} samples; ${Date.now() - t0} ms total`
     console.log(line)
@@ -31,7 +34,7 @@ describe('a whole day through the planner', () => {
 
   // #186: what an agent shows is what its body does (one decision in the director), and nobody waits for a spot another holds
   it('shown state and behaviour never disagree; nobody waits more than 60 s for a goal', () => {
-    const r = simulateDay({ fromMin: 0, toMin: 24 * 60 })
+    const r = wholeDay()
     console.log(`day sim (#186): ${r.mismatch.length} mismatch frames of ${r.frames}; longest wait for a goal ${r.maxWait.s.toFixed(1)} s (${r.maxWait.who} -> ${r.maxWait.spot} at ${Math.round(r.maxWait.t)} s); waits over 60 s: ${r.longWaits.length}`)
     if (r.mismatch.length) console.log(JSON.stringify(r.mismatch.slice(0, 8)))
     if (r.longWaits.length) console.log(JSON.stringify(r.longWaits.slice(0, 8)))

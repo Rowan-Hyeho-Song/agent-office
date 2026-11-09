@@ -18,7 +18,7 @@ const WRAP_POSES = ['idle', 'write', 'carry', 'cardpost', 'tidy']
  * work = at the desk typing (or on the way, saying so); wrap = one of the wrap-up steps; rest = play / rest at the desk;
  * off = dozing / resting at the desk; duty = the night shift's quiet solo; talk = a conversation.
  */
-export function mismatch(a: string, sh: Shown | undefined, g: Goal, arrived: string | null): string | null {
+export function mismatch(a: string, sh: Shown | undefined, g: Goal, arrived: string | null, near: (spot: string) => boolean = (s) => arrived === s): string | null {
   const desk = `work_${deskOf(a)}`
   if (!sh) return 'nothing shown'
   const s = sh.status.state
@@ -30,8 +30,8 @@ export function mismatch(a: string, sh: Shown | undefined, g: Goal, arrived: str
       if (s !== 'wrapping' || !sh.detail || !sh.step || !WRAP_POSES.includes(g.pose)) return 'wrap: no wrap step'
       const want = { write: 'write', walk: 'carry', post: 'cardpost', tidy: 'tidy', seat: 'idle' }[sh.step]
       if (g.pose !== want) return `wrap: ${sh.step} shows but pose is ${g.pose}`
-      if ((sh.step === 'write' || sh.step === 'tidy') && arrived !== desk) return `wrap: ${sh.step} away from the desk`
-      if (sh.step === 'post' && arrived !== 'whiteboard') return 'wrap: posting away from the board'
+      if ((sh.step === 'write' || sh.step === 'tidy') && !near(desk)) return `wrap: ${sh.step} away from the desk`
+      if (sh.step === 'post' && !near('whiteboard')) return 'wrap: posting away from the board'
       return null
     }
     case 'rest':
@@ -127,7 +127,9 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
       const g = goals[a]
       const at = planner.has(a) ? planner.sample(a, t).arrived : null
       frames++
-      const why = mismatch(a, director.shown[a], g, at)
+      const me = planner.has(a) ? planner.sample(a, t) : null
+      // briefly stepping aside for a passer (the planner's yield) is still being at the spot: within 0.6 m
+      const why = mismatch(a, director.shown[a], g, at, (s) => !!me && Math.hypot(me.x - GRAPH.spots[s].x, me.z - GRAPH.spots[s].z) < 0.6)
       if (why) mism.push({ t, who: a, why })
       const key = `${g.spot}|${g.slot ? `${g.slot.x.toFixed(1)},${g.slot.z.toFixed(1)}` : ''}`
       const gs = (goalSince[a] = goalSince[a]?.key === key ? goalSince[a] : { key, t })
