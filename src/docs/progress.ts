@@ -13,6 +13,12 @@ export interface Progress {
   checks: { done: number; total: number } | null
   /** 🖊 requests of this issue nobody answered yet */
   pending: number
+  /**
+   * The pipeline never sent one for this file (no plan document, or filed before #241): the library still shows a status
+   * (designer, #301: every file has one), read from the documents: a merged PR's report = 완료, else 대기. The whiteboard
+   * keeps its own guess for these.
+   */
+  guessed?: true
 }
 
 /** what a viewer of a `private` project gets: the stage only */

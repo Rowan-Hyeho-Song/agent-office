@@ -117,8 +117,8 @@ export interface DocFile {
   seats: number[]
   /** up to two topics for the badges: from the plan (the issue) when it has any, else the first document that does */
   topics: TopicId[]
-  /** the plan's progress (#241); null when the file has no plan with one: it shows no status (the whiteboard's guess from the documents is not shown as if it were known) */
-  progress: Progress | null
+  /** the plan's progress (#241); a file the pipeline sent none for gets a guessed one (`guessed`, see guessProgress): every file has a status */
+  progress: Progress
   /** newest document's time */
   date: string
 }
@@ -146,6 +146,11 @@ function fileTopics(sorted: DocMeta[]): TopicId[] {
   return []
 }
 
+/** no progress from the pipeline (designer, #301): closed (a merged PR's report) = 완료, open = 대기; no count, no pending */
+export function guessProgress(docs: readonly DocMeta[]): Progress {
+  return { stage: docs.some((d) => d.kind === 'report') ? 'done' : 'waiting', checks: null, pending: 0, guessed: true }
+}
+
 function makeFile(key: string, docs: DocMeta[]): DocFile {
   const sorted = [...docs].sort(byTocThenTime)
   const priv = sorted.some((d) => d.grade === 'private')
@@ -158,7 +163,7 @@ function makeFile(key: string, docs: DocMeta[]): DocFile {
     secret: priv ? 'private' : sorted.some((d) => !d.approved) ? 'review' : null,
     seats: uniqSorted(sorted.flatMap((d) => d.agents)),
     topics: fileTopics(sorted),
-    progress: sorted.find((d) => d.kind === 'plan' && d.progress)?.progress ?? null,
+    progress: sorted.find((d) => d.kind === 'plan' && d.progress)?.progress ?? guessProgress(sorted),
     date: sorted.reduce((m, d) => (d.created_at > m ? d.created_at : m), ''),
   }
 }

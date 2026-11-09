@@ -27,13 +27,13 @@ export const pendingOf = (f: Pick<DocFile, 'progress'>) => f.progress?.pending ?
 
 const matches = (f: DocFile, v: Pick<ListView, 'pendingOnly'>) => !v.pendingOnly || pendingOf(f) > 0
 
-/** how many files each chip would show (with the 결재 대기만 toggle applied); a file with no progress is only in 전체 */
+/** how many files each chip would show (with the 결재 대기만 toggle applied); every file has a stage, so the four add up to 전체 */
 export function stageCounts(files: readonly DocFile[], v: Pick<ListView, 'pendingOnly'>): Record<StageFilter, number> {
   const out: Record<StageFilter, number> = { all: 0, waiting: 0, doing: 0, review: 0, done: 0 }
   for (const f of files) {
     if (!matches(f, v)) continue
     out.all++
-    if (f.progress) out[f.progress.stage]++
+    out[f.progress.stage]++
   }
   return out
 }
@@ -44,7 +44,6 @@ export function stageCounts(files: readonly DocFile[], v: Pick<ListView, 'pendin
  */
 export function defaultRank(f: Pick<DocFile, 'progress'>): number {
   const p = f.progress
-  if (!p) return 5
   if (p.stage === 'doing') return 0
   if (p.stage === 'review') return 1
   if (p.stage !== 'done' && p.pending > 0) return 2

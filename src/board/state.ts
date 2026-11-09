@@ -73,7 +73,7 @@ export function boardFromLibrary(folders: DocFolder[], bodies: Readonly<Record<n
   for (const folder of folders) {
     for (const file of folder.files) {
       if (file.secret === 'private' || file.repo === null || file.n === null) continue
-      const stage = file.progress?.stage
+      const stage = file.progress.guessed ? undefined : file.progress.stage
       if (stage === 'waiting') continue
       const col: Column = stage ?? (file.docs.some((d) => d.kind === 'report') ? 'done' : file.secret === 'review' ? 'review' : 'doing')
       out[col].push({ key: file.key, repo: file.repo, n: file.n, title: file.secret ? null : file.title, seat: asSeat(mainSeat(file)), at: file.date })

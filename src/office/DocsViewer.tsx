@@ -355,12 +355,6 @@ function DocPath({ folder, file, onRoot, onFolder }: { folder: DocFolder; file: 
           </button>
           <span aria-hidden="true">›</span>
           <span aria-current="location">파일철 {priv ? <Bar w={30} /> : `#${file.n}`}</span>
-          {file.progress && (
-            <span className="doc-path-progress">
-              <StageChip stage={file.progress.stage} />
-              <ProgressBar progress={file.progress} />
-            </span>
-          )}
         </>
       ) : (
         <span aria-current="location">{folder.label}</span>

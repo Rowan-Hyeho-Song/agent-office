@@ -119,10 +119,10 @@ describe('progress on the cover (#241)', () => {
       expect(coverOf(row({ id: 6, progress: bad })).progress).toBeNull()
     }
   })
-  it('a file takes the progress of its plan; a file without a plan has none', () => {
+  it('a file takes the progress of its plan; a file without one gets a guessed 대기 (#301)', () => {
     const files = groupLibrary([meta({ id: 10, kind: 'plan', folder: 1, progress }), meta({ id: 11, kind: 'minutes', folder: 1 }), meta({ id: 12, kind: 'minutes', folder: 2 })]).flatMap((f) => f.files)
     expect(files.find((f) => f.n === 1)?.progress).toEqual(progress)
-    expect(files.find((f) => f.n === 2)?.progress).toBeNull()
+    expect(files.find((f) => f.n === 2)?.progress).toEqual({ stage: 'waiting', checks: null, pending: 0, guessed: true })
   })
 })
 
