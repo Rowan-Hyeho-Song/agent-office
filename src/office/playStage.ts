@@ -28,6 +28,7 @@ import type { GripDemo } from './debugPlay'
 import { GRIPS, GripClock, STONE_H, STONE_PITCH, STONE_PITCH_FLAT, handFor, stoneGrip, stoneRoll, tipAt, type Curl, type StoneGrip } from './grip'
 import { contactNormal, fitFingers, handGripMatrix, offsetOf, resolveTarget, type GripTarget } from './gripTargets'
 import { fingerModelOf, type AgentRig, type PropBank } from './rig'
+import { noteTourEvent } from './tourEvents'
 import { meshesOf } from './nodes'
 import type { StatusMap } from './status'
 import { gameAt, N, type OmokView } from '../play/omok'
@@ -473,8 +474,10 @@ export class PlayStage {
     }
     // the tag over the net for 2 s after a point: the score, as the server's side reads it
     const before = playing ? rallyAt(s.seed, s.players, tMs - 2000, d, true) : null
-    if (playing && before && (before.score[0] !== rally.score[0] || before.score[1] !== rally.score[1]) && before.game === rally.game)
+    if (playing && before && (before.score[0] !== rally.score[0] || before.score[1] !== rally.score[1]) && before.game === rally.game) {
       this.tag = { text: `${rally.score[0]} : ${rally.score[1]}`, at: this.tableWorld([0, d.netH! + 0.35, 0]) }
+      for (const p of s.players) noteTourEvent(p, 2500) // the tour (#207): a point is an event at both players
+    }
   }
 
   // -------------------------------------------------------------------------------------------------------------- omok
@@ -605,6 +608,7 @@ export class PlayStage {
       const lr = inp.rigs[s.players[1 - winnerIdx]]
       if (view.wonMs > 500 && this.reactedGame.get(k) === undefined) {
         this.reactedGame.set(k, inp.t)
+        noteTourEvent(s.players[winnerIdx], 5000) // the tour (#207)
         wr.reaction = { kind: 'fist', t0: inp.t, dur: 1.0 }
         lr.reaction = { kind: 'clap', t0: inp.t + 0.4, dur: 1.4 }
       }
@@ -780,6 +784,7 @@ export class PlayStage {
         m.elements[13] += lift
         this.grip(rig, 'r', 'stamp', home.node.name, true, m, inp)
         this.sounds.stamp(inp.t, home.node.getWorldPosition(new Vector3()))
+        noteTourEvent(rig.id, 2500) // the tour (#207)
       }
       return
     }
