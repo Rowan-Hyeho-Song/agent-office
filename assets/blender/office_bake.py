@@ -47,8 +47,9 @@ Node contract (the app reads glTF extras):
   slot_<name>                      empties: each object's footprint (#109, extras slot, size, wall|against; core =
                                    the body alone when the slot also holds its use room, #147: the walk grid)
   agent_<i>                        live "bot" empty on the floor: the agent's frame (front = -z)
-  agent_<i>_head, _hand_l|r, _hand_l|r_f{1..4}_{1,2,3}, _hand_l|r_t_{1,2}, agent_0_postit_<k>
-                                   live "bot": real-time lit parts with pivots (extras pivot_at); fingers bend on local x
+  agent_<i>_head, _hand_l|r, _hand_l|r_f{1..4}_{1,2,3}, _hand_l|r_t_{0,1,2}, agent_0_postit_<k>
+                                   live "bot": real-time lit parts with pivots (extras pivot_at); fingers bend on local x;
+                                   #282: extras joint {flex|abduct|twist: {axis, sign}}, _f{n}_1 rest_abduct, hand wrist
   agent_<i>_glow|_beam|_floor, _hand_l|r_cuff, _tip, agent_1_orbit, agent_3_ear_glow, neon_desk_<i>, lamp_shade
                                    live "neon" emitters (hover light, wrist rings, state)
   agent_<i>_face                   live "face": canvas slot like the screens (extras screen, aspect, w, h)
@@ -3197,8 +3198,9 @@ def build_door():
 #   agent_<i>_glow / _beam    thrust ring light / light beam (pivot at its top: the app stretches it in y)
 #   agent_<i>_floor           glow disc on the floor (UV 0..1 so the app can fade its edge)
 #   agent_<i>_hand_l|r        palm, rotated into the rest pose; children: _grip (empty, where a prop attaches)
-#   agent_<i>_hand_l|r_f{1..4}_{1,2,3}, _t_{1,2}   finger segments (#134), pivot at each root joint, bend = local x
-#                             (+ = toward the palm); _t_1 also opposes about local z
+#   agent_<i>_hand_l|r_f{1..4}_{1,2,3}, _t_{0,1,2}   finger segments (#134), pivot at each root joint, bend = local x
+#                             (+ = toward the palm); #282: _t_0 = the thumb CMC wedge (flex x, abduct z, twist y),
+#                             the app hangs _t_1 under it; extras joint gives each axis and sign (hand-poses.md 1)
 #   agent_<i>_hand_l|r_cuff   the glowing wrist ring
 # Role parts that move on their own: agent_0_pen (prop), agent_0_postit_0..4, agent_1_orbit, agent_3_ear_glow;
 # agent_3_tip is the spinning loop ring (spin = local y).
@@ -3337,7 +3339,54 @@ def hand_fingers(n, Mh, sx, shell, square=False):
     # thumb: root beside the palm's lower corner, 35° out from the finger direction and 20° toward the palm
     T = Mh @ Mx((sx * 0.04, -0.018, 0.0)) @ Mx(rz=-sx * math.radians(35)) @ Mx(rx=math.radians(20))
     finger(f"{n}_t", T, [0.026, 0.020], 0.019, 0.017)
+    # #282 (hand-poses.md 1): the thumb's CMC, _t_0 - a bot_shell wedge (0.02 thick x 0.03 x 0.022, corners 6 mm)
+    # from 1.5 cm inside the palm's lower thumb-side corner up to the thumb's root, so an abducted thumb never shows a
+    # gap. Frame: y toward the thumb's root, x = the palm normal, z = x × y. The app hangs _t_1 under it
+    c0 = Vector((sx * 0.028, -0.028, 0.0))
+    yl = Vector((sx * 0.04, -0.018, 0.0)) - c0
+    reach = yl.length
+    yl.normalize()
+    xl = Vector((0.0, 0.0, 1.0))
+    M0 = Mh @ basis(tuple(c0), xl, yl, xl.cross(yl))
+    wedge = box("seg", (0.02, 0.03, 0.022), (0, reach - 0.015, 0), shell, "export", bev=0.006, seg=1)
+    out.append(pivot(join(f"{n}_t_0", place([wedge], M0)), M0))
+    joint_axes(out, Mh, sx)
     return out
+
+
+def joint_axes(nodes, Mh, sx):
+    """#282 (hand-poses.md 1): each finger / thumb node says which local axis turns each of its joints and the sign
+    that turns it the designer's + way (a right-handed frame cannot give every + its own positive rotation on both
+    hands): extras joint = {flex | abduct | twist: {axis, sign}}. + flex = toward the palm (the CMC: across the palm
+    toward the little finger), + abduct = away from the middle finger (the middle: toward the thumb; the CMC: out of
+    the palm plane toward the palm side), + twist (CMC) = the thumb pad turning to face the fingers. _f{n}_1 also
+    carries rest_abduct: the fan already in the mesh (deg, + = away from the middle finger)."""
+    R = Mh.to_3x3()
+    hand = lambda a, b, c: (R @ Vector((a, -c, b))).normalized()  # hand-local web -> world (Blender)
+    palm, thumb_side = hand(0, 0, 1), hand(sx, 0, 0)
+    fan = {f: fn for f, (_, _, _, fn) in enumerate(FINGERS, start=1)}
+
+    def ax(o, web):  # a node's local web axis in the world (Blender): web x, y, z = Blender local X, Z, -Y
+        r = o.matrix_world.to_3x3()
+        return (r @ {"x": Vector((1, 0, 0)), "y": Vector((0, 0, 1)), "z": Vector((0, -1, 0))}[web]).normalized()
+
+    def sign(a, moved, want):
+        return 1 if a.cross(moved).dot(want) > 0 else -1
+
+    for o in nodes:
+        name = o.name.split(".")[0]
+        y = ax(o, "y")
+        j = {"flex": {"axis": "x", "sign": sign(ax(o, "x"), y, palm)}}
+        if name.endswith("_t_0"):
+            j = {"flex": {"axis": "x", "sign": sign(ax(o, "x"), y, -thumb_side)},
+                 "abduct": {"axis": "z", "sign": sign(ax(o, "z"), y, palm)},
+                 "twist": {"axis": "y", "sign": sign(y, ax(o, "z"), -thumb_side)}}  # the pad (local z side) turning toward the fingers
+        elif name[-4:-2] in ("f1", "f2", "f3", "f4") and name.endswith("_1"):
+            f = int(name[-3])
+            away = thumb_side if f <= 2 else -thumb_side
+            j["abduct"] = {"axis": "z", "sign": sign(ax(o, "z"), y, away)}
+            o["rest_abduct"] = abs(fan[f]) if f != 2 else fan[f]  # middle: + toward the thumb
+        o["joint"] = j
 
 
 def lowrail(name, pts, r, material, group):
@@ -3482,7 +3531,7 @@ def build_agent(i, agent):
                 Mx((0, 0, -0.02), rx=math.pi / 2))[0],
           panel("face_bezel", 0.32, 0.20, 0.006, 0.025, (0, 0, -hd / 2 + 0.0015), graphite, G)]
     if i == 1:  # #254: the two chamfer light lines (6 mm, 0.6 mm proud), between the top and bottom chamfers
-        line_m = emitter(col, 0.8, "mesh_facet")
+        line_m = emitter(col, 0.5, "mesh_facet")  # #284 designer: 0.8 read white up close; lavender at 0.5
         for sx, sz in ((-1, -1), (1, 1)):
             c = (sx * (hw / 2 - 0.03), 0.0, sz * (hd / 2 - 0.03))  # the chamfer's middle (bevel 0.06 each way)
             n = Vector((sx, 0.0, sz)).normalized() * 0.0006
@@ -3644,6 +3693,14 @@ def build_agent(i, agent):
         Mh = root @ hand_rest(side)
         n = f"agent_{i}_hand_{side}"
         palm_node = pivot(join(n, place(hand_palm(shell), Mh)), Mh)
+        # #282 (hand-poses.md 1, grips.md 1.1): the wrist turns the hand about a point 5 cm below the palm centre
+        # (the cuff's middle), hand-local web metres; the axes / signs that turn it the + way: flex = toward the palm,
+        # deviate = toward the thumb, twist = the palm turning down
+        R = Mh.to_3x3()
+        hx, hy, hz = ((R @ v).normalized() for v in (Vector((1, 0, 0)), Vector((0, 0, 1)), Vector((0, -1, 0))))
+        sg = lambda a, moved, want: 1 if a.cross(moved).dot(want) > 0 else -1
+        palm_node["wrist"] = {"at": [0.0, -0.05, 0.0], "flex": {"axis": "x", "sign": sg(hx, hy, hz)}, "deviate": {"axis": "z", "sign": sg(hz, hy, sx * hx)},
+                              "twist": {"axis": "y", "sign": sg(hy, hz, Vector((0, 0, -1)))}}
         bot.append(palm_node)
         bot += hand_fingers(n, Mh, sx, shell, square=i == 3)
         cuff = [tube("cuff", 0.036, 0.023, (0, -0.05, 0), glow_m, "export", 16),
