@@ -184,3 +184,43 @@ describe('silenceReasons', async () => {
     expect(codes({ muted: true, volume: 0, ctx: null })).toEqual(['muted', 'volume0', 'noContext'])
   })
 })
+
+describe('#194 thock keyboard', async () => {
+  const { spread, KEY_VOICES } = await import('./keys')
+  const { overlapping, CUES, MAX_KEYS } = await import('./cues')
+  const { keysBetween } = await import('./typing')
+  const { BUS_LEVEL } = await import('./engine')
+  it('every key a little different: ±1 semitone, ±20% length', () => {
+    expect(spread(0, 0).pitch).toBeCloseTo(Math.pow(2, -1 / 12))
+    expect(spread(1, 1).pitch).toBeCloseTo(Math.pow(2, 1 / 12))
+    expect(spread(0.5, 0.5)).toEqual({ pitch: 1, len: 1 })
+  })
+  it('four voices, thock first (the default)', () => expect(KEY_VOICES[0]).toBe('thock'))
+  it('typing has its own bus, 5 dB under the effects', () => {
+    expect(CUES.type.bus).toBe('keys')
+    expect(20 * Math.log10(BUS_LEVEL.keys / BUS_LEVEL.sfx)).toBeCloseTo(-5, 0)
+    expect(MAX_KEYS).toBe(4)
+  })
+  it('overlap counts spans that meet [t, t + len)', () => {
+    const spans: [number, number][] = [[0, 0.1], [0.05, 0.15], [0.5, 0.6]]
+    expect(overlapping(spans, 0.08, 0.01)).toBe(2)
+    expect(overlapping(spans, 0.2, 0.1)).toBe(0)
+    expect(overlapping(spans, 0.55, 0.1)).toBe(1)
+  })
+  it('words end in a space, bursts sometimes in enter, typos in backspaces', () => {
+    let seed = 7
+    const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+    let s = keysBetween(null, 0, rand).next
+    const kinds: string[] = []
+    for (let t = 0.05; t <= 120; t += 0.05) {
+      const r = keysBetween(s, t, rand)
+      kinds.push(...r.kinds)
+      s = r.next
+    }
+    const count = (k: string) => kinds.filter((x) => x === k).length
+    expect(count('char')).toBeGreaterThan(count('space'))
+    expect(count('space')).toBeGreaterThan(0)
+    expect(count('enter')).toBeGreaterThan(0)
+    expect(count('backspace') % 2).toBe(0)
+  })
+})
