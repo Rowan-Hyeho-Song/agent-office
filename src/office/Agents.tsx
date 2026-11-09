@@ -198,8 +198,13 @@ export function Agents({ world }: { world: OfficeWorld }) {
       // a replayed meeting calls its agents in (plan 6.4); the director's goals are the fallback for everyone else
       world.replay?.tick()
       const door = graph.spots.door
+      // an agent carrying the watering can finishes bringing it back before a meeting takes it (#228: nothing flies home)
+      const carrying = Object.fromEntries(world.director.agents.filter((a) => world.director.carries(a)).map((a) => [a, goals[a]]))
       world.meeting.apply(now, (a) => rigs[a].arrived, goals, door ? { x: door.x, z: door.z } : undefined, { at: (a) => rigs[a] ?? null, spot: (s) => graph.spots[s] ?? null })
-      if (!world.meeting.busy) departs.current.clear()
+      Object.assign(goals, carrying)
+      // forget the departures no goal holds any more (a held one keeps its planner time: recomputed each frame it would drift and replan every frame, #228)
+      const held = new Set(Object.entries(goals).filter(([, g]) => g.depart !== undefined).map(([id, g]) => `${id}|${g.spot}|${g.depart}`))
+      for (const k of [...departs.current.keys()]) if (!held.has(k) && !world.meeting.busy) departs.current.delete(k)
     }
     const scene = st ? replay.scene() : null
     const status = scene ? scene.status : world.source.getSnapshot()

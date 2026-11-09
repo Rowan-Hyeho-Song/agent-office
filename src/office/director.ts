@@ -2,9 +2,11 @@
 // the messages in flight. Pure: no three.js; the rigs report arrivals back through `arrivedAt`.
 
 import { DESK_SIDES } from './nav'
-import { playAt, PLAYS, soloAt, type PlayKind } from './play'
+import { blockOf, playAt, PLAYS, soloAt, type PlayKind } from './play'
 import { activityLabel, type AgentStatus, type OfficeMessage, type StatusMap } from './status'
 import type { Request } from './traffic'
+import { STAND_BLOCKERS, WATER_PLANTS } from './water'
+import { holding, placeOf, startWater, stepWater, WATER_LABEL, type WaterRun, type WaterStage } from './waterRun'
 import { startWrap, stepWrap, viewOf, WALKING_TO_DESK, type BeatKind, type Shown, type WrapRun } from './wrap'
 
 /** `write` / `carry` / `cardpost` / `tidy` are the wrap-up's own (#186, wrap.ts) */
@@ -34,6 +36,8 @@ export interface Goal {
   beat?: { kind: BeatKind; u: number; k: number }
   reread?: boolean
   waiting?: boolean
+  /** the watering errand (#228): its stage, the plant, and how long (s) the stage has lasted: the hands are drawn from these, not from where the agent stands */
+  water?: { stage: WaterStage; plant: string; u: number }
   /** what it's doing, for the debug panel */
   label: string
 }
@@ -46,6 +50,10 @@ export const requestOf = (goal: Goal, pace: number, notBefore?: number): Request
   avoid: goal.quiet ? DESK_SIDES : undefined,
   ...(notBefore !== undefined ? { notBefore } : {}),
 })
+
+/** the poses that hold a prop in the hand until the play ends, and how long the agent stays to put it back before it walks off */
+const PROP_POSES = new Set<Pose>(['coffee', 'books', 'pingpong', 'boardgame'])
+const PUT_AWAY_MS = 800
 
 /** how long a face-to-face talk lasts, how long to wait for both to arrive */
 const TALK_MS = 6000
@@ -79,6 +87,12 @@ export class Director {
   /** the wrap-up in progress (wrap.ts) and the status `since` each agent already finished */
   private runs: Record<string, WrapRun> = {}
   private wrapDone: Record<string, number> = {}
+  /** the watering errands in progress (waterRun.ts; at most one: there is one can) and the block each agent has watered in already */
+  private waters: Record<string, WaterRun> = {}
+  private waterDone: Record<string, number> = {}
+  /** what each agent's goal was last frame, and the departure its goal was held back to (putAway) */
+  private lastPose: Record<string, { pose: Pose; spot: string }> = {}
+  private leaving: Record<string, { spot: string; depart: number }> = {}
   /** the place (spot, or spot + standing slot) each agent's goal named last frame: a spot is held by whoever has it or is heading to it */
   private lastGoal: Record<string, { spot: string; key: string }> = {}
   /** what each agent shows right now (the name tags, head chips, monitors read this, not the raw status): decided in goals(), nowhere else (#186) */
@@ -106,13 +120,29 @@ export class Director {
 
   private inTalk = (a: string) => this.talks.some((t) => a in t.spots)
 
+  /** the agent has the can in its hand (or is putting it down): it is not called away from it */
+  carries = (a: string) => !!this.waters[a] && holding(this.waters[a])
+
+  clearWater() {
+    for (const k of Object.keys(this.waters)) delete this.waters[k]
+  }
+
+  /** ?debug=1: send an agent for the can right now (the schedule's own errands start the same way) */
+  forceWater(agent: string, plant: string, now: number, reduced = false) {
+    this.clearWater()
+    delete this.waterDone[agent]
+    // it counts as this block's watering: the schedule does not send the agent again right after
+    this.waters[agent] = startWater(plant, blockOf(Math.floor(now / 60000)), now, reduced)
+  }
+
   /** start queued talks whose two agents are both free and in the office */
   private startTalks(now: number, status: StatusMap) {
     const waiting: OfficeMessage[] = []
     for (const m of this.queue) {
       const present = (a: string) => status[a] && status[a].state !== 'off'
       if (!present(m.from) || !present(m.to)) continue // nobody to talk to: drop it
-      if (this.inTalk(m.from) || this.inTalk(m.to)) {
+      // an agent carrying the can finishes bringing it back first (nothing flies home)
+      if (this.inTalk(m.from) || this.inTalk(m.to) || this.carries(m.from) || this.carries(m.to)) {
         waiting.push(m)
         continue
       }
@@ -179,7 +209,43 @@ export class Director {
     }
 
     const busy = new Set(this.agents.filter((a) => status[a]?.state === 'working' || status[a]?.state === 'off' || status[a]?.night === 'duty' || this.runs[a]))
-    const play = playAt(minute, this.agents, busy)
+    let play = playAt(minute, this.agents, busy)
+
+    // the watering errands (waterRun.ts, #228): the schedule's water assignment is an errand, started when nobody has the can and the
+    // agent is free, then carried through whatever the schedule says next (the can is always brought back), and the one place that says
+    // which stage it is in. There is one can: a second agent assigned to water waits at its desk until it is down.
+    const block = blockOf(minute)
+    const resting = (a: string) => {
+      const s = rawOf(a)
+      return !this.inTalk(a) && !this.runs[a] && ((s.state === 'idle' && s.night !== 'duty') || s.state === 'wrapping')
+    }
+    for (const a of this.agents) {
+      const run = this.waters[a]
+      if (!run) continue
+      // called away before it has the can: nothing to bring back
+      if (!resting(a) && !holding(run)) {
+        delete this.waters[a]
+        continue
+      }
+      const r = stepWater(run, { now, at: (spot) => arrivedAt(a) === spot })
+      if (r.done) {
+        this.waterDone[a] = run.block
+        delete this.waters[a]
+      } else this.waters[a] = r.run
+    }
+    if (!Object.keys(this.waters).length) {
+      const a = this.agents.find((x) => resting(x) && play[x]?.kind === 'water' && this.waterDone[x] !== block)
+      if (a) {
+        // the scheduled plant, or the next one whose stand is not taken by somebody resting beside it (water.ts STAND_BLOCKERS)
+        const names = WATER_PLANTS.map((p) => p.name)
+        const first = Math.max(0, names.indexOf(play[a].plant ?? ''))
+        const free = (n: string) => !(STAND_BLOCKERS[n] ?? []).some((spot) => this.agents.some((x) => x !== a && (this.lastGoal[x]?.spot === spot || arrivedAt(x) === spot)))
+        const plant = [0, 1, 2].map((k) => names[(first + k) % names.length]).find(free)
+        if (plant) this.waters[a] = startWater(plant, block, now, !!opts.reduced)
+      }
+    }
+    // whoever is on an errand is not free for the schedule's other plays (a game partner left alone goes to a solo)
+    if (Object.keys(this.waters).length) play = playAt(minute, this.agents, new Set([...busy, ...Object.keys(this.waters)]))
     const out: Record<string, Goal> = {}
     const shown: Record<string, Shown> = {}
     const playing: string[] = []
@@ -204,6 +270,17 @@ export class Director {
         }
         // a talk is free time: only a working receiver at its own desk keeps showing its work
         shown[a] = s.state === 'working' && atTalkDesk ? { status: s, kind: 'work' } : { status: { ...s, state: s.state === 'off' || s.night ? s.state : 'idle' }, kind: 'talk' }
+        continue
+      }
+      // the watering errand: the stage's own place and hands, whatever the schedule or the status says until the can is down
+      const wr = this.waters[a]
+      if (wr) {
+        const pl = placeOf(wr)
+        out[a] = { spot: pl.spot, pose: 'water', face: pl.face, ...standSlot({ stand: pl.stand, face: pl.face }), water: { stage: wr.stage, plant: wr.plant, u: (now - wr.t0) / 1000 }, label: `화분 물 주기 · ${WATER_LABEL[wr.stage]}` }
+        const free = (s.state === 'idle' && s.night !== 'duty') || (s.state === 'wrapping' && !this.runs[a])
+        shown[a] = free
+          ? { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
+          : { status: s, kind: s.state === 'working' ? 'work' : s.state === 'wrapping' ? 'wrap' : s.state === 'off' ? 'off' : 'duty', detail: WATER_LABEL[wr.stage], ...(s.state === 'wrapping' ? { step: 'seat' as const } : {}) }
         continue
       }
       // #110: nobody leaves. Off at night = dozing at its own desk, or the one awake on night duty; off by day
@@ -243,10 +320,16 @@ export class Director {
       // idle, or a wrap-up that is over: rest, i.e. whatever the play schedule says
       shown[a] = { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
       const p = play[a]
+      // water is an errand (above): an agent assigned to it that has not started waits for the can (or has already watered this block)
+      if (p?.kind === 'water') {
+        out[a] = { ...deskIdle(desk), label: this.waterDone[a] === block ? '자리에서 쉬는 중' : '물뿌리개 차례 기다리는 중' }
+        continue
+      }
       if (p) playing.push(a)
       out[a] = p ? { spot: p.spot, pose: p.kind, face: p.face, ...standSlot(p), label: p.label } : deskIdle(desk)
     }
     this.settle(out, playing, deskIdle)
+    this.putAway(now, out)
     this.setShown(shown)
     return out
   }
@@ -262,7 +345,12 @@ export class Director {
   private settle(out: Record<string, Goal>, playing: string[], deskIdle: (desk: number) => Goal) {
     const keyOf = (g: Goal) => (g.slot ? `${g.spot}|${g.slot.x.toFixed(1)},${g.slot.z.toFixed(1)}` : g.spot)
     const claimed = new Map<string, string>()
-    for (const a of this.agents) if (!playing.includes(a)) claimed.set(keyOf(out[a]), a)
+    for (const a of this.agents) {
+      if (playing.includes(a)) continue
+      claimed.set(keyOf(out[a]), a)
+      // a watering stand another spot is too close to (water.ts STAND_BLOCKERS) is held with it: nobody sits down beside the monstera while it is watered
+      for (const spot of STAND_BLOCKERS[out[a].water?.plant ?? ''] ?? []) claimed.set(spot, a)
+    }
     // a goal with a standing slot (watering, reading) is its own place; one without takes the whole spot, slot or not
     const same = (k: string, key: string) => (key.includes('|') ? k === key : k.split('|')[0] === key)
     const used = (key: string, a: string) => [...claimed].some(([k, c]) => c !== a && same(k, key))
@@ -288,6 +376,23 @@ export class Director {
       claimed.set(keyOf(g), a)
     }
     for (const a of this.agents) this.lastGoal[a] = { spot: out[a].spot, key: keyOf(out[a]) }
+  }
+
+  /**
+   * A prop goes back by hand (PlayStage.putBack: 0.4 s, then the hand opens): the agent whose play has ended stands where it is for PUT_AWAY_MS
+   * before it sets off, so the hand puts it down beside the body and never runs after a body that has walked away (#228).
+   */
+  private putAway(now: number, out: Record<string, Goal>) {
+    for (const a of this.agents) {
+      const g = out[a]
+      const prev = this.lastPose[a]
+      if (prev && PROP_POSES.has(prev.pose) && prev.spot !== g.spot && g.depart === undefined) this.leaving[a] = { spot: g.spot, depart: now + PUT_AWAY_MS }
+      const l = this.leaving[a]
+      // the same departure for as long as the goal stays (a request that changes is a replan: it must not change again when the time has passed)
+      if (l && l.spot === g.spot && g.depart === undefined) g.depart = l.depart
+      else if (l && l.spot !== g.spot) delete this.leaving[a]
+      this.lastPose[a] = { pose: g.pose, spot: g.spot }
+    }
   }
 
   private setShown(next: Record<string, Shown>) {

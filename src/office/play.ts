@@ -52,6 +52,8 @@ export interface PlayAssignment {
   partner?: string
   face?: { x: number; z: number }
   stand?: { x: number; z: number }
+  /** water: the plant's name (water.ts); the Director runs it as an errand (waterRun.ts, #228) */
+  plant?: string
 }
 
 /** small fast PRNG (mulberry32): same seed, same sequence, in every browser */
@@ -121,11 +123,13 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
 
   const assign = (agent: string, p: PlayDef, spot: string, partner?: string) => {
     used.add(spot)
+    let plantName: string | undefined
     if (p.kind === 'water') {
       const plant = WATER_PLANTS[hash(`${block}|water|${agent}`) % WATER_PLANTS.length]
       p = { ...p, face: { x: plant.x, z: plant.z }, stand: standOf(plant) }
+      plantName = plant.name
     }
-    out[agent] = { kind: p.kind, label: p.label, spot, ...(partner ? { partner } : {}), ...(p.face ? { face: p.face } : {}), ...(p.stand ? { stand: p.stand } : {}) }
+    out[agent] = { kind: p.kind, label: p.label, spot, ...(plantName ? { plant: plantName } : {}), ...(partner ? { partner } : {}), ...(p.face ? { face: p.face } : {}), ...(p.stand ? { stand: p.stand } : {}) }
   }
 
   const solos = PLAYS.filter((p) => !p.pair)
