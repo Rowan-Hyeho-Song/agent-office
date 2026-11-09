@@ -74,6 +74,57 @@ export const CUES = {
       noise(o, 0.03, { kind: 'pink', filter: 'lowpass', freq: 900, level: 0.04 })
     },
   },
+  // ── #262 종이 전달 (거리에 따라): 셋 다 종이비행기보다 작고 짧다. 가까이서 일어나는 작은 일이다 ──
+  'handoff.give': {
+    label: '건네기 종이 스침',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 200,
+    length: 0.22,
+    // two soft brushes of paper on paper, the second a little brighter (the receiving hand takes it)
+    play: (o) => {
+      noise(o, 0.12, { freq: 3200, to: 4200, q: 0.7, level: 0.038, shape: 'swell' })
+      noise(o, 0.07, { freq: 5000, q: 0.9, level: 0.026, at: 0.11 })
+    },
+  },
+  'handoff.slide': {
+    label: '밀어 주기 책상 위 미끄러짐',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 150,
+    length: 0.5,
+    // paper on oak: low-ish friction that slows down (the band falls), as long as it slides (dur, 0.15–1.2 s)
+    play: (o, v) => {
+      const d = Math.max(0.15, Math.min(1.2, v.dur ?? 0.45))
+      noise(o, d, { kind: 'pink', freq: 1500, to: 650, q: 0.9, level: 0.04, attack: 0.03, shape: 'flat' })
+      noise(o, d * 0.8, { freq: 3800, to: 2400, q: 1.2, level: 0.012, attack: 0.03, shape: 'swell' })
+    },
+  },
+  'handoff.toss': {
+    label: '툭 던지기 휙',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 200,
+    length: 0.16,
+    // the plane's whoosh, shorter and lower: a folded sheet, not a glider
+    play: (o) => noise(o, 0.16, { kind: 'pink', freq: 700, to: 1700, q: 1.1, level: 0.085, shape: 'swell' }),
+  },
+  'handoff.catch': {
+    label: '툭 던지기 받는 톡',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 200,
+    length: 0.05,
+    // into a hand, not onto a desk: softer and duller than plane.land
+    play: (o) => {
+      noise(o, 0.04, { freq: 2000, q: 0.8, level: 0.065 })
+      noise(o, 0.03, { kind: 'pink', filter: 'lowpass', freq: 600, level: 0.04 })
+    },
+  },
   stamp: {
     label: '도장 쿵',
     kind: 'event',

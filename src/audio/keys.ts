@@ -4,13 +4,49 @@
 // Space / enter / backspace are lower and heavier (no stabiliser rattle). The old tick stays as a choice.
 //
 // Kinds match #225's input events (inputEvents.ts `key` kind), so the same voices serve the real key presses later.
+//
+// #194 thock2 (user: "키보드 누르는 소리는 전혀 쏘키하지 않은데"): measured against CC0 recordings of thocky boards
+// (sound.md 4.1 키보드 표). A real thock is NOT a low tone: the keystroke is a ~10 ms burst whose energy sits at
+// 1.2–5 kHz with nothing above 5 kHz (that missing top is what makes it "deep"), plus a low desk/case thump under 300 Hz.
+// The first thock was 89% at 150–300 Hz and rang 53 ms: a "bloop", and laptop speakers barely play 150–300 Hz.
+// Two candidates for the A/B: 'thock2' (synth rebuilt to those numbers) and 'sample' (eight strokes of a CC0 recording).
 
 import { noise, tone, type Out } from './synth'
 
 export type KeyKind = 'char' | 'space' | 'enter' | 'backspace' | 'mod'
-export type KeyVoice = 'thock' | 'creamy' | 'marbly' | 'tick'
-export const KEY_VOICES: KeyVoice[] = ['thock', 'creamy', 'marbly', 'tick']
-export const KEY_VOICE_LABEL: Record<KeyVoice, string> = { thock: '깊은 thock (기본)', creamy: '크리미', marbly: '마블 팝', tick: '지금 틱' }
+export type KeyVoice = 'thock' | 'thock2' | 'sample' | 'creamy' | 'marbly' | 'tick'
+export const KEY_VOICES: KeyVoice[] = ['thock', 'thock2', 'sample', 'creamy', 'marbly', 'tick']
+export const KEY_VOICE_LABEL: Record<KeyVoice, string> = {
+  thock: '깊은 thock (기본)',
+  thock2: '도각 thock (다듬음, 합성)',
+  sample: '녹음 Rainy 75 (CC0 파일, 결정 필요)',
+  creamy: '크리미',
+  marbly: '마블 팝',
+  tick: '지금 틱',
+}
+
+// ─── the recorded voice ('sample'): eight downstrokes of a Rainy 75 (Freesound 815614 by Techrul, CC0 1.0), cut to
+// 160 ms each, peak −6 dBFS, 24 kHz 16-bit mono WAV, 61 KB (public/audio/keys-rainy75.wav). Loaded only when chosen. ───
+export const SAMPLE_URL = 'audio/keys-rainy75.wav'
+export const SAMPLE_STROKES = 8
+export const SAMPLE_LEN_S = 0.16
+let sample: AudioBuffer | null = null
+let loading: Promise<void> | null = null
+/** fetch and decode the strokes once (any context: an AudioBuffer plays in every context) */
+export function loadKeySample(c: BaseAudioContext): Promise<void> {
+  if (sample) return Promise.resolve()
+  if (!loading) {
+    const base = (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/'
+    loading = fetch(base + SAMPLE_URL)
+      .then((r) => r.arrayBuffer())
+      .then((b) => c.decodeAudioData(b))
+      .then((b) => void (sample = b))
+      .catch(() => void (loading = null))
+  }
+  return loading
+}
+/** the recording's level to sit with the synth thock (both measured as one typist on the master, sound.md 4.1) */
+const SAMPLE_GAIN = 0.0274
 
 const STORE = 'agent-office.key-voice'
 let voice: KeyVoice = (() => {
@@ -44,6 +80,9 @@ export function spread(r1: number, r2: number) {
  */
 const LOW_GAIN = Math.pow(10, -17 / 20)
 
+/** thock2 against thock: set so one typist measures the same on the master (sound.md 4.1 키보드 표) */
+const THOCK2_GAIN = 1.3
+
 /** the body of each kind: [base Hz, decay s, level] for the deep thock; the others scale from it */
 const KIND: Record<KeyKind, [number, number, number]> = {
   char: [230, 0.075, 0.07 * LOW_GAIN],
@@ -65,6 +104,38 @@ export function keyVoice(o: Out, kind: KeyKind, pitch: number, v: KeyVoice = voi
     return
   }
   const p = pitch * s.pitch
+  if (v === 'sample') {
+    if (!sample) {
+      void loadKeySample(o.c)
+      keyVoice(o, kind, pitch, 'thock2') // until the file is in
+      return
+    }
+    // a random stroke; the big keys an octave-third lower and longer-sounding, the spread as pitch (±1 semitone)
+    const src = o.c.createBufferSource()
+    src.buffer = sample
+    src.playbackRate.value = p * (big ? 0.8 : kind === 'mod' ? 1.06 : 1)
+    const g = o.c.createGain()
+    g.gain.value = SAMPLE_GAIN * (l0 / KIND.char[2])
+    src.connect(g).connect(o.dest)
+    const k = Math.floor(Math.random() * SAMPLE_STROKES)
+    src.start(o.t, k * SAMPLE_LEN_S, SAMPLE_LEN_S)
+    return
+  }
+  if (v === 'thock2') {
+    // the bottom-out "도각": a 10 ms band of noise round 1.7 kHz + two quick plastic modes (1.25 / 2.3 kHz), a low
+    // thump that drops (160 → 110 Hz, 20 ms) and a little case box at 500 Hz; nothing above ~5 kHz. Big keys sit lower.
+    // Letters and modifiers also get the quiet up-stroke 70–110 ms later (the recordings all have it).
+    const kk = f0 / KIND.char[0]
+    const a = l0 * THOCK2_GAIN
+    noise(o, 0.012 * s.len, { freq: 1700 * p * kk, q: 1.1, level: a * 1.6, attack: 0.0005 })
+    noise(o, 0.008 * s.len, { freq: 3200 * p * kk, q: 1.3, level: a * 0.9, attack: 0.0004 })
+    tone(o, 1250 * p * kk, 0.014 * s.len, { type: 'sine', level: a * 0.3, attack: 0.0005 })
+    tone(o, 2300 * p * kk, 0.007, { type: 'sine', level: a * 0.12, attack: 0.0005 })
+    tone(o, 160 * p * kk, (big ? 0.035 : 0.02) * s.len, { type: 'sine', level: a * 0.22, slide: 0.7, attack: 0.001 })
+    noise(o, 0.015, { freq: 500 * kk, q: 4, level: a * 0.15, attack: 0.001 })
+    if (!big) noise(o, 0.008, { freq: 1300 * p, q: 1.2, level: a * 0.22, attack: 0.0005, at: 0.07 + s.len * 0.05 })
+    return
+  }
   if (v === 'thock') {
     // deep thock: a dropping sine body, a dark bottom-out puff, a low case resonance
     const f = f0 * p
