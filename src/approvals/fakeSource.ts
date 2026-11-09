@@ -2,7 +2,7 @@
 // role, so the box can be built and screenshotted without Supabase. Driven from window.__office.approvals.
 
 import { needsOpinion, readChoice } from './approve.js'
-import type { ApprovalSource, Cover, DecideResult, Role } from './source.js'
+import type { ApprovalSource, Cover, DecideResult, DecidedCover, Role } from './source.js'
 import type { StoredApproval } from './types.js'
 import { oldestFirst } from './view.js'
 
@@ -126,6 +126,10 @@ export class FakeApprovalSource implements ApprovalSource {
   count = async () => this.waiting().length
   covers = async (): Promise<Cover[]> =>
     oldestFirst(this.waiting()).map(({ id, kind, requester_seat, created_at }) => ({ id, kind, requester_seat, created_at }))
+  decidedCovers = async (): Promise<DecidedCover[]> =>
+    this.rows
+      .filter((a) => a.status === 'decided' && a.result && a.decided_at)
+      .map((a) => ({ id: a.id, kind: a.kind, requester_seat: a.requester_seat, result: a.result as string, decided_at: a.decided_at as string }))
   pending = async () => oldestFirst(this.waiting()).map((a) => ({ ...a }))
   decided = async () => this.rows.filter((a) => a.status === 'decided').map((a) => ({ ...a }))
 

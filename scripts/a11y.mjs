@@ -57,6 +57,17 @@ const STATES = [
       await p.waitForTimeout(700)
     },
   },
+  // decided approvals (#222): the list, the owner's read-only detail, the visitor's cover
+  { name: '주인 · 처리됨 목록', url: '/?debug=1&approvals=owner', act: (p) => p.getByRole('tab', { name: /처리됨/ }).click() },
+  {
+    name: '주인 · 처리된 결재 상세',
+    url: '/?debug=1&approvals=owner',
+    act: async (p) => {
+      await p.getByRole('tab', { name: /처리됨/ }).click()
+      await p.locator('.approval-item').first().click()
+    },
+  },
+  { name: '방문자 · 처리된 결재 표지', url: '/?debug=1&approvals=visitor', act: (p) => p.locator('.secret-done button').first().click() },
   { name: '주인 · 목록 (390px)', url: '/?debug=1&approvals=owner', viewport: { width: 390, height: 844 } },
   // the timelapse (#82): the office replay with its bar, the 2D list, the phone's bar
   { name: '타임랩스 · 사무실', url: '/?debug=1&replay=all&t=2026-11-08T01:00:00Z', act: (p) => p.waitForSelector('.replay-slider') },
