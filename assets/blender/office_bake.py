@@ -359,8 +359,15 @@ def build_wall(side):
     p = [slab]
     p += [box(f"wall_{side}_skirt", *at(-WT - 0.001, 0.15, run, 0.3, 0.002), wall_low, G)]
     span = 2 * HX if along_x else 2 * HZ
-    p += [box(f"wall_{side}_rail", *at(0.015, 0.96, span, 0.03, 0.03), trim, G),
-          box(f"wall_{side}_base", *at(0.01, 0.04, span, 0.08, 0.02), trim, G),
+    if side == "n":  # #211: the rail (3 cm deep) stood 8 mm proud of the shelf's back panel: a black strip in each
+        # shelf at 0.96 m (designer: "a dashed seam"). It stops at the shelf's sides instead of running behind it
+        rs, (_, ry, rz) = at(0.015, 0.96, span, 0.03, 0.03)
+        a, b = SHELF_X - SHELF_W / 2 - 0.015, SHELF_X + SHELF_W / 2 + 0.015
+        for k, (x0, x1) in enumerate(((-HX, a), (b, HX))):
+            p.append(box(f"wall_{side}_rail_{k}", (x1 - x0, rs[1], rs[2]), ((x0 + x1) / 2, ry, rz), trim, G))
+    else:
+        p.append(box(f"wall_{side}_rail", *at(0.015, 0.96, span, 0.03, 0.03), trim, G))
+    p += [box(f"wall_{side}_base", *at(0.01, 0.04, span, 0.08, 0.02), trim, G),
           box(f"wall_{side}_cap", *at(-WT / 2, WALL_H + 0.015, run, 0.03, WT + 0.02), trim, G)]
     if side == "n":
         wx, wy, ww, wh = WINDOW_X, 1.72, 2.6, 1.05
@@ -945,7 +952,8 @@ def build_wall_items():
           box("shelf_back_r", (fw, sh, 0.012), (sx + sw / 2 - fw / 2, sh / 2, bz), shelf_m, G),
           box("shelf_back_b", (sw - 2 * fw, fw, 0.012), (sx, fw / 2, bz), shelf_m, G),
           box("shelf_back_t", (sw - 2 * fw, fw, 0.012), (sx, sh - fw / 2, bz), shelf_m, G),
-          box("shelf_back_panel", (sw - 2 * fw, sh - 2 * fw, 0.006), (sx, sh / 2, bz + 0.002), shelf_m, G)]
+          # flush with the frame at the front (a 1 mm step there read as a black dashed seam, designer #211)
+          box("shelf_back_panel", (sw - 2 * fw, sh - 2 * fw, 0.007), (sx, sh / 2, bz + 0.0025), shelf_m, G)]
     book_cols = ["#c0392b", "#2c3e50", "#d4a017", "#16a085", "#8e44ad", "#e67e22", "#ecf0f1", "#34495e", "#7f8c8d"]
     for s in range(5):
         y0 = 0.08 + s * 0.42
@@ -2174,7 +2182,16 @@ def make_book(name, W_, H_, T, cover_hex, home_pos, home_rot, G, ribbon=False):
     ink = plastic("#9a948a", 0.9, 0, 0.0, "book_ink")
     band = plastic("#a83232", 0.8, 0, 0.3, "book_band")
     gilt = plastic("#c9a465", 0.35, 0.9, 0.1, "book_gilt")
+    lt = [int(cover_hex[i:i + 2], 16) * 0.75 + 255 * 0.25 for i in (1, 3, 5)]
+    title = plastic("#%02x%02x%02x" % tuple(int(c) for c in lt), 0.6, 0, 0.3, f"book_title_{cover_hex[1:]}")  # 25% lighter
     H = Mx(home_pos, *home_rot)
+
+    def spine_deco(sgn):
+        """#211 (designer): two 2 mm gilt bands 1.5 cm in from head and tail and a title line down the middle
+        (60% of the height, 3 mm wide), standing 0.2 mm proud of the spine; split at y = 0 like the spine itself"""
+        o = [box("spine_band", (0.0004, T / 2 - 0.0012, 0.002), (-0.0032, sgn * (T / 4 - 0.0004), sz * (H_ / 2 - 0.015)),
+                 gilt, G) for sz in (-1, 1)]
+        return o + [box("spine_title", (0.0004, 0.0015, H_ * 0.6), (-0.0032, sgn * 0.00075, 0), title, G)]
 
     def half(nm, sgn):
         """sgn = +1: the upper half (cover on top), -1: the lower one"""
@@ -2193,6 +2210,7 @@ def make_book(name, W_, H_, T, cover_hex, home_pos, home_rot, G, ribbon=False):
             objs.append(box("headband", (0.004, T / 2 - 0.003, 0.002), (0.0025, sgn * (T / 4 - 0.0005), sz * (H_ / 2 - 0.006)), band, G, bev=0.0005, seg=1))
         if sgn > 0:  # the spine's upper half turns with this half (a whole spine would stand up between open pages)
             objs.append(box("spine", (0.003, T / 2, H_), (-0.0015, T / 4, 0), cover, G, bev=0.001, seg=2))
+            objs += spine_deco(1)
             # the front cover: a gilt rule by the spine and a cream title label
             objs += [box("groove", (0.0015, 0.0002, H_ - 0.012), (0.012, c + 0.0011, 0), groove, G),  # a shallow hinge groove
                      box("label", (W_ / 2, 0.0004, 0.034), (W_ / 2 + 0.008, c + 0.0012, -H_ * 0.2), paper, G, bev=0.0002, seg=1),
@@ -2206,7 +2224,7 @@ def make_book(name, W_, H_, T, cover_hex, home_pos, home_rot, G, ribbon=False):
         return live(pivot(join(nm, place(objs, H)), H), "bot")
 
     BOOK_HALVES.extend([half(f"{name}_l", 1), half(f"{name}_r", -1)])
-    spine = [box("spine", (0.003, T / 2, H_), (-0.0015, -T / 4, 0), cover, G, bev=0.001, seg=2)]  # the lower half of the spine
+    spine = [box("spine", (0.003, T / 2, H_), (-0.0015, -T / 4, 0), cover, G, bev=0.001, seg=2)] + spine_deco(-1)  # the lower half of the spine
     return prop(name, "book", spine, home_pos, home_rot,
                 grip_pos=(0, -0.04, 0), grip_rot=(-math.pi / 2, 0, 0))
 
