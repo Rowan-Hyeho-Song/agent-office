@@ -1326,6 +1326,7 @@ def fiddle_fig(name, x, z, group):
     fol = Foliage(f"{name}_leaves", colors=FIG_GREENS, under=(1, 1, 2, 3))
     fol.mats[0] = plastic(FIG_GREENS[0], 0.6, 0, 0.1, "fig_leaf_top")  # a little gloss (leathery)
     fol.vein = fol.mats[3]
+    fol.vein_fol = Foliage(f"{name}_veins", colors=(), under=())
     golden = math.radians(137.5)
 
     def at_path(path, u):
@@ -1367,7 +1368,9 @@ def fiddle_fig(name, x, z, group):
     leaves = fol.obj(group)
     for p in leaves.data.polygons:
         p.use_smooth = True
-    return pot + stems + [leaves]
+    veins = fol.vein_fol.obj(group)
+    veins["vein_node"] = True
+    return pot + stems + [leaves, veins]
 
 
 def sansevieria(name, x, z, group):
@@ -1568,7 +1571,8 @@ def laid_leaf(fol, attach, out, tilt, size, mi, outline, fold=12.0, droop=20.0, 
     bm.free()
     fol.surface(pts, faces, [mi] * len(faces), n0)
     # veins: thin light strips 0.4 mm over the face
-    vm = fol.mat(fol.vein) if hasattr(fol, "vein") else mi
+    vf_target = getattr(fol, "vein_fol", None) or fol  # #156: veins in their own node (baked at VEIN_DENSITY)
+    vm = vf_target.mat(fol.vein) if hasattr(fol, "vein") else mi
     for k, (A, B) in enumerate(veins):
         w0, w1, segs = veins_w[0] if k == 0 else veins_w[1]
         vp, vf = [], []
@@ -1580,7 +1584,7 @@ def laid_leaf(fol, attach, out, tilt, size, mi, outline, fold=12.0, droop=20.0, 
         for s in range(segs):
             i = 2 * s
             vf.append(orient(vp, [i, i + 2, i + 3, i + 1], n0))
-        fol.surface(vp, vf, [vm] * len(vf), n0)
+        vf_target.surface(vp, vf, [vm] * len(vf), n0)
 
 
 def monstera(name, x, z, group):
@@ -1598,6 +1602,7 @@ def monstera(name, x, z, group):
     cam_a = math.atan2(cam.z, cam.x)
     fol = Foliage(f"{name}_leaves", colors=MONSTERA_GREENS, under=(1, 1, 2, 3))
     fol.vein = fol.mats[3]
+    fol.vein_fol = Foliage(f"{name}_veins", colors=(), under=())
     stems = []
     # (azimuth from the camera direction °, petiole length m, arc °, blade tilt °, size m, cuts, holes)
     LEAVES = [(-15, 0.52, 32, 38, 0.3, 6, True), (20, 0.44, 28, 45, 0.29, 7, True), (150, 0.58, 36, 34, 0.3, 5, True),
@@ -1638,7 +1643,9 @@ def monstera(name, x, z, group):
     leaves = fol.obj(group)
     for p in leaves.data.polygons:  # smooth shading across the curved blade (designer)
         p.use_smooth = True
-    return pot + stems + [leaves]
+    veins = fol.vein_fol.obj(group)
+    veins["vein_node"] = True
+    return pot + stems + [leaves, veins]
 
 
 def echeveria(name, x, y, z, group):
@@ -1726,7 +1733,9 @@ def plant_tris(name, objs):
 
 
 PLANT_BUILDERS = {"fiddle_fig": fiddle_fig, "sansevieria": sansevieria, "monstera": monstera}
-PLANT_NODES = []  # (node, name): each floor plant is its own baked node in the lounge atlas, leaves at half density
+PLANT_NODES = []  # (node, name): each floor plant is its own baked node in the lounge atlas
+VEIN_NODES = []  # #156: the light vein strips of the monstera and the fig, baked at VEIN_DENSITY
+VEIN_DENSITY = 4.0
 
 
 # ================================================================ LOUNGE (atlas: lounge)
@@ -2028,7 +2037,10 @@ def build_lounge():
         # reach the pot. The slot (overlap check) keeps the whole plant
         pot_parts = [o for o in objs if o.name.split(".")[0] in {f"{name}_{p}" for p in ("body", "rim", "foot", "saucer", "leg", "ring")}]
         fp(name, objs, "decor", core=pot_parts)
-        PLANT_NODES.append(join(name, objs))
+        veins = [o for o in objs if o.get("vein_node")]
+        if veins:  # #156: the 3–9 mm vein strips got 1–2 px at the lounge density and baked dark: their own node
+            VEIN_NODES.append(join(f"{name}_veins", veins))
+        PLANT_NODES.append(join(name, [o for o in objs if not o.get("vein_node")]))
     # floor lamp by the sofa (its shade glows live)
     lx, lz = SOFA[0] + 1.3, SOFA[1] + 0.25
     p += [cyl("lamp_base", 0.14, 0.03, (lx, 0.015, lz), metal, G, 24),
@@ -3010,6 +3022,8 @@ for o, kind in lib:
 print(f"library: {sum(len(p.vertices) - 2 for o, _ in lib for p in o.data.polygons)} triangles, {len(lib)} nodes")
 lounge, shade, lamp_pos = build_lounge()
 baked(lounge, "lounge")
+for o in VEIN_NODES:
+    baked(o, "lounge", density=VEIN_DENSITY)
 for o in PLANT_NODES:  # #156: full texel density (half density left dark blotches on the leaves, office-quality.md 0)
     baked(o, "lounge")
 live(shade, "neon")
