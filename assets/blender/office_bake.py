@@ -2189,13 +2189,15 @@ def make_book(name, W_, H_, T, cover_hex, home_pos, home_rot, G, ribbon=False):
     gilt = plastic("#c9a465", 0.35, 0.9, 0.1, "book_gilt")
     lt = [int(cover_hex[i:i + 2], 16) * 0.75 + 255 * 0.25 for i in (1, 3, 5)]
     title = plastic("#%02x%02x%02x" % tuple(int(c) for c in lt), 0.6, 0, 0.3, f"book_title_{cover_hex[1:]}")  # 25% lighter
+    spine_gilt = plastic("#d9b56c", 0.45, 0, 0.1, "book_spine_gilt")
     H = Mx(home_pos, *home_rot)
 
     def spine_deco(sgn):
         """#211 (designer): two 2 mm gilt bands 1.5 cm in from head and tail and a title line down the middle
         (60% of the height, 3 mm wide), standing 0.2 mm proud of the spine; split at y = 0 like the spine itself"""
+        # not metallic: the books are PBR in the app with no environment map, where a metal gilt went dark brown
         o = [box("spine_band", (0.0004, T / 2 - 0.0012, 0.002), (-0.0032, sgn * (T / 4 - 0.0004), sz * (H_ / 2 - 0.015)),
-                 gilt, G) for sz in (-1, 1)]
+                 spine_gilt, G) for sz in (-1, 1)]
         return o + [box("spine_title", (0.0004, 0.0015, H_ * 0.6), (-0.0032, sgn * 0.00075, 0), title, G)]
 
     def half(nm, sgn):
