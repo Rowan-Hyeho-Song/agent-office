@@ -20,7 +20,6 @@ export function hitBox(scene: Object3D, kind: string): Mesh | null {
   box.updateMatrixWorld(true)
   // follows its wall / desk: gone with it (walls.ts hitAllowed)
   box.userData.wall = hit.userData.wall
-  box.userData.fadeGroup = hit.userData.fadeGroup
   return box
 }
 

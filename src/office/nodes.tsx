@@ -35,7 +35,7 @@ const ATLAS_URLS = ATLASES.map((a) => assetUrl(`models/${a}.webp`))
 /**
  * Seats of the model that have no agent in the app yet: the glb carries agent_<i>_* for them, but no rig is built, so a loose beam / glow / floor
  * would show in the aisle. Their nodes are taken out of the scene (the `nodes` map still has them), so neither the footprint, the camera
- * clearance nor the occluders ever see them (the desk, props and nav spot of the seat are not affected). Empty since #193 2/2: echo (seat 4) has a rig.
+ * clearance nor the sight check ever see them (the desk, props and nav spot of the seat are not affected). Empty since #193 2/2: echo (seat 4) has a rig.
  */
 export const HIDDEN_AGENTS: readonly number[] = []
 

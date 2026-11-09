@@ -6,7 +6,8 @@ import { VIEW, WALLS, type Hidden, type Wall } from './view'
 // (keep y <= cutH); everything that belongs to a wall is clipped by the same plane, so it goes down with it.
 // The glb says which node belongs to which wall: wall_n/e/s/w and every wall-mounted node carry extras `wall`
 // (userData.wall; children inherit). Furniture touching the floor has none: never cut, only near/occluder-faded.
-// Tall furniture standing with its back to a wall carries extras `backTo`: it fades while THAT wall is lowered.
+// Furniture is never faded or hidden (#253): the cutaway only lowers walls. Furniture boxes (FadeGroup) are for the camera clearance.
+// Tall furniture standing with its back to a wall carries extras `backTo`: it is one group (the shelf and what belongs to it).
 
 /** the bookshelf's fade group */
 export const SHELF = 'shelf'
@@ -42,23 +43,19 @@ export const setWallCut = (w: Wall, h: number) => {
   WALL_PLANES[w][0].constant = h
 }
 
-/** which walls are lowered right now (set by the cutaway each frame; read by the occluder fade for `backTo` furniture) */
+/** which walls are lowered right now (set by the cutaway each frame) */
 export const WALL_HIDDEN: Hidden = { n: false, e: false, s: false, w: false }
-
-/** fade groups that are currently see-through (not clickable) */
-export const FADED = new Set<string>()
 
 export const wallOf = (o: Object3D | null): Wall | null => {
   for (; o; o = o.parent) if (o.userData.wall) return o.userData.wall as Wall
   return null
 }
 
-/** false for a hit on the part of a lowered wall that is gone, or on a faded object: it must not take the click */
+/** false for a hit on the part of a lowered wall that is gone: it must not take the click */
 export function hitAllowed(h: Intersection): boolean {
   const w = wallOf(h.object)
   if (w && h.point.y > WALL_CUT[w] + 0.002) return false
-  const g = h.object.userData.fadeGroup as string | undefined
-  return !(g && FADED.has(g))
+  return true
 }
 
 // ---- scene preparation ----------------------------------------------------------------------------------------------
@@ -67,8 +64,6 @@ export interface FadeGroup {
   id: string
   meshes: Mesh[]
   box: Box3
-  /** furniture with its back to this wall fades while the wall is lowered */
-  backTo?: Wall
 }
 
 const meshesUnder = (o: Object3D) => {
@@ -171,7 +166,6 @@ export function prepareView(scene: Object3D): FadeGroup[] {
 
   const byId = new Map<string, Mesh[]>()
   const toGroup = (id: string, m: Mesh) => {
-    m.userData.fadeGroup = id
     byId.set(id, [...(byId.get(id) ?? []), m])
   }
 
@@ -187,35 +181,30 @@ export function prepareView(scene: Object3D): FadeGroup[] {
       if (w) mesh.userData.wall = w
       else if (part.box.max.y >= 0.12) {
         const id = `lounge${k++}`
-        mesh.userData.fadeGroup = id
         groups.push({ id, meshes: [mesh], box: part.box })
       }
     }
     m.visible = false
   }
 
-  // 2. desk things fade with their desk; `backTo` furniture is one group with the things attached to it
-  const backTo = new Map<string, Wall>()
+  // 2. desk things are one group with their desk (its clearance box); `backTo` furniture is one group with the things attached to it
   scene.traverse((o) => {
     const id = fadeGroupOfNode(o.name) ?? (o.userData.backTo && o.name ? o.name : null)
     if (!id) return
-    o.userData.fadeGroup = id
-    if (o.userData.backTo && WALLS.includes(o.userData.backTo)) backTo.set(id, o.userData.backTo as Wall)
     if (o instanceof Mesh) toGroup(id, o)
     else if (o.userData.backTo) for (const m of meshesUnder(o)) toGroup(id, m)
   })
   scene.updateMatrixWorld(true)
   for (const [id, meshes] of byId) {
-    meshes.forEach((m) => (m.userData.fadeGroup = id))
     const box = new Box3()
     for (const m of meshes) box.union(new Box3().setFromObject(m))
-    groups.push({ id, meshes, box, backTo: backTo.get(id) })
+    groups.push({ id, meshes, box })
   }
 
   // 3. wall and fade meshes get their own material (the exported lit ones are shared with other meshes)
   scene.traverse((o) => {
     if (!(o instanceof Mesh) || !(o.material instanceof MeshStandardMaterial)) return
-    if (wallOf(o) || groups.some((g) => g.meshes.includes(o))) o.material = o.material.clone()
+    if (wallOf(o)) o.material = o.material.clone()
   })
   return groups
 }

@@ -2,7 +2,7 @@ import { BoxGeometry, Matrix4, Mesh, Object3D, Scene, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import type { NavGraph } from './nav'
 import { GRAPH } from './navSpots.fixture'
-import { PaperPlanes } from './plane'
+import { FADE_S, LOOK_S, PaperPlanes, REDUCED_IN_S } from './plane'
 import { planGesture } from './aim'
 import type { AgentRig, PropBank } from './rig'
 
@@ -51,6 +51,11 @@ function rig(seat: number, visible: boolean): AgentRig {
     parts: { hands: { r: { grip, node: grip } } },
     pinchPoint: (_side: string, out = new Vector3()) => out.copy(hand),
     fingerDir: (_side: string, out = new Vector3()) => out.copy(fwd),
+    /** the received-paper face (#267): what the plane asked for, and when */
+    reactions: [] as { kind: string; t: number; reduced: boolean }[],
+    paperReaction(kind: string, t: number, reduced = false) {
+      me.reactions.push({ kind, t, reduced })
+    },
     /** the test moves the catching hand */
     hand,
   }
@@ -97,17 +102,94 @@ describe('the paper plane stays with the receiver (#224)', () => {
     expect(flat(start, PaperPlanes.deskPoint(graph, 'agent_2', new Vector3()))).toBeLessThan(0.01)
   })
 
-  it('reduced motion: on the receiver desk at once, then gone', () => {
+  it('reduced motion: in the receiver hand at once (fading in over 0.12 s), looked at, faded out there, gone (#267)', () => {
     const { tray, planes } = world()
     const trayAt = tray.position.clone()
     const rigs = Object.fromEntries(SEATS.map((n) => [`agent_${n}`, rig(n, true)]))
     planes.receive({ kind: 'handoff', from: 'agent_0', to: 'agent_3' } as never)
     planes.update(0, graph, rigs, true)
     const flier = planes['plane']!.node
-    expect(flat(flier.position, PaperPlanes.deskPoint(graph, 'agent_3', new Vector3()))).toBeLessThan(0.01)
+    const hand = (rigs.agent_3 as unknown as { hand: Vector3 }).hand
+    expect(planes.phase).toBe('held')
+    expect(flier.position.distanceTo(hand)).toBeLessThan(0.1)
+    planes.update(REDUCED_IN_S / 2, graph, rigs, true)
+    expect(planes.fade).toBeGreaterThan(0)
+    expect(planes.fade).toBeLessThan(1)
+    expect((rigs.agent_3 as unknown as { reactions: { kind: string; reduced: boolean }[] }).reactions[0]).toMatchObject({ kind: 'surprise', reduced: true })
     for (let t = 0; t < 4; t += 0.1) planes.update(t, graph, rigs, true)
     expect(flier.visible).toBe(false)
     expect(tray.position.distanceTo(trayAt)).toBe(0)
+  })
+})
+
+// #267: a received plane was seen gliding to the receiver's desk by itself after the catch. Now it stays in the hand, is looked at
+// for LOOK_S (paper-pass.md 5 "끝맺음"), fades out there over FADE_S and is gone; the face goes surprise -> nod -> status
+describe('a received plane ends in the hand (#267)', () => {
+  it('every pair: from the catch on the plane is in the catching hand every frame (never moving on its own), opaque for LOOK_S, faded by LOOK_S + FADE_S, then gone; the receiver is asked for surprise at the catch; the tray plane never fades', () => {
+    for (const from of SEATS)
+      for (const to of SEATS) {
+        if (from === to) continue
+        const { tray, planes } = world()
+        const rigs = Object.fromEntries(SEATS.map((n) => [`agent_${n}`, rig(n, true)]))
+        planes.receive({ kind: 'handoff', from: `agent_${from}`, to: `agent_${to}` } as never)
+        const flier = planes['plane']!.node
+        const hand = (rigs[`agent_${to}`] as unknown as { hand: Vector3 }).hand
+        let caughtAt: number | null = null
+        let lastHandGap = -1
+        let minFade = 1
+        let lastHeld = -1
+        let opaqueUntil = -1
+        for (let t = 0; t < 12; t += 1 / 60) {
+          planes.update(t, graph, rigs, false)
+          if (planes.phase === 'held') {
+            caughtAt ??= t
+            const gap = flier.position.distanceTo(hand)
+            // in the hand: the same offset from the fingers every frame (it follows the hand, nothing else)
+            if (lastHandGap >= 0) expect(Math.abs(gap - lastHandGap), `${from} → ${to} at ${t.toFixed(2)} s`).toBeLessThan(1e-6)
+            lastHandGap = gap
+            if (planes.fade === 1) opaqueUntil = t - caughtAt
+            minFade = Math.min(minFade, planes.fade)
+            lastHeld = t - caughtAt
+          }
+          expect(planes.phase === 'landed', `${from} → ${to}: never put down on a desk`).toBe(false)
+          tray.traverse((n) => {
+            const m = (n as Mesh).material as { opacity?: number } | undefined
+            if (m?.opacity !== undefined) expect(m.opacity, 'tray plane').toBe(1)
+          })
+        }
+        expect(caughtAt, `${from} → ${to} caught`).not.toBeNull()
+        expect(opaqueUntil).toBeGreaterThanOrEqual(LOOK_S - 1 / 30)
+        expect(opaqueUntil).toBeLessThan(LOOK_S + 1 / 30)
+        expect(planes.phase).toBe(null)
+        expect(flier.visible).toBe(false)
+        expect(planes.fade, 'reset for the next one').toBe(1)
+        const r = (rigs[`agent_${to}`] as unknown as { reactions: { kind: string; t: number }[] }).reactions
+        expect(r[0]?.kind, `${from} → ${to}`).toBe('surprise')
+        expect(Math.abs(r[0].t - caughtAt!)).toBeLessThan(1 / 30)
+        // it faded out in the hand: nearly transparent by its last frame there, LOOK_S + FADE_S after the catch
+        expect(minFade, `${from} → ${to}`).toBeLessThan(0.1)
+        expect(Math.abs(lastHeld - (LOOK_S + FADE_S)), `${from} → ${to}: in the hand until LOOK_S + FADE_S`).toBeLessThan(1 / 30)
+      }
+  })
+
+  it('a receiver that is not in: the plane lies on its desk without moving, then fades out where it lies', () => {
+    const { planes } = world()
+    const rigs = Object.fromEntries(SEATS.map((n) => [`agent_${n}`, rig(n, n !== 1)]))
+    planes.receive({ kind: 'handoff', from: 'agent_0', to: 'agent_1' } as never)
+    const flier = planes['plane']!.node
+    let at: Vector3 | null = null
+    let faded = false
+    for (let t = 0; t < 10; t += 1 / 60) {
+      planes.update(t, graph, rigs, false)
+      if (planes.phase === 'landed') {
+        at ??= flier.position.clone()
+        expect(flier.position.distanceTo(at)).toBeLessThan(1e-9)
+        if (planes.fade < 1) faded = true
+      }
+    }
+    expect(at).not.toBeNull()
+    expect(faded).toBe(true)
+    expect(flier.visible).toBe(false)
   })
 })
 
