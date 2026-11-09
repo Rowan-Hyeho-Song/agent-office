@@ -21,6 +21,12 @@ export const SIGNAL_EVENT = 'changed'
 export const POLL_UNJOINED_MS = 15_000
 export const POLL_JOINED_MS = 60_000
 export const COALESCE_MS = 250
+/**
+ * The least time between two re-reads of the same table (planning, #286). office-signal is a public channel: anyone holding the
+ * public key can send to it, so a flood of signals must not make every visitor re-read over and over. Signals inside the gap are
+ * folded into one re-read at its end (none is lost, none is doubled).
+ */
+export const MIN_GAP_MS = 3000
 
 /** the connection to Realtime, behind a small interface so the rules can be tested without a network */
 export interface SignalWire {
@@ -59,12 +65,16 @@ export function createSignalHub(wire: SignalWire | null): SignalHub {
   let removeVisibility: (() => void) | null = null
   const count = () => listeners.approvals.size + listeners.docs.size
 
+  const lastRun: Partial<Record<SignalTable, number>> = {}
   const fire = (table: SignalTable) => {
     if (pending[table]) return // a re-read for this table is already about to run
+    // at the earliest COALESCE_MS from now, and never sooner than MIN_GAP_MS after this table's last re-read
+    const wait = Math.max(COALESCE_MS, (lastRun[table] ?? -Infinity) + MIN_GAP_MS - Date.now())
     pending[table] = setTimeout(() => {
       delete pending[table]
+      lastRun[table] = Date.now()
       listeners[table].forEach((cb) => cb())
-    }, COALESCE_MS)
+    }, wait)
   }
   const fireAll = () => TABLES.forEach(fire)
 

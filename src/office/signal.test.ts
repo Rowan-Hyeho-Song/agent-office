@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { COALESCE_MS, POLL_JOINED_MS, POLL_UNJOINED_MS, createSignalHub, tablesOf, type SignalTable, type SignalWire } from './signal'
+import { COALESCE_MS, MIN_GAP_MS, POLL_JOINED_MS, POLL_UNJOINED_MS, createSignalHub, tablesOf, type SignalTable, type SignalWire } from './signal'
 
 // a stand-in for the tab: `document.hidden` and visibilitychange
 function stubDocument() {
@@ -68,7 +68,7 @@ describe('a signal re-reads', () => {
     hub.on('approvals', a)
     hub.on('docs', d)
     wire.status(true)
-    vi.advanceTimersByTime(COALESCE_MS * 2) // joining caught up once; start counting from here
+    vi.advanceTimersByTime(COALESCE_MS + MIN_GAP_MS) // joining caught up once; start counting from here
     a.mockClear()
     d.mockClear()
     wire.send({ table: 'approvals', at: 'now' })
@@ -76,6 +76,34 @@ describe('a signal re-reads', () => {
     vi.advanceTimersByTime(COALESCE_MS + 1)
     expect(a).toHaveBeenCalledTimes(1)
     expect(d).not.toHaveBeenCalled()
+  })
+  // planning (#286): office-signal is public, anyone with the public key can send to it; a flood must not make visitors re-read on and on
+  it('a flood of signals: one re-read per table at most every MIN_GAP_MS, the signals in a gap folded into one at its end (none lost)', () => {
+    stubDocument()
+    const wire = fakeWire()
+    const hub = createSignalHub(wire)
+    const a = vi.fn()
+    const d = vi.fn()
+    hub.on('approvals', a)
+    hub.on('docs', d)
+    wire.status(true)
+    vi.advanceTimersByTime(COALESCE_MS + MIN_GAP_MS)
+    a.mockClear()
+    d.mockClear()
+    const times: number[] = []
+    a.mockImplementation(() => times.push(Date.now()))
+    // 30 s of a signal every 50 ms, for both tables
+    for (let k = 0; k < 600; k++) {
+      wire.send({ table: k % 2 ? 'approvals' : 'docs', at: 'now' })
+      vi.advanceTimersByTime(50)
+    }
+    vi.advanceTimersByTime(MIN_GAP_MS + COALESCE_MS)
+    // about one per gap: 30 s / 3 s, plus the first and the last one folding the tail
+    expect(a.mock.calls.length).toBeLessThanOrEqual(Math.ceil(30_000 / MIN_GAP_MS) + 1)
+    expect(d.mock.calls.length).toBeLessThanOrEqual(Math.ceil(30_000 / MIN_GAP_MS) + 1)
+    for (let i = 1; i < times.length; i++) expect(times[i] - times[i - 1]).toBeGreaterThanOrEqual(MIN_GAP_MS)
+    // the signals of the last gap still got their re-read (folded, not dropped): re-reads run to the end of the flood
+    expect(times[times.length - 1]).toBeGreaterThanOrEqual(times[0] + 27_000)
   })
   it('receive() is the debug fakes\' way in', () => {
     stubDocument()
@@ -111,7 +139,7 @@ describe('the owner also hears the tables', () => {
     hub.watchOwner(true)
     expect(wire.changeJoins).toBe(1)
     wire.status(true)
-    vi.advanceTimersByTime(COALESCE_MS * 2)
+    vi.advanceTimersByTime(COALESCE_MS + MIN_GAP_MS)
     a.mockClear()
     wire.table('approvals')
     vi.advanceTimersByTime(COALESCE_MS + 1)
@@ -135,7 +163,7 @@ describe('the owner also hears the tables', () => {
     hub.on('approvals', a)
     hub.watchOwner(true)
     wire.status(true)
-    vi.advanceTimersByTime(COALESCE_MS * 2)
+    vi.advanceTimersByTime(COALESCE_MS + MIN_GAP_MS)
     a.mockClear()
     wire.send({ table: 'approvals' })
     wire.table('approvals')
