@@ -33,7 +33,7 @@ const row = (over: Partial<Row> & Pick<Row, 'kind' | 'created_at'>): Row => {
   }
 }
 
-type Who = 0 | 1 | 2 | 3 | 'owner'
+type Who = 0 | 1 | 2 | 3 | 4 | 'owner'
 const speaker = (s: Who): Speaker => (s === 'owner' ? { owner: true } : { seat: s })
 const minutes = (date: string, rows: [Who, Who[], string][], decision: string | null, followUp: string | null): Minutes => ({
   date,
@@ -46,6 +46,7 @@ const T28 = '몸통 없는 에이전트: 떠 있는 머리 + 떠 있는 두 손'
 const T32 = '자리별 책상 꾸미기: 각 에이전트가 고른 소품 반영'
 const T18 = '사무실 말풍선·모니터 화면·출입문 화면: 시안 + 디자인 토큰'
 const T40 = '서재 문서 뷰어: 파일철 · 회의록 대화 · SECRET 표지'
+const T193 = '다섯째 에이전트 에코(사운드) 합류: 자리 · 개성 · 책상'
 const T3 = '로봇 대사가 끝날 때까지 다른 로봇 상호작용이 덮지 않게'
 
 const req28: ApprovalRequest = {
@@ -102,6 +103,16 @@ export const sampleRows = (): Row[] => {
     row({ kind: 'plan', folder: 18, title: T18, agents: [0, 2, 3], created_at: at(5, 9), body: '## 배경과 목표\n방문자가 가장 많이 읽게 될 글자는 두 곳에 나온다: **말풍선**, 그리고 **모니터**와 **출입문 화면**.' }),
     row({ kind: 'minutes', folder: 18, title: T18, agents: [0, 2, 3], created_at: at(5, 12), data: { minutes: [
       minutes('2026-11-08', [[0, [2], '역할 확인 요청'], [2, [0], '그래픽 디자이너 세션 맞음'], [3, [2], '토큰 검토: 에이전트 번호를 0부터'], [2, [3], '두 가지 모두 반영']], '에이전트 색 토큰은 `--agent-0..3`.', '#26 결재 뒤 색 값이 바뀔 수 있음.'),
+    ] } }),
+    // agent-office #193: a minutes row with five speakers, so the meeting replay stands five on the ring (echo = seat 4)
+    row({ kind: 'minutes', folder: 193, title: T193, agents: [0, 1, 2, 3, 4], created_at: at(8, 14), data: { minutes: [
+      minutes('2026-11-08', [
+        [0, [4], '에코가 합류했어요. 사운드 담당이고 자리는 4번이에요'],
+        [4, [0], '반가워요. 소리는 사무실 음악 하나만 맡을게요. 들어 보세요'],
+        [2, [4], '빛 고리 색은 인광 연두로 갈게요'],
+        [1, [4], '스피커 콘이 3 mm 움직이게 구웠어요'],
+        [3, [4], '믹서 페이더는 방문자 음량과 이어 둘게요'],
+      ], '에코의 색은 #f2ffc4.', '코더가 소리 연동을 붙임.'),
     ] } }),
     // agent-office #40: a public plan with a SECRET (review) report: a mixed file
     row({ kind: 'plan', folder: 40, title: T40, agents: [2, 3], created_at: at(8, 13), body: '## 배경과 목표\n방문자와 주인이 서재에서 기획서 · 회의록 · 결정 · 보고서를 읽는다.\n\n## 범위\n- 파일철 목록\n- 회의록 대화' }),

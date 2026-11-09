@@ -19,7 +19,7 @@ const q = (n: GltfNode | undefined) => new Quaternion(...((n?.rotation ?? [0, 0,
 
 describe('hand frame (#178)', async () => {
   const all = await nodes()
-  for (const i of [0, 1, 2, 3])
+  for (const i of [0, 1, 2, 3, 4])
     for (const side of ['l', 'r'] as const) {
       const hand = all[`agent_${i}_hand_${side}`]
       it(`agent_${i} ${side}: at rest the palm faces the body's centre line, and "palm down" turns it to the floor`, () => {

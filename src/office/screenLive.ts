@@ -1,4 +1,4 @@
-// The four work monitors (#75, docs/design/office-ui.md 4): a 584 x 338 canvas on each screen_work_N. screens.ts decides
+// The five work monitors (#75, docs/design/office-ui.md 4): a 584 x 338 canvas on each screen_work_N. screens.ts decides
 // what to show; this draws it. At most 8 redraws a second; an unchanged state repaints only the bottom band
 // (progress strip, elapsed time); a monitor outside the view is not drawn at all.
 
@@ -98,7 +98,7 @@ export class ScreenLive {
   ms = 0
 
   constructor(nodes: Record<string, Object3D>, maxAnisotropy: number) {
-    for (let seat = 0; seat < 4; seat++) {
+    for (let seat = 0; seat < 5; seat++) {
       const node = nodes[`screen_work_${seat}`]
       const mesh = node && ([node, ...node.children].find((o) => (o as Mesh).isMesh) as Mesh | undefined)
       if (!mesh) continue

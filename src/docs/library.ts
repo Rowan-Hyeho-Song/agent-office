@@ -263,7 +263,7 @@ export function paperText(src: string): string {
     .replace(/^(\s*)[-*] \[ \] /gm, '$1- ☐ ')
 }
 
-const SEAT_NAME: Record<number, [ko: string, tag: string]> = { 0: ['메모', 'MEMO'], 1: ['메시', 'MESH'], 2: ['휴', 'HUE'], 3: ['루프', 'LOOP'] } // world.ts AGENT_INFO
+const SEAT_NAME: Record<number, [ko: string, tag: string]> = { 0: ['메모', 'MEMO'], 1: ['메시', 'MESH'], 2: ['휴', 'HUE'], 3: ['루프', 'LOOP'], 4: ['에코', 'ECHO'] } // world.ts AGENT_INFO
 
 export interface Who {
   /** the CSS data-seat: '0'..'3', 'x' (unknown name) or 'owner' */

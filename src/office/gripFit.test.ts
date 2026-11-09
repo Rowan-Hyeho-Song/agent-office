@@ -22,14 +22,14 @@ const OBJECTS: [string, string, 'l' | 'r'][] = [
   ['prop_marker_0', 'marker', 'r'], ['prop_marker_1', 'marker', 'r'], ['prop_marker_2', 'marker', 'r'],
   ['prop_tablet_pen', 'tablet_pen', 'r'],
   ['prop_book', 'book', 'l'], ['prop_book', 'book', 'r'],
-  ['desk_0_mouse', 'mouse', 'r'], ['desk_1_mouse', 'mouse', 'r'], ['desk_3_mouse', 'mouse', 'r'],
+  ['desk_0_mouse', 'mouse', 'r'], ['desk_1_mouse', 'mouse', 'r'], ['desk_3_mouse', 'mouse', 'r'], ['desk_4_mouse', 'mouse', 'r'],
 ]
 const LOG = process.env.FIT_LOG
 
 describe('grip fit against the baked model', () => {
   it('every contact fingertip lands within 3 mm and none goes through the surface', async () => {
     const { scene, nodes } = await loadOffice()
-    const rigs = [0, 1, 2, 3].map((i) => buildRig(scene, nodes, i))
+    const rigs = [0, 1, 2, 3, 4].map((i) => buildRig(scene, nodes, i))
     scene.updateMatrixWorld(true)
     const write = !!process.env.FIT_WRITE
     const out: Record<string, number[]> = {}

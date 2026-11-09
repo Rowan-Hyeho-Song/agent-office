@@ -90,11 +90,11 @@ export function issueRange(points: readonly Point[], repo: string, n: number): {
 
 // ---- the bar -------------------------------------------------------------------------------------------------------
 
-export type Lane = 'o' | 0 | 1 | 2 | 3 | 'n'
+export type Lane = 'o' | 0 | 1 | 2 | 3 | 4 | 'n'
 /** top to bottom (timelapse.md 2.1) */
-export const LANES: readonly Lane[] = ['o', 0, 1, 2, 3, 'n']
-export const LANE_NAME: Record<Lane, string> = { o: '주인', 0: '메모', 1: '메시', 2: '휴', 3: '루프', n: '이전' }
-export const AGENT_NAME: Record<Lane, string> = { o: '주인', 0: '메모', 1: '메시', 2: '휴', 3: '루프', n: '역할 분담 이전' }
+export const LANES: readonly Lane[] = ['o', 0, 1, 2, 3, 4, 'n']
+export const LANE_NAME: Record<Lane, string> = { o: '주인', 0: '메모', 1: '메시', 2: '휴', 3: '루프', 4: '에코', n: '이전' }
+export const AGENT_NAME: Record<Lane, string> = { o: '주인', 0: '메모', 1: '메시', 2: '휴', 3: '루프', 4: '에코', n: '역할 분담 이전' }
 export const KIND_NAME: Record<PointKind, string> = { plan: '기획서', work: '작업', minutes: '회의록', approval: '결재', decision: '결정', deploy: '배포' }
 
 /** the owner's ✅ results go on the owner's lane; points before the roles were split on the last one */
@@ -187,7 +187,7 @@ const ACTIVITY: Partial<Record<PointKind, string>> = { work: 'edit', plan: 'thin
 export function statusAt(p: Point): StatusMap {
   const since = atMs(p)
   const out: StatusMap = {}
-  for (const seat of [0, 1, 2, 3]) {
+  for (const seat of [0, 1, 2, 3, 4]) {
     const working = p.agent === seat && !(p.kind === 'approval' && p.result) && p.kind in ACTIVITY
     out[`agent_${seat}`] = working
       ? ({ state: 'working', activity: p.secret ? 'private' : ACTIVITY[p.kind], since } satisfies AgentStatus)

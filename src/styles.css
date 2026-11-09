@@ -110,6 +110,7 @@ body,
 [data-seat='1'] { --agent: var(--agent-1); --agent-ink: var(--agent-1-ink); }
 [data-seat='2'] { --agent: var(--agent-2); --agent-ink: var(--agent-2-ink); }
 [data-seat='3'] { --agent: var(--agent-3); --agent-ink: var(--agent-3-ink); }
+[data-seat='4'] { --agent: var(--agent-4); --agent-ink: var(--agent-4-ink); }
 [data-seat='x'] { --agent: var(--agent-x); --agent-ink: var(--agent-x-ink); }
 /* visually hidden, still read: the negative margin keeps the 1px box from adding a row of scroll at the page bottom */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; border: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
@@ -610,3 +611,8 @@ body:has(.tour-bar) .cam-hint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .tour-bar { animation: none; } }
 html[data-motion='reduce'] .tour-bar { animation: none; }
+
+/* echo's speaker switch (#193): a small tag by the sound button, 1.5 s */
+.speaker-tag { position: fixed; right: 56px; bottom: 96px; z-index: 30; margin: 0; padding: var(--space-1) var(--space-2); background: var(--color-panel, #0b0e13); color: var(--color-text, #f3ead8); border: 1px solid var(--color-border, #3a4250); border-radius: 4px; font: 13px var(--font-pixel, monospace); pointer-events: none; opacity: 0; transition: opacity 0.15s; }
+.speaker-tag[data-show] { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .speaker-tag { transition: none; } }
