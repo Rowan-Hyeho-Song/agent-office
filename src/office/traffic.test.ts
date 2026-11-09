@@ -248,3 +248,19 @@ describe('traffic planner on the grid', () => {
       for (const [id, spot] of [['c0', 'chat_0'], ['c1', 'chat_1'], ...seated.map((s) => [s, s])]) expect(p.sample(id, 60).arrived).toBe(spot)
     })
 })
+
+describe('a quiet (night-duty) agent standing at a desk side (#193)', () => {
+  it('walks out of it: the side it stands at is not avoided for the way out, the others still are', () => {
+    const grid = buildGrid(decodeFootprint(FOOTPRINT_DATA), GRAPH)
+    const avoid = new Set(['desk_side_0', 'desk_side_1', 'desk_side_2', 'desk_side_3', 'desk_side_4'])
+    for (const dest of ['coffee', 'chat_0', 'sofa_1']) {
+      const p = new TrafficPlanner(grid, GRAPH)
+      p.place('night', req('desk_side_0', { avoid }), 0, 1)
+      p.place('memo', req('work_0'), 0, 0)
+      p.update(0)
+      p.request('night', req(dest, { avoid }), 1, 1)
+      for (let t = 1; t < 90; t += 0.1) p.update(t)
+      expect(p.sample('night', 90).arrived, dest).toBe(dest)
+    }
+  })
+})

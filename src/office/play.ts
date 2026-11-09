@@ -109,6 +109,12 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
   const taken = new Set<PlayKind>() // pair activities already running (one table each)
   const out: Record<string, PlayAssignment> = {}
   const freeSpot = (p: PlayDef) => p.spots.find((s) => !used.has(s))
+  /**
+   * Reading at the side table (the shelf stand, 0.07 m / 2.0 m) and a ping-pong game never share a block (#193, five agents): the reader closes the
+   * aisle south of the table and the east player the one round its end, so whoever naps on the sofa or comes back from the plants would be walled
+   * in for the whole block (the day simulation found waits of up to 3 minutes).
+   */
+  const clashes = (p: PlayDef) => (p.kind === 'books' && [...taken].includes('pingpong')) || (p.kind === 'pingpong' && Object.values(out).some((o) => o.kind === 'books'))
 
   // a pair game is as likely as both players like it
   const weight = (p: PlayDef, agent: string, partner?: string) =>
@@ -139,8 +145,8 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
     const agent = order[i]
     if (out[agent]) continue
     const partner = order.slice(i + 1).find((a) => !out[a])
-    const open = PLAYS.filter((p) => (p.pair ? partner && !taken.has(p.kind) : freeSpot(p)))
-    const p = pick(open.length ? open : solos, agent, partner)
+    const open = PLAYS.filter((p) => !clashes(p) && (p.pair ? partner && !taken.has(p.kind) : freeSpot(p)))
+    const p = pick(open.length ? open : solos.filter((q) => !clashes(q)), agent, partner)
     if (p.pair && partner) {
       taken.add(p.kind)
       assign(agent, p, p.spots[0], partner)
@@ -161,7 +167,7 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
     if (!as.partner || out[as.partner]) continue
     used.delete(as.spot)
     delete out[a]
-    const solo = solos.slice(Math.floor(rand() * solos.length)).concat(solos).find((p) => freeSpot(p))
+    const solo = solos.slice(Math.floor(rand() * solos.length)).concat(solos).find((p) => freeSpot(p) && !clashes(p))
     if (solo) assign(a, solo, freeSpot(solo)!)
   }
   return out

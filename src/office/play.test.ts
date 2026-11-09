@@ -193,3 +193,21 @@ describe('five agents (#193)', () => {
     expect(Object.keys(out).sort()).toEqual(['agent_0', 'agent_1', 'agent_2', 'agent_3'])
   })
 })
+
+describe('reading and ping-pong never share a block (#193)', () => {
+  it('the side-table reader closes the aisle to the sofa and the lounge: with five agents no block has both', () => {
+    const FIVE = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
+    let books = 0
+    let pingpong = 0
+    for (let b = 0; b < 2000; b++) {
+      const out = playAt(b * BLOCK_MINUTES, FIVE)
+      const kinds = Object.values(out).map((o) => o.kind)
+      if (kinds.includes('books')) books++
+      if (kinds.includes('pingpong')) pingpong++
+      expect(kinds.includes('books') && kinds.includes('pingpong'), `block ${b}`).toBe(false)
+    }
+    // both still happen
+    expect(books).toBeGreaterThan(100)
+    expect(pingpong).toBeGreaterThan(100)
+  })
+})

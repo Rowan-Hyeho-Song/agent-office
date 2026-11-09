@@ -195,7 +195,7 @@ export class TrafficPlanner {
   private exempt = new Map<number, number>()
   private met = new Map<string, number>()
   private fields = new Map<string, Float64Array>()
-  private avoidCells: Uint8Array | undefined
+  private avoidCells = new Map<string, Uint8Array>()
   private dirty = false
   private thr = 2 * TRAFFIC.bodyR + TRAFFIC.planGap
   private thrV = 2 * TRAFFIC.bodyR + TRAFFIC.verifyGap
@@ -463,31 +463,35 @@ export class TrafficPlanner {
     return { t0: t, n, x, z, at: new Int16Array(n).fill(-1), endT: t + TRAFFIC.ghostS, reached: false, finAt: null, path: [], ghost: true }
   }
 
-  private fieldFor(goalCell: number, avoid: boolean): Float64Array {
-    const key = `${goalCell}|${avoid ? 1 : 0}`
+  private fieldFor(goalCell: number, avoid: boolean, own = ''): Float64Array {
+    const key = `${goalCell}|${avoid ? 1 : 0}|${own}`
     let f = this.fields.get(key)
     if (!f) {
-      f = distanceField(this.grid, goalCell, avoid ? this.avoidSet() : undefined)
+      f = distanceField(this.grid, goalCell, avoid ? this.avoidSet(own) : undefined)
       if (this.fields.size > 64) this.fields.clear()
       this.fields.set(key, f)
     }
     return f
   }
 
-  /** cells near the desk sides, for the night-duty agent */
-  private avoidSet(): Uint8Array {
-    if (this.avoidCells) return this.avoidCells
+  /**
+   * Cells near the desk sides, for the night-duty agent. `own` = a side the agent stands at right now (it came for a talk, #193): that one is left
+   * out, or the agent would start inside the avoided ground and never find a way out.
+   */
+  private avoidSet(own = ''): Uint8Array {
+    const have = this.avoidCells.get(own)
+    if (have) return have
     const g = this.grid
     const a = new Uint8Array(g.w * g.h)
     for (const id of DESK_SIDES) {
       const s = this.spots[id]
-      if (!s) continue
+      if (!s || id === own) continue
       for (let c = 0; c < a.length; c++) {
         const p = centre(g, c)
         if (Math.hypot(p.x - s.x, p.z - s.z) < 0.6) a[c] = 1
       }
     }
-    this.avoidCells = a
+    this.avoidCells.set(own, a)
     return a
   }
 
@@ -503,8 +507,10 @@ export class TrafficPlanner {
     let goalCell = cellAt(g, goal.x, goal.z)
     if (goalCell < 0 || g.blocked[goalCell]) goalCell = nearestWalkable(g, goal.x, goal.z)
     const avoid = !!req.avoid
-    const field = this.fieldFor(goalCell, avoid)
-    const extra = avoid ? this.avoidSet() : undefined
+    // standing at a desk side (a night talk at a working desk): that side is not avoided for the way out
+    const own = avoid ? ([...DESK_SIDES].find((id) => this.spots[id] && Math.hypot(here.x - this.spots[id].x, here.z - this.spots[id].z) < 0.6) ?? '') : ''
+    const field = this.fieldFor(goalCell, avoid, own)
+    const extra = avoid ? this.avoidSet(own) : undefined
     const V = TRAFFIC.cruise * req.pace
     let t0 = t
     let pre: Way | null = null
