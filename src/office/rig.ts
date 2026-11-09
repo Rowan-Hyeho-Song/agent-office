@@ -706,6 +706,11 @@ export class AgentRig {
     return !this.hidden
   }
 
+  /** what it is doing where it stands (null while walking): the typing sound reads this (#194 ②) */
+  get doing(): string | null {
+    return this.goal && this.arrived === this.goal.spot ? this.goal.pose : null
+  }
+
   /** the spot it has arrived at and stopped on, if any */
   get arrived(): string | null {
     if (this.traffic) return this.track ? this.track.arrived : this.at
