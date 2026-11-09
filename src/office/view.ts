@@ -1,5 +1,5 @@
-// The free camera (#111): the cutaway walls, the view limits, WASD and the wall-side furniture fade, as pure decisions.
-// three.js side: cutaway.tsx (walls), cameraRig.tsx (limits, keys, reset), occluders.tsx (wall-side furniture fade).
+// The free camera (#111): the cutaway walls, the view limits, WASD and the camera clearance, as pure decisions.
+// three.js side: cutaway.tsx (walls), cameraRig.tsx (limits, keys, reset), clearance.ts (keepClear).
 // ONE constants object: the designer's values live here and nowhere else.
 
 import { ROOM, WALL_THICKNESS, floorRect, type WallId } from './room'
@@ -36,8 +36,8 @@ export const VIEW = {
   // --- WASD / arrows ---
   keys: { speedPerDist: 0.35, speedMin: 1.2, speedMax: 4, shift: 2, easeMs: 120 },
 
-  // --- fade: only furniture with its back to a lowered wall fades (backToOpacity); nothing fades by distance or occlusion (#253) ---
-  near: { minOpacity: 0.25, outMs: 160, inMs: 240, /** the camera->target sight segment of an app-chosen camera stops this far short of the target */ targetSkip: 0.4 },
+  // --- nothing fades: not by distance, not by occlusion, not by a lowered wall (#253); the camera is kept clear instead, and app-chosen cameras avoid occlusion (tour.ts) ---
+  near: { /** the camera->target sight segment of an app-chosen camera stops this far short of the target */ targetSkip: 0.4 },
 
   // --- camera clearance (#208): the camera never gets nearer than `margin` to furniture, robots or walls; the near plane stays well inside it ---
   cameraNear: 0.1,
@@ -160,7 +160,7 @@ export function focusAllowsCameraKeys(active: { tagName?: string } | null, body:
   return active.tagName === 'CANVAS'
 }
 
-// ---- near-object fade ----------------------------------------------------------------------------------------------
+// ---- sight segment (the tour's line-of-sight check) ----------------------------------------------------------------------------------------------
 
 export interface Box {
   min: readonly [number, number, number]
@@ -196,17 +196,6 @@ export function segmentHitsBox(a: V3, b: V3, box: Box): boolean {
     if (t0 > t1) return false
   }
   return true
-}
-
-/** `backTo` furniture (tall, back to a wall) is at the minimum while that wall is lowered (part of the wall cutaway), else as wanted */
-export const backToOpacity = (want: number, backTo: Wall | undefined, hidden: Hidden): number => (backTo && hidden[backTo] ? Math.min(want, VIEW.near.minOpacity) : want)
-
-/** opacity moved towards `want` at the fade rates (out fast, back slower); instant when reduced */
-export function stepOpacity(cur: number, want: number, dt: number, reduced: boolean): number {
-  if (reduced) return want
-  const span = 1 - VIEW.near.minOpacity
-  if (want < cur) return Math.max(want, cur - (span * dt * 1000) / VIEW.near.outMs)
-  return Math.min(want, cur + (span * dt * 1000) / VIEW.near.inMs)
 }
 
 /** the camera -> target segment for the line-of-sight check (tour.ts sightClear): stops `targetSkip` short of the target, so what the target sits in stays opaque */

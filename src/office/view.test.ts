@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   NONE_HIDDEN, NO_KEYS, VIEW, boxDistance, clampDistance, clampPolar, clampTarget, cutAt, easeVelocity, focusAllowsCameraKeys,
-  keepClear, keySpeed, nextHidden, occlusionSegment, segmentHitsBox, stepOpacity, wallTop, wantDir, backToOpacity, type Hidden,
+  keepClear, keySpeed, nextHidden, occlusionSegment, segmentHitsBox, wallTop, wantDir, type Hidden,
 } from './view'
 
 const at = (deg: number, r = 9) => [Math.sin((deg * Math.PI) / 180) * r, Math.cos((deg * Math.PI) / 180) * r] as const // 0 deg = +z (south)
@@ -103,7 +103,7 @@ describe('WASD', () => {
   })
 })
 
-describe('near-object fade', () => {
+describe('sight segment', () => {
   const box = { min: [0, 0, 0], max: [1, 1, 1] } as const
   it('measures to the box surface', () => {
     expect(boxDistance([0.5, 0.5, 0.5], box)).toBe(0)
@@ -120,18 +120,6 @@ describe('near-object fade', () => {
     const [a, b] = occlusionSegment([0, 0, 0], [0, 0, -10])
     expect(a).toEqual([0, 0, 0])
     expect(b[2]).toBeCloseTo(-10 + VIEW.near.targetSkip)
-  })
-  it('nothing fades by distance or occlusion any more (#253): only backTo furniture with its wall lowered', () => {
-    expect(backToOpacity(1, undefined, NONE_HIDDEN)).toBe(1)
-    expect(backToOpacity(1, 'n', NONE_HIDDEN)).toBe(1)
-    expect(backToOpacity(1, 'n', { ...NONE_HIDDEN, e: true })).toBe(1)
-    expect(backToOpacity(1, 'n', { ...NONE_HIDDEN, n: true })).toBe(VIEW.near.minOpacity)
-    expect(backToOpacity(1, undefined, { n: true, e: true, s: true, w: true })).toBe(1)
-  })
-  it('fades out in 160 ms, back in 240 ms, instantly when reduced', () => {
-    expect(stepOpacity(1, 0.25, 0.16, false)).toBeCloseTo(0.25)
-    expect(stepOpacity(0.25, 1, 0.12, false)).toBeCloseTo(0.625)
-    expect(stepOpacity(1, 0.25, 0.001, true)).toBe(0.25)
   })
 })
 
