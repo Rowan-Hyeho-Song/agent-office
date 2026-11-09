@@ -281,3 +281,49 @@ describe('the keycap press (typing.md 5)', () => {
     expect(pressAt(k, 10.08, 4)).toBeCloseTo(1, 2)
   })
 })
+
+describe('think habits in long pauses (typing.md)', () => {
+  const all = (agent: string, act = 'edit', n = 6000) => chunks(agent, act, n)
+  it('about 30% of the pauses over 1.5 s get a gesture; deterministic; keys never move because of them', () => {
+    const cs = all('agent_0')
+    const pauses = cs.reduce((a, c) => a + c.pauses.length, 0)
+    const gestures = cs.reduce((a, c) => a + c.gestures.length, 0)
+    expect(pauses).toBeGreaterThan(100)
+    expect(gestures / pauses).toBeGreaterThan(0.24)
+    expect(gestures / pauses).toBeLessThan(0.37)
+    for (const c of cs) for (const p of c.pauses) expect(p.t1 - p.t0).toBeGreaterThanOrEqual(1.5)
+    expect(makeChunk('agent_0', 9, 'think')).toEqual(makeChunk('agent_0', 9, 'think'))
+    // the think mode, all pause: the rate holds there too
+    const th = all('agent_3', 'think')
+    expect(th.reduce((a, c) => a + c.gestures.length, 0) / th.reduce((a, c) => a + c.pauses.length, 0)).toBeGreaterThan(0.2)
+  })
+  it('a gesture sits inside its pause, the hand has no key in it, and the right hand is never wanted on the mouse at the same time', () => {
+    for (const agent of ['agent_0', 'agent_1', 'agent_3'])
+      for (const act of ['edit', 'think', 'read'])
+        for (const c of chunks(agent, act, 120)) {
+          for (const g of c.gestures) {
+            expect(c.pauses.some((p) => g.t0 >= p.t0 && g.t1 <= p.t1)).toBe(true)
+            expect(c.keys.some((k) => k.hand === g.hand && k.t + k.hold > g.t0 && k.t < g.t1)).toBe(false)
+            if (g.hand === 'r') expect(c.episodes.some((e) => e.t0 < g.t1 && e.t1 > g.t0)).toBe(false)
+            expect(g.t1 - g.t0).toBeGreaterThan(0.8)
+          }
+        }
+  })
+  it('MESH, HUE and ECHO prefer the chin rest, MEMO and LOOP the head tap', () => {
+    const chinShare = (agent: string) => {
+      const g = all(agent, 'edit', 6000).flatMap((c) => c.gestures)
+      return g.filter((x) => x.kind === 'chin').length / g.length
+    }
+    for (const a of ['agent_1', 'agent_2', 'agent_4']) expect(chinShare(a)).toBeGreaterThan(0.6)
+    for (const a of ['agent_0', 'agent_3']) expect(chinShare(a)).toBeLessThan(0.4)
+    // not exclusive
+    expect(chinShare('agent_0')).toBeGreaterThan(0.08)
+    expect(chinShare('agent_1')).toBeLessThan(0.95)
+  })
+  it('a timelapse stretches the gestures with the rest', () => {
+    const a = makeChunk('agent_1', 4, 'think', { dilation: 1 })
+    const b = makeChunk('agent_1', 4, 'think', { dilation: 4 })
+    expect(b.gestures.length).toBe(a.gestures.length)
+    a.gestures.forEach((g, i) => expect(b.gestures[i].t0 - b.t0).toBeCloseTo((g.t0 - a.t0) * 4, 6))
+  })
+})

@@ -111,6 +111,41 @@ describe('hands at the keyboard (against office.glb)', () => {
 `)
   })
 
+  it('home-row keys, space, enter and backspace are pressed within 5 mm of the key top (all five seats, both hands); the rest within 9 mm', async () => {
+    const { ty, rigs } = await setup()
+    const strict = new Set(['KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyJ', 'KeyK', 'KeyL', 'Semicolon', 'Space', 'Enter', 'Backspace'])
+    const worst: Record<string, number> = {}
+    for (const [i, rig] of rigs.entries()) {
+      const seen = new Set<string>()
+      for (let ci = 0; ci < 80 && seen.size < strict.size; ci++) {
+        const c = makeChunk(rig.id, ci, 'edit', { mouse: i !== 2 })
+        for (const k of c.keys) {
+          if (k.shortcut || seen.has(k.code) || !strict.has(k.code)) continue
+          seen.add(k.code)
+          run(ty, rig, i, k.t - 0.7, k.t + 0.02, { hasMouse: i !== 2 })
+          const s = ty.seatState(rig, i)!
+          const top = s.kb.top(k.code)!.clone().add(new Vector3(0, -0.003, 0))
+          const tip = tipWorld(rig, k.hand, k.finger)
+          // the space bar is 12 cm wide: the thumb may be anywhere along it, the 5 mm count across it and down
+          if (k.code === 'Space') tip.x += (top.x - tip.x) * Math.abs(s.kb.mesh.matrixWorld.elements[0]), tip.z += (top.z - tip.z) * Math.abs(s.kb.mesh.matrixWorld.elements[2])
+          const d = tip.distanceTo(top)
+          worst[k.code] = Math.max(worst[k.code] ?? 0, d)
+          expect(d, `${rig.id} ${k.code}`).toBeLessThan(0.005)
+        }
+      }
+      // the schedule never types ';' in words; its fit is checked below
+      expect(seen.size, `${rig.id} keys found`).toBe(strict.size - 1)
+      const s = ty.seatState(rig, i)!
+      for (const code of strict) {
+        const fg = FINGERING[code]
+        const fit = (ty as unknown as { fit: (...a: unknown[]) => { err: number } }).fit(s, fg.hand, fg.finger, code, `${fg.hand}${fg.finger}${code}`, false)
+        expect(fit.err, `${rig.id} ${code} fit`).toBeLessThan(0.005)
+      }
+    }
+    if (process.env.TYPIST_LOG) (await import('node:fs')).appendFileSync(process.env.TYPIST_LOG, `strict worst mm ${JSON.stringify(Object.fromEntries(Object.entries(worst).map(([k, v]) => [k, +(v * 1000).toFixed(1)])))}
+`)
+  })
+
   it('the keycap press is half way at the event time, up before and after', async () => {
     const { ty, rigs } = await setup()
     const rig = rigs[3]
@@ -220,6 +255,54 @@ describe('hands at the keyboard (against office.glb)', () => {
     }
     // desk 2 has none
     expect(ty.seatState(rigs[2], 2)!.mouse).toBeNull()
+  })
+
+  it('think habits: the chin rest brings the hand under the head and leans it 3 degrees, the tap puts the index tip at the ear; reduced motion: no tap, no lean', async () => {
+    const { ty, rigs } = await setup()
+    const find = (agent: string, kind: 'chin' | 'tap') => {
+      for (let ci = 0; ci < 400; ci++) {
+        const c = makeChunk(agent, ci, 'think', { mouse: agent !== 'agent_2' })
+        const g = c.gestures.find((x) => x.kind === kind)
+        if (g) return g
+      }
+      throw new Error('none')
+    }
+    const frame = (rig: AgentRig, i: number, t: number, extra: object = {}) => {
+      rig.drive = { l: null, r: null }
+      rig.headExtra = { pitch: 0, yaw: 0, roll: 0 }
+      ty.step(rig, i, opts(t, { activity: 'think', ...extra }))
+      rig.applyDrive('l', t, false)
+      rig.applyDrive('r', t, false)
+    }
+    // chin
+    const rig1 = rigs[1]
+    const chin = find(rig1.id, 'chin')
+    for (let t = chin.t0 - 0.5; t <= (chin.t0 + chin.t1) / 2; t += 1 / 60) frame(rig1, 1, t)
+    const head = rig1.parts.head
+    head.updateWorldMatrix(true, false)
+    const palm = rig1.parts.hands[chin.hand].grip!.getWorldPosition(new Vector3())
+    const under = palm.clone().applyMatrix4(head.matrixWorld.clone().invert())
+    expect(under.y).toBeLessThan(-0.1)
+    expect(Math.abs(under.z + 0.17)).toBeLessThan(0.1)
+    expect(Math.abs(rig1.headExtra.roll)).toBeCloseTo((3 * Math.PI) / 180, 3)
+    frame(rig1, 1, (chin.t0 + chin.t1) / 2, { reduced: true })
+    expect(rig1.headExtra.roll).toBe(0)
+    // tap: the index tip reaches the ear at the bottom of a tap
+    const rig3 = rigs[3]
+    const tap = find(rig3.id, 'tap')
+    for (let t = tap.t0 - 0.5; t <= tap.t0 + 0.3 + 0.075; t += 1 / 60) frame(rig3, 3, t)
+    const tip = tipWorld(rig3, tap.hand, 0)
+    const local = tip.clone().applyMatrix4(rig3.parts.head.matrixWorld.clone().invert())
+    expect(Math.abs(local.x)).toBeGreaterThan(0.15)
+    expect(local.y).toBeGreaterThan(-0.05)
+    // reduced: the hand stays where the keyboard pose has it
+    const rigR = rigs[0]
+    const t0 = find(rigR.id, 'tap')
+    const mid = t0.t0 + 0.45
+    for (let t = t0.t0 - 0.5; t <= mid; t += 1 / 60) frame(rigR, 0, t, { reduced: true })
+    const hp = rigR.parts.hands[t0.hand].node.position.clone()
+    for (let t = mid; t <= mid + 0.2; t += 1 / 60) frame(rigR, 0, t, { reduced: true })
+    expect(rigR.parts.hands[t0.hand].node.position.distanceTo(hp)).toBeLessThan(0.02)
   })
 
   it('reduced motion: the hand does not travel, the keys still press', async () => {

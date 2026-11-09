@@ -1,8 +1,7 @@
-// Typing sound rhythm (docs/design/sound.md 4.1 #1), until #225's real key events replace it: the hands animate every
-// finger at 4 Hz (rig.ts typing), which would be 30+ clicks a second for one agent. A person types in bursts, so the
-// sound is its own rhythm: 6–9 keys a second for 1.5–4 s, then a 0.6–2.5 s pause. Words of 2–7 keys end in a space;
-// a burst ends in enter about a third of the time; now and then two backspaces fix a word.
-// Only agents at their desk, typing, on screen, with the ambient motion on.
+// A made-up typing rhythm, now only for the ?debug sound panel's demos (한 명 4초 · 다섯 명 · 연달아 비교): the office
+// itself plays the agents' real key presses from the input bus since #225 (SoundRoot.tsx, inputSound.ts).
+// 6–9 keys a second for 1.5–4 s, then a 0.6–2.5 s pause. Words of 2–7 keys end in a space; a burst ends in enter about
+// a third of the time; now and then two backspaces fix a word.
 
 import type { KeyKind } from './keys'
 
