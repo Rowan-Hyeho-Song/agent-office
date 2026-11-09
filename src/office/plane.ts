@@ -9,6 +9,8 @@
 import { Box3, MathUtils, Matrix4, MeshStandardMaterial, Quaternion, Raycaster, Vector3, type Mesh, type Object3D } from 'three'
 import { cue } from '../audio/cues'
 import type { NavGraph } from './nav'
+import { PaperPasses } from './paperRun'
+import type { Method } from './paperPass'
 import type { AgentRig, PropBank } from './rig'
 import type { OfficeMessage } from './status'
 
@@ -70,12 +72,17 @@ export class PaperPlanes {
   flown = 0
 
   private nodes: Record<string, Object3D>
+  /** handing over, sliding and tossing a paper (#262, paperRun.ts); the plane is this file's */
+  readonly passes: PaperPasses
+  /** a method forced for a message (the debug hook __office.paper.pass) */
+  private forced = new Map<string, Method>()
   /** node origin above the plane's underside (it rests on a surface at this height) */
   private lift = 0
   private rests = new Map<string, Vector3>()
 
   constructor(props: PropBank, nodes: Record<string, Object3D> = {}) {
     this.nodes = nodes
+    this.passes = new PaperPasses(props, nodes)
     this.plane = props.find('plane')
     if (this.plane) {
       const node = this.plane.node
@@ -177,13 +184,22 @@ export class PaperPlanes {
     return out.copy(p)
   }
 
-  receive(m: OfficeMessage) {
+  receive(m: OfficeMessage, force?: Method) {
     if (m.kind !== 'handoff' || m.from === m.to) return
-    if (this.queue.length < QUEUE_MAX) this.queue.push(m)
+    if (this.queue.length < QUEUE_MAX) {
+      this.queue.push(m)
+      if (force) this.forced.set(m.id, force)
+    }
   }
 
+  /** ?debug=1: a pass between two agents now, by a method of your choice (else paper-pass.md 1's) */
+  pass(from: string, to: string, method?: Method) {
+    this.receive({ id: `dbg-${this.debugN++}`, kind: 'handoff', from, to, at: Date.now() }, method)
+  }
+  private debugN = 0
+
   get busy() {
-    return !!this.flight
+    return !!this.flight || this.passes.busy
   }
 
   private m = new Matrix4()
@@ -209,7 +225,33 @@ export class PaperPlanes {
   }
 
   update(t: number, graph: NavGraph, rigs: Record<string, AgentRig>, reduced: boolean) {
+    // a paper being handed, slid or tossed (#262): one pass at a time, and the plane waits for it
+    if (this.passes.busy) {
+      this.passes.update(t, rigs, reduced)
+      return
+    }
     const plane = this.plane
+    if (!this.flight && this.passes.paper && this.queue.length) {
+      const next = this.queue[0]
+      const sender = rigs[next.from]
+      const receiver = rigs[next.to]
+      if (sender && receiver && PaperPasses.ready(sender, receiver)) {
+        const choice = this.passes.choose(sender, receiver, rigs)
+        const method = this.forced.get(next.id) ?? choice.method
+        this.forced.delete(next.id)
+        if (method !== 'plane') {
+          // the lane / arc of the chosen method (a forced method gets its own geometry)
+          const c = method === 'slide' && !choice.lane ? { ...choice, lane: this.passes.laneFor(sender, receiver) } : choice
+          if (method !== 'slide' || c.lane) {
+            this.queue.shift()
+            this.flown++
+            this.passes.start(next, method, c, sender, receiver, t, reduced)
+            this.passes.update(t, rigs, reduced)
+            return
+          }
+        }
+      }
+    }
     if (!plane) return
     if (!this.flight) {
       const next = this.queue.shift()

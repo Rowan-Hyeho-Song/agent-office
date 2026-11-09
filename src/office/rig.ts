@@ -408,7 +408,7 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
 
 // ------------------------------------------------------------------ the face screen (#28, simple first)
 
-type FaceMood = 'open' | 'blink' | 'happy' | 'sleep' | 'fail' | 'doze' | 'focus' | 'wide'
+type FaceMood = 'open' | 'blink' | 'happy' | 'sleep' | 'fail' | 'doze' | 'focus' | 'wide' | 'yield'
 /** the eyes' look is drawn in steps of this many px (up to 3 steps each way) */
 const EYE_STEP = 4
 
@@ -452,8 +452,19 @@ class FaceScreen {
       else if (mood === 'wide') g.roundRect(x - 20 + dx, 48 + dy, 40, 84, 14) // 1.25 x 1.4 the open bar, same centre (#273)
       if (mood === 'open' || mood === 'focus' || mood === 'wide') g.fill()
       else if (mood === 'blink' || mood === 'sleep' || mood === 'doze') (g.moveTo(x - 20, 95), g.lineTo(x + 20, 95), g.stroke())
-      else if (mood === 'happy') (g.moveTo(x - 22, 102), g.lineTo(x, 80), g.lineTo(x + 22, 102), g.stroke())
+      else if (mood === 'happy' || mood === 'yield') (g.moveTo(x - 22, 102), g.lineTo(x, 80), g.lineTo(x + 22, 102), g.stroke())
       else (g.moveTo(x - 18, 72), g.lineTo(x + 18, 108), g.moveTo(x + 18, 72), g.lineTo(x - 18, 108), g.stroke())
+    }
+    if (mood === 'yield') {
+      // 양보 (robots.md 4): the smile eyes and a small arrow toward the one it gives to; gx > 0 = the viewer's right
+      const dir = gx >= 0 ? 1 : -1
+      g.beginPath()
+      g.moveTo(150 - 26 * dir, 146)
+      g.lineTo(150 + 26 * dir, 146)
+      g.moveTo(150 + 12 * dir, 136)
+      g.lineTo(150 + 26 * dir, 146)
+      g.lineTo(150 + 12 * dir, 156)
+      g.stroke()
     }
     g.globalAlpha = 1
     this.texture.needsUpdate = true
@@ -769,6 +780,22 @@ export class AgentRig {
     if (reduced) this.paperFace.nodAt = null // the nod is motion; the surprise face is information and stays
   }
 
+  /** the giver's face (#262, paper-pass.md 4): 'yield' (the arrow toward the receiver, side = +1 when it is on the viewer's right) or 'joy' until `until` */
+  private giveFace: { mood: 'yield' | 'happy'; until: number; side: number } | null = null
+  giverFace(mood: 'yield' | 'happy', until: number, side: number) {
+    this.giveFace = { mood, until, side }
+  }
+  /** tests: the giver's face now */
+  giverFaceAt(t: number): 'yield' | 'happy' | null {
+    return this.giveFace && t < this.giveFace.until ? this.giveFace.mood : null
+  }
+  /** the hands' height lift of the seat (m) and whether it sits at a desk / seat now (a paper pass reads them) */
+  get seatLift() {
+    return this.seat
+  }
+  get seated() {
+    return this.stance.seated
+  }
   /** tests: whether the face shows the received-paper surprise now */
   surprisedAt(t: number): boolean {
     return !!this.paperFace && t < this.paperFace.until
@@ -801,7 +828,7 @@ export class AgentRig {
   private cueMem: { kind: NonNullable<Sample['cue']>['kind']; dur: number; gesture: boolean; toward: { x: number; z: number } | null; startT: number } | null = null
   private cueT = 0
   /** a short gesture set by the paper plane (#51): until = the scene clock time it ends */
-  gesture: { kind: 'throw' | 'catch'; until: number; oneHand?: boolean; caught?: boolean; t0?: number; at?: Vector3; plan?: Plan } | null = null
+  gesture: { kind: 'throw' | 'catch'; until: number; oneHand?: boolean; caught?: boolean; t0?: number; at?: Vector3; plan?: Plan; calm?: boolean; handsOff?: boolean } | null = null
   /** this frame's look-and-turn of a gesture (aim.ts); null without one */
   aim: AimPose | null = null
   private stance = { seated: false, still: true }
@@ -811,7 +838,7 @@ export class AgentRig {
    * Begin a throw or a catch (#224): look at `at` (a point the caller keeps moving, e.g. the plane), turn as aim.ts says.
    * Returns the gesture; `until` is when everything is back at the desk.
    */
-  startGesture(kind: 'throw' | 'catch', t: number, at: Vector3, o: { reduced?: boolean; flyFor?: number; holdS?: number; oneHand?: boolean } = {}) {
+  startGesture(kind: 'throw' | 'catch', t: number, at: Vector3, o: { reduced?: boolean; flyFor?: number; holdS?: number; oneHand?: boolean; calm?: boolean } = {}) {
     const theta = Math.hypot(at.x - this.x, at.z - this.z) > 0.05 ? wrap(Math.atan2(-(at.x - this.x), -(at.z - this.z)) - this.heading) : 0
     const plan = planGesture(kind, theta, {
       seated: this.stance.seated,
@@ -822,7 +849,7 @@ export class AgentRig {
       flyFor: o.flyFor,
       holdS: o.holdS,
     })
-    return (this.gesture = { kind, until: t + plan.times.end, oneHand: o.oneHand, t0: t, at, plan })
+    return (this.gesture = { kind, until: t + plan.times.end, oneHand: o.oneHand, t0: t, at, plan, calm: o.calm })
   }
 
   constructor(id: string, index: number, parts: RigParts, color: string) {
@@ -1063,6 +1090,8 @@ export class AgentRig {
       gazeFrom = aim.phase === 'done' ? 0 : 1
     }
     this.aim = gazeFrom ? aim : null
+    // a paper handed over (#262): the look and the turn are the same, the narrowed / wide eyes of a throw and a catch are not (the faces are paper-pass.md 4's)
+    if (this.aim && gz?.calm) this.aim = { ...this.aim, mood: null }
     const { root, head, beam } = this.parts
     root.visible = !this.hidden
     root.position.set(this.drawAt?.x ?? this.x, 0, this.drawAt?.z ?? this.z)
@@ -1300,7 +1329,7 @@ export class AgentRig {
   private handPose(side: 'l' | 'r', pose: string, t: number, reduced: boolean): HandPose {
     const g = this.gesture
     const a = this.aim
-    if (!g?.plan || !a || reduced) return this.basePose(side, pose, t, reduced)
+    if (!g?.plan || !a || reduced || g.handsOff) return this.basePose(side, pose, t, reduced)
     const sx = side === 'l' ? -1 : 1
     const sit = this.seat
     const rest = this.parts.hands[side].restPos
@@ -1326,11 +1355,7 @@ export class AgentRig {
       if (caught) {
         // looking at what was caught (paper-pass.md 5, #273): in front of the face screen and below it, so neither the hand
         // nor the plane covers the screen: 0.22 ahead, 0.10 down, 0.06 to the holding hand's side, in the head's frame
-        const head = this.parts.head.position
-        const yaw = a.head
-        const ox = sx * LOOK_AT.side
-        const oz = -LOOK_AT.ahead
-        target = v(head.x + ox * Math.cos(yaw) + oz * Math.sin(yaw), head.y - LOOK_AT.down, head.z - ox * Math.sin(yaw) + oz * Math.cos(yaw))
+        target = this.readingPlace(side)
         curl = PINCH_POSE
       } else {
         // the usual catching place in front, drifting to the plane's side as the angle grows
@@ -1353,6 +1378,15 @@ export class AgentRig {
     return { pos: lift(base.pos.clone().lerp(target, a.arm)), turn: base.turn.clone().slerp(reach, a.arm), curl: a.arm > 0.3 ? curl : base.curl }
   }
   private tmpAt = new Vector3()
+
+  /** where a held paper / plane is looked at (paper-pass.md 5, #273): 0.22 ahead of the face screen, 0.10 below it, 0.06 to the holding hand's side, in the head's frame (the agent's frame; `out`) */
+  readingPlace(side: 'l' | 'r', out = new Vector3()) {
+    const head = this.parts.head.position
+    const yaw = this.aim?.head ?? 0
+    const ox = (side === 'l' ? -1 : 1) * LOOK_AT.side
+    const oz = -LOOK_AT.ahead
+    return out.set(head.x + ox * Math.cos(yaw) + oz * Math.sin(yaw), head.y - LOOK_AT.down, head.z - ox * Math.sin(yaw) + oz * Math.cos(yaw))
+  }
 
   /** #255: the hand turn (a pose's `turn`) for a hand at `pos` whose palm faces `palm` (agent frame; null: no object) */
   private reachAt(side: 'l' | 'r', pos: Vector3, palm: Vector3 | null): Quaternion {
@@ -1899,6 +1933,8 @@ export class AgentRig {
       if (pf.nodAt === null) this.paperFace = null
     }
     if (!this.face) return
+    const gf = this.giveFace
+    if (gf && t < gf.until) return this.face.draw(gf.mood, gf.side >= 0 ? 1 : -1)
     // looking at the plane / the one it throws to (#224): the eyes go first, the mood narrows to aim and widens to catch.
     // Eye direction is information, not motion: it stays with reduced motion
     const aim = this.aim
