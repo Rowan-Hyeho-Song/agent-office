@@ -11,12 +11,13 @@ const STATE_TEXT = { working: '작업 중', wrapping: '카드 정리 중', idle:
 const COUNT = ['', '한', '두', '세', '네', '다섯', '여섯', '일곱', '여덟']
 
 /** the short name ("루프") and the plain sentence of what the agent is doing ("#182 · 테스트 돌리는 중") */
-export function describe(agent: string, s: AgentStatus | undefined, detail?: string): { name: string; chip: string } {
+export function describe(agent: string, s: AgentStatus | undefined, detail?: string): { name: string; chip: string; task: string; doing: string } {
   const name = (AGENT_INFO[agent]?.name ?? agent).split(' ')[0]
   const task = taskOf(s)
   const doing = detail ?? (!s ? '' : s.state === 'working' ? activityLabel(s.activity) : s.night === 'sleep' ? '조는 중' : STATE_TEXT[s.state])
-  const chip = [task ? clip(taskText(task), 28) : '', doing].filter(Boolean).join(' · ')
-  return { name, chip }
+  const taskPart = task ? clip(taskText(task), 28) : ''
+  const chip = [taskPart, doing].filter(Boolean).join(' · ')
+  return { name, chip, task: taskPart, doing }
 }
 
 export function TourBar({ world }: { world: OfficeWorld }) {
@@ -77,7 +78,9 @@ export function TourBar({ world }: { world: OfficeWorld }) {
           <p className="tour-now" title={d ? `${d.name} ${d.chip}` : label}>
             {color && <i style={{ background: color }} aria-hidden="true" />}
             <b>{label}</b>
-            {d?.chip && <span className="tour-chip"> · {d.chip}</span>}
+            {/* the task title gives way first; what the agent is doing stays readable (as the #182 head chip) */}
+            {d?.task && <span className="tour-chip tour-task"> · {d.task}</span>}
+            {d?.doing && <span className="tour-chip tour-doing"> · {d.doing}</span>}
           </p>
           <button type="button" className="tour-btn" onClick={tour.next} aria-label="다음 (키 ])" title="다음 (])">
             <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3.5 2 8.5 6l-5 4z" fill="currentColor" /></svg>

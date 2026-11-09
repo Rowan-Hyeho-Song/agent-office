@@ -568,6 +568,8 @@ html[data-motion='reduce'] .dock-btn.sound-toggle.flash { animation: none; box-s
 .tour-now i { flex: none; width: 8px; height: 8px; border-radius: 2px; }
 .tour-now b { flex: none; font-weight: 600; }
 .tour-chip { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--color-text-muted); }
+.tour-chip.tour-task { flex-shrink: 1; }
+.tour-chip.tour-doing { flex-shrink: 0; max-width: 60%; }
 .tour-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .tour-fade { position: fixed; inset: 0; z-index: 19; background: #000; opacity: 0; pointer-events: none; }
 body:has(.tour-bar) .cam-hint { display: none; }
@@ -579,6 +581,8 @@ body:has(.tour-bar) .cam-hint { display: none; }
   .tour-bar { bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px) + 44px + 8px); height: 44px; }
   .tour-btn { width: 44px; height: 44px; }
   body:has(.tour-bar) .hud, body:has(.tour-bar) .owner-tag { visibility: hidden; }
+  /* the one-time sound hint sits where the bar goes: above the bar while touring */
+  body:has(.tour-bar) .sound-hint { bottom: calc(100% + 8px + 44px + 8px); }
 }
 @media (prefers-reduced-motion: reduce) { .tour-bar { animation: none; } }
 html[data-motion='reduce'] .tour-bar { animation: none; }
