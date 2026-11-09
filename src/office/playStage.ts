@@ -33,7 +33,8 @@ import { meshesOf } from './nodes'
 import type { StatusMap } from './status'
 import { gameAt, N, type OmokView } from '../play/omok'
 import { rallyAt, type Dims, type Rally } from '../play/pingpong'
-import { HOLD_DEFAULT, PLANTS, canPose, dropAt, landing, plantAhead, plantsFrom, solvePour, spoutOf, type Plant } from './water'
+import { CARRY_HOLD, HOLD_DEFAULT, PLANTS, canPose, dropAt, landing, lerpHold, plantsFrom, pourAt, solvePour, spoutOf, type Plant } from './water'
+import { WATER_S } from './waterRun'
 import { type Place, ease, followWeight, habitOf, placeSequence, swingTilt, swingTravel } from '../play/choreo'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
@@ -97,6 +98,8 @@ export class PlayStage {
   /** the play sounds (#194 ②): one line at each event below */
   private sounds = new PlaySounds()
   private clocks = new Map<string, GripClock>()
+  /** when each hand was last driven by grip() (the scene clock, s) */
+  private lastGripT = new Map<string, number>()
   private targets = new Map<string, GripTarget | null>()
   private fits = new Map<string, { curl: number[]; spread: number[] } | null>()
   private lastHand = new Map<string, Matrix4>()
@@ -105,7 +108,7 @@ export class PlayStage {
   private lastObjPose = new Matrix4()
   private arrivedAt = new Map<string, number>()
   /** what each hand carries: when its activity ends the hand puts the prop back where it came from, then lets go (no prop moves on its own) */
-  private carry = new Map<string, { rig: AgentRig; side: 'l' | 'r'; kind: string; objName: string; prefer?: string; held: Matrix4; seen: boolean; putStart: number | null; extra: ((pose: Matrix4) => void) | null }>()
+  private carry = new Map<string, { rig: AgentRig; side: 'l' | 'r'; kind: string; objName: string; prefer?: string; held: Matrix4; seen: boolean; putStart: number | null; down?: boolean; extra: ((pose: Matrix4) => void) | null }>()
 
   // ping-pong
   private tableNode: Object3D | undefined
@@ -266,6 +269,11 @@ export class PlayStage {
     const tgt = this.target(objName, kind, side)
     const key = `${rig.id}:${side}`
     const clock = this.clock(key)
+    // the hand has not been driven for a while (it rested on the mouse at its desk, then walked away): whatever stage the clock was left in is
+    // over. Taking something now starts from the reach, so a thing is never "already in the hand" at the first frame (#228)
+    const last = this.lastGripT.get(key)
+    if (last !== undefined && inp.t - last > 0.25 && clock.current.stage !== 'rest') clock.reset()
+    this.lastGripT.set(key, inp.t)
     const o = { gestureMin: rig.gestureMin, reduced: inp.reduced }
     const out = clock.step(inp.t, want && rig.visible, o)
     if (!spec || !tgt) {
@@ -277,7 +285,8 @@ export class PlayStage {
     const info = tgt.obj ? this.props.info(rig, kind, prefer ?? objName) : null
     const home = tgt.obj ? this.props.homeWorld(tgt.obj) : new Matrix4()
     let pose = home
-    if (out.attached && held) pose = blend(home, held, ease((inp.t - (clock.attachedAt ?? inp.t)) / Math.max(LIFT_S, rig.gestureMin)))
+    // reduced motion: the can is simply in the hand (watering.md 5); everything else is lifted from where it rests
+    if (out.attached && held) pose = inp.reduced && kind === 'watering_can' ? held : blend(home, held, ease((inp.t - (clock.attachedAt ?? inp.t)) / Math.max(LIFT_S, rig.gestureMin)))
     else if (out.attached && !tgt.obj) pose = held ?? home
     this.lastObjPose = pose
     const seat = Number(rig.id.split('_')[1])
@@ -331,8 +340,10 @@ export class PlayStage {
         e.putStart ??= inp.t
         const dur = inp.reduced ? 0 : Math.max(PUT_S, e.rig.gestureMin)
         const kk = dur > 0 ? (inp.t - e.putStart) / dur : 1
-        if (kk < 1) {
-          const pose = blend(e.held, this.props.homeWorld(obj), ease(kk))
+        // the last frame in the hand is exactly where it rests, so letting go moves nothing (#228: at any frame rate)
+        if (kk < 1 || !e.down) {
+          if (kk >= 1) e.down = true
+          const pose = blend(e.held, this.props.homeWorld(obj), ease(Math.min(1, kk)))
           this.grip(e.rig, e.side, e.kind, e.objName, true, pose, inp, e.prefer, true)
           e.extra?.(pose)
           continue
@@ -696,7 +707,8 @@ export class PlayStage {
     }
     // the stone's path: its bottom from the bowl's contact (under the mouth) to the intersection
     const target = this.cellPos(mv.cell)
-    const bowlBottom = bowl.contact.clone().addScaledVector(UP, -STONE_H)
+    // the stone is taken where it rests (the proxy on the bowl, 4 cm above the pile's contact point in the model): no jump at the grasp (#228)
+    const bowlBottom = stone ? new Vector3().setFromMatrixPosition(this.props.homeWorld(stone.node)).addScaledVector(UP, -STONE_H / 2) : bowl.contact.clone().addScaledVector(UP, -STONE_H)
     const bottom = bowlBottom.clone().lerp(target, p.u)
     const fwdDir = new Vector3(target.x - rig.x, 0, target.z - rig.z).normalize()
     if (isFinite(fwdDir.x)) bottom.addScaledVector(fwdDir, -p.back * p.u)
@@ -774,6 +786,8 @@ export class PlayStage {
     const right = new Vector3(Math.cos(heading), 0, -Math.sin(heading))
     void pp
     void og
+    // the watering errand: first, so nothing else (the stamp) takes the right hand while it carries the can
+    if (goal.pose === 'water') return this.errand(rig, goal, inp)
     // the planner's stamp (the owner decided something)
     if (inp.stamp && seat === 0) {
       const home = this.props.info(rig, 'stamp')
@@ -801,29 +815,6 @@ export class PlayStage {
         const q = yaw(heading).multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), tilt))
         const held = new Matrix4().compose(local(0.17, 0.98 + 0.08 * sipping, -0.26), q, ONE)
         this.grip(rig, 'r', 'cup', cup.node.name, true, held, inp)
-      }
-      return
-    }
-    if (goal.pose === 'water' && resting) {
-      const can = this.props.info(rig, 'watering_can')
-      if (can) {
-        // 0.6 s to tip 30°, held 1.5 s, back in 0.6 s, a rest, every 7 s
-        const c = u % 7
-        const tilt = c < 0.6 ? ease(c / 0.6) : c < 2.1 ? 1 : c < 2.7 ? 1 - ease((c - 2.1) / 0.6) : 0
-        // the can is held where the stream from its spout lands on the soil of the plant in front (water.ts)
-        const plant = plantAhead(rig.x, rig.z, heading, 1.6, this.plants) ?? this.plants[0]
-        const pour = this.spoutLocal ? solvePour(plant, rig.x, rig.z, heading, this.spoutLocal) : null
-        const held = canPose(rig.x, rig.z, heading, pour?.hold ?? HOLD_DEFAULT, tilt)
-        const attached = this.grip(rig, 'r', 'watering_can', can.node.name, true, held, inp)
-        const gl = this.props.info(rig, 'watering_can')
-        void gl
-        // the left hand carries the can's belly (grip_l), following it
-        const tl = this.target(can.node.name, 'watering_can', 'l')
-        if (tl) {
-          this.leftHand(rig, 'watering_can', tl, this.lastObjPose)
-          if (attached) this.setExtra(rig, 'r', can.node.name, (m) => this.leftHand(rig, 'watering_can', tl, m))
-        }
-        this.pouring = { on: attached && tilt > 0.5 && !inp.reduced, rig, held, soilY: plant.soilY }
       }
       return
     }
@@ -877,6 +868,52 @@ export class PlayStage {
     }
   }
 
+  /**
+   * The watering errand (#228, waterRun.ts decides the stage and how long it has lasted; this only draws it). The hand takes hold of the can
+   * where it rests, with the body standing beside it (lift), carries it at its side (carry, return), tips it over the plant (pour) and
+   * lowers it to exactly where it rests before it lets go (put). The can is never moved by anything but the hand.
+   */
+  private errand(rig: AgentRig, goal: Goal, inp: StageIn) {
+    const w = goal.water
+    const can = this.props.info(rig, 'watering_can')
+    if (!w || !can) return
+    const root = rig.parts.root
+    const x = root.position.x
+    const z = root.position.z
+    const heading = rig.heading
+    const home = this.props.homeWorld(can.node)
+    const carrying = canPose(x, z, heading, CARRY_HOLD, 0)
+    const plant = this.plants.find((p) => p.name === w.plant) ?? this.plants[0]
+    let want = true
+    let held: Matrix4 = carrying
+    let hands = 0
+    let tilt = 0
+    // walking to the can, or (reduced motion) to the plant: the hands are free
+    if (w.stage === 'fetch' || (w.stage === 'carry' && inp.reduced)) return
+    if (w.stage === 'lift') rig.headExtra.pitch = -0.2
+    else if (w.stage === 'pour') {
+      const pr = pourAt(plant.name, w.u)
+      const pour = this.spoutLocal ? solvePour(plant, x, z, heading, this.spoutLocal) : null
+      held = canPose(x, z, heading, lerpHold(CARRY_HOLD, pour?.hold ?? HOLD_DEFAULT, pr.hold), pr.tilt)
+      hands = pr.hold
+      tilt = pr.tilt
+    } else if (w.stage === 'put') {
+      const dur = Math.max(WATER_S.lower, rig.gestureMin)
+      rig.headExtra.pitch = -0.2
+      if (inp.reduced) {
+        // reduced motion: the can is just gone from the hand, back where it rests
+        want = false
+        home.decompose(can.node.position, can.node.quaternion, new Vector3())
+      } else if (w.u < dur + 0.06) held = blend(carrying, home, ease(Math.min(1, w.u / dur))) // exactly at rest for the last frames in the hand
+      else want = false
+    }
+    const attached = this.grip(rig, 'r', 'watering_can', can.node.name, want, held, inp)
+    // the left hand supports the can's belly while it pours, following it (grip_l), fading in and out with the settle
+    const tl = this.target(can.node.name, 'watering_can', 'l')
+    if (tl && hands > 0) this.partner(rig, 'watering_can', 'l', tl, this.lastObjPose, 'r', hands)
+    this.pouring = { on: attached && tilt > 0.5 && !inp.reduced, rig, held, soilY: plant.soilY }
+  }
+
   private setExtra(rig: AgentRig, side: 'l' | 'r', objName: string, fn: (pose: Matrix4) => void) {
     // the carry entry of the hand that holds the prop (water: the right hand, the book: the left)
     const e = [...this.carry.values()].find((x) => x.rig === rig && x.objName === objName && x.side === (side === 'r' ? 'r' : 'l'))
@@ -890,7 +927,7 @@ export class PlayStage {
   private reading: { rig: AgentRig; openAt: number; turnAt: number } | null = null
 
   /** the other hand of a two-handed hold: it goes to the object with the first hand's stages (reach, pre-grip, close, hold, let go) */
-  private partner(rig: AgentRig, kind: string, side: 'l' | 'r', tgt: GripTarget, objPose: Matrix4, primary: 'l' | 'r') {
+  private partner(rig: AgentRig, kind: string, side: 'l' | 'r', tgt: GripTarget, objPose: Matrix4, primary: 'l' | 'r', scale = 1) {
     const out = this.clock(rig.id + ':' + primary).current
     if (out.stage === 'rest') return
     const spec = GRIPS[kind][side]!
@@ -899,10 +936,7 @@ export class PlayStage {
     const target = handFor(objPose, tgt.pg, handGripMatrix(hand)).multiply(offsetOf(tgt.key, seat))
     const fit = tgt.contacts.length ? this.holdFit(rig, side, tgt) : { curl: [...spec.hold], spread: [0, 0, 0, 0] }
     const curl = [0, 1, 2, 3, 4, 5].map((k) => spec.pre[k] * out.mix[0] + fit.curl[k] * out.mix[1] + spec.after[k] * out.mix[2])
-    rig.drive[side] = { target, w: out.wHand, curl, wc: out.wCurl, spread: fit.spread.map((x) => x * out.mix[1]) }
-  }
-  private leftHand(rig: AgentRig, kind: string, tgt: GripTarget, objPose: Matrix4) {
-    this.partner(rig, kind, 'l', tgt, objPose, 'r')
+    rig.drive[side] = { target, w: out.wHand * scale, curl, wc: out.wCurl * scale, spread: fit.spread.map((x) => x * out.mix[1]) }
   }
   private rightHand(rig: AgentRig, kind: string, tgt: GripTarget, objPose: Matrix4) {
     this.partner(rig, kind, 'r', tgt, objPose, 'l')

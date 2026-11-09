@@ -16,8 +16,8 @@ export interface Plant {
 /** the four plants of the office (office_bake.py PLANTS and the desk succulent) */
 export const PLANTS: Plant[] = [
   { name: 'plant_corner', x: 4.22, z: 3.18, soilY: 0.02 + 0.36 - 0.015 + 0.003, r: 0.19 - 0.006 }, // fiddle-leaf fig
-  { name: 'plant_sofa', x: 0.925, z: 2.75, soilY: 0.02 + 0.26 - 0.015 + 0.003, r: 0.14 - 0.006 }, // monstera
-  { name: 'plant_desk', x: 0.0, z: -3.2, soilY: 0.28 + 0.22 - 0.015 + 0.003, r: 0.12 - 0.006 }, // sansevieria on its stand
+  { name: 'plant_sofa', x: 0.905, z: 2.75, soilY: 0.02 + 0.26 - 0.015 + 0.003, r: 0.14 - 0.006 }, // monstera
+  { name: 'plant_desk', x: -3.75, z: -3.2, soilY: 0.28 + 0.22 - 0.015 + 0.003, r: 0.12 - 0.006 }, // sansevieria on its stand, at the window's west end since #195
   { name: 'succulent', x: -4.32, z: -1.36, soilY: 0.74 + 0.05 - 0.015 + 0.003, r: 0.04 - 0.006 }, // 휴's desk
 ]
 
@@ -32,11 +32,34 @@ export const WATERED = PLANTS[0]
 export const STANDS: Record<string, { x: number; z: number }> = {
   plant_corner: { x: 4.14, z: 2.59 }, // 0.60 m, on the room side of the corner
   plant_sofa: { x: 1.13, z: 2.35 }, // 0.45 m, between the side table and the sofa's front
-  plant_desk: { x: 0.0, z: -2.7 }, // 0.50 m, in front of the stand
+  plant_desk: { x: -3.75, z: -2.7 }, // 0.50 m, in front of the stand (found by scanning the walkable footprint, stream error < 0.7 soil radius)
   succulent: { x: -3.84, z: -1.21 }, // 0.50 m, at HUE's desk side
+  // the can's own stand (#228): where the agent takes the can up and puts it back. The can rests at CAN_HOME in the corner behind the fig, inside
+  // the wall margin of the walkable grid, so this is the nearest floor the planner can walk to (0.66 m in front of it, within arm's reach; the grid's next row, 2.65 m and further, is wall margin)
+  watering_can: { x: 3.82, z: 2.64 },
   vine: { x: 4.0, z: -2.86 }, // 0.50 m in front of the shelf; the vine's soil is at 2.2 m, so the can is raised to it (not on the schedule)
 }
 export const standOf = (p: Plant) => STANDS[p.name]
+/** where the watering can rests (office_bake.py: prop_watering_can; docs/design/watering.md) and the stand to take it from / put it back on */
+export const CAN_HOME = { x: 3.75, z: 3.3 }
+export const canStand = () => STANDS.watering_can
+/**
+ * How far from its body an agent can take hold of or carry something (m, horizontal, from the body's centre). The hands' own poses
+ * (rig.ts handPose) reach 0.6 m ahead at most (the wrap-up's card at the board: 0.1 sideways, 0.6 forward); 0.75 leaves 0.15 m for the
+ * body leaning in and the width of the thing held. Anything further is a hand flying to a prop, not an arm reaching.
+ */
+export const REACH = 0.75
+/**
+ * A stand an agent cannot use while another agent rests at one of these spots: they are closer than two body radii (0.6 m) plus the planner's gap, so
+ * the planner would keep the water agent waiting for as long as the other stays. plant_sofa's stand is 0.58 m from the sofa's first seat.
+ */
+export const STAND_BLOCKERS: Record<string, string[]> = { plant_sofa: ['sofa_0'], plant_desk: ['desk_side_0'] }
+/**
+ * A plant whose stand cannot be reached while another agent rests at one of these spots (the way there runs past it). plant_desk stands in the
+ * pocket at the window's west end (#195): the only way in is the north lane past the memo seat, 0.41 m of free floor beside a seated body when the
+ * planner needs 0.44 + its gap, and the west lane (work_1, work_2) is as narrow. So the plant is skipped while the memo seat is taken (its owner can still water it).
+ */
+export const PATH_BLOCKERS: Record<string, string[]> = { plant_desk: ['work_0'] }
 /** the plants the schedule waters (the floor plants; the desk succulent is left to its owner) */
 export const WATER_PLANTS = [PLANTS[0], PLANTS[1], PLANTS[2]]
 /** heading (rad, rig convention: it faces its −z) that looks from (x, z) at (tx, tz) */
@@ -47,6 +70,35 @@ export const STREAM_V = 0.5
 export const G = 9.81
 /** the can tips this far when pouring (grips.md: 30°) */
 export const POUR_TILT = (30 * Math.PI) / 180
+
+/** the can carried at the side, the hand hanging 0.55 m high (watering.md 2: arm straight down) */
+export const CARRY_HOLD: Hold = { fwd: 0.06, lat: 0.22, y: 0.55 }
+
+/** how long the stages of one watering last, s: settle the can up to the pour hold, tip, hold (per plant: watering.md 1), tip back, lower it to the carrying hold */
+export const POUR_S = { settle: 0.5, up: 0.6, down: 0.6, back: 0.4 }
+export const POUR_HOLD_S: Record<string, number> = { plant_corner: 1.6, plant_sofa: 1.4, plant_desk: 0.8 }
+export const pourHoldOf = (plant: string) => POUR_HOLD_S[plant] ?? 1.2
+export const pourTotal = (plant: string) => POUR_S.settle + POUR_S.up + pourHoldOf(plant) + POUR_S.down + POUR_S.back
+
+/**
+ * The pour at `u` s after arriving at the plant's stand: how far the can is from the carrying hold to the pour hold (0 … 1) and how far
+ * it is tipped (0 … 1). Settle up to the hold, tip, pour, tip back, then lower it again: continuous everywhere, so the can never jumps.
+ */
+export function pourAt(plant: string, u: number): { hold: number; tilt: number } {
+  const e = (k: number) => {
+    const c = Math.min(1, Math.max(0, k))
+    return c * c * (3 - 2 * c)
+  }
+  const { settle, up, down, back } = POUR_S
+  const t1 = settle
+  const t2 = t1 + up
+  const t3 = t2 + pourHoldOf(plant)
+  const t4 = t3 + down
+  return { hold: e(u / settle) * (1 - e((u - t4) / back)), tilt: e((u - t1) / up) * (1 - e((u - t3) / down)) }
+}
+
+/** a hold part of the way from `a` to `b` */
+export const lerpHold = (a: Hold, b: Hold, k: number): Hold => ({ fwd: a.fwd + (b.fwd - a.fwd) * k, lat: a.lat + (b.lat - a.lat) * k, y: a.y + (b.y - a.y) * k })
 
 const UP = new Vector3(0, 1, 0)
 const AXIS_Y = new Vector3(0, 1, 0)

@@ -1,7 +1,7 @@
 // ?debug=1 traffic demos (#138, for the designer): two agents swap ends where they must meet, so the yield and pass
 // gestures show at once. window.__office.trafficDemo('narrow' | 'wide'), and trafficDemo('off') to let them go.
-//   narrow: the lane between the ping-pong table and the east wall (about 0.6 m of free centre width: one body at a time);
-//           agent_1 sets off half a second later, so agent_0 has the lane and agent_1 steps aside at its mouth and yields
+//   narrow: the lane between the pod's west row and the west wall (about 0.6 m of free centre width: one body at a time);
+//           both set off together from the two mouths, so one steps aside and yields
 //   wide:   the open rug, head on along one line (both keep right and pass)
 // Pure: no three.js.
 
@@ -25,8 +25,8 @@ const swap = (ids: [string, string], a: { x: number; z: number }, b: { x: number
 
 export const TRAFFIC_DEMOS: Record<DemoKind, Leg[]> = {
   // the ends sit off the lane mouths, so one standing there never corks the lane for the other
-  narrow: swap(['agent_0', 'agent_1'], { x: 3.9, z: -1.15 }, { x: 4, z: 1.55 }, 0.5),
-  wide: swap(['agent_0', 'agent_1'], { x: -3, z: -1 }, { x: 0, z: -1 }),
+  narrow: swap(['agent_0', 'agent_1'], { x: -3.9, z: -2.6 }, { x: -3.9, z: 1.2 }),
+  wide: swap(['agent_0', 'agent_1'], { x: -3.2, z: 1 }, { x: -0.2, z: 1 }),
 }
 
 /** how long both stand at their start before they set off (seconds of the scene clock) */

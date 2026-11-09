@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readChoice } from './approve'
 import { needsOpinion } from './approve'
-import { answersFor, decidedText, fmtDate, kindOf, noteHint, oldestFirst } from './view'
+import { answersFor, chosenOption, decidedCoverLabel, decidedLabel, decidedText, elapsedText, fmtDate, fmtStamp, kindOf, noteHint, oldestFirst, spokenDate, stampText } from './view'
 
 const base = { options: ['A', 'B'], recommended: 2 }
 
@@ -57,5 +57,39 @@ describe('text', () => {
   })
   it('oldest first', () => {
     expect(oldestFirst([{ created_at: '2' }, { created_at: '1' }]).map((x) => x.created_at)).toEqual(['1', '2'])
+  })
+})
+
+describe('decided approval texts (#222)', () => {
+  it('stampText: 승인 · 반려 · 안 N, document outcomes as they are', () => {
+    expect([stampText('승인'), stampText('반려'), stampText('선택지 2'), stampText('고쳐서 공개'), stampText(null)]).toEqual(['승인', '반려', '안 2', '고쳐서 공개', ''])
+  })
+  it('chosenOption reads the column, else the result text', () => {
+    expect(chosenOption({ option: 2, result: '선택지 2' })).toBe(2)
+    expect(chosenOption({ option: null, result: '선택지 3' })).toBe(3)
+    expect(chosenOption({ option: null, result: '반려' })).toBeNull()
+  })
+  const at = (h: number, m: number, d = 9) => new Date(2026, 10, d, h, m).toISOString()
+  it('elapsedText', () => {
+    expect(elapsedText(at(22, 36), at(23, 58))).toBe('걸린 시간 1시간 22분')
+    expect(elapsedText(at(22, 0), at(23, 0))).toBe('걸린 시간 1시간')
+    expect(elapsedText(at(22, 0), at(22, 7))).toBe('걸린 시간 7분')
+    expect(elapsedText(at(22, 0), at(22, 0))).toBe('걸린 시간 1분 미만')
+    expect(elapsedText(at(22, 0, 8), at(23, 0, 9))).toBe('걸린 시간 1일 1시간')
+    expect(elapsedText(at(22, 0, 8), at(22, 0, 10))).toBe('걸린 시간 2일')
+    expect(elapsedText(at(23, 0), at(22, 0))).toBeNull()
+    expect(elapsedText(at(23, 0), null)).toBeNull()
+    expect(elapsedText('nope', at(23, 0))).toBeNull()
+  })
+  it('fmtStamp and spokenDate use the viewer clock', () => {
+    expect(fmtStamp(at(23, 58))).toBe('11-09 23:58')
+    expect(fmtStamp(null)).toBe('')
+    expect(spokenDate(at(23, 58))).toBe('11월 9일 23시 58분')
+  })
+  it('row labels: the owner hears the title, a visitor does not', () => {
+    expect(decidedLabel('메모', '5인 책상 배치', '승인', at(23, 58))).toBe('메모 결재: 5인 책상 배치 — 승인, 11월 9일 23시 58분')
+    expect(decidedLabel('메모', '배치', '선택지 2', at(23, 58))).toContain('— 안 2,')
+    const v = decidedCoverLabel('메모', '반려', at(23, 58))
+    expect(v).toBe('메모 결재 서류 — 반려, 11월 9일 23시 58분')
   })
 })

@@ -20,6 +20,7 @@ import {
   Vector3,
 } from 'three'
 import type { Goal } from './director'
+import { aimPose, planGesture, type AimPose, type Plan } from './aim'
 import { DOZE } from './doze'
 import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
 import { GLOW } from './nodes'
@@ -239,7 +240,7 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
   for (const s of ['_face', '_tip', '_glow', '_orbit', '_ear_glow', '_postit_0', '_postit_1', '_postit_2', '_postit_3', '_postit_4']) {
     if (n(s)) head.attach(n(s))
   }
-  for (const s of ['_beam', '_floor']) if (n(s)) root.attach(n(s))
+  for (const s of ['_beam', '_floor', '_floor_ring']) if (n(s)) root.attach(n(s))
   root.updateMatrixWorld(true)
   const rootQuatInv = root.getWorldQuaternion(new Quaternion()).invert()
   const hand = (side: 'l' | 'r'): Hand => {
@@ -307,13 +308,15 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
 
 // ------------------------------------------------------------------ the face screen (#28, simple first)
 
-type FaceMood = 'open' | 'blink' | 'happy' | 'sleep' | 'fail' | 'doze'
+type FaceMood = 'open' | 'blink' | 'happy' | 'sleep' | 'fail' | 'doze' | 'focus' | 'wide'
+/** the eyes' look is drawn in steps of this many px (up to 3 steps each way) */
+const EYE_STEP = 4
 
 /** the head's screen: two eyes in the agent's color on a dark glass; drawn only when the mood changes */
 class FaceScreen {
   private ctx: CanvasRenderingContext2D
   readonly texture: CanvasTexture
-  private mood: FaceMood | null = null
+  private mood: string | null = null
   private color: string
 
   constructor(color: string) {
@@ -327,9 +330,13 @@ class FaceScreen {
     this.texture.colorSpace = SRGBColorSpace
   }
 
-  draw(mood: FaceMood) {
-    if (mood === this.mood) return
-    this.mood = mood
+  /** `gx`, `gy`: where the eyes look, in steps (−3 … 3; +x = the viewer's right = the agent's left, +y = down) */
+  draw(mood: FaceMood, gx = 0, gy = 0) {
+    const key = `${mood}|${gx}|${gy}`
+    if (key === this.mood) return
+    this.mood = key
+    const dx = gx * EYE_STEP
+    const dy = gy * EYE_STEP
     const g = this.ctx
     g.fillStyle = '#05080b'
     g.fillRect(0, 0, 300, 180)
@@ -339,8 +346,11 @@ class FaceScreen {
     g.lineCap = 'round'
     for (const x of [100, 200]) {
       g.beginPath()
-      if (mood === 'open') g.roundRect(x - 16, 60, 32, 60, 12)
-      if (mood === 'open') g.fill()
+      // aiming: narrowed eyes; a plane coming: wide ones
+      if (mood === 'open') g.roundRect(x - 16 + dx, 60 + dy, 32, 60, 12)
+      else if (mood === 'focus') g.roundRect(x - 18 + dx, 78 + dy, 36, 26, 10)
+      else if (mood === 'wide') g.roundRect(x - 19 + dx, 50 + dy, 38, 80, 14)
+      if (mood === 'open' || mood === 'focus' || mood === 'wide') g.fill()
       else if (mood === 'blink' || mood === 'sleep' || mood === 'doze') (g.moveTo(x - 20, 95), g.lineTo(x + 20, 95), g.stroke())
       else if (mood === 'happy') (g.moveTo(x - 22, 102), g.lineTo(x, 80), g.lineTo(x + 22, 102), g.stroke())
       else (g.moveTo(x - 18, 72), g.lineTo(x + 18, 108), g.moveTo(x + 18, 72), g.lineTo(x - 18, 108), g.stroke())
@@ -569,6 +579,8 @@ const FRAME_CURL = shape([0, 0.92, 0.94, 0.96], [0, -0.85])
 const STAMP_CURL = shape([0.1, 0.1, 0.1, 0.1], [0.1, 0])
 const YIELD_CURL = shape([0.05, 0.08, 0.1, 0.12], [0.15, 0])
 /** a loose hand (sofa, reading, the board-game hand at rest): between rest and hold */
+/** seated, a gesturing hand stays at or above the desk top + 5 cm (root frame, same as the desk poses ~0.82; #226 ④) */
+const DESK_HAND_MIN = 0.79
 const LOOSE_CURL = shape([0.45, 0.5, 0.55, 0.6], [0.3, 0.2])
 /** a hand holding a pen to write: the three pen fingers closed, the other two loose (wrap-up, #186) */
 const PEN_CURL = shape([0.55, 0.6, 0.8, 0.85], [0.55, 0.6])
@@ -669,7 +681,29 @@ export class AgentRig {
   private cueMem: { kind: NonNullable<Sample['cue']>['kind']; dur: number; gesture: boolean; toward: { x: number; z: number } | null; startT: number } | null = null
   private cueT = 0
   /** a short gesture set by the paper plane (#51): until = the scene clock time it ends */
-  gesture: { kind: 'throw' | 'catch'; until: number; oneHand?: boolean; caught?: boolean } | null = null
+  gesture: { kind: 'throw' | 'catch'; until: number; oneHand?: boolean; caught?: boolean; t0?: number; at?: Vector3; plan?: Plan } | null = null
+  /** this frame's look-and-turn of a gesture (aim.ts); null without one */
+  aim: AimPose | null = null
+  private stance = { seated: false, still: true }
+  private aimPitch = 0
+
+  /**
+   * Begin a throw or a catch (#224): look at `at` (a point the caller keeps moving, e.g. the plane), turn as aim.ts says.
+   * Returns the gesture; `until` is when everything is back at the desk.
+   */
+  startGesture(kind: 'throw' | 'catch', t: number, at: Vector3, o: { reduced?: boolean; flyFor?: number; holdS?: number; oneHand?: boolean } = {}) {
+    const theta = Math.hypot(at.x - this.x, at.z - this.z) > 0.05 ? wrap(Math.atan2(-(at.x - this.x), -(at.z - this.z)) - this.heading) : 0
+    const plan = planGesture(kind, theta, {
+      seated: this.stance.seated,
+      reduced: !!o.reduced,
+      fast: this.gestureMin > 0 && this.ambient === 0,
+      minTurn: this.gestureMin,
+      bodyOk: this.stance.still,
+      flyFor: o.flyFor,
+      holdS: o.holdS,
+    })
+    return (this.gesture = { kind, until: t + plan.times.end, oneHand: o.oneHand, t0: t, at, plan })
+  }
 
   constructor(id: string, index: number, parts: RigParts, color: string) {
     this.id = id
@@ -708,8 +742,12 @@ export class AgentRig {
 
   /** what it is doing where it stands (null while walking): the typing sound reads this (#194 ②) */
   get doing(): string | null {
+    // throwing or catching a plane (#224): the hands have stopped typing, so the typing sound stops too
+    if (this.gesturing) return null
     return this.goal && this.arrived === this.goal.spot ? this.goal.pose : null
   }
+  /** a throw / catch is under way this frame (set in update) */
+  private gesturing = false
 
   /** the spot it has arrived at and stopped on, if any */
   get arrived(): string | null {
@@ -880,10 +918,31 @@ export class AgentRig {
     const dozeBob = -DOZE.lowerM + (reduced ? 0 : Math.sin(((t + this.phase) / DOZE.bobPeriodS) * Math.PI * 2) * DOZE.bobM)
     const bob = MathUtils.lerp(Math.sin(t * 2.1 + this.phase) * 0.015 * motion * this.ambient, dozeBob, this.dozing)
 
+    this.stance.seated = resting && !!(seatKind && SURFACE[seatKind])
+    this.stance.still = !moving
+    // looking at what it throws to / catches (#224, aim.ts): the root turns on top of its heading (a rotation only: the
+    // agent stays on its spot and the plan never sees it), the head and eyes lead
+    const gz = this.gesture && t < this.gesture.until ? this.gesture : null
+    this.gesturing = !!gz
+    let aim: AimPose | null = null
+    let gazeFrom = 0
+    if (gz?.plan && gz.at && gz.t0 !== undefined) {
+      const dx = gz.at.x - this.x
+      const dz = gz.at.z - this.z
+      const flat = Math.hypot(dx, dz)
+      const raw = flat > 0.05 ? wrap(Math.atan2(-dx, -dz) - this.heading) : gz.plan.theta
+      // near 180° the sign flips: stay on the side the gesture began on. A plane close by (in this agent's own hand)
+      // has no steady direction from here: it is looked at along the way the gesture began, until it is 1.6 m off
+      const near = MathUtils.smoothstep(flat, 0.6, 1.6)
+      aim = aimPose(gz.plan, t - gz.t0, gz.plan.theta + wrap(raw - gz.plan.theta) * near)
+      this.aimPitch = MathUtils.clamp(Math.atan2(gz.at.y - (this.parts.headRestY + this.seat), Math.max(flat, 0.3)), -0.5, 0.5)
+      gazeFrom = aim.phase === 'done' ? 0 : 1
+    }
+    this.aim = gazeFrom ? aim : null
     const { root, head, beam } = this.parts
     root.visible = !this.hidden
     root.position.set(this.drawAt?.x ?? this.x, 0, this.drawAt?.z ?? this.z)
-    root.rotation.set(0, this.heading, 0)
+    root.rotation.set(0, this.heading + (this.aim?.body ?? 0), 0)
     root.updateMatrixWorld(true)
 
     // the head: lifts while moving, sits lower on seats, bobs, leans into turns and forward with speed
@@ -898,9 +957,16 @@ export class AgentRig {
     lookTarget.pitch += this.headExtra.pitch
     lookTarget.yaw += this.headExtra.yaw
     lookTarget.roll += this.headExtra.roll
-    this.look.pitch = damp(this.look.pitch, lookTarget.pitch, 6, dt)
-    this.look.yaw = damp(this.look.yaw, lookTarget.yaw, 6, dt)
-    this.look.roll = damp(this.look.roll, lookTarget.roll, 6, dt)
+    if (this.aim) {
+      // the schedule is already eased: the head follows it as it is
+      this.look.pitch = this.aimPitch * this.aim.pitchW - this.aim.nod
+      this.look.yaw = this.aim.head
+      this.look.roll = damp(this.look.roll, 0, 6, dt)
+    } else {
+      this.look.pitch = damp(this.look.pitch, lookTarget.pitch, 6, dt)
+      this.look.yaw = damp(this.look.yaw, lookTarget.yaw, 6, dt)
+      this.look.roll = damp(this.look.roll, lookTarget.roll, 6, dt)
+    }
     const lean = MathUtils.clamp(this.turnVel * 0.09, -0.22, 0.22) * motion
     const forward = Math.min(this.speed / (SPEED * this.pace), 1) * 0.12 * motion
     const dy = this.lift + this.seat + bob
@@ -1102,8 +1168,51 @@ export class AgentRig {
     m.position.copy(m.userData.base as Vector3).addScaledVector(n, 0.012 + 0.002 * count + (flat ? 0.004 : 0))
   }
 
-  /** each hand's target in the root's frame for this pose */
+  /**
+   * a hand's target for the plane gesture (#224, aim.ts): the throwing hand rises to shoulder height pointing at the receiver, holds,
+   * strokes forward and lowers; the catching hand rises toward the plane, reaching sideways when the body and head can't turn
+   * that far, palm open, pinching once it is caught. The other hand stops what it was doing.
+   */
   private handPose(side: 'l' | 'r', pose: string, t: number, reduced: boolean): HandPose {
+    const g = this.gesture
+    const a = this.aim
+    if (!g?.plan || !a || reduced) return this.basePose(side, pose, t, reduced)
+    const sx = side === 'l' ? -1 : 1
+    const sit = this.seat
+    const rest = this.parts.hands[side].restPos
+    const gesturing = g.kind === 'throw' ? side === 'r' : side === 'r' || !g.oneHand
+    // seated at a desk the hands never go below the desk top + 5 cm (designer, #226 ④): the throw's follow-through stops there
+    const floor = this.stance.seated ? DESK_HAND_MIN : -Infinity
+    const lift = (p: Vector3) => ((p.y = Math.max(p.y, floor)), p)
+    if (!gesturing) return { pos: lift(v(rest.x, rest.y, rest.z)), turn: NONE, curl: REST_CURL }
+    const base = a.arm < 1 ? this.basePose(side, pose, t, reduced) : null
+    const sin = Math.sin(a.handAngle)
+    const cos = Math.cos(a.handAngle)
+    let target: Vector3
+    let curl = REST_CURL
+    if (g.kind === 'throw') {
+      // from the shoulder, along the way to the receiver; the stroke carries it forward
+      const R = 0.38 + 0.28 * a.stroke
+      target = v(-sin * R + sx * 0.12 * cos, 1.0 + sit + 0.06 * a.stroke, -cos * R - sx * 0.12 * sin)
+      curl = a.phase === 'follow' || a.phase === 'back' ? REST_CURL : HOLD_CURL
+    } else {
+      // the usual catching place in front, drifting to the plane's side as the angle grows
+      const caught = side === 'r' && g.caught
+      // (the pinching hand a little further out so it doesn't cover the face screen; designer #226 ③: 6 cm more)
+      const outCaught = caught ? CAUGHT_OUT + 0.06 : 0
+      const front = v(sx * (0.16 + outCaught), 1.32 + sit, -0.32)
+      // (the hands flank the line to the plane)
+      const off = sx * (0.12 + outCaught)
+      const out = v(-sin * 0.42 + off * cos, 1.3 + sit, -cos * 0.42 - off * sin)
+      target = front.lerp(out, MathUtils.clamp(Math.abs(a.handAngle) / 0.5, 0, 1))
+      curl = caught ? PINCH_CURL : WAVE_CURL
+    }
+    if (!base) return { pos: lift(target), turn: NONE, curl }
+    return { pos: lift(base.pos.clone().lerp(target, a.arm)), turn: a.arm > 0.3 ? NONE : base.turn, curl: a.arm > 0.3 ? curl : base.curl }
+  }
+
+  /** each hand's target in the root's frame for this pose */
+  private basePose(side: 'l' | 'r', pose: string, t: number, reduced: boolean): HandPose {
     const m = reduced ? 0.3 : this.ambient
     const s = (f: number, o = 0) => Math.sin(t * f + this.phase + o) * m
     const sx = side === 'l' ? -1 : 1
@@ -1112,7 +1221,7 @@ export class AgentRig {
     const at = (x: number, y: number, z: number, turn = NONE, curl = REST_CURL): HandPose => ({ pos: v(x, y, z), turn, curl })
     const sit = this.seat
     // a moment's gesture on top of whatever the agent does (#51): throw the plane, raise a hand to catch it
-    const g = this.gesture && t < this.gesture.until ? this.gesture : null
+    const g = this.gesture && !this.gesture.plan && t < this.gesture.until ? this.gesture : null
     if (g?.kind === 'throw' && side === 'r') {
       const k = MathUtils.clamp(1 - (g.until - t) / GESTURE_S.throw, 0, 1) // 0 → 1 over the gesture
       return at(0.2, 1.05 + sit + Math.sin(k * Math.PI) * 0.2, -0.15 - k * 0.35, NONE, HOLD_CURL)
@@ -1387,6 +1496,14 @@ export class AgentRig {
 
   private updateFace(t: number, pose: string, status: AgentStatus | undefined, reduced: boolean) {
     if (!this.face) return
+    // looking at the plane / the one it throws to (#224): the eyes go first, the mood narrows to aim and widens to catch.
+    // Eye direction is information, not motion: it stays with reduced motion
+    const aim = this.aim
+    if (aim) {
+      const gx = Math.round(MathUtils.clamp(aim.eyes, -1, 1) * 3)
+      const gy = -Math.round(MathUtils.clamp(this.aimPitch / 0.4, -1, 1) * 2) // up = negative y on the screen
+      return this.face.draw(aim.mood ?? 'open', gx, gy)
+    }
     if (pose === 'sofa') return this.face.draw('sleep')
     if (pose === 'doze') return this.face.draw('doze')
     if (this.id === 'agent_3' && status?.lastResult && !(status.state === 'working' && (status.activity === 'test' || status.activity === 'build'))) {

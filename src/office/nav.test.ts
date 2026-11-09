@@ -12,20 +12,25 @@ import {
   type NavKind,
   type NavSpot,
 } from './nav'
+import { SPOTS as FIXTURE_SPOTS } from './navSpots.fixture'
 
-// the nav_* empties of the 9 x 7 m layout (#109): 32 spots incl. hall_back and the two talk-circle centres (#147)
-const RAW = `bulletin 2.55 -2.6 0 stand; coffee 3.56 -2 -1.5708 stand; desk_side_0 -1.85 -2.52 1.5182 stand; desk_side_1 -0.05 -2.52 1.5182 stand; desk_side_2 -3.59 -2.07 3.089 stand; desk_side_3 -3.59 -0.27 3.089 stand; door -3.95 2.6 1.5708 door; game_a -2.2 2.2 -1.5708 stool; game_b -1 2.2 1.5708 stool; hall_back 2 -1.7 0 hall; hall_door -3.3 2.6 0 hall; hall_east 3.1 -1.3 0 hall; hall_front 0.2 1.3 0 hall; hall_game -1.6 1.2 0 hall; hall_lounge 3.95 1.6 0 hall; hall_mid -1 -0.6 0 hall; hall_ne 4.1 0 0 hall; hall_west -3 1.4 0 hall; hall_work -2.2 -1.5 0 hall; meet_center_board 1.1 -2.18 0 meet_center; meet_center_floor -1 -0.6 0 meet_center; pingpong_a 0.87 0 -1.5708 play; pingpong_b 3.53 0 1.5708 play; shelf 3.75 -2.6 0 stand; sofa_0 1.67 2.55 0 sofa; sofa_1 2.2 2.55 0 sofa; sofa_2 2.73 2.55 0 sofa; whiteboard 1.1 -2.6 0 stand; work_0 -2.8 -2.57 0 work; work_1 -1 -2.57 0 work; work_2 -3.64 -1.12 1.5708 work; work_3 -3.64 0.68 1.5708 work`
-
-const SPOTS: NavSpot[] = RAW.split(';').map((s) => {
-  const [id, x, z, ry, kind] = s.trim().split(/\s+/)
-  return { id, x: +x, z: +z, ry: +ry, kind: kind as NavKind }
-})
+// the nav_* empties of the baked layout (generated from the glb: modelData.test.ts)
+const SPOTS: NavSpot[] = FIXTURE_SPOTS
 const byId = Object.fromEntries(SPOTS.map((s) => [s.id, s]))
 
 const sp = (id: string, x: number, z: number): NavSpot => ({ id, x, z, ry: 0, kind: 'hall' })
 
 describe('real spot list and EDGES', () => {
-  it('has 32 spots', () => expect(SPOTS).toHaveLength(32))
+  it('has the five work spots, five desk sides, the meeting centre and the two chat spots (#195 안 2)', () => {
+    for (let i = 0; i < 5; i++) {
+      expect(byId[`work_${i}`]?.kind).toBe('work')
+      expect(byId[`desk_side_${i}`]?.kind).toBe('stand')
+    }
+    expect(byId.meet_center?.kind).toBe('meet_center')
+    expect([byId.chat_0?.kind, byId.chat_1?.kind]).toEqual(['chat', 'chat'])
+    expect(byId.hall_north?.kind).toBe('hall')
+    expect(byId.board_tray?.kind).toBe('stand')
+  })
 
   it('every EDGES endpoint is a known spot id', () => {
     for (const [a, b] of EDGES) {
@@ -151,23 +156,30 @@ describe('facing', () => {
     expect(-Math.sin(ry)).toBeCloseTo(to.x / len)
     expect(-Math.cos(ry)).toBeCloseTo(to.z / len)
   })
-  it('each talk circle brings seats: the first two face each other across the centre, all face the centre (#147)', () => {
+  it('the meeting circle brings talk seats: the first two face each other across the centre, all face the centre, turned with its ry (#147, #195)', () => {
     const g = buildGraph(SPOTS)
-    for (const name of ['floor', 'board']) {
-      const c = g.spots[`meet_center_${name}`]
-      const a = g.spots[`meet_${name}_0`]
-      const b = g.spots[`meet_${name}_1`]
-      expect(Math.abs(facing(a, b) - a.ry)).toBeLessThan(1e-3)
-      expect(Math.abs(facing(b, a) - b.ry)).toBeLessThan(1e-3)
-      for (const id in g.spots)
-        if (id.startsWith(`meet_${name}_`)) {
-          expect(dist(g.spots[id], c)).toBeCloseTo(MEET_SEAT_R)
-          expect(g.adj[id]).toContain(c.id)
-        }
-    }
-    // the floor circle has all four seats; the board one drops the seat that would stand on the whiteboard spot
-    expect(Object.keys(g.spots).filter((id) => id.startsWith('meet_floor_'))).toHaveLength(4)
-    expect(Object.keys(g.spots).filter((id) => id.startsWith('meet_board_'))).toHaveLength(3)
+    const c = g.spots.meet_center
+    const a = g.spots.meet_talk_0
+    const b = g.spots.meet_talk_1
+    expect(Math.abs(facing(a, b) - a.ry)).toBeLessThan(1e-3)
+    expect(Math.abs(facing(b, a) - b.ry)).toBeLessThan(1e-3)
+    // the pair stands across the way to the whiteboard (ry): the line between them is square to it
+    const board = { x: -Math.sin(c.ry), z: -Math.cos(c.ry) }
+    expect(Math.abs((b.x - a.x) * board.x + (b.z - a.z) * board.z)).toBeLessThan(1e-6)
+    for (const id in g.spots)
+      if (id.startsWith('meet_talk_')) {
+        expect(dist(g.spots[id], c)).toBeCloseTo(MEET_SEAT_R)
+        expect(g.adj[id]).toContain(c.id)
+      }
+    expect(Object.keys(g.spots).filter((id) => id.startsWith('meet_talk_'))).toHaveLength(3) // the fourth (board side) would stand 0.53 m from the whiteboard spot
+  })
+  it('the two chat spots face each other 1.0 m apart', () => {
+    const g = buildGraph(SPOTS)
+    const a = g.spots.chat_0
+    const b = g.spots.chat_1
+    expect(dist(a, b)).toBeCloseTo(1.0, 2)
+    expect(Math.abs(facing(a, b) - a.ry)).toBeLessThan(1e-3)
+    expect(Math.abs(facing(b, a) - b.ry)).toBeLessThan(1e-3)
   })
   it('no two destinations (seats included) stand closer than two bodies, but the sofa row', () => {
     const g = buildGraph(SPOTS)
@@ -175,7 +187,7 @@ describe('facing', () => {
     const close: string[] = []
     for (let i = 0; i < dests.length; i++)
       for (let j = i + 1; j < dests.length; j++) if (dist(dests[i], dests[j]) < 0.6) close.push(`${dests[i].id}/${dests[j].id}`)
-    expect(close.sort()).toEqual(['sofa_0/sofa_1', 'sofa_1/sofa_2'])
+    expect(close.sort()).toEqual(['board_tray/whiteboard', 'sofa_0/sofa_1', 'sofa_1/sofa_2'])
   })
 })
 
@@ -192,12 +204,14 @@ describe('patchSpots (?debug=1&nav=)', () => {
 
 describe('blocked spots (#110)', () => {
   const g = buildGraph(SPOTS)
-  const sides = new Set(['desk_side_0', 'desk_side_1', 'desk_side_2', 'desk_side_3'])
+  const sides = new Set(['desk_side_0', 'desk_side_1', 'desk_side_2', 'desk_side_3', 'desk_side_4'])
 
   it('a quiet route never walks through a desk side', () => {
     for (const a of SPOTS) {
       for (const b of SPOTS) {
         if (sides.has(a.id) || sides.has(b.id)) continue
+        // a seat whose only door is its desk side (the west row's lane) can only be entered through it
+        if (g.adj[b.id].every((n) => sides.has(n)) || g.adj[a.id].every((n) => sides.has(n))) continue
         const p = shortestPath(g, a.id, b.id, sides)
         expect(p, a.id + ' to ' + b.id).not.toBeNull()
         for (const id of p!) expect(sides.has(id)).toBe(false)
@@ -206,7 +220,8 @@ describe('blocked spots (#110)', () => {
   })
 
   it('the night shift keeps clear of the desks on its coffee and shelf trips', () => {
-    for (const from of ['work_0', 'work_1', 'work_2', 'work_3', 'coffee', 'shelf']) {
+    // (work_1 / work_2 sit in the west lane: their only door is their own desk side, so they are left out)
+    for (const from of ['work_0', 'work_3', 'work_4', 'coffee', 'shelf']) {
       for (const to of ['coffee', 'shelf']) {
         const p = shortestPath(g, from, to, sides)!
         expect(p.some((id) => sides.has(id))).toBe(false)

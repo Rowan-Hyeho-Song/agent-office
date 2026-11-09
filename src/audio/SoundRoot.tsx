@@ -107,10 +107,10 @@ export function SoundListener({ world }: { world: OfficeWorld }) {
         typing.current.set(id, null)
         continue
       }
-      const { keys, next } = keysBetween(typing.current.get(id) ?? null, t)
+      const { keys, kinds, next } = keysBetween(typing.current.get(id) ?? null, t)
       typing.current.set(id, next)
       // the keyboard is in front of and below the head (agents.md 2.1: hands at 0.80 m, 0.32 m ahead)
-      for (const k of keys) cue('type', { pos: { x: head.x, y: head.y - 0.35, z: head.z }, agent: id, at: Math.max(0, k - t) })
+      keys.forEach((k, i) => cue('type', { pos: { x: head.x, y: head.y - 0.35, z: head.z }, agent: id, at: Math.max(0, k - t), keyKind: kinds[i] }))
     }
   })
   return null

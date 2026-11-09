@@ -79,6 +79,16 @@ create or replace view public.approvals_cover with (security_invoker = false) as
   select id, kind, requester_seat, created_at from public.approvals where status in ('pending', 'deciding');
 grant select on public.approvals_cover to anon, authenticated;
 
+-- #222: a visitor sees a DECIDED approval as a cover too: who asked (seat), the kind, the result and when. Never the title,
+-- content, options, opinion or links. The result is passed only in its fixed forms (승인 / 반려 / 선택지 N); anything else
+-- reads 결정, so free text can never leak through it. Safe to run again
+create or replace view public.approvals_decided_cover with (security_invoker = false) as
+  select id, kind, requester_seat,
+         case when result in ('승인', '반려') or result ~ '^선택지 [0-9]+$' then result else '결정' end as result,
+         decided_at
+  from public.approvals where status = 'decided' and decided_at is not null;
+grant select on public.approvals_decided_cover to anon, authenticated;
+
 -- the owner reads every document, SECRET (review) ones included (plan.md 6.6)
 drop policy if exists "owner reads all docs" on public.docs;
 create policy "owner reads all docs" on public.docs for select to authenticated using (public.is_owner());
