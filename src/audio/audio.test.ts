@@ -85,6 +85,13 @@ describe('cues', () => {
     expect(speedRule('event', 16, 0)).toBe(0.5)
     expect(speedRule('ui', 16, 0)).toBe(1)
   })
+  it('has the paper hand-off cues (#262), all in the room and shorter than the plane', () => {
+    for (const n of ['handoff.give', 'handoff.slide', 'handoff.toss', 'handoff.catch'] as const) {
+      expect(CUES[n].spatial).toBe(true)
+      expect(CUES[n].kind).toBe('event')
+    }
+    expect(CUES['handoff.toss'].length).toBeLessThan(CUES['plane.throw'].length)
+  })
   it('only room sounds are spatial', () => {
     expect(CUES.approve.spatial).toBe(false)
     expect(CUES['omok.place'].spatial).toBe(true)
