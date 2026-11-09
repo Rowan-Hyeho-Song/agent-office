@@ -184,3 +184,23 @@ describe('silenceReasons', async () => {
     expect(codes({ muted: true, volume: 0, ctx: null })).toEqual(['muted', 'volume0', 'noContext'])
   })
 })
+
+describe('#240 approval chime', async () => {
+  const { shouldChime } = await import('./notify')
+  const { CUES } = await import('./cues')
+  it('chimes once when the count goes up, never on first load or a drop', () => {
+    expect(shouldChime(null, 3, true)).toBe(false)
+    expect(shouldChime(2, 3, true)).toBe(true)
+    expect(shouldChime(2, 5, true)).toBe(true) // several at once = one chime (one call)
+    expect(shouldChime(3, 3, true)).toBe(false)
+    expect(shouldChime(3, 2, true)).toBe(false)
+  })
+  it('only the owner by default', () => {
+    expect(shouldChime(1, 2, false)).toBe(false)
+    expect(shouldChime(1, 2, false, 'everyone')).toBe(true)
+  })
+  it('is a screen sound, not in the room', () => {
+    expect(CUES['approval.new'].spatial).toBe(false)
+    expect(CUES['approval.new'].kind).toBe('ui')
+  })
+})
