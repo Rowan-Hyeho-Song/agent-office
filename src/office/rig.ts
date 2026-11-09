@@ -1169,7 +1169,8 @@ export class AgentRig {
       case 'carry': {
         // the free hand (designer, #217): at the resting height 0.86 m, not hanging below the desk; it swings ±8 cm back and
         // forth with the walk (a stride a second), still when standing by the board
-        const walk = MathUtils.clamp(this.speed / 0.5, 0, 1) * m
+        // reduced motion: no swing at all (agents.md 2.5)
+        const walk = reduced ? 0 : MathUtils.clamp(this.speed / 0.5, 0, 1) * m
         return at(rest.x, 0.86 + sit, rest.z - 0.08 * walk * Math.sin(t * Math.PI * 2 + this.phase))
       }
       case 'cardpost': {
