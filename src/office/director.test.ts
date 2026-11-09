@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { BUBBLE_ASK, BUBBLE_REPLY, Director } from './director'
 import { playAt } from './play'
+import { WRAP_LABEL, wrapCards } from './wrap'
 import type { AgentStatus, OfficeMessage, StatusMap } from './status'
 
 const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
 const MINUTE = 987_654
-const POST_MS = 4000
 const TALK_MS = 6000
 
 const idle = (since = 0): AgentStatus => ({ state: 'idle', since })
@@ -81,65 +81,191 @@ describe('Director.goals by state', () => {
   })
 })
 
-describe('wrapping', () => {
-  it('goes to the whiteboard, posts for POST_MS, then returns to play', () => {
-    const d = new Director(AGENTS)
+describe('wrapping (#186): real work, then rest', () => {
+  const since = 100
+  const wrapping = (...agents: string[]): StatusMap => {
     const st = allIdle()
-    st.agent_0 = { state: 'wrapping', since: 100 }
-    const { at, fn } = makeArrived()
-    const play = playAt(MINUTE, AGENTS)
+    for (const a of agents) st[a] = { state: 'wrapping', since }
+    return st
+  }
 
-    expect(d.goals(1000, MINUTE, st, fn).agent_0).toMatchObject({ spot: 'whiteboard', pose: 'post' })
+  it('never plays while the wrap-up is going on: first back to the desk, then write, carry, post, tidy; rest only after the tidy-up', () => {
+    const d = new Director(AGENTS)
+    const st = wrapping('agent_0')
+    const { at, fn } = makeArrived()
+    const n = wrapCards('agent_0', since)
+    let now = 0
+    const seen: string[] = []
+    const poses: string[] = []
+    const step = (ms: number) => {
+      now += ms
+      const g = d.goals(now, MINUTE, st, fn).agent_0
+      const sh = d.shown.agent_0
+      if (seen.at(-1) !== sh.detail) {
+        seen.push(sh.detail ?? sh.status.state)
+        poses.push(g.pose)
+      }
+      return { g, sh }
+    }
+    // away from the desk: the way back
+    expect(step(0).g).toMatchObject({ spot: 'work_0', pose: 'idle' })
+    expect(d.shown.agent_0).toMatchObject({ kind: 'wrap', detail: WRAP_LABEL.seat, status: { state: 'wrapping' } })
+    at.agent_0 = 'work_0'
+    expect(step(100).g).toMatchObject({ spot: 'work_0', pose: 'write', carry: 1 })
+    for (let s = 0; s < n * 25; s++) step(100)
+    expect(step(100).g).toMatchObject({ spot: 'whiteboard', pose: 'carry', carry: n })
     at.agent_0 = 'whiteboard'
-    expect(d.goals(1000, MINUTE, st, fn).agent_0.spot).toBe('whiteboard')
-    expect(d.goals(1000 + POST_MS - 1, MINUTE, st, fn).agent_0.spot).toBe('whiteboard')
-    // POST time is up: the wrap-up is marked done; the next goals call sends it back to play
-    d.goals(1000 + POST_MS, MINUTE, st, fn)
-    expect(d.goals(1000 + POST_MS + 16, MINUTE, st, fn).agent_0.spot).toBe(play.agent_0.spot)
+    expect(step(100).g).toMatchObject({ spot: 'whiteboard', pose: 'cardpost', carry: n })
+    for (let s = 0; s < 80 && d.shown.agent_0.detail === WRAP_LABEL.post; s++) step(100)
+    expect(d.shown.agent_0.detail).toBe(WRAP_LABEL.seat)
+    expect(step(100).g).toMatchObject({ spot: 'work_0', pose: 'idle', carry: 0 })
+    at.agent_0 = 'work_0'
+    expect(step(100).g.pose).toBe('tidy')
+    let last = step(0)
+    for (let s = 0; s < 40 && last.sh.kind === 'wrap'; s++) last = step(100)
+    // the frame the tidy-up ends: shown = rest, and the play assignment is the goal in that same frame
+    expect(last.sh).toMatchObject({ kind: 'rest', status: { state: 'idle' } })
+    expect(last.sh.detail).toBeUndefined()
+    expect(last.g.spot).toBe(playAt(MINUTE, AGENTS).agent_0.spot)
+    expect(seen).toEqual([WRAP_LABEL.seat, WRAP_LABEL.write, WRAP_LABEL.walk, WRAP_LABEL.post, WRAP_LABEL.seat, WRAP_LABEL.tidy, 'idle'])
+    expect(poses.slice(0, 6)).toEqual(['idle', 'write', 'carry', 'cardpost', 'idle', 'tidy'])
+    // still `wrapping` in the raw status, and not started again with the same since
+    for (let s = 0; s < 20; s++) expect(step(1000).sh.kind).toBe('rest')
   })
 
-  it('does not send it back with the same since, does with a new since', () => {
+  it('the board is taken: it never plays; written, it re-reads; walking, it waits by the board with its stack and after 20 s goes back to its desk and tries again', () => {
     const d = new Director(AGENTS)
-    const st = allIdle()
-    st.agent_0 = { state: 'wrapping', since: 100 }
+    const st = wrapping('agent_1')
     const { at, fn } = makeArrived()
-    at.agent_0 = 'whiteboard'
-    d.goals(0, MINUTE, st, fn)
-    d.goals(POST_MS, MINUTE, st, fn)
-    const play = playAt(MINUTE, AGENTS)
-    expect(d.goals(POST_MS + 10, MINUTE, st, fn).agent_0.spot).toBe(play.agent_0.spot)
-    // same since again (a new snapshot object, same wrap-up)
-    const same = { ...st, agent_0: { state: 'wrapping', since: 100 } as AgentStatus }
-    expect(d.goals(POST_MS + 20, MINUTE, same, fn).agent_0.spot).toBe(play.agent_0.spot)
-    // a new wrap-up
-    const fresh = { ...st, agent_0: { state: 'wrapping', since: 200 } as AgentStatus }
-    expect(d.goals(POST_MS + 30, MINUTE, fresh, fn).agent_0).toMatchObject({ spot: 'whiteboard', pose: 'post' })
+    at.agent_1 = 'work_1'
+    const n = wrapCards('agent_1', since)
+    const trail: string[] = []
+    let waitedFrom = -1
+    let carryFrom: number | null = null
+    let backAt = -1
+    for (let now = 0; now <= 200_000; now += 100) {
+      // someone else (a talk, a decision being pinned) takes the board from 10 s + the cards' writing to 100 s
+      at.agent_2 = now >= n * 2500 + 3000 && now < 100_000 ? 'whiteboard' : null
+      const g = d.goals(now, MINUTE, st, fn).agent_1
+      const sh = d.shown.agent_1
+      if (sh.kind === 'rest') {
+        trail.push('rest')
+        break
+      }
+      expect(['idle', 'write', 'carry', 'cardpost', 'tidy']).toContain(g.pose)
+      if (trail.at(-1) !== sh.detail) trail.push(sh.detail!)
+      if (g.pose === 'carry') {
+        carryFrom ??= now
+        at.agent_1 = g.waiting || now - carryFrom < 5000 ? null : 'whiteboard'
+        if (g.waiting && waitedFrom < 0) waitedFrom = now
+      } else if (g.pose === 'cardpost') {
+        carryFrom = null
+        at.agent_1 = 'whiteboard'
+      } else {
+        carryFrom = null
+        at.agent_1 = g.spot
+      }
+      if (sh.detail === WRAP_LABEL.seat && backAt < 0 && waitedFrom >= 0) backAt = now
+    }
+    expect(waitedFrom).toBeGreaterThan(0)
+    expect(backAt - waitedFrom).toBeGreaterThanOrEqual(19_900)
+    expect(backAt - waitedFrom).toBeLessThan(21_000)
+    expect(trail).toEqual([
+      WRAP_LABEL.write, WRAP_LABEL.walk, WRAP_LABEL.seat, '카드 다시 읽는 중', WRAP_LABEL.walk, WRAP_LABEL.post, WRAP_LABEL.seat, WRAP_LABEL.tidy, 'rest',
+    ])
   })
 
-  it('does not finish the post before the agent has arrived', () => {
+  it('only one wrapping agent is at the board posting at a time', () => {
     const d = new Director(AGENTS)
-    const st = allIdle()
-    st.agent_0 = { state: 'wrapping', since: 100 }
-    const { fn } = makeArrived()
-    expect(d.goals(0, MINUTE, st, fn).agent_0.spot).toBe('whiteboard')
-    expect(d.goals(60_000, MINUTE, st, fn).agent_0.spot).toBe('whiteboard')
+    const st = wrapping('agent_0', 'agent_1', 'agent_2')
+    const { at, fn } = makeArrived()
+    for (const a of ['agent_0', 'agent_1', 'agent_2']) at[a] = `work_${a.split('_')[1]}`
+    let now = 0
+    for (let k = 0; k < 900; k++) {
+      now += 100
+      const g = d.goals(now, MINUTE, st, fn)
+      expect(AGENTS.filter((a) => g[a].pose === 'cardpost').length).toBeLessThanOrEqual(1)
+      for (const a of ['agent_0', 'agent_1', 'agent_2']) {
+        if (g[a].pose === 'carry' && !AGENTS.some((b) => b !== a && g[b].pose === 'cardpost')) at[a] = 'whiteboard'
+        else if (g[a].pose === 'carry') at[a] = null
+        else if (g[a].pose !== 'cardpost') at[a] = g[a].spot.startsWith('work_') ? g[a].spot : null
+      }
+    }
   })
 
-  it('only one wrapping agent targets the whiteboard at a time', () => {
+  it('reduced motion: it never leaves the desk, 1 -> 4 -> 5 in place', () => {
     const d = new Director(AGENTS)
-    const st = allIdle()
-    st.agent_0 = { state: 'wrapping', since: 1 }
-    st.agent_1 = { state: 'wrapping', since: 1 }
-    st.agent_2 = { state: 'wrapping', since: 1 }
+    const st = wrapping('agent_0')
     const { at, fn } = makeArrived()
-    let g = d.goals(0, MINUTE, st, fn)
-    expect(AGENTS.filter((a) => g[a].spot === 'whiteboard')).toEqual(['agent_0'])
-    // after agent_0 is done, the next in order takes the board
-    at.agent_0 = 'whiteboard'
-    d.goals(10, MINUTE, st, fn)
-    d.goals(10 + POST_MS, MINUTE, st, fn)
-    g = d.goals(10 + POST_MS + 16, MINUTE, st, fn)
-    expect(AGENTS.filter((a) => g[a].spot === 'whiteboard')).toEqual(['agent_1'])
+    at.agent_0 = 'work_0'
+    const poses = new Set<string>()
+    for (let now = 0; now < 15_000; now += 100) {
+      const g = d.goals(now, MINUTE, st, fn, { reduced: true }).agent_0
+      if (d.shown.agent_0.kind === 'wrap') {
+        poses.add(g.pose)
+        expect(g.spot).toBe('work_0')
+      }
+    }
+    expect([...poses].sort()).toEqual(['tidy', 'write'])
+    expect(d.shown.agent_0.kind).toBe('rest')
+  })
+
+  it('a new wrap-up (a new since) starts over', () => {
+    const d = new Director(AGENTS)
+    const { at, fn } = makeArrived()
+    at.agent_0 = 'work_0'
+    d.goals(0, MINUTE, wrapping('agent_0'), fn)
+    for (let now = 100; now < 30_000; now += 100) {
+      at.agent_0 = d.goals(now, MINUTE, wrapping('agent_0'), fn).agent_0.spot
+    }
+    expect(d.shown.agent_0.kind).toBe('rest')
+    const fresh = allIdle()
+    fresh.agent_0 = { state: 'wrapping', since: 999_999 }
+    d.goals(31_000, MINUTE, fresh, fn)
+    expect(d.shown.agent_0).toMatchObject({ kind: 'wrap' })
+  })
+})
+
+describe('one place for one agent (#186, left over from #188)', () => {
+  it('never gives a spot to a second agent while another holds it or is heading to it', () => {
+    for (let minute = 0; minute < 600; minute++) {
+      const d = new Director(AGENTS)
+      const arrived: Record<string, string | null> = {}
+      // everyone has been on its way to last block's spots; agent_3 already stands at the coffee machine
+      const g1 = d.goals(0, minute, allIdle(), (a) => arrived[a] ?? null)
+      arrived.agent_3 = g1.agent_3.spot
+      const g2 = d.goals(3 * 60_000, minute + 3, allIdle(), (a) => arrived[a] ?? null)
+      const keys = AGENTS.map((a) => (g2[a].slot ? `${g2[a].spot}|${g2[a].slot!.x.toFixed(1)}` : g2[a].spot)).filter((k) => !k.startsWith('work_'))
+      expect(new Set(keys).size).toBe(keys.length)
+    }
+  })
+
+  it('the sofa never has all three seats given out (nobody squeezed in the middle)', () => {
+    const d = new Director(AGENTS)
+    for (let minute = 0; minute < 3000; minute += 3) {
+      const g = d.goals(minute * 60_000, minute, allIdle(), () => null)
+      const seats = AGENTS.map((a) => g[a].spot).filter((s) => s.startsWith('sofa_'))
+      expect(seats.includes('sofa_0') && seats.includes('sofa_1') && seats.includes('sofa_2'), `minute ${minute}`).toBe(false)
+    }
+  })
+
+  // the day simulation went from 18 s to 220 s: a seat rule that read "arrived" swapped two agents between the sofa and
+  // a desk every few frames (an agent stepping aside for a passer is briefly not arrived), and every swap was a replan
+  it('who gets which place does not change when someone briefly stops being "arrived"', () => {
+    for (let minute = 0; minute < 3000; minute += 3) {
+      const d = new Director(AGENTS)
+      const t = minute * 60_000
+      const g0 = d.goals(t, minute, allIdle(), () => null)
+      const there = (a: string) => g0[a].spot
+      const g1 = d.goals(t + 100, minute, allIdle(), there)
+      const key = (g: Record<string, { spot: string }>) => AGENTS.map((a) => g[a].spot).join(',')
+      for (const away of AGENTS) {
+        const g2 = d.goals(t + 200, minute, allIdle(), (a) => (a === away ? null : there(a)))
+        const g3 = d.goals(t + 300, minute, allIdle(), there)
+        expect(key(g2), `minute ${minute}, ${away} steps aside`).toBe(key(g1))
+        expect(key(g3), `minute ${minute}, ${away} back`).toBe(key(g1))
+      }
+    }
   })
 })
 

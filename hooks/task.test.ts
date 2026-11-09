@@ -172,8 +172,10 @@ describe('office-hook: a server from before #182 (400 to the task fields) still 
       expect(bad).toEqual([{ seat: 3, kind: 'activity', activity: 'edit' }])
       // the log says only that the task was dropped and the status: no repo, number, path or title
       const log = existsSync(join(home, 'hook.log')) ? readFileSync(join(home, 'hook.log'), 'utf8') : ''
-      expect(log).toMatch(/task dropped → 400/)
-      expect(log).not.toMatch(/agent-office|170|#/)
+      // each line starts with its ISO time, whose digits can hold "170" (14:21:47.170Z): check the rest of the line only
+      const said = log.replace(/^\S+ /gm, '')
+      expect(said).toMatch(/task dropped → 400/)
+      expect(said).not.toMatch(/agent-office|\b170\b|#/)
     } finally {
       server.close()
       rmSync(home, { recursive: true, force: true })

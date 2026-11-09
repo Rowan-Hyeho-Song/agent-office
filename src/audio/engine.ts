@@ -200,5 +200,31 @@ export function meter(): { peak: number; rms: number } | null {
 
 /** dev-only snapshot for scripts and the debug panel */
 export function audioDebug() {
-  return { ctx: g?.ctx.state ?? null, setting: getSetting(), room: g?.room.gain.value ?? null }
+  const sink = (g?.ctx as (AudioContext & { sinkId?: string | { type: string } }) | undefined)?.sinkId
+  return {
+    ctx: g?.ctx.state ?? null,
+    setting: getSetting(),
+    room: g?.room.gain.value ?? null,
+    /** '' = the system's default output (Chrome 110+); undefined where the browser doesn't say */
+    sink: typeof sink === 'string' ? sink : sink ? sink.type : undefined,
+  }
+}
+
+/** a plain 440 Hz tone for 0.8 s straight into the master (not through any bus), to tell "the page is silent" apart from
+ *  "the tab or the output device is" (#194 audible fix) */
+export function testTone() {
+  const gr = ensureAudio()
+  if (!gr) return
+  const c = gr.ctx
+  const t = c.currentTime + 0.02
+  const o = c.createOscillator()
+  o.frequency.value = 440
+  const env = c.createGain()
+  env.gain.setValueAtTime(0, t)
+  env.gain.linearRampToValueAtTime(0.18, t + 0.02)
+  env.gain.setValueAtTime(0.18, t + 0.7)
+  env.gain.linearRampToValueAtTime(0, t + 0.8)
+  o.connect(env).connect(gr.master)
+  o.start(t)
+  o.stop(t + 0.85)
 }
