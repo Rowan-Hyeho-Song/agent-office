@@ -1373,7 +1373,7 @@ def fiddle_fig(name, x, z, group):
             base = at + (along * math.cos(pa) + out * math.sin(pa)) * plen
             stems.append(petiole(f"{name}_petiole", at, base, stalk, group))
             laid_leaf(fol, base, out, -up, size, mi, fig_outline(PRNG), fold=PRNG.uniform(10, 15), droop=PRNG.uniform(8, 16),
-                      curve=0.3, sub=0.12, veins_w=((0.003, 0.003, 4), (0.002, 0.0015, 2)))
+                      curve=0.3, sub=0.12, veins_w=((0.003, 0.003, 4), (0.002, 0.002, 2)))
     for path in (leader, br1, br2):  # the terminal bud: a pointed sheath (stipule) on every tip
         tip = path[-1]
         d = (path[-1] - path[-2]).normalized()
@@ -1526,7 +1526,7 @@ def monstera_leaf(fol, attach, out, tilt, size, mi, splits=0, holes=False, fold=
     laid_leaf(fol, attach, out, max(15.0, tilt - 8.0), size, mi, leaf_outline(splits, holes, rng or PRNG), fold, droop)
 
 
-def laid_leaf(fol, attach, out, tilt, size, mi, outline, fold=12.0, droop=20.0, curve=0.55, sub=0.07, veins_w=((0.003, 0.003, 8), (0.002, 0.0015, 4))):
+def laid_leaf(fol, attach, out, tilt, size, mi, outline, fold=12.0, droop=20.0, curve=0.55, sub=0.07, veins_w=((0.003, 0.003, 8), (0.002, 0.002, 4))):
     """a leaf from a 2D outline (outer loop, hole loops, vein polylines; leaf units: u along the midrib from the
     petiole 0 .. tip 1, v across), filled and subdivided, laid on a curved blade (#156). It leaves the petiole at
     attach and runs outward (out, horizontal), `tilt` degrees below the horizontal (negative: above); V-folded along
@@ -1573,11 +1573,16 @@ def laid_leaf(fol, attach, out, tilt, size, mi, outline, fold=12.0, droop=20.0, 
         vs = [bm.verts.new((p.x, p.y, 0.0)) for p in loop]
         edges += [bm.edges.new((vs[i], vs[(i + 1) % len(vs)])) for i in range(len(vs))]
     bmesh.ops.triangle_fill(bm, use_beauty=True, use_dissolve=False, edges=edges)
+    # the fold runs along the midrib (v = 0): cut the mesh there so the crease is an edge. A triangle spanning it
+    # stood up to ~6 mm over the valley and buried the midrib and the inner half of every side vein (designer #210)
     long = [e for e in bm.edges if e.calc_length() > sub and not e.is_boundary]
     if long:
         bmesh.ops.subdivide_edges(bm, edges=long, cuts=1, use_grid_fill=False)
         bmesh.ops.triangulate(bm, faces=bm.faces[:])
-    bmesh.ops.beautify_fill(bm, faces=bm.faces[:], edges=[e for e in bm.edges if not e.is_boundary])
+    bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], plane_co=(0, 0, 0), plane_no=(0, 1, 0))
+    bmesh.ops.triangulate(bm, faces=bm.faces[:])
+    crease = [e for e in bm.edges if abs(e.verts[0].co.y) < 1e-7 and abs(e.verts[1].co.y) < 1e-7]
+    bmesh.ops.beautify_fill(bm, faces=bm.faces[:], edges=[e for e in bm.edges if not e.is_boundary and e not in crease])
     bm.verts.index_update()
     pts = [P(v.co.x, v.co.y) for v in bm.verts]
     faces = [orient(pts, [v.index for v in f.verts], n0) for f in bm.faces]
@@ -1596,7 +1601,8 @@ def laid_leaf(fol, attach, out, tilt, size, mi, outline, fold=12.0, droop=20.0, 
             q = A.lerp(B, s / segs)
             t = (B - A).normalized()
             nn = Vector((-t.y, t.x)) * ((w0 + (w1 - w0) * s / segs) / size / 2)  # veins_w in m
-            # 1 mm up (closer, the strips z-fought and broke up), midrib 3 mm, side veins 2 -> 1.5 mm (designer #210)
+            # 1 mm up (closer, the strips z-fought and broke up), midrib 3 mm, side veins 2 mm (designer #210); enough
+            # segments to follow the folded blade (with two, the middle sank under it and the vein looked cut off)
             vp += [P(q.x + nn.x, q.y + nn.y, 0.001), P(q.x - nn.x, q.y - nn.y, 0.001)]
         for s in range(segs):
             i = 2 * s
