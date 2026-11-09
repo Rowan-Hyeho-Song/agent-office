@@ -40,6 +40,7 @@ export class DeskLive {
   private duck: Object3D | undefined
   /** where the test pass / fail chime comes from (#194 ②) */
   private signalAt: Object3D | undefined
+  private signalPos = new Vector3()
   private sounds = new PlaySounds()
   private calendar: { ctx: CanvasRenderingContext2D; texture: CanvasTexture; drawn: string } | null = null
   private flip = { angle: 0, target: 0, nextAt: 0 }
@@ -136,6 +137,6 @@ export class DeskLive {
     this.signal.g(p.signal === 'green' ? 1 : OFF)
     this.signal.y(p.signal === 'yellow' ? (reduced ? 1 : 0.65 + 0.35 * Math.sin(t * 6)) : OFF)
     this.signal.r(p.signal === 'red' ? 1 : OFF)
-    this.sounds.signalLight(p.signal, this.signalAt ? this.signalAt.getWorldPosition(new Vector3()) : null)
+    this.sounds.signalLight(p.signal, this.signalAt ? this.signalAt.getWorldPosition(this.signalPos) : null)
   }
 }

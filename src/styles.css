@@ -544,3 +544,7 @@ html[data-motion='reduce'] .dock-btn.sound-toggle.flash { animation: none; box-s
 .sound-volume { width: calc(120px + 36px); gap: 4px; }
 .sound-volume-num { flex: none; width: 36px; text-align: right; font-family: var(--font-pixel); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; color: var(--color-text-muted); }
 @media (max-width: 640px) { .sound-hint { bottom: calc(100% + 8px + 28px); } }
+/* the sound panel's "why is it silent" block (#194 audible fix): first thing in the panel */
+.sound-debug .sd-why { padding: var(--space-1) var(--space-2); box-shadow: inset 0 0 0 1px var(--color-line); }
+.sound-debug .sd-why ul { margin: 2px 0; padding-left: 16px; color: var(--color-amber); }
+.sound-debug .sd-ok { color: var(--color-green); }
