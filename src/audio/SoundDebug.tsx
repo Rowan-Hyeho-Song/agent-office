@@ -9,7 +9,7 @@ import { LAYERS, TEMPOS, getMusicState, getTempo, isLayerMuted, setMusicState, s
 import { getSetting, setSetting, subscribe } from './settings'
 import { faderLevels, forceMusic, forcedMusic, getMusicDist, setMusicDist, speakerCells, speakerCone, speakerForMe, toggleSpeakerForMe, type MusicDist } from './speaker'
 import { midi, tone } from './synth'
-import { KEY_VOICES, KEY_VOICE_LABEL, getKeyVoice, setKeyVoice, type KeyKind } from './keys'
+import { KEY_VOICES, KEY_VOICE_LABEL, getKeyVoice, loadKeySample, setKeyVoice, type KeyKind, type KeyVoice } from './keys'
 import { keysBetween } from './typing'
 
 // ?debug=1 sound panel (docs/design/sound.md 8.1): where the user listens and judges, since the session can't hear.
@@ -101,7 +101,7 @@ export function SoundDebug() {
   const busLine = BUSES.filter((b) => busDb(b) !== 0).map((b) => `bus.${b}=${busDb(b) > 0 ? '+' : ''}${busDb(b)}dB`)
   const copyLine = [...Object.entries(verdicts).map(([k, v]) => `${k}=${v}`), ...busLine, `keys.voice=${getKeyVoice()}`, `music.dist=${getMusicDist()}`].join(' ')
   // keyboard demo: one agent typing a few seconds with the live rhythm, or several at once, or one special key
-  const typeDemo = (typists: number, seconds = 4) => {
+  const typeDemo = (typists: number, seconds = 4, offset = 0) => {
     start()
     const g = audioGraph()
     if (!g) return
@@ -110,10 +110,27 @@ export function SoundDebug() {
       let s = { ...keysBetween(null, 0).next, next: 0.05 + a * 0.07, burstEnd: seconds }
       for (let t = 0.05; t <= seconds; t += 0.05) {
         const r = keysBetween(s, t)
-        r.keys.forEach((k, i) => cue('type', { agent: `agent_${a}`, at: k, keyKind: r.kinds[i] }))
+        r.keys.forEach((k, i) => cue('type', { agent: `agent_${a}`, at: offset + k, keyKind: r.kinds[i] }))
         s = r.next
       }
     }
+  }
+  // #194 thock2 A/B: the same typing, 3 s each, 지금 thock → 도각 합성 → 녹음, with the name of the one sounding
+  const [abNow, setAbNow] = useState<string | null>(null)
+  const abCompare = async () => {
+    start()
+    const g = audioGraph()
+    if (!g) return
+    await loadKeySample(g.ctx)
+    const keep = getKeyVoice()
+    const order: KeyVoice[] = ['thock', 'thock2', 'sample']
+    order.forEach((v, i) => {
+      setKeyVoice(v) // cue() reads the voice when it schedules, so each 3 s slot keeps its own
+      typeDemo(1, 3, i * 3.5)
+      setTimeout(() => setAbNow(KEY_VOICE_LABEL[v]), i * 3500)
+    })
+    setTimeout(() => setAbNow(null), order.length * 3500)
+    setKeyVoice(keep)
   }
   const oneKey = (k: KeyKind) => {
     start()
@@ -277,7 +294,16 @@ export function SoundDebug() {
             백스페이스
           </button>
         </div>
-        <small>고른 소리와 위 keys 버스 크기가 맨 아래 복사 줄에 들어가요.</small>
+        <div>
+          <button type="button" onClick={() => void abCompare()}>
+            연달아 비교 (지금 → 도각 → 녹음, 3초씩)
+          </button>{' '}
+          <span aria-live="polite">{abNow ? `지금: ${abNow}` : ''}</span>
+        </div>
+        <small>
+          고른 소리와 위 keys 버스 크기가 맨 아래 복사 줄에 들어가요. "녹음"은 실제 키보드 녹음(CC0, 61 KB 파일)이라, 쓰려면 "음원 파일 0" 원칙을 바꾸는
+          결정이 필요해요.
+        </small>
       </section>
 
       <section aria-label="효과음">
