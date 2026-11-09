@@ -4,7 +4,7 @@ import { NEVER, clearFile, loadDocsSeen, reconcileDocs, saveDocsSeen, unreadFile
 
 const T = (s: string) => Date.parse(s)
 const doc = (id: number, folder: number, updated: string, over: Partial<DocMeta> = {}): DocMeta => ({
-  id, kind: 'plan', repo: 'o/r', folder, title: `T${folder}`, agents: [], grade: 'public', approved: true, readable: true, created_at: updated, updated_at: updated, ...over,
+  id, kind: 'plan', repo: 'o/r', folder, title: `T${folder}`, agents: [], labels: [], grade: 'public', approved: true, readable: true, created_at: updated, updated_at: updated, ...over,
 })
 const OPENED = T('2026-11-10T00:00:00Z')
 const seen = (unread: DocsSeen['unread'] = {}): DocsSeen => ({ openedAt: OPENED, unread })

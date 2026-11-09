@@ -2,6 +2,7 @@
 // is allowed to see of a document (the same rules as supabase/docs.sql docs_cover), the folders and files, the
 // minutes as a conversation, the stable address of a minutes row and the bookshelf's binders. The components only draw.
 
+import { topicsOf, type TopicId } from './topics.js'
 import type { ApprovalRequest, ApprovalResult, DocKind, Grade, Minutes, Speaker } from './types.js'
 
 /** a document as the viewer lists it: no body (read on demand). Redacted for who is asking, see coverOf / ownerMeta */
@@ -15,6 +16,8 @@ export interface DocMeta {
   /** null while SECRET for this viewer, and always null for `private` */
   title: string | null
   agents: number[]
+  /** the issue's GitHub labels (#236); [] while the title is hidden, like the title: topic info is not for a SECRET */
+  labels: string[]
   grade: Grade
   approved: boolean
   /** this viewer gets the body (visitors: public + approved; the owner: everything but private) */
@@ -33,9 +36,15 @@ export interface DocBody {
 }
 
 /** the stored row's columns that decide what is visible (supabase/docs.sql) */
-export type CoverSource = Pick<DocMeta, 'id' | 'kind' | 'repo' | 'folder' | 'title' | 'agents' | 'grade' | 'approved' | 'created_at' | 'updated_at'>
+export type CoverSource = Pick<DocMeta, 'id' | 'kind' | 'repo' | 'folder' | 'title' | 'agents' | 'grade' | 'approved' | 'created_at' | 'updated_at'> & {
+  /** the plan's GitHub labels (docs.data.labels); absent on rows that have none */
+  labels?: unknown
+}
 
 const HIDDEN = { repo: null, folder: null, title: null } as const
+
+/** whatever the server sent as labels (jsonb) -> only the strings */
+export const stringsOnly = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
 
 /**
  * What a visitor may know of any document: the docs_cover view. A SECRET one shows no title, a `private` one not even
@@ -49,6 +58,7 @@ export function coverOf(row: CoverSource): DocMeta {
     kind: row.kind,
     ...(priv ? HIDDEN : { repo: row.repo, folder: row.folder, title: readable ? row.title : null }),
     agents: row.agents,
+    labels: readable ? stringsOnly(row.labels) : [],
     grade: row.grade,
     approved: row.approved,
     readable,
@@ -60,7 +70,7 @@ export function coverOf(row: CoverSource): DocMeta {
 /** the owner reads the table (RLS: is_owner): review documents in full, `private` still only as a cover */
 export function ownerMeta(row: CoverSource): DocMeta {
   if (row.grade === 'private') return coverOf(row)
-  return { ...coverOf(row), repo: row.repo, folder: row.folder, title: row.title, readable: true }
+  return { ...coverOf(row), repo: row.repo, folder: row.folder, title: row.title, labels: stringsOnly(row.labels), readable: true }
 }
 
 // ---- table of contents ---------------------------------------------------------------------------------------------
@@ -92,6 +102,8 @@ export interface DocFile {
   /** SECRET for everyone's eyes: some document is not approved yet (the binder keeps its stamp until then) */
   secret: 'review' | 'private' | null
   seats: number[]
+  /** up to two topics for the badges: from the plan (the issue) when it has any, else the first document that does */
+  topics: TopicId[]
   /** newest document's time */
   date: string
 }
@@ -110,6 +122,15 @@ const shortRepo = (repo: string) => repo.split('/').pop() ?? repo
 const byTocThenTime = (a: DocMeta, b: DocMeta) => tocIndex(a.kind) - tocIndex(b.kind) || a.created_at.localeCompare(b.created_at) || a.id - b.id
 const uniqSorted = (xs: number[]) => [...new Set(xs)].sort((a, b) => a - b)
 
+/** `sorted` is in table-of-contents order, so the plan (the issue, which carries the labels) speaks first. A document whose title and labels are hidden from this viewer has nothing to read. */
+function fileTopics(sorted: DocMeta[]): TopicId[] {
+  for (const d of sorted) {
+    const t = topicsOf(d.labels, d.title)
+    if (t.length) return t
+  }
+  return []
+}
+
 function makeFile(key: string, docs: DocMeta[]): DocFile {
   const sorted = [...docs].sort(byTocThenTime)
   const priv = sorted.some((d) => d.grade === 'private')
@@ -121,6 +142,7 @@ function makeFile(key: string, docs: DocMeta[]): DocFile {
     title: sorted.find((d) => d.title)?.title ?? null,
     secret: priv ? 'private' : sorted.some((d) => !d.approved) ? 'review' : null,
     seats: uniqSorted(sorted.flatMap((d) => d.agents)),
+    topics: fileTopics(sorted),
     date: sorted.reduce((m, d) => (d.created_at > m ? d.created_at : m), ''),
   }
 }

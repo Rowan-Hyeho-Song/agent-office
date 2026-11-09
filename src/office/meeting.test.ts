@@ -4,7 +4,7 @@ import type { Minutes } from '../docs/types'
 import { buildScript, frameAt, namedSeats, newMinutes, pickReplay, replayDue, trimScript } from './meeting'
 
 const meta = (over: Partial<DocMeta> = {}): DocMeta => ({
-  id: 7, kind: 'minutes', repo: 'o/r', folder: 28, title: 'T', agents: [0, 2, 3], grade: 'public', approved: true, readable: true, created_at: '2026-11-06T00:00:00Z', updated_at: '2026-11-06T00:00:00Z', ...over,
+  id: 7, kind: 'minutes', repo: 'o/r', folder: 28, title: 'T', agents: [0, 2, 3], labels: [], grade: 'public', approved: true, readable: true, created_at: '2026-11-06T00:00:00Z', updated_at: '2026-11-06T00:00:00Z', ...over,
 })
 const minutes: Minutes[] = [
   {

@@ -52,7 +52,7 @@ export function coverMeta(p: Point): DocMeta {
   for (const c of p.key) id = (id * 31 + c.charCodeAt(0)) >>> 0
   return {
     id: id % 1_000_000_007, kind: 'minutes', repo: p.secret ? null : p.project, folder: p.issue, title: null,
-    agents: p.agent === null ? [] : [p.agent], grade: 'review', approved: false, readable: false, created_at: p.at, updated_at: p.at,
+    agents: p.agent === null ? [] : [p.agent], labels: [], grade: 'review', approved: false, readable: false, created_at: p.at, updated_at: p.at,
   }
 }
 

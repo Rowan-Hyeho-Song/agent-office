@@ -12,13 +12,14 @@ const ICONS = {
 
 export type IconName = keyof typeof ICONS
 
-const PATHS = Object.fromEntries(
-  Object.entries(ICONS).map(([name, rows]) => {
-    let d = ''
-    rows.forEach((r, y) => [...r].forEach((c, x) => c === '#' && (d += `M${x} ${y}h1v1h-1z`)))
-    return [name, d]
-  }),
-) as Record<IconName, string>
+/** 12 rows of '#' and '.' -> one SVG path of 1x1 squares */
+export function pathOf(rows: readonly string[]): string {
+  let d = ''
+  rows.forEach((r, y) => [...r].forEach((c, x) => c === '#' && (d += `M${x} ${y}h1v1h-1z`)))
+  return d
+}
+
+const PATHS = Object.fromEntries(Object.entries(ICONS).map(([name, rows]) => [name, pathOf(rows)])) as Record<IconName, string>
 
 export function Icon({ name }: { name: IconName }) {
   return (

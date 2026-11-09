@@ -3336,20 +3336,24 @@ def hand_fingers(n, Mh, sx, shell, square=False):
     for f, (x, length, width, fan) in enumerate(FINGERS, start=1):
         F = Mh @ Mx((sx * x, 0.043, 0.0)) @ Mx(rz=-sx * math.radians(fan))
         finger(f"{n}_f{f}", F, [length * r for r in SEG_RATIO], width, FINGER_D)
-    # thumb: root beside the palm's lower corner, 35° out from the finger direction and 20° toward the palm
-    T = Mh @ Mx((sx * 0.04, -0.018, 0.0)) @ Mx(rz=-sx * math.radians(35)) @ Mx(rx=math.radians(20))
-    finger(f"{n}_t", T, [0.026, 0.020], 0.019, 0.017)
-    # #282 (hand-poses.md 1): the thumb's CMC, _t_0 - a bot_shell wedge (0.02 thick x 0.03 x 0.022, corners 6 mm)
-    # from 1.5 cm inside the palm's lower thumb-side corner up to the thumb's root, so an abducted thumb never shows a
-    # gap. Frame: y toward the thumb's root, x = the palm normal, z = x × y. The app hangs _t_1 under it
-    c0 = Vector((sx * 0.028, -0.028, 0.0))
-    yl = Vector((sx * 0.04, -0.018, 0.0)) - c0
-    reach = yl.length
-    yl.normalize()
+    # #282 (hand-poses.md 1; designer on #288: the thumb rose from the palm face like a knob): the thumb's CMC, _t_0,
+    # pivots on the thumb-side face's lower end (1.5 cm up from the wrist corner, 6 mm in, 4 mm toward the palm side)
+    # and carries the thumb 2.6 cm out along its 35° line, so _t_1's root sits beside the palm, not over it. Its
+    # thenar is a rounded bulge (an ellipsoid) standing ~1 cm proud of the side face, so an opened thumb stays joined.
+    # Frame: y toward the thumb's root, x = the palm normal, z = x × y. The app hangs _t_1 under it
+    c0 = Vector((sx * 0.037, -0.028, 0.004))
+    yl = Vector((sx * math.sin(math.radians(35)), math.cos(math.radians(35)), 0.0))
+    root = c0 + yl * 0.026
     xl = Vector((0.0, 0.0, 1.0))
     M0 = Mh @ basis(tuple(c0), xl, yl, xl.cross(yl))
-    wedge = box("seg", (0.02, 0.03, 0.022), (0, reach - 0.015, 0), shell, "export", bev=0.006, seg=1)
-    out.append(pivot(join(f"{n}_t_0", place([wedge], M0)), M0))
+    thenar = sphere("seg", 1.0, (0, 0.008, 0), shell, "export", scale=(0.012, 0.016, 0.009), seg=10, rings=6)
+    out.append(pivot(join(f"{n}_t_0", place([thenar], M0)), M0))
+    # the thumb: from _t_0's end, 35° out from the finger direction and 20° toward the palm, and (#292, designer: the
+    # CMC did not take the thumb across the palm) turned 75° about its own axis like a human thumb at rest - its pad
+    # faces the index finger, so its MCP / IP bend it across the palm (a fist: the tip over the middle finger) and an
+    # opposed thumb meets the index tip (1.7 mm at the joint limits; 13.8 mm untwisted)
+    T = Mh @ Mx(tuple(root)) @ Mx(rz=-sx * math.radians(35)) @ Mx(rx=math.radians(20)) @ Mx(ry=-sx * math.radians(75))
+    finger(f"{n}_t", T, [0.030, 0.023], 0.019, 0.017)  # #288 designer: +15% (0.026 + 0.020 reached the index tip only at 6.8 mm)
     joint_axes(out, Mh, sx)
     return out
 
@@ -3357,10 +3361,12 @@ def hand_fingers(n, Mh, sx, shell, square=False):
 def joint_axes(nodes, Mh, sx):
     """#282 (hand-poses.md 1): each finger / thumb node says which local axis turns each of its joints and the sign
     that turns it the designer's + way (a right-handed frame cannot give every + its own positive rotation on both
-    hands): extras joint = {flex | abduct | twist: {axis, sign}}. + flex = toward the palm (the CMC: across the palm
-    toward the little finger), + abduct = away from the middle finger (the middle: toward the thumb; the CMC: out of
-    the palm plane toward the palm side), + twist (CMC) = the thumb pad turning to face the fingers. _f{n}_1 also
-    carries rest_abduct: the fan already in the mesh (deg, + = away from the middle finger)."""
+    hands): extras joint = {flex | abduct | twist: {axis, sign}, order}. + flex = toward the palm (the CMC: across
+    the palm toward the little finger; the thumb's MCP / IP: across the palm, its pad side), + abduct = away from the
+    middle finger (the middle: toward the thumb; the CMC: out of the palm plane toward the palm side), + twist (CMC) =
+    the thumb pad turning toward the palm. order = the rotations from the rest frame, the palm-fixed axis first
+    ("abduct,flex" on _f{n}_1, "flex,abduct,twist" on _t_0, #292). _f{n}_1 also carries rest_abduct: the fan
+    already in the mesh (deg, + = away from the middle finger)."""
     R = Mh.to_3x3()
     hand = lambda a, b, c: (R @ Vector((a, -c, b))).normalized()  # hand-local web -> world (Blender)
     palm, thumb_side = hand(0, 0, 1), hand(sx, 0, 0)
@@ -3373,18 +3379,24 @@ def joint_axes(nodes, Mh, sx):
     def sign(a, moved, want):
         return 1 if a.cross(moved).dot(want) > 0 else -1
 
+    by = {o.name.split(".")[0][-4:]: o for o in nodes}
+    pad = ax(by["_t_1"], "z")  # the thumb's pad side (its segments' local +z)
     for o in nodes:
         name = o.name.split(".")[0]
         y = ax(o, "y")
-        j = {"flex": {"axis": "x", "sign": sign(ax(o, "x"), y, palm)}}
+        j = {"flex": {"axis": "x", "sign": sign(ax(o, "x"), y, palm)}, "order": "flex"}
+        if name[-4:] in ("_t_1", "_t_2"):  # #292: the twisted thumb bends across the palm
+            j["flex"]["sign"] = sign(ax(o, "x"), y, (palm * 0.3 - thumb_side).normalized())
         if name.endswith("_t_0"):
             j = {"flex": {"axis": "x", "sign": sign(ax(o, "x"), y, -thumb_side)},
                  "abduct": {"axis": "z", "sign": sign(ax(o, "z"), y, palm)},
-                 "twist": {"axis": "y", "sign": sign(y, ax(o, "z"), -thumb_side)}}  # the pad (local z side) turning toward the fingers
+                 "twist": {"axis": "y", "sign": sign(y, pad, palm)},
+                 "order": "flex,abduct,twist"}
         elif name[-4:-2] in ("f1", "f2", "f3", "f4") and name.endswith("_1"):
             f = int(name[-3])
             away = thumb_side if f <= 2 else -thumb_side
             j["abduct"] = {"axis": "z", "sign": sign(ax(o, "z"), y, away)}
+            j["order"] = "abduct,flex"
             o["rest_abduct"] = abs(fan[f]) if f != 2 else fan[f]  # middle: + toward the thumb
         o["joint"] = j
 
@@ -3531,7 +3543,7 @@ def build_agent(i, agent):
                 Mx((0, 0, -0.02), rx=math.pi / 2))[0],
           panel("face_bezel", 0.32, 0.20, 0.006, 0.025, (0, 0, -hd / 2 + 0.0015), graphite, G)]
     if i == 1:  # #254: the two chamfer light lines (6 mm, 0.6 mm proud), between the top and bottom chamfers
-        line_m = emitter(col, 0.5, "mesh_facet")  # #284 designer: 0.8 read white up close; lavender at 0.5
+        line_m = emitter("#7d88f5", 0.5, "mesh_facet")  # #284 / #288 designer: a step deeper than the agent lavender, 0.5 (0.8 read white)
         for sx, sz in ((-1, -1), (1, 1)):
             c = (sx * (hw / 2 - 0.03), 0.0, sz * (hd / 2 - 0.03))  # the chamfer's middle (bevel 0.06 each way)
             n = Vector((sx, 0.0, sz)).normalized() * 0.0006
