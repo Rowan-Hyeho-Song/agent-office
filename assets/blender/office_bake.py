@@ -57,8 +57,11 @@ Node contract (the app reads glTF extras):
   screen_work_<i>, screen_door     live "screen" slots the app draws (extras screen, aspect, w, h, ppm); shipped off
   surface_whiteboard|bulletin      empties at the board faces where the app pins cards / notes (extras w, h, normal)
   prop_*, agent_0_pen              live "prop": paddles, cups, watering can, omok stones in hand (prop_piece_a black,
-                                   _b white), book (its spine), paper plane, pen
+                                   _b white), book (its spine), paper plane, pen, A4 sheet (prop_paper, #262: a 2 mm core; extras size)
                                    (extras prop, home, grip; the pen's home is on its head: extras home_on)
+  prop_paper_a|b                  live "bot" (#262): the sheet's near | far halves, pivot on the fold line (local x through
+                                   the middle); extras fold {axis, sign} folds it up over the other, writing inside.
+                                   prop_paper children: _grip_r (near edge) | _grip_r_far, _contact_thumb|index_near|far, _contact_palm
   prop_book_l|r                   live "bot" (#135): the book's halves, pivot on the spine axis (local z); the app
                                    attaches them to prop_book; _l opens by +180° about local z (lies flat at -x)
   prop_shelfbook_<k>, _l|_r        (#199) k 0..4: books to take from the library shelves, built as prop_book (spine =
@@ -794,7 +797,7 @@ def seat_mesh(G):
     Tt = Mx((tx, h + 0.018, tz))
     tt = [lathe("tt_platter", [(0, 0), (0.078, 0), (0.08, 0.002), (0.08, 0.008), (0.078, 0.01), (0, 0.01)], (0, 0, 0),
                 plastic("#5a5f68", 0.45, 0.4, 0.05, "platter"), G, seg=30),
-          torus("tt_rim", 0.08, 0.0022, (0, 0.006, 0), lav, G, seg=30, rseg=4),
+          torus("tt_rim", 0.0805, 0.0022, (0, 0.006, 0), lav, G, seg=30, rseg=4),  # #263: its 45° faces 0.14 mm off the platter chamfer
           box("tt_cube", (0.05, 0.05, 0.05), (0.02, 0.035, 0), plaster("plaster"), G, bev=0.003, seg=1, rot_y=0.4)]
     L.append(LIVE("desk_1_turntable", "bot", place(tt, Tt), Tt))
     # 2 colour checker on the monitor base (as before; black card = the borders between the chips)
@@ -2785,6 +2788,58 @@ def make_book(name, W_, H_, T, cover_hex, home_pos, home_rot, G, ribbon=False):
                 grip_pos=(0, -0.04, 0), grip_rot=(-math.pi / 2, 0, 0))
 
 
+PAPER = (0.21, 0.297, 0.0004)  # #262 A4: width (local x, the short side), length (local z), thickness (local y)
+
+
+def paper_half(name, sz, H, paper, ink, G):
+    """#262 (paper-pass.md 5): one half of the sheet in the paper frame (origin = the sheet's middle, the fold line =
+    local x through it, writing face +y). sz -1 = the near half (z < 0, _a), +1 = the far one (_b). A closed slab
+    0.4 mm thick whose two outer corners curl up 2 mm, three grey text lines 0.3 mm over the writing face (#263: off
+    its plane). Live bot; extras fold = the axis and the sign that folds this half up over the other, writing inside"""
+    w, L, t = PAPER
+    xs = (-w / 2, -w / 2 + 0.03, -0.025, 0.025, w / 2 - 0.03, w / 2)
+    zs = [sz * z for z in (0.0, 0.05, L / 2 - 0.03, L / 2 - 0.015, L / 2)]
+
+    def curl(x, z):
+        u = max(0.0, (abs(x) - (w / 2 - 0.03)) / 0.03)
+        v = max(0.0, (abs(z) - (L / 2 - 0.03)) / 0.03)
+        return 0.002 * (u * v) ** 2
+
+    bm = bmesh.new()
+    top = [[bm.verts.new(W(x, t / 2 + curl(x, z), z)) for x in xs] for z in zs]
+    bot = [[bm.verts.new(W(x, -t / 2 + curl(x, z), z)) for x in xs] for z in zs]
+    nz, nx = len(zs), len(xs)
+    for i in range(nz - 1):
+        for j in range(nx - 1):
+            bm.faces.new((top[i][j], top[i][j + 1], top[i + 1][j + 1], top[i + 1][j]))
+            bm.faces.new((bot[i][j], bot[i + 1][j], bot[i + 1][j + 1], bot[i][j + 1]))
+    ring = ([(i, 0) for i in range(nz)] + [(nz - 1, j) for j in range(1, nx)] + [(i, nx - 1) for i in range(nz - 2, -1, -1)]
+            + [(0, j) for j in range(nx - 2, 0, -1)])
+    for k in range(len(ring)):
+        (ai, aj), (bi, bj) = ring[k], ring[(k + 1) % len(ring)]
+        bm.faces.new((top[ai][aj], top[bi][bj], bot[bi][bj], bot[ai][aj]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    sheet = mesh_obj(f"{name}_sheet", bm, paper, G)
+    lines = [box("paper_line", (0.15 - (0.05 if k == 2 else 0), 0.0001, 0.003), (-(0.025 if k == 2 else 0), t / 2 + 0.0003, sz * (0.03 + k * 0.03)), ink, G)
+             for k in range(3)]
+    o = live(pivot(join(name, place([sheet] + lines, H)), H), "bot")
+    o["fold"] = {"axis": "x", "sign": -sz}  # + rx turns +y toward +z: the far half folds up with -rx
+    return o
+
+
+def paper_sheet(home_pos, home_rot, G):
+    """#262: prop_paper = the sheet as a prop (its node holds only a 2 mm core inside the sheet's thickness; the app
+    moves it) and its two live halves prop_paper_a (near, z < 0) | _b (far), pivot = the sheet's middle on the fold line"""
+    paper = plastic("#f4f1ea", 0.85, 0, 0.1, "paper_sheet")
+    ink = plastic("#8f8a80", 0.9, 0, 0.0, "paper_ink")
+    H = Mx(home_pos, *home_rot)
+    paper_half("prop_paper_a", -1, H, paper, ink, G)
+    paper_half("prop_paper_b", 1, H, paper, ink, G)
+    o = prop("prop_paper", "paper", [box("paper_core", (0.002, 0.0001, 0.002), (0, 0, 0), paper, G)], home_pos, home_rot)
+    o["size"] = [PAPER[0], PAPER[1], PAPER[2]]
+    return o
+
+
 MUG_H, MUG_R = 0.095, 0.041
 
 
@@ -3014,6 +3069,9 @@ def build_props():
     plane = paper_plane("plane", 0.5, plastic(POSTIT[0], 0.85, 0, 0.2, "postit_0"), G)
     out.append(prop("prop_plane", "plane", [plane], desk0(TRAY[0] + 0.065, DESK_H + 0.154 + 0.011, -0.22), (0.0, ry0 - 0.3, 0.0),
                     grip_pos=(0, -0.04, 0), grip_rot=(-math.pi / 2, 0, 0)))
+    # #262 (paper-pass.md 5): a loose A4 sheet, prop_paper, handed over between agents; home on MEMO's IN tray, over
+    # the five live sheets (the app keeps it hidden until a hand-off). Its halves fold about the middle line
+    out.append(paper_sheet(desk0(TRAY[0], DESK_H + 0.075 + 0.003 + 5 * 0.003 + 0.002, TRAY[1] + 0.012), (0.0, ry0, 0.0), G))
     # sign-off stamp (#43; #187: rubber face, amber body, brass band, waisted neck, turned knob - seat_memo): origin
     # at the body's center, face = local -y. Home: by the ink pad (moved with the kit's mouse pad). Grip: in the fist
     objs, H = SEAT_PROPS["prop_stamp"]
@@ -3095,6 +3153,18 @@ def build_hands():
         o = O[f"prop_piece_{e}"]
         contact(o, "middle", (0, OMOK["stone_h"] / 2, 0), (0, 1, 0))  # go style (Nihon Ki-in): the middle finger on top
         contact(o, "index", (0, -OMOK["stone_h"] / 2, 0), (0, -1, 0))  # the index nail under the stone (designer, #192)
+    # #262 the A4 sheet: a pinch at each short edge, 1.5 cm in (grip_r near = -z, grip_r_far = +z): the fingers reach
+    # into the sheet, the palm faces down; the thumb on the writing face, the index under it. contact_palm: the middle
+    # of the underside (a hand passing it on the flat palm)
+    o = O["prop_paper"]
+    for edge, sz in (("", -1), ("_far", 1)):
+        z = sz * (PAPER[1] / 2 - 0.015)
+        g_ = grip_at(o, "r" + edge, (0, 0, z), (0, 0, -sz), (0, -1, 0))
+        g_["grip_for"], g_["edge"] = "r", "far" if edge else "near"
+        nm = "far" if edge else "near"
+        contact(o, "thumb", (0, PAPER[2] / 2, z), (0, 1, 0), nm)
+        contact(o, "index", (0, -PAPER[2] / 2, z), (0, -1, 0), nm)
+    contact(o, "palm", (0, -PAPER[2] / 2, 0), (0, -1, 0))
     # paper plane (OK pinch): index and thumb 2 cm from the tail (+z), on the top and bottom faces
     o = O["prop_plane"]
     lo, hi = [min(v.co[k] for v in o.data.vertices) for k in range(3)], [max(v.co[k] for v in o.data.vertices) for k in range(3)]
@@ -4452,7 +4522,7 @@ scene.render.bake.target = "IMAGE_TEXTURES"
 # when they leave (props too since #43: a lifted paddle left its shadow on the table; the binders since #67: the app
 # shows only as many as there are files)
 for n in NODES:
-    if n["obj"].name.startswith(("agent_", "shelf_r", "clock_", "window_", "prop_book_", "prop_shelfbook_", "omok_stone_", "pp_ball")) or n.get("live") == "prop":
+    if n["obj"].name.startswith(("agent_", "shelf_r", "clock_", "window_", "prop_book_", "prop_shelfbook_", "prop_paper_", "omok_stone_", "pp_ball")) or n.get("live") == "prop":
         n["obj"].hide_render = True
 
 atlases = {}
