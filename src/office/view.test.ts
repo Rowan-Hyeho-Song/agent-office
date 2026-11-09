@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   NONE_HIDDEN, NO_KEYS, VIEW, boxDistance, clampDistance, clampPolar, clampTarget, cutAt, easeVelocity, focusAllowsCameraKeys,
-  keySpeed, nextHidden, occlusionSegment, segmentHitsBox, stepOpacity, wallTop, wantDir, wantOpacity, type Hidden,
+  keepClear, keySpeed, nextHidden, occlusionSegment, segmentHitsBox, stepOpacity, wallTop, wantDir, wantOpacity, type Hidden,
 } from './view'
 
 const at = (deg: number, r = 9) => [Math.sin((deg * Math.PI) / 180) * r, Math.cos((deg * Math.PI) / 180) * r] as const // 0 deg = +z (south)
@@ -121,12 +121,12 @@ describe('near-object fade', () => {
     expect(a).toEqual([0, 0, 0])
     expect(b[2]).toBeCloseTo(-10 + VIEW.near.targetSkip)
   })
-  it('opacity: 1 beyond 1.4 m, 25% at 0.6 m, linear between; occluders at 25%', () => {
+  it('opacity: 1 beyond 1.4 m, 25% at 0.6 m, 0 at 0.4 m, linear between; occluders at 25%', () => {
     expect(wantOpacity(2, false)).toBe(1)
     expect(wantOpacity(1.4, false)).toBe(1)
     expect(wantOpacity(1.0, false)).toBeCloseTo(0.625)
     expect(wantOpacity(0.6, false)).toBe(VIEW.near.minOpacity)
-    expect(wantOpacity(0, false)).toBe(VIEW.near.minOpacity)
+    expect(wantOpacity(0.4, false)).toBe(0)
     expect(wantOpacity(5, true)).toBe(VIEW.near.minOpacity)
   })
   it('fades out in 160 ms, back in 240 ms, instantly when reduced', () => {
@@ -140,5 +140,54 @@ describe('key map', () => {
   it('is WASD only (arrow keys belong to lists, tabs and the timelapse bar)', async () => {
     const { KEY_DIR } = await import('./view')
     expect(Object.keys(KEY_DIR).sort()).toEqual(['KeyA', 'KeyD', 'KeyS', 'KeyW'])
+  })
+})
+
+describe('camera clearance (#208)', () => {
+  const box = { min: [-1, 0, -1], max: [1, 1, 1] } as const
+  const m = VIEW.clear.margin
+  it('leaves a clear camera alone', () => {
+    expect(keepClear([5, 4, 5], [0, 0.5, 0], [box])).toEqual([5, 4, 5])
+    expect(keepClear([1 + m + 0.01, 0.5, 0], [0, 0.5, 0], [box])).toEqual([1 + m + 0.01, 0.5, 0])
+  })
+  it('pushes a camera inside the grown box out to the margin, back along the view ray', () => {
+    const p = keepClear([1.1, 0.5, 0], [-4, 0.5, 0], [box])
+    expect(p[0]).toBeCloseTo(1 + m, 2)
+    expect(p[1]).toBeCloseTo(0.5)
+    expect(boxDistance(p, box)).toBeGreaterThanOrEqual(m - 1e-3)
+  })
+  it('is monotone: zooming in along the ray stops at the surface, never nearer', () => {
+    const target: [number, number, number] = [-6, 0.5, 0]
+    let last = Infinity
+    for (let x = 6; x > 0.5; x -= 0.1) {
+      const p = keepClear([x, 0.5, 0], target, [box])
+      expect(boxDistance(p, box)).toBeGreaterThanOrEqual(m - 1e-3)
+      expect(p[0]).toBeLessThanOrEqual(last + 1e-3) // the camera never moves back out while it is pushed in
+      last = p[0]
+    }
+    expect(last).toBeCloseTo(1 + m, 2)
+  })
+  it('slide boxes (walls) push by the nearest face; the result stays clear', () => {
+    const wall = { min: [-5, 0, -3.64], max: [5, 2.6, -3.5], slide: true } as const
+    const p = keepClear([0, 1, -3.3], [0, 1, 2], [wall])
+    expect(boxDistance(p, wall)).toBeGreaterThanOrEqual(m - 1e-3)
+    expect(p[2]).toBeGreaterThan(-3.5)
+  })
+  it('falls back to the nearest face when the ray exit would pass the max distance', () => {
+    const p = keepClear([0.9, 0.5, 0], [0.9 + 17.9, 0.5, 0], [box])
+    expect(Math.hypot(p[0] - 18.8, p[1] - 0.5, p[2])).toBeLessThanOrEqual(VIEW.distance[1] + 1e-6 + 2)
+    expect(boxDistance(p, box)).toBeGreaterThanOrEqual(m - 1e-3)
+  })
+  it('the near plane stays inside the margin, and anything inside near.hide is fully hidden', () => {
+    expect(VIEW.cameraNear * 2).toBeLessThan(VIEW.clear.margin)
+    expect(VIEW.near.hide).toBeGreaterThan(VIEW.clear.margin)
+    expect(wantOpacity(VIEW.near.hide, false)).toBe(0)
+    expect(wantOpacity(0, true)).toBe(0)
+    expect(wantOpacity(0.5, false)).toBeCloseTo(0.125)
+    // the debug close-up / top view (camera not kept clear): never hidden, as before #208 (#164 hand and monitor close-ups)
+    expect(wantOpacity(0.1, false, false)).toBe(VIEW.near.minOpacity)
+    expect(wantOpacity(0, true, false)).toBe(VIEW.near.minOpacity)
+    expect(wantOpacity(1.0, false, false)).toBeCloseTo(0.625)
+    expect(VIEW.distance[0]).toBeGreaterThan(VIEW.clear.margin)
   })
 })

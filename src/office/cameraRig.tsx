@@ -2,6 +2,9 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Vector3 } from 'three'
 import { HOME_POS, HOME_TARGET, useCameraBusy } from '../room/Door'
+import { clearCamera, clearFurnitureForDev } from './clearance'
+import type { OfficeWorld } from './world'
+import { isTouring } from './tourStore'
 import { KEY_DIR, NO_KEYS, VIEW, clampTarget, easeVelocity, focusAllowsCameraKeys, keySpeed, wantDir, type Keys } from './view'
 
 // Camera behaviour on top of OrbitControls (#111): the target stays inside the room (also for right-drag / two-finger
@@ -22,7 +25,7 @@ interface Orbit {
 
 const easeInOut = (k: number) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2)
 
-export function CameraRig({ limits }: { limits: boolean }) {
+export function CameraRig({ limits, world }: { limits: boolean; world: OfficeWorld }) {
   const camera = useThree((s) => s.camera)
   const gl = useThree((s) => s.gl)
   const controls = useThree((s) => s.controls) as unknown as Orbit | null
@@ -46,19 +49,37 @@ export function CameraRig({ limits }: { limits: boolean }) {
     },
     [camera],
   )
+  /** the camera kept clear of furniture, robots and walls (#208): zoom, pinch, WASD and robots walking into it all end here */
+  const clearNow = useMemo(
+    // not while the door flies the camera (room mode intro / dive end 0.35 m from the door screen: that path is the door's)
+    () => (c: Orbit) => void (live.current.busy || clearCamera(camera.position, c.target, Object.values(world.rigs))),
+    [camera, world],
+  )
 
   useEffect(() => {
     // dev only: screenshot scripts read the camera
-    if (import.meta.env.DEV) Object.assign(window, { __cam: () => ({ pos: camera.position.toArray(), target: controls?.target.toArray() }) })
+    if (import.meta.env.DEV) Object.assign(window, {
+        __cam: () => ({ pos: camera.position.toArray(), target: controls?.target.toArray() }),
+        __camSet: (p: number[], t: number[]) => {
+          camera.position.set(p[0], p[1], p[2])
+          controls?.target.set(t[0], t[1], t[2])
+          controls?.update()
+        },
+        __clearBoxes: clearFurnitureForDev,
+      })
   }, [camera, controls])
 
   useEffect(() => {
     if (!controls || !limits) return
-    const fix = () => clampNow(controls)
+    const fix = () => {
+      if (isTouring()) return // the tour owns the camera (#207)
+      clampNow(controls)
+      clearNow(controls)
+    }
     fix()
     controls.addEventListener('change', fix)
     return () => controls.removeEventListener('change', fix)
-  }, [controls, limits, clampNow])
+  }, [controls, limits, clampNow, clearNow])
 
   useEffect(() => {
     if (!limits) return
@@ -104,7 +125,7 @@ export function CameraRig({ limits }: { limits: boolean }) {
 
   useFrame((_, dt) => {
     const c = live.current.controls
-    if (!c || !limits) return
+    if (!c || !limits || isTouring()) return // the tour owns the camera (#207)
     const a = anim.current
     if (a) {
       const k = Math.min(1, (performance.now() - a.t0) / VIEW.resetMs)
@@ -114,6 +135,7 @@ export function CameraRig({ limits }: { limits: boolean }) {
       if (k >= 1) anim.current = null
       return
     }
+    clearNow(c) // a robot walking into the camera pushes it too
     const k = keys.current
     const any = k.fwd || k.back || k.left || k.right
     const go = any && !live.current.busy && !keysBlocked
@@ -132,6 +154,7 @@ export function CameraRig({ limits }: { limits: boolean }) {
     c.target.x += vel.current.x * step
     c.target.z += vel.current.z * step
     clampNow(c) // per axis: slides along an edge
+    clearNow(c)
   })
   return null
 }

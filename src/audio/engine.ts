@@ -15,15 +15,19 @@ import { makeEcho } from './synth'
 export type Bus = 'music' | 'sfx' | 'voice' | 'ambience'
 
 /**
- * base bus gains (sound.md 2.2), set from the live output (#194 levels fix): the desk room's music sits at about −39 dBFS
- * RMS, so the office music at a break is about −38 and the room tone about 17 dB under it (it masked every cue at 0.1).
+ * base bus gains (sound.md 2.2), set from the live output.
+ * - #205: the room tone masked every cue at 0.1 → 0.009; music matched to the desk room (RMS −39).
+ * - #194 louder (user, 2026-11-10: "거의 안 들려"): music and sfx/voice +6 dB. The room tone stays (it must not mask).
  * The desk room: music 0.14, sfx 0.55.
  */
-export const BUS_LEVEL: Record<Bus, number> = { music: 0.24, sfx: 0.55, voice: 0.5, ambience: 0.009 }
+export const BUS_LEVEL: Record<Bus, number> = { music: 0.48, sfx: 1.1, voice: 1.0, ambience: 0.009 }
 
-/** the default camera is about 15 m from the room (room.ts DEFAULT_CAMERA → DEFAULT_TARGET): sounds there play at full level */
-export const REF_DISTANCE = 16
-export const MAX_DISTANCE = 40
+/**
+ * the default camera is 11–20 m from the room's corners (room.ts DEFAULT_CAMERA (8.5, 8, 9.5) → the far corner
+ * (−4.5, 0, −3.5)), so anything in the room plays at full level from the default view and only pans left/right
+ */
+export const REF_DISTANCE = 20
+export const MAX_DISTANCE = 45
 
 /** most one-shot sfx sounding at once (sound.md 6) */
 export const MAX_SFX = 6
@@ -62,12 +66,19 @@ export function ensureAudio(): Graph | null {
     const comp = ctx.createDynamicsCompressor()
     comp.threshold.value = -18
     comp.ratio.value = 3
+    // a safety limiter after the glue compressor: nothing past −1 dBFS whatever piles up (#194 louder)
+    const limiter = ctx.createDynamicsCompressor()
+    limiter.threshold.value = -2
+    limiter.knee.value = 0
+    limiter.ratio.value = 20
+    limiter.attack.value = 0.001
+    limiter.release.value = 0.1
     const analyser = ctx.createAnalyser()
     analyser.fftSize = 2048
     const master = ctx.createGain()
     master.gain.value = masterGain()
-    master.connect(comp).connect(ctx.destination)
-    comp.connect(analyser)
+    master.connect(comp).connect(limiter).connect(ctx.destination)
+    limiter.connect(analyser)
     const room = ctx.createGain()
     room.gain.value = 1
     room.connect(master)
@@ -200,5 +211,31 @@ export function meter(): { peak: number; rms: number } | null {
 
 /** dev-only snapshot for scripts and the debug panel */
 export function audioDebug() {
-  return { ctx: g?.ctx.state ?? null, setting: getSetting(), room: g?.room.gain.value ?? null }
+  const sink = (g?.ctx as (AudioContext & { sinkId?: string | { type: string } }) | undefined)?.sinkId
+  return {
+    ctx: g?.ctx.state ?? null,
+    setting: getSetting(),
+    room: g?.room.gain.value ?? null,
+    /** '' = the system's default output (Chrome 110+); undefined where the browser doesn't say */
+    sink: typeof sink === 'string' ? sink : sink ? sink.type : undefined,
+  }
+}
+
+/** a plain 440 Hz tone for 0.8 s straight into the master (not through any bus), to tell "the page is silent" apart from
+ *  "the tab or the output device is" (#194 audible fix) */
+export function testTone() {
+  const gr = ensureAudio()
+  if (!gr) return
+  const c = gr.ctx
+  const t = c.currentTime + 0.02
+  const o = c.createOscillator()
+  o.frequency.value = 440
+  const env = c.createGain()
+  env.gain.setValueAtTime(0, t)
+  env.gain.linearRampToValueAtTime(0.18, t + 0.02)
+  env.gain.setValueAtTime(0.18, t + 0.7)
+  env.gain.linearRampToValueAtTime(0, t + 0.8)
+  o.connect(env).connect(gr.master)
+  o.start(t)
+  o.stop(t + 0.85)
 }

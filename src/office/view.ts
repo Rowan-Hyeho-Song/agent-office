@@ -37,7 +37,11 @@ export const VIEW = {
   keys: { speedPerDist: 0.35, speedMin: 1.2, speedMax: 4, shift: 2, easeMs: 120 },
 
   // --- near-object fade ---
-  near: { start: 1.4, end: 0.6, minOpacity: 0.25, outMs: 160, inMs: 240, /** the camera->target segment stops this far short of the target */ targetSkip: 0.4 },
+  near: { start: 1.4, end: 0.6, minOpacity: 0.25, /** at or inside this distance an object is fully hidden (no cut face can show; > cameraNear x 3 and above clear.margin) */ hide: 0.4, outMs: 160, inMs: 240, /** the camera->target segment stops this far short of the target */ targetSkip: 0.4 },
+
+  // --- camera clearance (#208): the camera never gets nearer than `margin` to furniture, robots or walls; the near plane stays well inside it ---
+  cameraNear: 0.1,
+  clear: { margin: 0.3 },
 
   // --- first-time hint ---
   hintMs: 4000,
@@ -194,12 +198,17 @@ export function segmentHitsBox(a: V3, b: V3, box: Box): boolean {
   return true
 }
 
-/** the opacity an object wants: linear from 1 at near.start to minOpacity at near.end; occluders are at the minimum */
-export function wantOpacity(dist: number, occluding: boolean): number {
+/**
+ * the opacity an object wants: linear from 1 at near.start to minOpacity at near.end, on down to 0 at near.hide (fully
+ * hidden: no cut face can show); occluders are at the minimum until then. `hide` false (the debug close-up and top view,
+ * where the camera is not kept clear): never below minOpacity, so a hand or monitor close-up keeps its desk (#164)
+ */
+export function wantOpacity(dist: number, occluding: boolean, hide = true): number {
   const n = VIEW.near
+  const inner = n.minOpacity * clamp((dist - n.hide) / (n.end - n.hide), 0, 1)
+  if (dist < n.end) return hide ? inner : n.minOpacity
   if (occluding) return n.minOpacity
-  const k = clamp((n.start - dist) / (n.start - n.end), 0, 1)
-  return 1 - (1 - n.minOpacity) * k
+  return 1 - (1 - n.minOpacity) * clamp((n.start - dist) / (n.start - n.end), 0, 1)
 }
 
 /** `backTo` furniture (tall, back to a wall) is at the minimum while that wall is lowered, else whatever the near-fade wants */
@@ -219,4 +228,66 @@ export function occlusionSegment(cam: V3, target: V3): [V3, V3] {
   const len = Math.hypot(d[0], d[1], d[2]) || 1
   const k = Math.max(0, len - VIEW.near.targetSkip) / len
   return [cam, [cam[0] + d[0] * k, cam[1] + d[1] * k, cam[2] + d[2] * k]]
+}
+
+// ---- camera clearance (#208) ---------------------------------------------------------------------------------------
+
+/** an obstacle box; `slide` pushes out by the nearest face (walls) instead of back along the view ray */
+export interface ClearBox extends Box {
+  slide?: boolean
+}
+
+const grown = (b: Box, m: number): Box => ({ min: [b.min[0] - m, b.min[1] - m, b.min[2] - m], max: [b.max[0] + m, b.max[1] + m, b.max[2] + m] })
+const inside = (p: V3, b: Box) => p[0] > b.min[0] && p[0] < b.max[0] && p[1] > b.min[1] && p[1] < b.max[1] && p[2] > b.min[2] && p[2] < b.max[2]
+
+/** the nearest face of an (already grown) box to p: p moved out through it */
+function faceOut(p: V3, b: Box): V3 {
+  let best = 0
+  let bestD = Infinity
+  let val = 0
+  for (let i = 0; i < 3; i++) {
+    for (const v of [b.min[i], b.max[i]]) {
+      const d = Math.abs(p[i] - v)
+      if (d < bestD) [best, bestD, val] = [i, d, v + (v === b.min[i] ? -1e-4 : 1e-4)]
+    }
+  }
+  const o: [number, number, number] = [p[0], p[1], p[2]]
+  o[best] = val
+  return o
+}
+
+/**
+ * Keeps the camera `margin` away from every box (furniture, robots, walls). A camera inside a box grown by the margin is
+ * moved back along the view ray (target -> camera), so a zoom just stops at the surface and WASD slides the camera
+ * along it; when that would go past the max distance, or for `slide` boxes, by the nearest face. Unchanged when
+ * clear; the result is the same pose for the same inputs (no jitter). Used by the free camera and meant for any
+ * scripted camera path (the tour).
+ */
+export function keepClear(cam: V3, target: V3, boxes: readonly ClearBox[], margin: number = VIEW.clear.margin): [number, number, number] {
+  let p: V3 = cam
+  for (let pass = 0; pass < 4; pass++) {
+    let moved = false
+    for (const b of boxes) {
+      const g = grown(b, margin)
+      if (!inside(p, g)) continue
+      moved = true
+      const d = [p[0] - target[0], p[1] - target[1], p[2] - target[2]]
+      const len = Math.hypot(d[0], d[1], d[2])
+      let out: V3 | null = null
+      if (!b.slide && len > 1e-6) {
+        let t = Infinity
+        for (let i = 0; i < 3; i++) {
+          if (Math.abs(d[i]) < 1e-9) continue
+          t = Math.min(t, ((d[i] > 0 ? g.max[i] : g.min[i]) - p[i]) / d[i])
+        }
+        if (t < Infinity) {
+          const q: V3 = [p[0] + d[0] * (t + 1e-4), p[1] + d[1] * (t + 1e-4), p[2] + d[2] * (t + 1e-4)]
+          if (len + t * len <= VIEW.distance[1]) out = q
+        }
+      }
+      p = out ?? faceOut(p, g)
+    }
+    if (!moved) break
+  }
+  return [p[0], p[1], p[2]]
 }

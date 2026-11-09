@@ -14,6 +14,12 @@ describe('FakeApprovalSource (debug only)', () => {
     const f = new FakeApprovalSource()
     for (const c of await f.covers()) expect(Object.keys(c).sort()).toEqual(['created_at', 'id', 'kind', 'requester_seat'])
   })
+  it('decided covers carry only who, which result and when (#222)', async () => {
+    const f = new FakeApprovalSource()
+    const covers = await f.decidedCovers()
+    expect(covers).toHaveLength(1)
+    for (const c of covers) expect(Object.keys(c).sort()).toEqual(['decided_at', 'id', 'kind', 'requester_seat', 'result'])
+  })
   it('only the owner decides, with the server rules, and failNext fails once', async () => {
     const f = new FakeApprovalSource()
     expect(await f.decide(1, '선택지 1', '')).toEqual({ ok: false, status: 403 })

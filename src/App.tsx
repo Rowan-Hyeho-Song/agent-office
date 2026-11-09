@@ -10,6 +10,8 @@ import { DocsViewer } from './office/DocsViewer'
 import { SidePanel } from './office/SidePanel'
 import { SideViewOffset } from './office/sidePanelRig'
 import { CameraHint, CameraRig } from './office/cameraRig'
+import { TourBar } from './office/TourBar'
+import { TourRig } from './office/TourRig'
 import { CAMERA_FAR, DEFAULT_CAMERA, DEFAULT_TARGET, LAMP_POS } from './office/room'
 import { VIEW } from './office/view'
 import { Office } from './office/Office'
@@ -48,7 +50,7 @@ export function App() {
     <>
       <Canvas
         dpr={[1, 1.5]}
-        camera={{ fov: 32, near: 0.1, far: CAMERA_FAR, position: close ? (close.slice(0, 3) as [number, number, number]) : top ? TOP : CAMERA }}
+        camera={{ fov: 32, near: VIEW.cameraNear, far: CAMERA_FAR, position: close ? (close.slice(0, 3) as [number, number, number]) : top ? TOP : CAMERA }}
         gl={{ antialias: true, stencil: true }}
       >
         <Suspense fallback={null}>
@@ -60,7 +62,7 @@ export function App() {
           <hemisphereLight args={['#fffaf3', '#c2b6a6', 1.82]} />
           <directionalLight position={[-2, 4.5, 2]} intensity={1.3} color="#fff8ef" />
           <pointLight position={[...LAMP_POS]} intensity={3} distance={5} decay={1.6} color="#ffcf8a" />
-          <Office world={world} />
+          <Office world={world} freeCam={limits} />
           <EffectComposer multisampling={0} stencilBuffer>
             <Bloom mipmapBlur intensity={0.9} luminanceThreshold={1} luminanceSmoothing={0.3} />
             <Vignette offset={0.3} darkness={0.6} />
@@ -81,14 +83,16 @@ export function App() {
           maxPolarAngle={close ? Math.PI : VIEW.polar[1]}
         />
         )}
-        <CameraRig limits={limits} />
+        <CameraRig limits={limits} world={world} />
+        <TourRig limits={limits} world={world} />
         <SideViewOffset />
-        <SoundListener />
+        <SoundListener world={world} />
       </Canvas>
       <p className="hud">
         <b>AGENT OFFICE</b> · 드래그해서 돌려 보기
       </p>
       <CameraHint enabled={limits && !busy} />
+      <TourBar world={world} />
       <AgentList world={world} />
       <CornerDock />
       <SidePanel world={world} />
