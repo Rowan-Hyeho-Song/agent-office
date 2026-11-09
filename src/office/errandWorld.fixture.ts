@@ -48,6 +48,8 @@ export const JUMP = 0.005
 /**
  * Props the schedule hands out from further than REACH today (follow-ups, listed so the day the stand moves the entry must go): the whiteboard's
  * markers rest on the ledge 0.86–0.95 m from the nav spot the planner stands on to pin a decision (the spot comes from the model's empties).
+ * TEMPORARY — removed in #195: that bake adds a stand within 0.6 m of the markers (planning's decision on #228); the #195 coder commit deletes
+ * this entry and the marker must then pass the 0.75 m check like every other prop.
  */
 export const KNOWN_FAR: Record<string, number> = { marker: 1.0 }
 /**
