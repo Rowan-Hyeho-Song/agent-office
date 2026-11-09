@@ -164,14 +164,24 @@ export function toggleLayer(l: Layer, on: boolean) {
 const layersFor = (s: MusicState): Layer[] => (s === 'break' ? LAYERS : s === 'work' ? WORK_LAYERS : []).filter((l) => !muted.has(l))
 const stateGain = (s: MusicState) => (s === 'break' ? 1 : s === 'work' ? Math.pow(10, WORK_DB / 20) : 0)
 
-/** the node the music comes out of (③ routes it to the speakers) */
+/** the node the music comes out of */
 export const musicOut = () => p?.out ?? null
+/** the layers sounding now (they change only at a two-bar boundary): the mixer's faders show them (③) */
+export const currentLayers = (): readonly Layer[] => current
+
+type Graph = NonNullable<ReturnType<typeof audioGraph>>
+/** where the music goes: the music bus straight, until speaker.ts routes it through the two speakers (③) */
+let route: (g: Graph) => AudioNode = (g) => g.bus.music
+export function routeMusic(fn: (g: Graph) => AudioNode) {
+  route = fn
+}
 
 /** off / work (−12 dB, fewer layers) / break (everything). Fades over 2 s. */
 export function setMusicState(s: MusicState) {
+  if (s === state) return
   state = s
   whenReady((g) => {
-    if (!p && s !== 'off') start(g.ctx, g.bus.music)
+    if (!p && s !== 'off') start(g.ctx, route(g))
     if (!p) return
     const t = g.ctx.currentTime
     p.out.gain.cancelScheduledValues(t)

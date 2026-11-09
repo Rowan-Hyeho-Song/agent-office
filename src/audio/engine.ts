@@ -141,22 +141,41 @@ export function fadeRoom(to: number, sec: number) {
   p.linearRampToValueAtTime(to, t + Math.max(0.01, sec))
 }
 
+/** a held duck per bus (music under a ping-pong rally, ③): the bus rests this many dB down until it's let go (0) */
+const held: Record<Bus, number> = { music: 0, sfx: 0, voice: 0, ambience: 0, keys: 0 }
+/** the deeper of a duck and the held one wins: they don't add up (speech −6 over ping-pong −4 = −6) */
+export const duckDb = (db: number, heldDb: number) => Math.min(db, heldDb)
+const ducked = (b: Bus, db = 0) => busLevel[b] * Math.pow(10, duckDb(db, held[b]) / 20)
+
 /** a bus's base level (debug faders) */
 export function setBusLevel(b: Bus, v: number) {
   busLevel[b] = v
-  if (g) g.bus[b].gain.setTargetAtTime(v, g.ctx.currentTime, 0.02)
+  if (g) g.bus[b].gain.setTargetAtTime(ducked(b), g.ctx.currentTime, 0.02)
 }
 export const getBusLevel = (b: Bus) => busLevel[b]
 
-/** duck a bus by `db` for a while (music under speech, sound.md 2.2) */
+/** duck a bus by `db` for a while (music under speech, sound.md 2.2); it comes back to the held level */
 export function duck(b: Bus, db: number, down = 0.15, up = 0.6) {
   if (!g) return
   const p = g.bus[b].gain
   const t = g.ctx.currentTime
   p.cancelScheduledValues(t)
-  p.setTargetAtTime(busLevel[b] * Math.pow(10, db / 20), t, down / 3)
-  p.setTargetAtTime(busLevel[b], t + down + 0.4, up / 3)
+  p.setTargetAtTime(ducked(b, db), t, down / 3)
+  p.setTargetAtTime(ducked(b), t + down + 0.4, up / 3)
 }
+
+/** hold a bus `db` down (0 = let go): down over `down` s, back up over `up` s */
+export function holdDuck(b: Bus, db: number, down = 0.5, up = 1.5) {
+  if (held[b] === db) return
+  const deeper = db < held[b]
+  held[b] = db
+  if (!g) return
+  const p = g.bus[b].gain
+  const t = g.ctx.currentTime
+  p.cancelScheduledValues(t)
+  p.setTargetAtTime(ducked(b), t, (deeper ? down : up) / 3)
+}
+export const heldDuck = (b: Bus) => held[b]
 
 // ─── 3D: the listener is the camera (sound.md 1, 6) ───
 
