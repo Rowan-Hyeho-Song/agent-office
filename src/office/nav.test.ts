@@ -171,7 +171,7 @@ describe('facing', () => {
         expect(dist(g.spots[id], c)).toBeCloseTo(MEET_SEAT_R)
         expect(g.adj[id]).toContain(c.id)
       }
-    expect(Object.keys(g.spots).filter((id) => id.startsWith('meet_talk_'))).toHaveLength(3) // the fourth (board side) would stand 0.53 m from the whiteboard spot
+    expect(Object.keys(g.spots).filter((id) => id.startsWith('meet_talk_'))).toHaveLength(4) // the circle moved to (0.7, -1.97) (#280): the board-side seat now stands 0.73 m from the whiteboard spot, clear of 2R
   })
   it('the two chat spots face each other 1.0 m apart', () => {
     const g = buildGraph(SPOTS)

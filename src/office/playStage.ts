@@ -307,11 +307,15 @@ export class PlayStage {
       return false
     }
     const hand = rig.parts.hands[side]
-    const info = tgt.obj ? this.props.info(rig, kind, prefer ?? objName) : null
-    const home = tgt.obj ? this.props.homeWorld(tgt.obj) : new Matrix4()
+    // the mouse body is live but not a prop (#305): the hand is placed on the body where it is now, wherever the typist has slid it
+    const body = kind === 'mouse' ? tgt.obj : null
+    if (body) body.updateWorldMatrix(true, false)
+    const info = tgt.obj && !body ? this.props.info(rig, kind, prefer ?? objName) : null
+    const home = body ? body.matrixWorld.clone() : tgt.obj ? this.props.homeWorld(tgt.obj) : new Matrix4()
     let pose = home
     // reduced motion: the can is simply in the hand (watering.md 5); everything else is lifted from where it rests
-    if (out.attached && held) pose = inp.reduced && kind === 'watering_can' ? held : blend(home, held, ease((inp.t - (clock.attachedAt ?? inp.t)) / Math.max(LIFT_S, rig.gestureMin)))
+    if (body) pose = home
+    else if (out.attached && held) pose = inp.reduced && kind === 'watering_can' ? held : blend(home, held, ease((inp.t - (clock.attachedAt ?? inp.t)) / Math.max(LIFT_S, rig.gestureMin)))
     else if (out.attached && !tgt.obj) pose = held ?? home
     this.lastObjPose = pose
     const seat = Number(rig.id.split('_')[1])
@@ -324,7 +328,7 @@ export class PlayStage {
     if (out.stage === 'rest') return false
     const fit = this.holdFit(rig, side, tgt)
     rig.drive[side] = { target, w: out.wHand, curl: null, angles: mixVec(rig.curlVec(side, spec.pre), fit.hold, rig.curlVec(side, spec.after), out.mix), wc: out.wCurl, spread: null, reach: REACH_KINDS.has(kind) }
-    if (tgt.obj && info) {
+    if (tgt.obj && info && !body) {
       rig.want = { kind, side: 'r' === side || kind !== 'book' ? side : side, prefer: prefer ?? objName, attached: out.attached }
       if (out.attached) {
         this.props.force(tgt.obj, pose)

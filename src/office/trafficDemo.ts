@@ -25,7 +25,7 @@ const swap = (ids: [string, string], a: { x: number; z: number }, b: { x: number
 
 export const TRAFFIC_DEMOS: Record<DemoKind, Leg[]> = {
   // the ends sit off the lane mouths, so one standing there never corks the lane for the other
-  narrow: swap(['agent_0', 'agent_1'], { x: -3.9, z: -2.6 }, { x: -3.9, z: 1.2 }),
+  narrow: swap(['agent_0', 'agent_1'], { x: -4.2, z: -2.8 }, { x: -4.2, z: 1.0 }),
   wide: swap(['agent_0', 'agent_1'], { x: -3.2, z: 1 }, { x: -0.2, z: 1 }),
 }
 

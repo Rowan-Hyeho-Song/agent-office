@@ -67,7 +67,7 @@ describe('view limits', () => {
   })
   it('clamps polar and distance', () => {
     expect([clampPolar(0), clampPolar(1), clampPolar(3)]).toEqual([0.15, 1, 1.35])
-    expect([clampDistance(1), clampDistance(8), clampDistance(40)]).toEqual([2.5, 8, 18])
+    expect([clampDistance(1), clampDistance(8), clampDistance(40)]).toEqual([2.5, 8, 21])
   })
 })
 

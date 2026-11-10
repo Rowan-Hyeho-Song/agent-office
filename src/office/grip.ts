@@ -51,8 +51,8 @@ export const GRIPS: Record<string, GripSpec> = {
   tablet_pen: { r: { pre: curlOf([0.3, 0.35, 0.6, 0.65], [0.2, 0.5]), hold: curlOf([0.45, 0.55, 0.8, 0.85], [0.35, 0.8]), after: REST, contacts: ['thumb', 'index', 'middle'] } },
   marker: { r: { pre: curlOf([0.3, 0.35, 0.6, 0.65], [0.2, 0.5]), hold: curlOf([0.4, 0.5, 0.75, 0.8], [0.3, 0.75]), after: REST, contacts: ['thumb', 'index', 'middle'] } },
   stamp: { r: { pre: all(0.3, [0.1, 0.3]), hold: curlOf([0.75, 0.8, 0.82, 0.85], [0.4, 0.9]), after: REST, contacts: ['palm'] } },
-  // a hand resting on a mouse: the palm over the body, the index on its button
-  mouse: { r: { pre: all(0.2, [0.1, 0.3]), hold: curlOf([0.35, 0.35, 0.45, 0.5], [0.25, 0.6]), after: REST, contacts: ['index'] } },
+  // a hand gripping the mouse body (#305: it slides it about its pad): the palm over the body, the index on the left button, the middle on the right
+  mouse: { r: { pre: all(0.2, [0.1, 0.3]), hold: curlOf([0.35, 0.35, 0.45, 0.5], [0.25, 0.6]), after: REST, contacts: ['palm', 'index', 'middle'] } },
   // a finger pressing a button
   button: { r: { pre: curlOf([0, 0.9, 0.92, 0.95], [0.6, 0.6]), hold: curlOf([0.05, 0.9, 0.92, 0.95], [0.6, 0.6]), after: REST, contacts: ['index'] } },
   // the go stone, the Nihon Ki-in grip (agents.md 2.10, #192): the stone on the index nail, the middle fingertip pressing it from above

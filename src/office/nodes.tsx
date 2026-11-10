@@ -18,6 +18,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { assetUrl } from '../room/base'
 import type { NavKind, NavSpot } from './nav'
+import { rigMouseBodies } from './mouseBody'
 import { setRoomFromExtras } from './room'
 import { prepareView } from './walls'
 
@@ -29,7 +30,7 @@ import { prepareView } from './walls'
 //   nav:   "<kind>"  empties: where agents go and which way they face (navigation graph: nav.ts)
 
 export const MODEL_URL = assetUrl('models/office.glb')
-export const ATLASES = ['room', 'walls_nw', 'walls_se', 'work', 'wall_items', 'lounge', 'desk_props'] as const
+export const ATLASES = ['room', 'floor', 'walls_nw', 'walls_se', 'work', 'wall_items', 'lounge', 'desk_props'] as const
 const ATLAS_URLS = ATLASES.map((a) => assetUrl(`models/${a}.webp`))
 
 /**
@@ -158,6 +159,7 @@ export function prepare(scene: Object3D, atlases: Texture[]): OfficeNodes {
     })
     for (const o of gone) o.removeFromParent()
   }
+  rigMouseBodies(scene, nodes) // the mouse bodies take their buttons, wheel, contacts and shadow (#305)
   return nodes
 }
 

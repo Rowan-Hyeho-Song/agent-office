@@ -12,8 +12,9 @@ Same pipeline as the rowansong.dev desk (bakekit.py), so the two rooms read as o
 
 Node contract (the app reads glTF extras):
   atlases room, walls_nw, walls_se, work, wall_items, lounge, desk_props (7 webp) -> MeshBasicMaterial + atlas. Baked:
-  room                             the floor, the three rugs (#195: work, meeting, lounge), base edges; extras room =
-                                   [HX, HZ, WALL_H] (#109: the app reads the room size here)
+  room                             the three rugs (#195: work, meeting, lounge), base edges; extras room =
+                                   [HX, HZ, WALL_H] (#109: the app reads the room size here; #280: [4.8, 4.1, 2.6])
+  floor                            (#280) the wood floor, alone in the floor atlas
   desk_<i>                         (work) the desk body (#187 kit: oak top, graphite band, legs, cable tray); i 0..4,
                                    the five desks stand as one island (#195 plan 2, slot_pod)
   desk_<i>_props                   (desk_props, #187) the common kit (keyboard case, monitor, mouse body + pad, cables)
@@ -23,6 +24,12 @@ Node contract (the app reads glTF extras):
                                    w}] in that frame, key_travel_m (press = local -y)
   desk_<i>_mouse_l|_r|_wheel       live "bot" (#225): the mouse's button shells (pivot on the hinge, press = local x
                                    -2 deg) and wheel (pivot on its axle, rolls about local x); no desk_2 mouse (tablet)
+  desk_<i>_mouse, _mouse_shadow    live "bot" (#305): the body (pivot = its underside's middle on the pad; extras pad
+                                   {center, half} = the pad top in the body's rest frame x, z; size [w, h, l]) and a
+                                   contact-shadow card riding with it (extras shadow_of); the app hangs the buttons,
+                                   wheel, contacts and the shadow under the body. Left out of the bake
+  prop_tablet_pen extras tip, desk_2_tablet extras area {w, d, top}
+                                   (#305) the nib's end in the pen's frame; the tablet's active area in its node frame
   desk_4_spk_l|_r, desk_4_knob_<k>, desk_4_fader_<k>
                                    live "bot" (#193 ECHO): woofer cones (extras travel, axis z), gain knobs (axis y),
                                    faders (extras travel 0.045, axis -z, zero); desk_4_spk_led, desk_4_meter_0..7 neon
@@ -111,7 +118,17 @@ DRNG = random.Random(43)  # desk props (#43): their own sequence, so the rest of
 # check-glb --overlap on the slot_* footprints). Zones: work back-left (desks 0-1 under the window, 2-3 along the left
 # wall), meeting at the whiteboard (back middle), library back-right, lounge front-right (ping-pong, sofa facing it),
 # coffee on the right wall, board games front-left, entrance on the left wall near the front (door + clock).
-HX, HZ = 4.5, 3.5  # half room: x -4.5..4.5, z -3.5..3.5 (back wall n at -z, left wall w at -x)
+# #280 plan 3 (room-280.md 8): 9 x 7 -> 9.6 x 8.2 m, still centred on the origin (the app's floor grids, walls and tour
+# take the room as symmetric). The designer's table keeps the old origin (the new room x -4.5..5.1, z -3.9..4.3):
+# _c() moves one of its points by -ROOM_SHIFT into the centred room; every placement below goes through it
+ROOM_SHIFT = (0.3, 0.2)
+
+
+def _c(x, z):
+    return (round(x - ROOM_SHIFT[0], 4), round(z - ROOM_SHIFT[1], 4))
+
+
+HX, HZ = 4.8, 4.1  # half room: x -4.8..4.8, z -4.1..4.1 (back wall n at -z, left wall w at -x)
 WALL_H = 2.6
 WT = 0.14
 WORK_Z = 0.5  # where an agent hovers in front of its desk (from the desk center): hands reach the keyboard
@@ -119,42 +136,44 @@ WORK_Z = 0.5  # where an agent hovers in front of its desk (from the desk center
 AGENTS = [  # desk frame (x, z, ry): the agent sits on local +z and faces local -z (the monitor)
     # #195 plan 2 (desks.md 2.1.3): an island pod, two rows of two back to back running north-south (west row x -3.01,
     # east row x -2.39, desks 1.2 long), MEMO's head desk across their north end in front of the window
-    {"color": "#ffb347", "at": (-2.50, -2.12, math.pi)},  # 0 MEMO amber: head desk, faces south
-    {"color": "#8f9bff", "at": (-2.81, -0.01, -math.pi / 2)},  # 1 MESH lavender: west row south, faces east
-    {"color": "#ff3ea5", "at": (-2.81, -1.21, -math.pi / 2)},  # 2 HUE magenta: west row north, faces east
-    {"color": "#4df3ff", "at": (-2.19, -1.21, math.pi / 2)},  # 3 LOOP cyan: east row north, faces west
-    {"color": "#f2ffc4", "at": (-2.19, -0.01, math.pi / 2)},  # 4 ECHO phosphor (#193): east row south, faces west
+    {"color": "#ffb347", "at": (*_c(-2.50, -2.12), math.pi)},  # 0 MEMO amber: head desk, faces south
+    {"color": "#8f9bff", "at": (*_c(-2.81, -0.01), -math.pi / 2)},  # 1 MESH lavender: west row south, faces east
+    {"color": "#ff3ea5", "at": (*_c(-2.81, -1.21), -math.pi / 2)},  # 2 HUE magenta: west row north, faces east
+    {"color": "#4df3ff", "at": (*_c(-2.19, -1.21), math.pi / 2)},  # 3 LOOP cyan: east row north, faces west
+    {"color": "#f2ffc4", "at": (*_c(-2.19, -0.01), math.pi / 2)},  # 4 ECHO phosphor (#193): east row south, faces west
 ]
-WINDOW_X = -1.9  # the window over desks 0-1 (2.6 m wide)
-WHITEBOARD_X, BULLETIN_X = 1.1, 2.55
+WINDOW_X = _c(-1.9, 0)[0]  # the window over desks 0-1 (2.6 m wide)
+WHITEBOARD_X, BULLETIN_X = _c(1.1, 0)[0], _c(2.55, 0)[0]
 # #195 (desks.md 2.1.2): one meeting circle almost square in front of the whiteboard; the board meeting and the floor
 # meeting stand on the same ring. Ring 0.9 + a body 0.26 = 1.16 kept free; ry = its 0 deg (toward the board)
-MEET_CENTER = (1.0, -1.57)
+MEET_CENTER = _c(1.0, -1.77)  # #280: 0.2 north with the back wall
 # #195 (designer #249): the pod stands right under the work panel's middle and its oak tops and ivory caps baked
 # past white. Their two atlases are scaled down after the bake (linear, before the webp), the rest of the room as before
 ATLAS_GAIN = {"work": float(next((a.split("=")[1] for a in sys.argv if a.startswith("--gain-work=")), 0.27)),
               "desk_props": float(next((a.split("=")[1] for a in sys.argv if a.startswith("--gain-desk=")), 0.27))}  # calibrated: tops linear ~(2.26, 1.91, 1.57) at 1.0
 MEET_RING, MEET_R, MEET_RY = 0.9, 1.16, math.radians(-3.0)
-CHAT_SPOTS = ((-1.45, -2.95), (-0.45, -2.95))  # the second conversation: two spots by the window, facing each other
-RUG_WORK = (-2.50, -0.92, 2.46, 4.24)  # x, z, width, depth (desks.md 2.1.5)
-RUG_LOUNGE = (2.2, 2.55, 2.5, 1.3)
+CHAT_SPOTS = (_c(-1.45, -3.35), _c(-0.45, -3.35))  # the second conversation: two spots by the window, facing each other
+RUG_WORK = (*_c(-2.50, -0.92), 2.46, 4.24)  # x, z, width, depth (desks.md 2.1.5)
+RUG_LOUNGE = (*_c(3.54, 2.855), 2.52, 2.29)  # #280: x 2.28..4.8, z 1.71..4.0 (old origin)
 RUG_MEET_D = 2.92
-CAN_STAND = (3.68, 2.65)  # #185: the watering can's stand, in front of the fig (designer)
-DOOR_Z = 2.6
-PINGPONG = (2.15, 0.97)
-SOFA = (2.2, 2.785)
-GAME_TABLE = (-1.6, 2.2)
-SIDE_TABLE = (0.3, 2.6)  # a small round table in the open front middle (designer, #109): visitors' snacks and cheers later
-COUNTER = (HX - 0.32, -2.0, math.pi)  # against the right wall, its front (local +x) facing the room
+CAN_STAND = _c(4.85, 0.95)  # #185 / #280: the watering can's stand, north of the fig on the east wall (designer)
+DOOR_Z = _c(0, 2.6)[1]
+PINGPONG = _c(1.9, 0.9)
+# #280 PR 1: the old 1.9 m sofa along the south wall, its east end at the L sofa's (PR 2 makes it the L), 0.12 off the wall
+SOFA = _c(4.03, 3.7375)
+LAMP = _c(2.25, 4.0)  # the floor lamp, behind the book table
+GAME_TABLE = _c(-1.6, 2.6)
+SIDE_TABLE, SIDE_R = _c(2.25, 3.48), 0.21  # #280: the book table at the long sofa's west end, 2 cm north of 3.5 (the lamp)
+COUNTER = (HX - 0.32, _c(0, 0.3)[1], math.pi)  # against the right wall, its front (local +x) facing the room
 COFFEE_BUTTON = (0.146, 1.2, -0.02)  # #164: the brew button face, counter frame (front = local +x)
-SHELF_X = 3.75
+SHELF_X = _c(3.75, 0)[0]
 SHELF_W, SHELF_D = 1.1, 0.34  # the bookshelf against the back wall: width, depth
 PLANTS = [  # name, species, x, z (#126: one species each, office-quality.md 3; plant_boards left out, designer)
-    ("plant_desk", "sansevieria", -3.75, -3.2),  # #195: the window's west end (the chat spots took its old place)
-    ("plant_corner", "fiddle_fig", 4.22, 3.18),  # its canopy (0.6 m) clears the floor lamp by 0.1 m
-    ("plant_sofa", "monstera", 0.905, 2.75),  # between the side table and the sofa: 0.44 m wide (#156: leaves all round, short toward ±x)
+    ("plant_desk", "sansevieria", *_c(-3.75, -3.6)),  # #195: the window's west end (the chat spots took its old place)
+    ("plant_corner", "fiddle_fig", *_c(4.8, 1.55)),  # #280: on the east wall, north of the sofa's short side
+    ("plant_sofa", "monstera", *_c(1.6, 3.85)),  # #280: the lounge rug's west; 0.1 north of the table's 3.95 (its leaves crossed the south wall by 3 cm)
 ]
-CLOCK_AT, CLOCK_S = (-HX + 0.02, 1.85, 1.6), 0.40  # wall clock face center (left wall, next to the door), size
+CLOCK_AT, CLOCK_S = (-HX + 0.02, 1.85, _c(0, 1.6)[1]), 0.40  # wall clock face center (left wall, next to the door), size
 CLOCK_M = Mx((CLOCK_AT[0] + 0.01, CLOCK_AT[1], CLOCK_AT[2]), ry=math.pi / 2)  # the face front: local +z = web +x
 
 
@@ -248,7 +267,7 @@ def build_room():
     # desks (0.30 from a wall wins); meeting: round, the standing circle + 0.30; lounge: the mat in front of the sofa,
     # 0.30 wider each side, 0.45 in front of it, 0.30 off the south wall
     rugs = (("rug_work", RUG_WORK, carpet), ("rug_lounge", RUG_LOUNGE, rug))
-    parts = [floor] + [rounded_slab(n, w, 0.01, d, 0.06 if n == "rug_work" else 0.2, (x, 0.005, z), m, G) for n, (x, z, w, d), m in rugs]
+    parts = [rounded_slab(n, w, 0.01, d, 0.06 if n == "rug_work" else 0.2, (x, 0.005, z), m, G) for n, (x, z, w, d), m in rugs]
     parts.append(cyl("rug_meet", RUG_MEET_D / 2, 0.01, (MEET_CENTER[0], 0.005, MEET_CENTER[1]), plastic("#33404c", 0.97, 0, 0.9, "rug_meet"), G, 56))
     for n, (x, z, w, d), _m in rugs:
         fp_box(n, "rug", (x - w / 2, 0.0, z - d / 2), (x + w / 2, 0.01, z + d / 2))
@@ -263,7 +282,9 @@ def build_room():
         e = apply_all(box(name, size, c, trim, G))
         drop_facing(e, n_in)  # the side pressed against the floor slab
         parts.append(tile(e, axes=ax))
-    for n_out in ((0, 0, -1), (0, 0, 1), (-1, 0, 0), (1, 0, 0)):  # the slab's own sides: covered by the edge trims
+    # the slab's own sides are covered by the edge trims; #280: its underside is never seen either (it took half the
+    # floor's atlas area)
+    for n_out in ((0, 0, -1), (0, 0, 1), (-1, 0, 0), (1, 0, 0), (0, -1, 0)):
         drop_facing(floor, n_out)
     # the city outside is no longer baked here (layered cards at 6–40 m: build_window_view, #111). The old baked city
     # drew from RNG: make the same draws so everything built after it (books, leaves) stays as it was.
@@ -276,7 +297,9 @@ def build_room():
         x += w + RNG.uniform(0.02, 0.08)
     o = join("room", parts)
     o["room"] = [HX, HZ, WALL_H]  # #109: the app reads the room size from here (floor bounds, walls, camera)
-    return o
+    # #280 (designer, room-280.md 6): the wood floor bakes alone in the floor atlas (the 9.6 x 8.2 m room left the shared
+    # room atlas ~120 px/m); the rugs, pads and edge trims keep the room atlas
+    return o, join("floor", [floor])
 
 
 def tile(o, step=2.4, axes="xz", cuts_y=()):
@@ -526,7 +549,13 @@ def build_desk(i, agent):
     for name, objs, home in props:
         SEAT_PROPS[name] = (objs, F @ home)
     for suf, objs, M in mouse_live:
-        desk_live.append(LIVE(f"desk_{i}_{suf}", "bot", objs, M))
+        if suf == "mouse":  # #305: the body; the pad's top rectangle in the body's rest frame (local x, z), its size
+            desk_live.append(LIVE(f"desk_{i}_{suf}", "bot", objs, M, pad={"center": [0.0, 0.03], "half": [0.125, 0.105]},
+                                  size=[0.062, 0.038, 0.115]))
+        elif suf == "mouse_shadow":
+            desk_live.append(LIVE(f"desk_{i}_{suf}", "bot", objs, M, shadow_of=f"desk_{i}_mouse"))
+        else:
+            desk_live.append(LIVE(f"desk_{i}_{suf}", "bot", objs, M))
     if "--tris" in ARGS:  # what the kit and the owner's things add (modifiers and text evaluated)
         dg = bpy.context.evaluated_depsgraph_get()
         n = 0
@@ -2554,7 +2583,7 @@ def build_lounge():
             VEIN_NODES.append(join(f"{name}_veins", veins))
         PLANT_NODES.append(join(name, [o for o in objs if not o.get("vein_node")]))
     # floor lamp by the sofa (its shade glows live)
-    lx, lz = SOFA[0] + 1.3, SOFA[1] + 0.29  # #185: 4 cm south of the old spot (designer), clear of the can stand
+    lx, lz = LAMP  # #280: behind the book table (room-280.md 8)
     p += [cyl("lamp_base", 0.14, 0.03, (lx, 0.015, lz), metal, G, 24),
           cyl("lamp_pole", 0.015, 1.5, (lx, 0.78, lz), metal, G, 10)]
     shade = cyl("lamp_shade", 0.2, 0.26, (lx, 1.62, lz), emitter("#ffcf8a", 2.0, "lamp_shade"), "export", 32, r2=0.13)
@@ -2575,10 +2604,10 @@ def build_lounge():
     fp("can_stand", st, "decor")
     # small round side table in the open front middle (#109): an empty top and a basket for now
     sx2, sz2 = SIDE_TABLE
-    st = [cyl("side_top", 0.3, 0.03, (sx2, 0.55, sz2), plastic("#c9b89a", 0.55, 0, 0.35, "desk_top"), G, 32, bev=0.006),
+    # #280: the book table (r 0.21) at the long sofa's west end; the basket is gone (the book lies on it)
+    st = [cyl("side_top", SIDE_R, 0.03, (sx2, 0.55, sz2), plastic("#c9b89a", 0.55, 0, 0.35, "desk_top"), G, 32, bev=0.006),
           cyl("side_col", 0.025, 0.52, (sx2, 0.27, sz2), metal, G, 12),
-          cyl("side_foot", 0.18, 0.02, (sx2, 0.01, sz2), metal, G, 24),
-          cyl("basket", 0.11, 0.08, (sx2 + 0.06, 0.605, sz2 - 0.04), plastic("#b98a4e", 0.9, 0, 0.6, "basket"), G, 16, r2=0.09)]
+          cyl("side_foot", 0.15, 0.02, (sx2, 0.01, sz2), metal, G, 24)]
     fp("side_table", st, "floor")
     p += st
     lounge = join("lounge", p)
@@ -2693,7 +2722,8 @@ def build_book(G):
     """the book on the side table (#135)"""
     sx2, sz2 = SIDE_TABLE
     T = 0.025
-    return make_book("prop_book", 0.15, 0.22, T, "#2f6f9f", (sx2 - 0.235, 0.565 + T / 2, sz2 + 0.06), (0.0, 0.15, 0.0), G,
+    # #280: on the 0.21 book table, its spine 0.13 west of the centre (corners within 0.19 of it)
+    return make_book("prop_book", 0.15, 0.22, T, "#2f6f9f", (sx2 - 0.13, 0.565 + T / 2, sz2 + 0.03), (0.0, 0.15, 0.0), G,
                      ribbon=True)
 
 
@@ -3198,6 +3228,10 @@ def build_hands():
     # pens (tripod): MEMO's pen (tip = the capped end, -z), the tablet pen, the markers
     tripod(O["agent_0_pen"], -0.085, 0.009)
     tripod(O["prop_tablet_pen"], -0.07, 0.006)
+    # #305 (planning: the tablet stays, the pen draws on it): the nib's end in the pen's frame, and the tablet's active
+    # area in desk_2_tablet's frame (centred on its pivot; the area's top 0.4 mm under the pivot)
+    O["prop_tablet_pen"]["tip"] = [0.0, 0.0, -0.07]
+    O["desk_2_tablet"]["area"] = {"w": 0.18, "d": 0.115, "top": -0.0004}
     for k in range(3):
         tripod(O[f"prop_marker_{k}"], -0.06, 0.0085)
     # baked things: the mouse (palm over it, index on the left button) and the coffee machine's button
@@ -3283,7 +3317,7 @@ SPAWN = [  # where each agent hovers in the exported (idle) pose: ping-pong, cof
     (PINGPONG[0] + 1.33, PINGPONG[1], math.pi / 2),
     (COUNTER[0] - 0.62, COUNTER[1], -math.pi / 2),  # nav_coffee: in front of the counter, facing +x
     (WHITEBOARD_X, -HZ + 0.9, 0.0),
-    (-0.75, -0.6, math.pi / 2),  # ECHO: hall_mid, facing west toward its desk
+    (*_c(-0.75, -0.6), math.pi / 2),  # ECHO: hall_mid, facing west toward its desk
 ]
 POSTIT = ["#ffe27a", "#ffc46b", "#fff1b8"]
 # the #20 grip offsets were defined on the old hand empty: agent frame, arm hanging (-y = away from the
@@ -3899,7 +3933,7 @@ COFFEE_SPOT = (0.62, 0.0)  # in the counter frame: in front of the machine
 
 # #195 (desks.md 2.1.6): the pod's desks touch, so a visitor stands off its four corners (the row desks) and beside
 # MEMO's head desk on its west (the window's east end holds the chat spots)
-DESK_SIDES = [(-3.35, -2.75), (-3.42, 0.85), (-3.42, -2.0), (-1.58, -2.0), (-1.58, 0.85)]
+DESK_SIDES = [_c(-3.35, -2.75), _c(-3.42, 0.85), _c(-3.42, -2.0), _c(-1.58, -2.0), _c(-1.58, 0.85)]
 
 
 def build_nav():
@@ -3936,10 +3970,12 @@ def build_nav():
     mc = nav("meet_center", MEET_CENTER[0], MEET_CENTER[1], MEET_RY, "meet_center")
     mc["r"], mc["ring"] = MEET_R, MEET_RING
     # hall nodes: the aisles between the zones (#195 layout; the app's nav check #17 links and tests them)
-    for name, x, z in (("door", -3.3, DOOR_Z), ("west", -3.0, 1.4), ("work", -0.75, -1.9), ("north", -0.75, -2.3),
+    # #280 (room-280.md 8, old-origin values through _c): the back wall went 0.4 north (hall_north with it) and opened
+    # an aisle behind MEMO's seat (hall_memo_back); the coffee counter moved onto the east wall (hall_ne steps aside)
+    for name, x, z in (("door", -3.3, 2.6), ("west", -3.0, 1.4), ("work", -0.75, -1.9), ("north", -0.75, -2.7),
                        ("mid", -0.75, -0.6), ("back", 1.0, -0.1), ("east", 3.1, -1.3), ("front", 0.2, 1.3),
-                       ("lounge", 3.95, 1.6), ("game", -1.6, 1.2), ("ne", 4.1, 0.0)):
-        nav(f"hall_{name}", x, z, 0.0, "hall")
+                       ("lounge", 3.95, 1.6), ("game", -1.6, 1.4), ("ne", 3.7, -0.7), ("memo_back", -2.5, -3.45)):
+        nav(f"hall_{name}", *_c(x, z), 0.0, "hall")
 
 
 # ================================================================ LIGHTS
@@ -3948,10 +3984,16 @@ def build_lights(lamp_pos):
     # #109: sized to the 9 x 7 room; power scaled with panel area so the light per m2 stays as it was
     # #195: the pod now stands right under this panel's middle and its oak tops baked to (1, 1, 1) (designer #249); they
     # come down by ATLAS_GAIN on their two atlases, not by this light, so the room around them stays as it was
-    light("panel_work", "AREA", 160, "#dfe6ff", (-2.7, 3.2, -1.5), aim=(-2.7, 0, -1.5), size=3.6, size_y=3.6)
-    light("panel_lounge", "AREA", 120, "#ffe2c4", (2.2, 3.2, 1.3), aim=(2.2, 0, 1.3), size=4.0, size_y=3.6)
-    light("panel_mid", "AREA", 55, "#ece4dc", (-0.9, 3.2, 1.2), aim=(-0.9, 0, 1.2), size=2.8, size_y=2.6)
-    light("panel_wall", "AREA", 45, "#e8ecff", (2.4, 3.0, -2.55), aim=(2.4, 1.2, -HZ), size=3.6, size_y=0.8)
+    # #280: the same panels over the moved zones (old-origin points through _c): work over the pod as before, the
+    # lounge one over the ping-pong table and the south-east lounge, the wall one 0.4 north with the back wall
+    wx, wz = _c(-2.7, -1.5)
+    lx_, lz_ = _c(2.9, 2.0)
+    mx_, mz_ = _c(-0.9, 1.4)
+    bx_, bz_ = _c(2.4, -2.95)
+    light("panel_work", "AREA", 160, "#dfe6ff", (wx, 3.2, wz), aim=(wx, 0, wz), size=3.6, size_y=3.6)
+    light("panel_lounge", "AREA", 120, "#ffe2c4", (lx_, 3.2, lz_), aim=(lx_, 0, lz_), size=4.0, size_y=3.6)
+    light("panel_mid", "AREA", 55, "#ece4dc", (mx_, 3.2, mz_), aim=(mx_, 0, mz_), size=2.8, size_y=2.6)
+    light("panel_wall", "AREA", 45, "#e8ecff", (bx_, 3.0, bz_), aim=(bx_, 1.2, -HZ), size=3.6, size_y=0.8)
     # moonlight through the window, warm lamp in the lounge
     light("moon", "AREA", 25, "#7d93ff", (WINDOW_X, 1.75, -HZ - 0.55), aim=(WINDOW_X, 0.6, -HZ + 1.75), size=2.4, size_y=1.0)
     light("floor_lamp", "POINT", 18, "#ffcf8a", lamp_pos, size=0.12)
@@ -3967,9 +4009,10 @@ def build_lights(lamp_pos):
 
 
 # ================================================================ main
-room = build_room()
+room, floor_node = build_room()
 door, door_screen = build_door()
 baked(room, "room")
+baked(floor_node, "floor")  # #280
 for side in "nwse":  # #111: four walls, two atlases
     baked(build_wall(side), "walls_nw" if side in "nw" else "walls_se")
 baked(door, "walls_se")  # its wall is w (extras), its atlas the roomier se one
@@ -4522,7 +4565,8 @@ scene.render.bake.target = "IMAGE_TEXTURES"
 # when they leave (props too since #43: a lifted paddle left its shadow on the table; the binders since #67: the app
 # shows only as many as there are files)
 for n in NODES:
-    if n["obj"].name.startswith(("agent_", "shelf_r", "clock_", "window_", "prop_book_", "prop_shelfbook_", "prop_paper_", "omok_stone_", "pp_ball")) or n.get("live") == "prop":
+    if n["obj"].name.startswith(("agent_", "shelf_r", "clock_", "window_", "prop_book_", "prop_shelfbook_", "prop_paper_", "omok_stone_", "pp_ball")) or n.get("live") == "prop" \
+            or (n["obj"].name.startswith("desk_") and "_mouse" in n["obj"].name):  # #305: the mouse moves on its pad
         n["obj"].hide_render = True
 
 atlases = {}
@@ -4533,6 +4577,8 @@ for n in NODES:
             drop_hidden_faces(n["obj"])
 
 images = {}
+# #280 (designer: the floor >= 200 px/m): the floor atlas alone is 2560 square (84 m2 of floor at 2048 gave ~180 px/m)
+ATLAS_SIZE = {"floor": 2560}
 for name, entries in atlases.items():
     objs = [e["obj"] for e in entries]
     unwrap(objs, {e["obj"].name: e["density"] for e in entries})
@@ -4544,8 +4590,9 @@ for name, entries in atlases.items():
             pts = [uv[li].uv for li in pl.loop_indices]
             uv_area += abs(sum(a.x * b.y - b.x * a.y for a, b in zip(pts, pts[1:] + pts[:1]))) / 2
             area += pl.area
-    print(f"texels {name}: {SIZE * math.sqrt(uv_area / area):.0f} px/m, UV fill {uv_area * 100:.0f}%, {area:.1f} m2")
-    img = bpy.data.images.new(name, SIZE, SIZE, float_buffer=True, alpha=False)
+    size = ATLAS_SIZE.get(name, SIZE)
+    print(f"texels {name}: {size * math.sqrt(uv_area / area):.0f} px/m, UV fill {uv_area * 100:.0f}%, {area:.1f} m2")
+    img = bpy.data.images.new(name, size, size, float_buffer=True, alpha=False)
     bake_targets(objs, img)
     images[name] = img
 

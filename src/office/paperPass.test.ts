@@ -62,7 +62,7 @@ describe('the lane (paper-pass.md 2.2)', () => {
     const lane = findLane(env.desks, spot('work_2'), spot('work_3'))!
     expect(Math.abs(lane.offset)).toBeGreaterThan(0.1)
     // 0.30 in front of the sender, 0.30 in front of the receiver
-    expect(Math.hypot(lane.put.x - -3.01, 0)).toBeLessThan(0.01)
+    expect(Math.hypot(lane.put.x - -3.31, 0)).toBeLessThan(0.01)
     expect(lane.dir.x).toBeCloseTo(1, 3)
   })
   it('no desk stuff: the straight line', () => {
