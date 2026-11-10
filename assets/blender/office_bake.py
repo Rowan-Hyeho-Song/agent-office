@@ -3920,8 +3920,12 @@ def hand_fingers(n, Mh, sx, shell, square=False):
                 bev = 0.006 if (tip and square) else 0.0015
                 parts.append(box("seg", (w, seg_len, depth), (0, y0 + seg_len / 2, 0), shell, "export", bev=bev, seg=1))
                 if tip:  # the pad: 2/3 of the tip segment on the palm side, 1.5 mm
+                    # #231: its far end a half circle (round_tip, as the other hands' pads), not a rectangle: the app's
+                    # fingertip (rig.ts tipOf) is the vertex farthest from the joint, and a square pad's far corner won
+                    # it, 7 mm off the finger's axis (LOOP alone failed the open book by 4-6.5 mm). Now it is the middle
+                    # of the arc. The keycap segment itself is unchanged; the pad stays 1.5 mm proud of its palm face
                     pl = seg_len * 0.67
-                    parts.append(box("pad", (w * 0.86, pl, 0.0015), (0, y0 + seg_len - pl / 2 - 0.0015, depth / 2 + 0.00075), pad_m, "export"))
+                    parts.append(round_tip("pad", w * 0.86, y0 + seg_len - pl - 0.0015, y0 + seg_len - 0.0015, 0.0015, pad_m, z=depth / 2 + 0.00075))
             out.append(pivot(join(f"{name}_{k + 1}", place(parts, Mk)), Mk))
             joint += ln
 
