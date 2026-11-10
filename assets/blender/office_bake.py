@@ -4797,11 +4797,12 @@ def build_coffee_bar():
     bot_m = glass_mat("disp_bottle", "#9fb4c4", 0.45)
     p += [box("disp_body", (0.30, 0.70, 0.30), (xw - 0.15, 0.35, DISP_Z), iv, L2, bev=0.01, seg=2),
           lathe("disp_bottle", [(0, 0.70), (0.13, 0.70), (0.13, 0.98), (0.10, 1.03), (0.04, 1.05), (0, 1.05)], (xw - 0.15, 0, DISP_Z), bot_m, L2, seg=28),
-          box("disp_tray", (0.08, 0.015, 0.18), (xw - 0.31, 0.30, DISP_Z), gra, L2, bev=0.003, seg=1)]
+          # #280 3 (designer: it read as a face): a wide drip tray 0.24 across the front with a grid, not a narrow mouth
+          box("disp_tray", (0.09, 0.015, 0.24), (xw - 0.31, 0.30, DISP_Z), gra, L2, bev=0.003, seg=1)]
     # #280 3 (designer): a grid on the drip tray, a paper cup holder (a ring on an arm, three cups nested) on the north
     # side near the front
-    for k in range(8):
-        p.append(box("disp_grid", (0.07, 0.003, 0.006), (xw - 0.31, 0.309, DISP_Z - 0.075 + k * 0.0214), plastic("#8b8f96", 0.4, 0.5, 0.05, "disp_grid"), L2))
+    for k in range(10):
+        p.append(box("disp_grid", (0.08, 0.003, 0.006), (xw - 0.31, 0.309, DISP_Z - 0.105 + k * 0.0233), plastic("#8b8f96", 0.4, 0.5, 0.05, "disp_grid"), L2))
     hx_, hz_ = xw - 0.24, DISP_Z - 0.15 - 0.048
     cup_p = plastic("#f1ece0", 0.8, 0, 0.1, "paper_cup")
     p += [box("cup_arm", (0.012, 0.012, 0.012), (hx_, 0.60, DISP_Z - 0.15 - 0.005), gra, L2, bev=0.002, seg=1),
@@ -4809,10 +4810,10 @@ def build_coffee_bar():
     for k in range(3):
         p.append(cyl("paper_cup", 0.026, 0.08, (hx_, 0.56 + k * 0.015, hz_), cup_p, L2, 20, r2=0.036))
     p.append(torus("paper_cup_lip", 0.036, 0.0015, (hx_, 0.6 + 0.03, hz_), cup_p, L2, seg=24, rseg=4))
-    for k, c in enumerate(("#d64545", "#3c6fd6")):
+    for k, c in enumerate(("#c0504d", "#4f7fbf")):  # #280 3 (designer): the taps themselves red / blue (two black ones read as eyes)
         tz = DISP_Z - 0.045 + k * 0.09
-        p += [box("disp_tap", (0.03, 0.03, 0.025), (xw - 0.315, 0.52, tz), gra, L2, bev=0.004, seg=1),
-              cyl("disp_dot", 0.006, 0.002, (xw - 0.316, 0.545, tz), plastic(c, 0.4, 0, 0, f"tap_{c[1:]}"), L2, 12)]
+        p += [box("disp_tap", (0.03, 0.03, 0.025), (xw - 0.315, 0.52, tz), plastic(c, 0.45, 0, 0.05, f"tap_{c[1:]}"), L2, bev=0.004, seg=1),
+              cyl("disp_dot", 0.006, 0.002, (xw - 0.316, 0.545, tz), plastic("#efe6d2", 0.5, 0, 0, "tap_cap"), L2, 12)]
         child_empty(None, f"water_tap_{k}", Mx((xw - 0.315, 0.535, tz)), {"press": "water", "hot": k == 0})
     fp_box("water_dispenser", "floor", (xw - 0.33, 0.0, DISP_Z - 0.15 - 0.09), (xw, 1.05, DISP_Z + 0.15), wall="e")  # with the cup holder
     # cup rail over the counter: a bar, three hooks, three mugs hanging by their handles
