@@ -4,7 +4,7 @@
 // Every sound is a cue of sound.md 4.4 with the position of what makes it; the turntable also tells the speakers (speaker.ts needleDown / needleUp).
 
 import { Matrix4, Mesh, Object3D, Quaternion, Vector3 } from 'three'
-import { cue } from '../audio/cues'
+import { cue, getCueSpeed } from '../audio/cues'
 import { needleDown, needleUp } from '../audio/speaker'
 import type { Goal } from './director'
 import { GRIPS, REST, curlOf } from './grip'
@@ -109,6 +109,8 @@ export class LoungeActs {
   // the door lever
   private lever?: { node: Object3D; base: Quaternion; press: { axis: string; sign: number; deg: number; press_s: number; release_s: number } }
   private leverT: Map<string, number> = new Map()
+  /** each agent's lever `u` of the last frame (the lever cues fire on crossing) */
+  private leverPrev: Map<string, number> = new Map()
   private leverAng = 0
   // events: the last `u` of each act, who stood on the mat, who sat
   private lastU = new Map<string, number>()
@@ -192,9 +194,15 @@ export class LoungeActs {
     return this.deg
   }
 
-  private fire(name: Parameters<typeof cue>[0], agent: string, pos: Vector3, at: number, extra: { dur?: number } = {}) {
+  /**
+   * one cue. `at` is the act's own clock (tests read it); `t` the scene time (the stage time in a replay), which keys the
+   * cue so the ×4 replay keeps or drops the same ones every time (cues.ts keyRoll). `delay` (scene s) moves it later.
+   */
+  private fire(name: Parameters<typeof cue>[0], agent: string, pos: Vector3, at: number, t: number, extra: { dur?: number; delay?: number } = {}) {
     this.fired.push({ name, agent, at })
-    cue(name, { pos: pos.clone(), agent, ...extra })
+    const key = `lounge:${name}:${agent}:${Math.round(t * 10)}`
+    const later = extra.delay ? { at: extra.delay / Math.max(1, getCueSpeed()) } : {}
+    cue(name, { pos: pos.clone(), agent, key, ...(extra.dur !== undefined ? { dur: extra.dur } : {}), ...later })
   }
 
   private crossed(prev: number, u: number, at: number) {
@@ -299,7 +307,7 @@ export class LoungeActs {
     this.hooks.partner(rig, 'pillow', 'l', name, 'r')
     if (attached && !this.hugged.has(key)) {
       this.hugged.add(key)
-      this.fire('pillow.hug', rig.id, chest, inp.t)
+      this.fire('pillow.hug', rig.id, chest, inp.t, inp.t)
     }
   }
 
@@ -333,17 +341,17 @@ export class LoungeActs {
       if (a.kind === 'fridge') {
         doorTarget = Math.max(doorTarget ?? 0, doorDeg(u))
         const dp = this.door?.getWorldPosition(new Vector3()) ?? new Vector3(FRIDGE.hinge.x, 0.5, FRIDGE.hinge.z)
-        if (this.crossed(prev, u, FRIDGE_T.open)) this.fire('fridge.open', id, dp, u)
-        if (this.crossed(prev, u, FRIDGE_T.shut)) this.fire('fridge.close', id, dp, u)
+        if (this.crossed(prev, u, FRIDGE_T.open)) this.fire('fridge.open', id, dp, u, inp.t)
+        if (this.crossed(prev, u, FRIDGE_T.shut)) this.fire('fridge.close', id, dp, u, inp.t)
       } else if (a.kind === 'dispenser') {
-        if (this.crossed(prev, u, DISPENSER_T.press)) this.fire('dispenser.pour', id, new Vector3(DISPENSER.face.x, 0.55, DISPENSER.face.z), u, { dur: DISPENSER.pourS })
+        if (this.crossed(prev, u, DISPENSER_T.press)) this.fire('dispenser.pour', id, new Vector3(DISPENSER.face.x, 0.55, DISPENSER.face.z), u, inp.t, { dur: DISPENSER.pourS })
       } else {
         const mode = a.mode ?? 'put'
         const b = recordBeats(mode, a.recordOn)
         const pp = this.platter?.getWorldPosition(new Vector3()) ?? pos
-        if (b.record && this.crossed(prev, u, RECORD_T.take)) this.fire('record.out', id, this.record?.getWorldPosition(new Vector3()) ?? pp, u)
+        if (b.record && this.crossed(prev, u, RECORD_T.take)) this.fire('record.out', id, this.record?.getWorldPosition(new Vector3()) ?? pp, u, inp.t)
         if (b.record && this.crossed(prev, u, RECORD_T.place)) {
-          this.fire('record.place', id, pp, u)
+          this.fire('record.place', id, pp, u, inp.t)
           this.deck.recordOn = true
           for (const m of this.discHere) m.visible = false
           for (const m of this.discThere) m.visible = true
@@ -351,11 +359,11 @@ export class LoungeActs {
         if (this.crossed(prev, u, b.down)) {
           if (mode === 'put') {
             this.deck.needle = true
-            this.fire('record.needle', id, pp, u)
+            this.fire('record.needle', id, pp, u, inp.t)
             needleDown()
           } else {
             this.deck.needle = false
-            this.fire('record.lift', id, pp, u)
+            this.fire('record.lift', id, pp, u, inp.t)
             needleUp()
           }
         }
@@ -397,6 +405,17 @@ export class LoungeActs {
       let u = -1
       for (const id in inp.rigs) if (inp.rigs[id].arrived === 'door' && this.leverT.has(id)) u = Math.max(u, this.leverT.get(id)!)
       for (const id of [...this.leverT.keys()]) if (inp.rigs[id].arrived !== 'door') this.leverT.delete(id)
+      // the lever's two sounds (sound.md 4.4): the latch at the bottom of the press, the spring back at the top
+      const downAt = LEVER_T.grab + press.press_s
+      const upAt = downAt + LEVER_T.hold + press.release_s
+      const lp = node.getWorldPosition(new Vector3())
+      for (const [id, lu] of this.leverT) {
+        const prev = this.leverPrev.get(id) ?? -1
+        if (this.crossed(prev, lu, downAt)) this.fire('lever.down', id, lp, lu, inp.t)
+        if (this.crossed(prev, lu, upAt)) this.fire('lever.up', id, lp, lu, inp.t)
+        this.leverPrev.set(id, lu)
+      }
+      for (const id of [...this.leverPrev.keys()]) if (!this.leverT.has(id)) this.leverPrev.delete(id)
       const ang = u >= 0 ? leverAngle(u, press) * DEG : 0
       this.leverAng = ang
       node.quaternion.copy(base).multiply(new Quaternion().setFromAxisAngle(press.axis === 'x' ? new Vector3(1, 0, 0) : press.axis === 'y' ? UP : new Vector3(0, 0, 1), ang))
@@ -407,10 +426,11 @@ export class LoungeActs {
       const goal = inp.goals[id]
       if (!rig.visible) continue
       const on = onMat(rig.x, rig.z)
-      if (on && !this.mat.get(id)) this.fire('mat.step', id, new Vector3(rig.x, 0.02, rig.z), inp.t)
+      if (on && !this.mat.get(id)) this.fire('mat.step', id, new Vector3(rig.x, 0.02, rig.z), inp.t, inp.t)
       this.mat.set(id, onMat(rig.x, rig.z))
       const seated = goal?.pose === 'sofa' && rig.arrived === goal.spot ? goal.spot : ''
-      if (seated && this.sat.get(id) !== seated) this.fire('sofa.sit', id, new Vector3(rig.x, 0.4, rig.z), inp.t)
+      // the body settles about 0.3 s after arriving (rig.ts seat: damp rate 3): the cushion thump then
+      if (seated && this.sat.get(id) !== seated) this.fire('sofa.sit', id, new Vector3(rig.x, 0.4, rig.z), inp.t, inp.t, { delay: 0.3 })
       this.sat.set(id, seated)
     }
   }

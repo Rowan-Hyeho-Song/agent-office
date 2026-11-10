@@ -291,6 +291,7 @@ describe('the door', () => {
     }
     expect(w.rigs.agent_1.arrived).toBe('door')
     expect(fired.filter((n) => n === 'mat.step'), 'one step on the mat').toHaveLength(1)
+    expect(fired.filter((n) => n.startsWith('lever.')), 'the latch at the bottom, the spring at the top, once each').toEqual(['lever.down', 'lever.up'])
     expect(min, 'pressed down 30°').toBeCloseTo(-30, 0)
     expect(Math.abs(w.stage.lounge.leverDeg()), 'and let up again').toBeLessThan(0.5)
     expect(leftFrames, 'the left hand held the lever').toBeGreaterThan(30)
