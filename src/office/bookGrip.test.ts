@@ -28,6 +28,12 @@ const EPS = 1e-4
 const STRICT = true
 const IN_LIMIT = STRICT ? EPS : 0.0025
 const PAD_LIMIT = STRICT ? 0.001 : 0.005
+/**
+ * The thumb on an open book: its chain wraps the cover's edge, so with nothing inside the book its pad stands a little off the paper
+ * (1.1–2.5 mm on the 25 mm contact). The designer's limit for it (#231, grips.md): 2.5 mm, nothing inside; at the tour's closest view
+ * (about 2.2 m) that is under a pixel. The other fingers keep 1 mm
+ */
+const THUMB_PAD_LIMIT = STRICT ? 0.0025 : 0.005
 const mm = (x: number) => (x * 1000).toFixed(2)
 
 /** the first mesh under a node (the leaf's paper) */
@@ -173,9 +179,10 @@ describe('no finger through the book while it is read', () => {
           }
           if (pen.min < -IN_LIMIT) bad.push(`${t.key} agent_${i}: ${pen.finger} ${mm(pen.min)} mm`)
           for (const f of fits) {
-            // the pad is on its surface: not through it, not more than 1 mm off it
+            // the pad is on its surface: not through it, not more than 1 mm off it (the thumb 2.5 mm, see THUMB_PAD_LIMIT)
+            const limit = f.finger === 'thumb' ? THUMB_PAD_LIMIT : PAD_LIMIT
             expect(f.off, `${t.key} agent_${i} ${f.finger} off the surface`).toBeGreaterThanOrEqual(-EPS)
-            expect(f.off, `${t.key} agent_${i} ${f.finger} pad within 1 mm`).toBeLessThanOrEqual(PAD_LIMIT)
+            expect(f.off, `${t.key} agent_${i} ${f.finger} pad within ${mm(limit)} mm`).toBeLessThanOrEqual(limit)
             farthestPad = Math.max(farthestPad, f.off)
           }
         }
