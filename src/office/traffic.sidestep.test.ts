@@ -448,4 +448,42 @@ describe('the re-baked lounge: passing a seated body keeps the seat pitch', () =
       expect(min).toBeGreaterThanOrEqual(pitch - 0.005)
     })
   }
+  // a seat between two sitters (five agents, three seats: the schedule can fill both sides first)
+  rowSeats.forEach((seat, k) => {
+    const [l, r] = [rowSeats[k - 1], rowSeats[k + 1]]
+    if (!l || !r) return
+    for (const from of new Set(starts))
+      it(`sitters on ${l.id} and ${r.id}, a walker from ${from} to ${seat.id} and back: never nearer than the pitch to either`, () => {
+        const p = new TrafficPlanner(buildGrid(decodeFootprint(FOOTPRINT_DATA), GRAPH), GRAPH)
+        p.place('l', req(l.id), 0, 0)
+        p.place('r', req(r.id), 0, 1)
+        p.place('w', req(from), 0, 2)
+        p.update(0)
+        p.request('w', req(seat.id), 0)
+        const pitch = p.seatPassM
+        let min = Infinity
+        let sat = -1
+        let out = -1
+        let sent = false
+        for (let t = 0; t <= 150; t += 0.05) {
+          if (sat < 0 && p.sample('w', t).arrived === seat.id) sat = t
+          if (sat >= 0 && !sent && t > sat + 5) {
+            p.request('w', req(from), t)
+            sent = true
+          }
+          p.update(t)
+          const w = p.sample('w', t)
+          for (const id of ['l', 'r']) {
+            const s = p.sample(id, t)
+            min = Math.min(min, Math.hypot(w.x - s.x, w.z - s.z))
+          }
+          if (sent && out < 0 && w.arrived === from) out = t
+        }
+        expect(sat, 'sat on the seat').toBeGreaterThanOrEqual(0)
+        expect(sat).toBeLessThan(60)
+        expect(out, 'left again').toBeGreaterThan(sat)
+        expect(out - sat - 5).toBeLessThan(60)
+        expect(min).toBeGreaterThanOrEqual(pitch - 0.005)
+      })
+  })
 })

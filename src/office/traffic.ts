@@ -608,6 +608,66 @@ export class TrafficPlanner {
     return ban
   }
 
+  /**
+   * Getting up from a seat of the row (#280): out along the seat's lane to its far end, then a straight chord to a cell that keeps the pitch from every body
+   * resting on a seat, and the usual search from there (the cells of the grid cannot find the way out between two seated neighbours: every cell beside the lane is
+   * nearer them than the pitch). Null when it does not start on a seat, goes to another seat of the row, or no cell qualifies (the plain search then).
+   */
+  private leaveSeat(ctx: Ctx, here: { x: number; z: number }, startCell: number, t0: number, goalSpot: string, held: boolean): Way[] | null {
+    const row = this.row
+    if (!row || held || this.restsOnRowSeat(here.x, here.z) === false) return null
+    const seat = (row.approach.seats as NavSpot[]).find((q) => Math.hypot(q.x - here.x, q.z - here.z) < SOFA_ROW.seatEps)
+    if (!seat || row.seatIds.has(goalSpot)) return null
+    const w = this.laneEnd(seat.x, seat.z)
+    const V = ctx.V
+    const tmp = { x: 0, z: 0 }
+    const sitters: { x: number; z: number }[] = []
+    for (const r of ctx.reserved) {
+      this.px(r, r.ghost ? r.t0 : r.endT, tmp)
+      if (this.restsOnRowSeat(tmp.x, tmp.z, SOFA_ROW.sittingM) && Math.hypot(tmp.x - seat.x, tmp.z - seat.z) > SOFA_ROW.seatEps) sitters.push({ x: tmp.x, z: tmp.z })
+    }
+    const g = this.grid
+    const cands: number[] = []
+    for (let c = 0; c < g.w * g.h; c++) {
+      if (g.blocked[c] || !Number.isFinite(ctx.field[c])) continue
+      const p = centre(g, c)
+      if (Math.hypot(p.x - w.x, p.z - w.z) >= SOFA_ROW.ringM) continue
+      // the chord from the lane's end, and the cell itself, keep the pitch (the cell as a plain approach-area one: pitch + the search margin)
+      if (sitters.some((q) => !this.chordSafe(w.x, w.z, p.x, p.z, q.x, q.z) || Math.hypot(q.x - p.x, q.z - p.z) < this.passLimit(1))) continue
+      cands.push(c)
+    }
+    cands.sort((p, q) => ctx.field[p] - ctx.field[q])
+    const leg1 = Math.hypot(w.x - here.x, w.z - here.z)
+    for (const c of cands.slice(0, 6)) {
+      const p = centre(g, c)
+      const t1 = t0 + leg1 / (V * this.speedScale(startCell))
+      const t2 = t1 + Math.hypot(p.x - w.x, p.z - w.z) / (V * this.speedScale(c))
+      // the two straight legs take time: nobody else on the move (not a sitter, judged by the pitch above) comes within 2R + gap of them meanwhile
+      let clear = true
+      const q = { x: 0, z: 0 }
+      for (const r of ctx.reserved) {
+        if (!clear) break
+        for (let tt = t0; tt <= t2 + 0.3; tt += 0.1) {
+          const onLane = tt <= t1
+          const f = onLane ? (tt - t0) / Math.max(1e-6, t1 - t0) : Math.min(1, (tt - t1) / Math.max(1e-6, t2 - t1))
+          const x = onLane ? here.x + (w.x - here.x) * f : w.x + (p.x - w.x) * f
+          const z = onLane ? here.z + (w.z - here.z) * f : w.z + (p.z - w.z) * f
+          if (r.ghost && tt > r.endT) continue
+          this.px(r, tt, q)
+          if (this.restsOnRowSeat(q.x, q.z, SOFA_ROW.sittingM)) continue
+          if (Math.hypot(q.x - x, q.z - z) < this.thr) {
+            clear = false
+            break
+          }
+        }
+      }
+      if (!clear) continue
+      const ways = this.search(ctx, { t: t2, x: p.x, z: p.z, c })
+      if (ways) return [{ t: t0, x: here.x, z: here.z, c: startCell }, { t: t1, x: w.x, z: w.z, c: startCell }, ...ways]
+    }
+    return null
+  }
+
   /** a body standing (not resting on a seat) in the row */
   private standsInRow(x: number, z: number): boolean {
     const row = this.row
@@ -694,7 +754,7 @@ export class TrafficPlanner {
     const blockedForever = !this.restClear(goal.x, goal.z, 1e12, ctx)
     let ways: Way[] | null = null
     let reached = true
-    if (!blockedForever) ways = this.search(ctx, { t: t0, x: here.x, z: here.z, c: startCell })
+    if (!blockedForever) ways = this.leaveSeat(ctx, here, startCell, t0, req.spot, !!pre) ?? this.search(ctx, { t: t0, x: here.x, z: here.z, c: startCell })
     // no way by the nearest entrance (a seated neighbour shuts it at the seat pitch): the other one, rather than waiting for the neighbour to go
     if (!ways && ban) return this.planAgent(a, t, reserved, lanePull, true)
     if (!ways) {
@@ -848,8 +908,8 @@ export class TrafficPlanner {
   }
 
   /** a body at (x, z) rests on a seat of the sofa row */
-  restsOnRowSeat(x: number, z: number): boolean {
-    return !!this.row && this.row.approach.seats.some((s) => Math.hypot(s.x - x, s.z - z) < SOFA_ROW.seatEps)
+  restsOnRowSeat(x: number, z: number, eps: number = SOFA_ROW.seatEps): boolean {
+    return !!this.row && this.row.approach.seats.some((s) => Math.hypot(s.x - x, s.z - z) < eps)
   }
 
   /** the seat pitch of the sofa row (the floor between a walker and a body resting on a seat), or 0 without a row */

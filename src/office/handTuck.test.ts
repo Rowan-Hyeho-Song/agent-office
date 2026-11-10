@@ -53,7 +53,7 @@ async function walk(sitter: { frame: number; lateral: number; seatSide: 1 | -1 }
       sit.z = f.z - Math.sin(f.h) * sitter.lateral * sitter.seatSide
     }
     for (const r of [walker, sit]) r.update(DT, t, GRAPH, rigs, false)
-    out.push({ x: walker.x, z: walker.z, h: walker.heading, l: local(walker, 'l'), r: local(walker, 'r'), tuck: { l: walker.tuckAmount('l'), r: walker.tuckAmount('r') }, speed: walker.speed })
+    out.push({ x: walker.x, z: walker.z, h: walker.heading, l: local(walker, 'l'), r: local(walker, 'r'), tuck: { l: walker.tuckAmount('l'), r: walker.tuckAmount('r') }, speed: (walker as unknown as { speed: number }).speed })
     if (!(walker as unknown as { path: string[] }).path.length && k > 120) break
   }
   return out
