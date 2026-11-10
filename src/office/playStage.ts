@@ -38,6 +38,7 @@ import { gameAt, N, type OmokView } from '../play/omok'
 import { rallyAt, type Dims, type Rally } from '../play/pingpong'
 import { CARRY_HOLD, HOLD_DEFAULT, PLANTS, canPose, dropAt, landing, lerpHold, plantsFrom, pourAt, solvePour, spoutOf, type Plant } from './water'
 import { WATER_S } from './waterRun'
+import { READ_S } from './readRun'
 import { type Place, SEQ, ease, followWeight, habitOf, placeSequence, swingTilt, swingTravel } from '../play/choreo'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
@@ -948,6 +949,8 @@ export class PlayStage {
       }
       return
     }
+    // the reading errand (readRun.ts): the book from the low table to the sofa seat and back
+    if (goal.pose === 'books' && goal.read) return this.readErrand(rig, goal.read, inp)
     if (goal.pose === 'books' && resting) {
       const book = this.props.info(rig, 'book')
       if (book) {
@@ -1075,6 +1078,49 @@ export class PlayStage {
     this.pouring = { on: attached && tilt > 0.5 && !inp.reduced, rig, held, soilY: plant.soilY }
   }
 
+  /**
+   * The reading errand (#280, readRun.ts decides the stage and how long it has lasted; this only draws it). The left hand takes the book where it rests on the low
+   * table (pick), carries it open at the chest (carry, return: the body's own height, so seated it is lower), reads it seated (read: a leaf turns every 6 s), and lowers it
+   * to exactly where it rests, closing it, before it lets go (put). The book is never moved by anything but the hand.
+   */
+  private readErrand(rig: AgentRig, r: NonNullable<Goal['read']>, inp: StageIn) {
+    if (r.stage === 'fetch') return
+    const book = this.props.info(rig, 'book')
+    if (!book) return
+    const t = inp.t
+    const seat = Number(rig.id.split('_')[1])
+    const root = rig.parts.root
+    const yaw = new Quaternion().setFromAxisAngle(UP, rig.heading)
+    const right = new Vector3(Math.cos(rig.heading), 0, -Math.sin(rig.heading))
+    // the page faces the reader (tipped up 30°), the spine runs down, the left page on the reader's left; at the chest of the body as it is now (sitting lowers it)
+    const face = new Vector3(0, 0.5, 0.87).applyQuaternion(yaw).normalize()
+    const q = new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(right, face, new Vector3().crossVectors(right, face)))
+    const drop = rig.parts.head.position.y - rig.parts.headRestY
+    const bob = inp.reduced ? 0 : Math.sin(t * 1.3 + seat) * 0.004
+    const carrying = new Matrix4().compose(root.localToWorld(new Vector3(-0.02, 1.0 + drop + bob, -0.32)), q, ONE)
+    let held = carrying
+    let want = true
+    let closeAt: number | undefined
+    if (r.stage === 'put') {
+      const dur = Math.max(READ_S.lower, rig.gestureMin)
+      closeAt = t - r.u
+      const k = inp.reduced ? 1 : ease(Math.min(1, r.u / dur))
+      held = blend(carrying, this.props.homeWorld(book.node), k)
+      // exactly at rest for the last frames in the hand
+      if (r.u >= dur + 0.06) want = false
+    }
+    const attached = this.grip(rig, 'l', 'book', book.node.name, want, held, inp)
+    const tr = this.target(book.node.name, 'book', 'r')
+    if (tr) {
+      this.rightHand(rig, 'book', tr, this.lastObjPose)
+      if (attached) this.setExtra(rig, 'l', book.node.name, (m) => this.rightHand(rig, 'book', tr, m))
+    }
+    const openAt = this.clocks.get(`${rig.id}:l`)?.attachedAt ?? t
+    this.reading = { rig, openAt, turnAt: r.u, ...(closeAt !== undefined ? { closeAt } : {}) }
+    if (attached && tr && r.stage === 'read') this.turnLeaf(rig, book.node.name, r.u, openAt, this.lastObjPose, inp)
+    else this.hideLeaf()
+  }
+
   private setExtra(rig: AgentRig, side: 'l' | 'r', objName: string, fn: (pose: Matrix4) => void) {
     // the carry entry of the hand that holds the prop (water: the right hand, the book: the left)
     const e = [...this.carry.values()].find((x) => x.rig === rig && x.objName === objName && x.side === (side === 'r' ? 'r' : 'l'))
@@ -1085,7 +1131,7 @@ export class PlayStage {
   /** the spout node in the can's frame (water.ts: +z = the water's direction) */
   private spoutLocal: Matrix4 | null = null
   private plants: Plant[] = PLANTS
-  private reading: { rig: AgentRig; openAt: number; turnAt: number } | null = null
+  private reading: { rig: AgentRig; openAt: number; turnAt: number; closeAt?: number } | null = null
 
   /** the other hand of a two-handed hold: it goes to the object with the first hand's stages (reach, pre-grip, close, hold, let go) */
   private partner(rig: AgentRig, kind: string, side: 'l' | 'r', tgt: GripTarget, objPose: Matrix4, primary: 'l' | 'r', scale = 1) {
@@ -1142,11 +1188,13 @@ export class PlayStage {
     if (!r) this.hideLeaf()
     if (!r || inp.reduced) {
       // closed on its shelf, or (reduced motion) open without the turning
-      h.l.rotation.z = r ? halfAngle('l') : 0
-      h.r.rotation.z = r ? halfAngle('r') : 0
+      const shut = !r || (r.closeAt !== undefined && inp.t >= r.closeAt)
+      h.l.rotation.z = shut ? 0 : halfAngle('l')
+      h.r.rotation.z = shut ? 0 : halfAngle('r')
       return
     }
-    const open = ease((inp.t - r.openAt) / 0.5)
+    // it closes in the hand before it is put down (readErrand: closeAt)
+    const open = ease((inp.t - r.openAt) / 0.5) * (r.closeAt === undefined ? 1 : 1 - ease((inp.t - r.closeAt) / READ_S.close))
     h.l.rotation.z = halfAngle('l') * open
     h.r.rotation.z = LIFT * open
   }

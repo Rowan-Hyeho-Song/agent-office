@@ -57,6 +57,20 @@ describe('a whole day through the planner', () => {
   }, 120_000)
 })
 
+// #280: reading is an errand like the watering: the book is taken from the low table, read seated, put back; one book, so one reader
+describe('reading through the day', () => {
+  it('the book is fetched, picked, carried to a seat, read, brought back and put down, one agent at a time, on seat 0 and also on seat 1', () => {
+    const r = wholeDay()
+    console.log(`day sim (#280): reading errands ${JSON.stringify(r.reads)}; most at once ${r.readsAtOnce}`)
+    expect(r.reads.fetch, 'readings started').toBeGreaterThan(5)
+    // a reading called to work before it reached the table forgets the book (nothing to bring back); one that has taken the book always puts it back (the day's last one may be cut off)
+    expect(r.reads.pick, 'most readings reach the table').toBeGreaterThan(r.reads.fetch * 0.8)
+    expect(r.reads.done, 'every book taken is put back').toBeGreaterThanOrEqual(r.reads.pick - 1)
+    expect(r.reads.seat0, 'seat 0 is the first choice').toBeGreaterThan(r.reads.seat1)
+    expect(r.readsAtOnce, 'one book').toBeLessThanOrEqual(1)
+  }, 120_000)
+})
+
 // #280: the lounge acts run through the day like any other errand: they are sent, reach their stands and run to their end, never two at the bar, never two at the turntable
 describe('the lounge acts through the day', () => {
   it('the fridge, the dispenser and the turntable are all visited; one at the bar, one at the turntable', () => {

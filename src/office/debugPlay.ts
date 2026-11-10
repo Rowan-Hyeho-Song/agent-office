@@ -156,6 +156,11 @@ export function makePlayTools(world: OfficeWorld) {
         world.director.forceWater(agent, WATER_PLANTS.find((p) => p.name === plant)?.name ?? WATER_PLANTS[0].name, officeNow(world), reduced)
         return
       }
+      // reading (readRun.ts): the book from the low table, read seated on sofa seat 0 (force(agent, 'books', '1'): seat 1), put back
+      if (kind === 'books') {
+        world.director.forceRead(agent, officeNow(world), plant === '1' ? 1 : 0)
+        return
+      }
       // the lounge acts (lounge.ts) run through the Director like the schedule's own; the sofa, the east seat and the door are plain goals
       if (isAct(kind)) {
         world.director.forceAct(agent, kind, officeNow(world))
@@ -171,7 +176,7 @@ export function makePlayTools(world: OfficeWorld) {
         lie: { spot: 'sofa_3', pose: 'sofa' },
         door: { spot: 'door', pose: 'idle' },
         coffee: { spot: 'coffee', pose: 'coffee' },
-        books: { spot: 'shelf', pose: 'books', face: BOOK.face, ...standSlot(BOOK) },
+        'books-stand': { spot: 'shelf', pose: 'books', face: BOOK.face, ...standSlot(BOOK) }, // the old standing pick, for the close-up
       }
       if (goals[kind]) world.forceGoal[agent] = goals[kind]
     },
@@ -184,6 +189,7 @@ export function makePlayTools(world: OfficeWorld) {
       world.gripDemo = null
       world.director.clearWater()
       world.director.clearActs()
+      world.director.clearReads()
     },
   }
   const grip = {

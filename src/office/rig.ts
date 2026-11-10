@@ -1342,7 +1342,7 @@ export class AgentRig {
       case 'water':
         return { pitch: -0.3, yaw: 0, roll: 0 }
       case 'books':
-        return { pitch: 0.2, yaw: 0, roll: 0 }
+        return { pitch: this.goal?.read ? (this.goal.read.stage === 'read' ? -0.3 : -0.1) : 0.2, yaw: 0, roll: 0 }
       case 'pingpong':
         return { pitch: -0.05, yaw: s(5.5) * 0.12, roll: 0 }
       default:

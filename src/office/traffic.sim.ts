@@ -24,6 +24,8 @@ export function mismatch(a: string, sh: Shown | undefined, g: Goal, arrived: str
   const s = sh.status.state
   // #228: called to work (or off) while carrying the watering can, the agent first brings it back: it shows the errand's words, whatever it is
   if (g.pose === 'water' && sh.kind !== 'rest') return sh.detail && g.water ? null : 'water errand without its words'
+  // the same for the book (#280): called away on the sofa, it first brings the book back and says so
+  if (g.pose === 'books' && g.read && sh.kind !== 'rest') return sh.detail ? null : 'reading errand without its words'
   switch (sh.kind) {
     case 'work':
       if (s !== 'working' || (g.pose !== 'type' && g.pose !== 'listen') || g.spot !== desk) return 'work: not typing at the desk'
@@ -114,6 +116,10 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
   const errands: Record<string, number> = { fetch: 0, lift: 0, carry: 0, pour: 0, return: 0, put: 0, done: 0 }
   const stageOf: Record<string, string | undefined> = {}
   let errandsAtOnce = 0
+  // the reading errands (#280): how many entered each stage, on which seat, and whether two agents ever read at once (one book)
+  const reads: Record<string, number> = { fetch: 0, pick: 0, carry: 0, read: 0, return: 0, put: 0, done: 0, seat0: 0, seat1: 0 }
+  const readStage: Record<string, string | undefined> = {}
+  let readsAtOnce = 0
   // the lounge acts (#280, lounge.ts): how many were sent, how many got as far as their stand, how many ran to their end; who was at the bar / turntable at once
   const acts: Record<string, { sent: number; reached: number; done: number }> = { fridge: { sent: 0, reached: 0, done: 0 }, dispenser: { sent: 0, reached: 0, done: 0 }, record: { sent: 0, reached: 0, done: 0 } }
   const actSeen: Record<string, { kind: string; reached: boolean; total: number } | undefined> = {}
@@ -173,6 +179,19 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
       }
     }
     errandsAtOnce = Math.max(errandsAtOnce, onErrand)
+    let onRead = 0
+    for (const a of AGENTS) {
+      const st = goals[a].read?.stage
+      if (st) onRead++
+      if (st !== readStage[a]) {
+        if (st) {
+          reads[st]++
+          if (st === 'fetch') reads[`seat${goals[a].read!.seat}`]++
+        } else if (readStage[a] === 'put') reads.done++
+        readStage[a] = st
+      }
+    }
+    readsAtOnce = Math.max(readsAtOnce, onRead)
     let onAct = 0
     for (const a of AGENTS) {
       const ac = goals[a].act
@@ -248,5 +267,5 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
     t += step
   }
   planMs.sort((a, b) => a - b)
-  return { min, minExempt, minSeated, minSeatRest, maxSeatDrift, seatPassM: planner.seatPassM, replans, worst, samples, planMs, stats: planner.stats, mismatch: mism, frames, maxWait, longWaits, errands, errandsAtOnce, acts, actsAtOnce, sweptBreaches }
+  return { min, minExempt, minSeated, minSeatRest, maxSeatDrift, seatPassM: planner.seatPassM, replans, worst, samples, planMs, stats: planner.stats, mismatch: mism, frames, maxWait, longWaits, errands, errandsAtOnce, reads, readsAtOnce, acts, actsAtOnce, sweptBreaches }
 }
