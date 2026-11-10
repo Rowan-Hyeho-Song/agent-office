@@ -8,6 +8,8 @@
 import { ROOM } from './room'
 import { boxDistance, occlusionSegment, segmentHitsBox, type Box } from './view'
 
+import { fitCut, type CutLimits } from './tourLimits'
+
 export type V3 = [number, number, number]
 export interface Pose {
   pos: V3
@@ -297,7 +299,11 @@ export interface Clearance {
   sight?: readonly Box[]
   /** what the picture must show (heads, the monitor of a work cut) and what may stand in front of it; absent = no such rules */
   shot?: Shot
+  /** the tour's own camera limits (tourLimits.ts, 10.3): a cut's camera is fitted into them; absent = no such limits */
+  limits?: CutLimits
 }
+/** the camera spot of a cut moved into the tour's limits (as is when the clearance has none) */
+const fit = (pos: V3, target: V3, c: Clearance): V3 => (c.limits ? fitCut(pos, target, c.limits) : pos)
 const roomInset = 0.3
 export const inRoom = (x: number, z: number) => Math.abs(x) <= ROOM.hx - roomInset && Math.abs(z) <= ROOM.hz - roomInset
 export const isClear = (p: V3, c: Clearance) => inRoom(p[0], p[2]) && c.boxes.every((b) => boxDistance(p, b) >= c.margin - 0.03)
@@ -493,7 +499,10 @@ export const adjusted = (p: Pose, k: number, dy: number): Pose => ({
 /** the first usable pose of the candidates (in order), trying each alternative (pull / raise) over all of them before the next; null when none */
 export function firstUsable(cands: readonly Pose[], c: Clearance): Pose | null {
   for (const { k, dy } of ALTERNATIVES) {
-    const poses = cands.map((q) => (k === 1 && dy === 0 ? q : adjusted(q, k, dy)))
+    const poses = cands.map((q) => {
+      const a = k === 1 && dy === 0 ? q : adjusted(q, k, dy)
+      return c.limits ? { pos: fit(a.pos, a.target, c), target: a.target } : a
+    })
     const p = firstClear(poses, c)
     if (p) {
       lastPick.work = { index: poses.indexOf(p), k, dy }
@@ -515,7 +524,7 @@ const heightFor = (h: number, dist: number, y: number, targetY: number) => {
 }
 
 /** 10.3: a working agent, over the shoulder (back 1.4 m, right 0.8 m, 1.75 m up -> between head and monitor) and the fallbacks */
-export const SHOULDER = { back: 2.3, side: 1.1, y: 2.0, aheadTo: 0.45, targetSide: 0.3, targetY: 0.98 }
+export const SHOULDER = { back: 2.3, side: 1.7, y: 2.0, aheadTo: 0.45, targetSide: 0.3, targetY: 0.98 }
 export function workCandidates(seat: Frame, variant = 0): Pose[] {
   const [fx, fz] = forward(seat.ry)
   const [rx, rz] = rightOf(seat.ry)
@@ -559,7 +568,7 @@ export function standPose(at: Frame, c: Clearance, dist = 2.2, y = 1.7, targetY 
       for (const a of angles) {
         const dx = fx * Math.cos(a) - fz * Math.sin(a)
         const dz = fx * Math.sin(a) + fz * Math.cos(a)
-        const pos = v3(at.x + dx * dist * k, Math.min(MAX_CAM_Y, heightFor(dist * k, dist, y, targetY) + dy), at.z + dz * dist * k)
+        const pos = fit(v3(at.x + dx * dist * k, Math.min(MAX_CAM_Y, heightFor(dist * k, dist, y, targetY) + dy), at.z + dz * dist * k), target, c)
         if (usable(pos, target, c)) return { pos, target }
       }
     }
@@ -588,7 +597,7 @@ export function tablePose(a: { x: number; z: number }, b: { x: number; z: number
   }
   cands.sort((x, y) => x.cost - y.cost)
   for (const dy of [0, ...RAISE_STEPS]) {
-    const up = (q: V3): V3 => v3(q[0], Math.min(MAX_CAM_Y, q[1] + dy), q[2])
+    const up = (q: V3): V3 => fit(v3(q[0], Math.min(MAX_CAM_Y, q[1] + dy), q[2]), target, c)
     const best = cands.find((q) => usable(up(q.pos), target, c))
     if (best) return { pos: up(best.pos), target }
   }
@@ -609,7 +618,7 @@ export function meetingPose(centre: { x: number; z: number }, c: Clearance, home
     for (const k of [1, 0.85, 0.7, 0.55]) {
       for (const off of offs) {
         const a = base + off * DEG
-        const pos = v3(centre.x + Math.cos(a) * dist * k, Math.min(MAX_CAM_Y, y + dy), centre.z + Math.sin(a) * dist * k)
+        const pos = fit(v3(centre.x + Math.cos(a) * dist * k, Math.min(MAX_CAM_Y, y + dy), centre.z + Math.sin(a) * dist * k), target, c)
         if (usable(pos, target, c)) return { pos, target }
       }
     }

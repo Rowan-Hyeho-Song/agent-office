@@ -27,8 +27,8 @@ export const VIEW = {
   center: { x: 0, z: 0 },
 
   // --- view limits ---
-  polar: [0.15, 1.35] as const,
-  distance: [2.5, 21] as const, // 18 for the 9 x 7 m room; the 9.6 x 8.2 m one is 1.17 times as wide across (#280)
+  polar: [0.45, 1.1] as const, // #405, office-ui.md 10.3: 26-63 degrees from straight up; never down on the floor or straight overhead
+  distance: [4.0, 21] as const, // 18 for the 9 x 7 m room; the 9.6 x 8.2 m one is 1.17 times as wide across (#280)
   targetInset: 0.5,
   targetY: [0.4, 1.5] as const,
   resetMs: 600,
