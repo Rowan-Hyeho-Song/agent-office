@@ -82,7 +82,7 @@ function rawStatus(minute: number, ms: number): StatusMap {
   return out
 }
 
-export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t: number, planner: TrafficPlanner, goals: Record<string, Goal>) => void }) {
+export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t: number, planner: TrafficPlanner, goals: Record<string, Goal>) => void; onReplan?: (t: number, ms: number, planner: TrafficPlanner) => void }) {
   const planner = new TrafficPlanner(buildGrid(decodeFootprint(FOOTPRINT_DATA), GRAPH), GRAPH)
   const director = new Director(AGENTS)
   const rand = rng(7)
@@ -188,6 +188,7 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
     if (planner.update(t)) {
       replans++
       planMs.push(performance.now() - t0)
+      opts.onReplan?.(t, planMs[planMs.length - 1], planner)
     }
     // is anyone still on the way? then step finely, otherwise coarsely
     const busy = AGENTS.some((a) => planner.settledAt(a) > t || planner.sample(a, t).moving)
