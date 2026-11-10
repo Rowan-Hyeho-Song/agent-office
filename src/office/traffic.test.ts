@@ -281,11 +281,11 @@ describe('a newcomer beside a resting agent (#193)', () => {
       p.update(t)
       const s = ['sleeper', 'walker', 'reader'].map((i) => p.sample(i, t))
       for (const [a, b] of [[0, 1], [0, 2], [1, 2]]) minPair = Math.min(minPair, Math.hypot(s[a].x - s[b].x, s[a].z - s[b].z))
-      if (Math.hypot(s[0].x - 2.635, s[0].z - 3.445) > 0.05) sleeperMoved++
+      if (Math.hypot(s[0].x - GRAPH.spots.sofa_0.x, s[0].z - GRAPH.spots.sofa_0.z) > 0.05) sleeperMoved++
     }
     expect(p.sample('walker', 80).arrived).toBe('sofa_1')
     expect(sleeperMoved).toBe(0)
-    // the designed sofa pair (the re-bake of #341 moved the seats to 0.47 m apart, it was 0.53 m with a 0.06 m margin below it)
+    // the designed sofa pair (the seat pitch of the #280 re-bake, 0.665 m, with a 0.06 m margin below it)
     expect(minPair).toBeGreaterThanOrEqual(Math.hypot(GRAPH.spots.sofa_0.x - GRAPH.spots.sofa_1.x, GRAPH.spots.sofa_0.z - GRAPH.spots.sofa_1.z) - 0.06)
   })
 })

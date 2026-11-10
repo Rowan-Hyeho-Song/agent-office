@@ -101,21 +101,28 @@ export interface RowApproach {
   uMax: number
   vMin: number
   vMax: number
-  /** the seats of the row that count as seated (not the chaise or a beanbag elsewhere) */
+  /** the seats of the row that count as seated (not the chaise) */
   seats: { x: number; z: number }[]
   /** the pass floor: the seat pitch (smallest distance between two seats of the row, read off the nav spots), at most SOFA_ROW.passFloorM */
   passM: number
 }
 
 export function rowApproach<S extends { x: number; z: number }>(zone: SofaRow, entrances: { x: number; z: number }[], seats: S[]): RowApproach & { seats: S[] } {
-  const own = seats.filter((s) => {
-    const q = rowLocal(zone, s.x, s.z)
-    return q.v > zone.sizeZ / 2 && q.v <= zone.sizeZ / 2 + SOFA_ROW.stripM && Math.abs(q.u) <= zone.sizeX / 2 + SOFA_ROW.stripM
-  })
   let uMin = -zone.sizeX / 2
   let uMax = zone.sizeX / 2
   for (const e of entrances) {
     const q = rowLocal(zone, e.x, e.z)
+    uMin = Math.min(uMin, q.u)
+    uMax = Math.max(uMax, q.u)
+  }
+  // the seats along the sofa's side of the row: on its sofa side and within a strip's reach of the entrances' span (the L-sofa's corner seat is further out
+  // than the row is long; the chaise is level with the row, not on its sofa side, and is not one)
+  const own = seats.filter((s) => {
+    const q = rowLocal(zone, s.x, s.z)
+    return q.v > zone.sizeZ / 2 && q.v <= zone.sizeZ / 2 + SOFA_ROW.stripM && q.u >= uMin - SOFA_ROW.stripM && q.u <= uMax + SOFA_ROW.stripM
+  })
+  for (const s of own) {
+    const q = rowLocal(zone, s.x, s.z)
     uMin = Math.min(uMin, q.u)
     uMax = Math.max(uMax, q.u)
   }
