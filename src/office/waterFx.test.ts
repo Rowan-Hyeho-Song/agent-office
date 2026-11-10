@@ -26,6 +26,7 @@ import {
   Wetness,
   circleAt,
   circleRadius,
+  dripTips,
   flowAt,
   habitFor,
   habitSeconds,
@@ -229,10 +230,11 @@ describe('the stream: a fixed pool', () => {
       expect(s.n).toBeLessThanOrEqual(cap)
       expect(s.peak).toBeLessThanOrEqual(cap)
     }
-    expect(PARTICLE_CAP).toEqual({ desktop: 40, mobile: 20 })
+    expect(PARTICLE_CAP).toEqual({ desktop: 80, mobile: 40 })
+    expect(PARTICLE_RATE).toBe(40)
   })
 
-  it('emits about 18 a second at full flow, fewer at less, none at zero', () => {
+  it('emits about 40 a second at full flow, fewer at less, none at zero', () => {
     for (const [flow, expected] of [[1, PARTICLE_RATE], [0.5, PARTICLE_RATE / 2], [0, 0]] as const) {
       const s = new Stream(100)
       let landed = 0
@@ -342,6 +344,12 @@ describe('the sway: ±1.5° while hit, dying away in 0.6 s', () => {
 })
 
 describe('the leaf-tip drips', () => {
+  it('only a tip whose drop falls inside the soil disc forms a drip', () => {
+    const soil = { x: 0, z: 0, r: 0.2 }
+    expect(dripTips([{ x: 0.1, z: 0 }, { x: 0.3, z: 0 }, { x: 0, z: -0.19 }], soil)).toEqual([0, 2])
+    expect(dripTips([{ x: 0.5, z: 0.5 }], soil)).toEqual([])
+  })
+
   const height = () => 1.2
 
   it('wait, form for 1 s, fall under gravity and are done on arrival; leaf k starts 0.4 s after leaf k−1', () => {

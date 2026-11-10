@@ -120,11 +120,14 @@ export function levelFor(speed: number, reduced: boolean): FxLevel {
 
 // --------------------------------------------------------------------------------------------------------------------- the stream
 
-export const PARTICLE_RATE = 18
-export const PARTICLE_CAP = { desktop: 40, mobile: 20 }
+export const PARTICLE_RATE = 40
+/** most drops alive at once (the leaf-tip drips are counted in it) */
+export const PARTICLE_CAP = { desktop: 80, mobile: 40 }
+/** the stream leaves inside a cone of this half-angle round the rose's axis */
+export const CONE_RAD = (10 * Math.PI) / 180
 /** the rose's hole circle (m, radius), the drops' radius range (m) */
 export const ROSE_R = 0.018
-export const DROP_R = [0.002, 0.003] as const
+export const DROP_R = [0.0015, 0.002] as const
 
 export interface SoilDisc {
   x: number
@@ -211,9 +214,17 @@ export class Stream {
     this.oy[i] = tip.y + (ay * c + by * s) * rr
     this.oz[i] = tip.z + (az * c + bz * s) * rr
     const v = STREAM_V * (0.96 + 0.08 * this.rand())
-    this.vx[i] = dir.x * v
-    this.vy[i] = dir.y * v
-    this.vz[i] = dir.z * v
+    // a little off the axis, inside the cone
+    const tilt = spread > 0 ? Math.tan(CONE_RAD * Math.sqrt(this.rand())) : 0
+    const pa = this.rand() * Math.PI * 2
+    const jx = dir.x + (ax * Math.cos(pa) + bx * Math.sin(pa)) * tilt
+    const jy = dir.y + (ay * Math.cos(pa) + by * Math.sin(pa)) * tilt
+    const jz = dir.z + (az * Math.cos(pa) + bz * Math.sin(pa)) * tilt
+    // (a shed drop has no cone and keeps its own tiny direction: it just falls)
+    const jl = tilt > 0 ? Math.hypot(jx, jy, jz) || 1 : 1
+    this.vx[i] = (jx / jl) * v
+    this.vy[i] = (jy / jl) * v
+    this.vz[i] = (jz / jl) * v
     this.age[i] = age
     this.rad[i] = radius
     return true
@@ -333,6 +344,11 @@ export class Sway {
 }
 
 // ----------------------------------------------------------------------------------------------------------------- the leaf-tip drips
+
+/** the leaf tips (by index) whose drop would fall inside the soil disc: only those form a drip */
+export function dripTips(tips: { x: number; z: number }[], soil: { x: number; z: number; r: number }): number[] {
+  return tips.flatMap((t, k) => (Math.hypot(t.x - soil.x, t.z - soil.z) <= soil.r ? [k] : []))
+}
 
 export type DripPhase = 'wait' | 'form' | 'fall' | 'done'
 export const DRIP_FORM_S = 1

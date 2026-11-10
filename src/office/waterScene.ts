@@ -5,7 +5,7 @@
 
 import { CircleGeometry, Mesh, MeshBasicMaterial, Matrix4, Quaternion, Vector3, type InstancedMesh, type Object3D } from 'three'
 import { landing as streamLanding, type Plant } from './water'
-import { Drips, PARTICLE_CAP, Stream, Sway, Wetness, lastDropTimes, type FxLevel } from './waterFx'
+import { Drips, PARTICLE_CAP, dripTips, Stream, Sway, Wetness, lastDropTimes, type FxLevel } from './waterFx'
 
 /** how many leaf tips the model gives each plant (office_bake.py: <plant>_tip_0..2) */
 const TIPS = 3
@@ -51,6 +51,7 @@ export class WaterScene {
   private prevU = -1
   private hitHold = 0
   private dripFired = false
+  private dripIdx: number[] = []
   private cap: number
   private m = new Matrix4()
   private q = new Quaternion()
@@ -71,8 +72,8 @@ export class WaterScene {
     for (const p of plantList) {
       const disc = new Mesh(new CircleGeometry(1, 24), new MeshBasicMaterial({ color: '#150d07', transparent: true, opacity: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }))
       disc.rotation.x = -Math.PI / 2
-      disc.position.set(p.x, p.soilY + 0.0008, p.z)
-      disc.scale.set(p.r * 0.97, p.r * 0.97, 1)
+      disc.position.set(p.x, p.soilY + 0.001, p.z) // the soil's surface + 1 mm
+      disc.scale.set(p.r * 0.95, p.r * 0.95, 1) // inside the soil disc, which is inside the pot's rim
       disc.visible = false
       disc.renderOrder = 2
       disc.name = 'wet_' + p.name
@@ -150,8 +151,14 @@ export class WaterScene {
       // leaf drips begin where the water starts to hit, once per watering (the water pausing and starting again does not start them again)
       if (landing && !this.dripFired && level.drips && this.swing.has(plant.name)) {
         this.dripFired = true
-        this.dripPlant = plant.name
-        this.drips.trigger(2 + (this.dripTriggers++ % 2))
+        // only a tip whose drop would fall inside the soil disc forms a drip
+        const tips = [0, 1, 2].map((k) => this.tipOf(plant.name, k))
+        const ok = dripTips(tips.map((t) => t ?? { x: 1e3, z: 1e3 }), plant)
+        this.dripIdx = ok.slice(0, 2 + (this.dripTriggers++ % 2))
+        if (this.dripIdx.length) {
+          this.dripPlant = plant.name
+          this.drips.trigger(this.dripIdx.length)
+        }
       }
       this.swayStep(plant, dt, landing && level.sway ? flow : 0, pour)
     }
@@ -204,7 +211,7 @@ export class WaterScene {
     const name = this.dripPlant!
     const p = this.v
     this.drips.step(dt, (k) => {
-      const t = this.tipOf(name, k, p)
+      const t = this.tipOf(name, this.dripIdx[k], p)
       return t ? Math.max(0.05, t.y - (this.landY(name, t.x, t.z))) : 0.3
     })
   }
@@ -229,7 +236,7 @@ export class WaterScene {
       const tip = new Vector3()
       for (let k = 0; k < this.drips.drips.length && n < this.cap; k++) {
         const r = this.drips.size(k)
-        if (r <= 0 || !this.tipOf(name, k, tip)) continue
+        if (r <= 0 || !this.tipOf(name, this.dripIdx[k], tip)) continue
         const s = r / DROP_GEO_R
         this.m.compose(this.v.set(tip.x, tip.y - this.drips.below(k), tip.z), this.q.identity(), this.sv.set(s, s, s))
         mesh.setMatrixAt(n++, this.m)

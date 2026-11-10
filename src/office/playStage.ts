@@ -278,7 +278,7 @@ export class PlayStage {
     }
     // one InstancedMesh for every drop of water, never more than the cap (watering.md 3: 40, 20 on a phone): the can's stream and the leaf drips, and the dispenser's tap
     const mobile = isMobileish()
-    const drops = new InstancedMesh(new SphereGeometry(0.003, 6, 5), new MeshBasicMaterial({ color: '#bfe3ff', transparent: true, opacity: 0.6, depthWrite: false }), mobile ? PARTICLE_CAP.mobile : PARTICLE_CAP.desktop)
+    const drops = new InstancedMesh(new SphereGeometry(0.003, 6, 5), new MeshBasicMaterial({ color: '#dff3ff', transparent: true, opacity: 0.75, depthWrite: false }), mobile ? PARTICLE_CAP.mobile : PARTICLE_CAP.desktop)
     drops.count = 0
     drops.frustumCulled = false
     scene.add(drops)
