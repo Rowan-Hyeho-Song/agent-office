@@ -255,15 +255,19 @@ export function Agents({ world }: { world: OfficeWorld }) {
       const carrying = Object.fromEntries(world.director.agents.filter((a) => world.director.carries(a)).map((a) => [a, goals[a]]))
       world.meeting.apply(now, (a) => rigs[a].arrived, goals, door ? { x: door.x, z: door.z } : undefined, { at: (a) => rigs[a] ?? null, spot: (s) => graph.spots[s] ?? null })
       Object.assign(goals, carrying)
-      // forget the departures no goal holds any more (a held one keeps its planner time: recomputed each frame it would drift and replan every frame, #228)
-      const held = new Set(Object.entries(goals).filter(([, g]) => g.depart !== undefined).map(([id, g]) => `${id}|${g.spot}|${g.depart}`))
-      for (const k of [...departs.current.keys()]) if (!held.has(k) && !world.meeting.busy) departs.current.delete(k)
     }
     const scene = st ? replay.scene() : null
     const status = scene ? scene.status : world.source.getSnapshot()
     // ?debug=1: window.__office.forceSpots = { agent_0: 'whiteboard', ... } sends agents to spots (head-on tests, screenshots)
     if (world.debug && world.forceSpots) for (const id in world.forceSpots) if (goals[id]) goals[id] = { ...goals[id], spot: world.forceSpots[id], pose: 'idle', label: 'debug' }
     if (world.debug && world.forceGoal) for (const id in world.forceGoal) if (goals[id]) goals[id] = { ...goals[id], ...world.forceGoal[id], label: 'debug' }
+    if (!st) {
+      // forget the departures no goal holds any more (a held one keeps its planner time: recomputed each frame it would drift and replan every frame,
+      // #228). After the debug overrides: a forced spot keys the departure it is requested with; judged on the director's own spot, the forced one's
+      // was dropped and recomputed every frame, and the agent stood unlabelled at the play spot, facing the way it walked in (#333)
+      const held = new Set(Object.entries(goals).filter(([, g]) => g.depart !== undefined).map(([id, g]) => `${id}|${g.spot}|${g.depart}`))
+      for (const k of [...departs.current.keys()]) if (!held.has(k) && !world.meeting.busy) departs.current.delete(k)
+    }
     // ?debug=1: window.__office.trafficDemo('narrow' | 'wide') stands agent_0 and agent_1 at the two ends, then swaps them
     const demo = world.debug ? world.demo : null
     const fresh = !!demo && demo.at === null

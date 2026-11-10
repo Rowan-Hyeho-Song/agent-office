@@ -58,6 +58,9 @@ const SPEED = CRUISE // m/s cruising
 const ACCEL = 1.4 * PACE // m/s²
 const CORNER_SPEED = 0.32 * PACE // through a sharp turn
 const TURN_RATE = 4.5 * PACE // rad/s
+/** squaring up on a spot it has just stopped on: any way in (up to 180°) turns to the spot's facing in 0.35 s, inside the designer's 0.4 s (#333).
+ * The walking rate (with its frame damping) took 0.8 s for a half turn: a body that came in from behind stood across the table for most of a second */
+const ARRIVE_TURN_RATE = Math.PI / 0.35 // rad/s
 // a meeting listener's nod (#141): how long it takes, how far the head dips, how long the addressee's hand stays up
 const NOD_S = 0.5
 /** where a caught paper / plane is held to be looked at, from the head (paper-pass.md 5, #273) */
@@ -1027,7 +1030,9 @@ export class AgentRig {
 
     // heading with a capped turn rate; the turn rate drives the lean
     const diff = wrap(wantHeading - this.heading)
-    const turn = MathUtils.clamp(diff, -TURN_RATE * dt, TURN_RATE * dt) * Math.min(1, dt * 12 + 0.4)
+    const squaring = !moving && !!this.arrived && this.arrived === this.goal.spot
+    const rate = squaring ? ARRIVE_TURN_RATE : TURN_RATE
+    const turn = MathUtils.clamp(diff, -rate * dt, rate * dt) * (squaring ? 1 : Math.min(1, dt * 12 + 0.4))
     this.heading = wrap(this.heading + turn)
     this.turnVel = damp(this.turnVel, turn / Math.max(dt, 1e-3), 8, dt)
 

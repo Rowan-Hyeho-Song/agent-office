@@ -555,8 +555,10 @@ export class TrafficPlanner {
       ways = this.search({ ...ctx, near: true }, { t: t0, x: here.x, z: here.z, c: startCell })
     }
     if (!ways) return this.holdTraj(t, here)
-    // already standing where it should (or beside the occupied destination): nothing to plan
-    if (ways.length === 1 && !pre && this.speedAt(old, t) < 0.02 && (!reached || Math.hypot(goal.x - here.x, goal.z - here.z) < 0.02)) {
+    // already standing where it should (or beside the occupied destination): nothing to plan. A departure held back (notBefore) changes nothing
+    // here: there is nowhere to set off to, and a stand-then-step plan would leave it unlabelled (arrived null) until that time, facing the
+    // way it walked in instead of the spot's ry (#333)
+    if (ways.length === 1 && this.speedAt(old, t) < 0.02 && (!reached || Math.hypot(goal.x - here.x, goal.z - here.z) < 0.02)) {
       return reached ? this.restTraj(t, goal.x, goal.z, req.spot) : this.holdTraj(t, here)
     }
     let rerouteAt: number | undefined
