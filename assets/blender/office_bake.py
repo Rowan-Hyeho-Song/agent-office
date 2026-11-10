@@ -2754,9 +2754,9 @@ def build_espresso(G):
     brew bay (its front at x 0.14 keeps COFFEE_BUTTON), a dark panel with a pressure gauge, the group head and a
     portafilter (two spouts 5 mm over the mug on the tray, its handle 30 deg off the front), a drip tray with a chrome
     grid, a steam wand and its knob on the left, a blue-grey tank at the back, a cup warmer with two cups on top"""
-    body_m = plastic("#c9ccd1", 0.5, 0.7, 0.05, "esp_body")
+    body_m = plastic("#c9ccd1", 0.55, 0.25, 0.05, "esp_body")  # matte: a high metallic baked into rainbow speckles
     dark = plastic("#2a2d33", 0.5, 0, 0.1, "esp_panel")
-    chrome = plastic("#c8ccd4", 0.3, 0.9, 0, "chrome")
+    chrome = plastic("#c8ccd4", 0.35, 0.45, 0, "esp_chrome")  # baked: lower metallic (speckles)
     tank_m = plastic("#9fb0bd", 0.15, 0, 0, "esp_tank")
     handle_m = plastic("#1d1f23", 0.45, 0, 0.05, "esp_handle")
     face_m = plastic("#f2efe6", 0.4, 0, 0, "esp_gauge")
@@ -4653,10 +4653,10 @@ def build_coffee_bar():
     # #280 3 (designer): a dark rubber gasket 2 mm proud of the door's outline (behind its face), three magnet memos
     # on its upper half (#efe6d2, a small round magnet each, two pencil lines), all on the door (they swing with it)
     gk = plastic("#202226", 0.9, 0, 0.0, "fridge_gasket")
-    door += [box("fridge_gasket", (0.01, 0.002, 0.48), (-0.006, 0.85 + 0.001, -0.24), gk, "export"),
-             box("fridge_gasket", (0.01, 0.002, 0.48), (-0.006, 0.07 - 0.001, -0.24), gk, "export"),
-             box("fridge_gasket", (0.01, 0.78, 0.002), (-0.006, 0.46, -0.001), gk, "export"),
-             box("fridge_gasket", (0.01, 0.78, 0.002), (-0.006, 0.46, -0.479), gk, "export")]
+    door += [box("fridge_gasket", (0.004, 0.002, 0.48), (-0.003, 0.85 + 0.001, -0.24), gk, "export"),
+             box("fridge_gasket", (0.004, 0.002, 0.48), (-0.003, 0.07 - 0.001, -0.24), gk, "export"),
+             box("fridge_gasket", (0.004, 0.78, 0.002), (-0.003, 0.46, -0.001), gk, "export"),
+             box("fridge_gasket", (0.004, 0.78, 0.002), (-0.003, 0.46, -0.479), gk, "export")]
     memo_m = plastic("#efe6d2", 0.85, 0, 0.1, "fridge_memo")
     ink = plastic("#8a8478", 0.8, 0, 0.0, "fridge_memo_ink")
     for (my, mz, deg, w_, h_, mc) in ((0.73, -0.32, 5, 0.075, 0.09, "#d64545"), (0.70, -0.16, -4, 0.07, 0.07, "#3c6fd6"),
