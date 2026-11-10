@@ -192,28 +192,28 @@ export function groupLibrary(metas: DocMeta[]): DocFolder[] {
   return [...folders.values()].sort((a, b) => b.latest.localeCompare(a.latest))
 }
 
-// ---- the bookshelf (Blender #67 node table; one row of 21 since #280, docs/design/room-280.md 9.2) -------------------------------
+// ---- the bookshelf (Blender #67 node table; three rows of 21, one row per project, #280, docs/design/room-280.md 9.2) -------------------
 
-/** the shelf row's three zones (one project each) of seven slots; the glb says the same in each binder's extras group / slot, which the rig reads first */
-export const GROUPS = 3
-export const GROUP_SLOTS = 7
-export const SLOTS = GROUPS * GROUP_SLOTS
-/** the last binder of a zone with room to its right leans toward the empty side, about the world z axis */
+/** the shelf has three binder rows of 21 slots; the glb says the same in each binder's extras shelf / slot, which the rig reads first */
+export const ROWS = 3
+export const ROW_SLOTS = 21
+/** the order the rows are filled: the most recent project stands at chest height (r1, the middle row), then r2 (top), then r0 (bottom) */
+export const ROW_ORDER = [1, 2, 0] as const
+/** the last binder of a row with room to its right leans toward the empty side, about the world z axis */
 export const LEAN_DEG = -8
 /** the spine colour of a file with no topic (designer, 9.2) */
 export const NO_TOPIC_SPINE = '#e9e4d8'
 /** a 15% darker spine for a finished file */
 export const DONE_DARKEN = 0.15
+/** a row that carries on its project's files (fewer than three projects) says so on its plate */
+export const CONTINUED = '(이어서)'
 
 export interface Binder {
   /** node name of the binder body; `_band`, `_label`, `_secret` share the stem */
   node: string
-  /** the row (always 0: the glb's one row) and the slot along it, 0..20 */
+  /** the row (0 = bottom, one project each) and the slot along it, 0..20 */
   r: number
   k: number
-  /** the zone (project) 0..2 and the place inside it 0..6 */
-  group: number
-  i: number
   fileKey: string
   repo: string | null
   n: number | null
@@ -235,9 +235,9 @@ export interface Binder {
 
 export interface ShelfLayout {
   binders: Binder[]
-  /** the name plate of each zone (index = group); '' = empty zone */
+  /** the name plate of each row (index = r, 0 = bottom); '' = empty row */
   plates: string[]
-  /** how many more files each zone has than it can show: the '+N' tag */
+  /** how many more files a project has than its rows can show: the '+N' tag, on the plate of the project's last row (0 elsewhere) */
   more: number[]
   /** shown in the viewer when the shelf could not hold everything */
   note: string | null
@@ -268,30 +268,30 @@ export function binderState(p: Pick<Progress, 'stage' | 'pending'>): { pulled: b
 export const spineColor = (file: Pick<DocFile, 'topics'>): string => (file.topics[0] ? TOPIC_COLORS[file.topics[0]] : NO_TOPIC_SPINE)
 
 /**
- * Folders → zones (the three newest public folders, newest on the left), files → binders inside a zone (the newest seven by date, oldest left; empty slots
- * stay empty), the rest of a zone's files are `more`. `perGroup` is the model's zone size (the rig clips to what its glb has).
+ * Folders → rows: the three newest public projects, one row each (newest at r1, then r2, then r0); files → binders along a row (the newest
+ * `perRow` by date, oldest left; empty slots stay empty). With fewer than three projects the spare rows carry on the newest project with
+ * its next older files (plate '<name> (이어서)'); what is left beyond the rows is `more` (the plate's '+N'). `perRow` is the model's row
+ * size (the rig clips to what its glb has).
  */
-export function shelfLayout(folders: DocFolder[], perGroup = GROUP_SLOTS): ShelfLayout {
+export function shelfLayout(folders: DocFolder[], perRow = ROW_SLOTS): ShelfLayout {
   const binders: Binder[] = []
-  const plates = Array.from({ length: GROUPS }, () => '')
-  const more = Array.from({ length: GROUPS }, () => 0)
+  const plates = Array.from({ length: ROWS }, () => '')
+  const more = Array.from({ length: ROWS }, () => 0)
   // private projects never stand on the shelf (#67): not their count, not their agents' colours
   const shelved = folders.filter((f) => f.repo !== null)
-  shelved.slice(0, GROUPS).forEach((folder, group) => {
-    plates[group] = folder.label
-    const files = [...folder.files].sort((a, b) => a.date.localeCompare(b.date) || (a.n ?? 0) - (b.n ?? 0))
-    more[group] = Math.max(0, files.length - perGroup)
-    const shown = files.slice(-perGroup)
-    shown.forEach((file, i) => {
+  const projects = shelved.slice(0, ROWS).map((folder) => ({ folder, files: [...folder.files].sort((a, b) => a.date.localeCompare(b.date) || (a.n ?? 0) - (b.n ?? 0)), lastRow: -1 }))
+  // a row = the newest `perRow` files not shown yet (taken from the end), standing oldest left
+  const fill = (r: number, p: (typeof projects)[number], name: string) => {
+    const shown = p.files.splice(Math.max(0, p.files.length - perRow))
+    plates[r] = name
+    p.lastRow = r
+    shown.forEach((file, k) => {
       const state = binderState(file.progress)
       const base = spineColor(file)
-      const k = group * perGroup + i
       binders.push({
-        node: `shelf_r0_b${k}`,
-        r: 0,
+        node: `shelf_r${r}_b${k}`,
+        r,
         k,
-        group,
-        i,
         fileKey: file.key,
         repo: file.repo,
         n: file.n,
@@ -300,17 +300,21 @@ export function shelfLayout(folders: DocFolder[], perGroup = GROUP_SLOTS): Shelf
         color: state.done ? darken(base, DONE_DARKEN) : base,
         ...state,
         label: file.n === null ? '' : `#${file.n}`,
-        // leans toward the empty side: only the last one of a zone that has room to its right
-        lean: i === shown.length - 1 && shown.length < perGroup,
+        // leans toward the empty side: only the last one of a row that has room to its right
+        lean: k === shown.length - 1 && shown.length < perRow,
       })
     })
-  })
-  const cut = more.some((m) => m > 0) || shelved.length > GROUPS
-  return { binders, plates, more, note: cut ? `책장엔 최근 폴더 ${GROUPS}개, 폴더마다 최근 ${GROUP_SLOTS}권만 꽂혀요. 나머지는 이 목록에서 볼 수 있어요.` : null }
+  }
+  projects.forEach((p, i) => fill(ROW_ORDER[i], p, p.folder.label))
+  // spare rows carry on the newest project; when it has nothing older to show the row stays empty
+  for (let i = projects.length; i < ROWS && projects.length; i++) if (projects[0].files.length) fill(ROW_ORDER[i], projects[0], `${projects[0].folder.label} ${CONTINUED}`)
+  for (const p of projects) if (p.lastRow >= 0) more[p.lastRow] = p.files.length
+  const cut = more.some((m) => m > 0) || shelved.length > ROWS
+  return { binders, plates, more, note: cut ? `책장엔 최근 프로젝트 ${ROWS}개, 프로젝트마다 한 층(최근 ${ROW_SLOTS}권)만 꽂혀요. 나머지는 이 목록에서 볼 수 있어요.` : null }
 }
 
-/** the shared "spines" canvas: 21 cells of 64 × 128 in one row (the glb's label extras say the same: grid [21, 1], px [1344, 128]) */
-export const LABEL_GRID = { cols: SLOTS, rows: 1, w: 1344, h: 128 }
+/** the shared "spines" canvas: 21 x 3 cells of 64 x 128 (the glb's label extras say the same: grid [21, 3], px [1344, 384]); cell [k, r] */
+export const LABEL_GRID = { cols: ROW_SLOTS, rows: ROWS, w: 1344, h: 384 }
 
 /** the label's cell in the shared canvas: pixels, and the UV range (flipY = false, canvas row 0 = top). `grid` is the glb's own (extras grid / px) when it has one */
 export function labelCell(k: number, r = 0, grid: { cols: number; rows: number; w: number; h: number } = LABEL_GRID) {
