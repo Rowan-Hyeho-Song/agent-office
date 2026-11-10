@@ -36,11 +36,22 @@ export const SOFA_ROW = {
   gapS: 0.4,
   /** an entering body may not walk on past its seat deeper into the row than this, m: that is how the far entrance stays shut */
   overshootM: 0.3,
-  /** a body resting on a seat of the row and one standing in its approach area (the row, the entrances, the floor up to the seats) may be this
-   * far apart, m, instead of 2R + gap. The seats are 0.545 m from the row's centre line and the east entrance 0.563 m from seat 2, so with
-   * anyone seated the row and both entrances would be shut under the normal rule (#341: a body waited 178 s for seat 1 with seat 2 taken).
-   * A seated body does not move; the walker passes it side-on, facing the sofa, at the 0.4 x speed. */
-  seatedM: 0.5,
+  /** a walking / standing body never comes closer than the seat pitch (RowApproach.passM, the smallest distance between two row seats, 0.47 m)
+   * to a body resting on a seat of the row: two heads are 0.42 m wide, and two bodies seated side by side end at exactly the pitch. The seats are
+   * 0.545 m from the row's centre line and the east entrance 0.563 m from seat 2, so under the normal 2R + gap rule anyone seated shuts the row
+   * and both entrances (#341: 178 s waiting for seat 1); the floor below that rule is the pitch, not less (#280: 0.438 m measured).
+   * While searching the cell centres are kept passSearchM beyond it, the finished path is verified to passVerifyM short of it (float). */
+  /** the most a floor may be: head width 0.42 + 0.05 (the designer's number). The floor is the seat pitch (so two seated bodies are never closer than a walker
+   * may come) but never more than this: a wider pitch (0.665) would exceed the row centre line's 0.545 to a seat and jam the row. Also the floor of a row with fewer than two seats */
+  passFloorM: 0.47,
+  passSearchM: 0.03,
+  passVerifyM: 0.004,
+  /** a seat of the row is entered by a straight lane across the sofa's front, from the row (the seat's normal toward the row): the lane is this
+   * long, m; it keeps the pitch from the seats beside it by construction. The walker comes onto the lane's far end from any cell within ringM
+   * of it whose straight chord keeps the pitch from every body resting on a seat (the grid cells, 0.15 m, are too coarse to find that
+   * way in cell by cell: the goal cell of seat 1 is 0.44 m from the seat beside it) */
+  laneM: 0.3,
+  ringM: 0.4,
   /** the approach area reaches this far round the row and the entrance spots, m (a grid cell: a body waits at the cell beside the spot) */
   approachPadM: 0.15,
   /** how far the sofa-side strip behind the row (where the seats' docks run) reaches, m */
@@ -82,7 +93,7 @@ export function readSofaRow(scene: Object3D): SofaRow | null {
   return { cx: e[12], cz: e[14], ry, face: Math.atan2(Math.sin(ry + Math.PI), Math.cos(ry + Math.PI)), sizeX, sizeZ }
 }
 
-/** the part of the floor where a standing body may pass a seated one at seatedM: the row, extended along it to cover the entrances, and
+/** the part of the floor where a standing body may pass a seated one at the pitch: the row, extended along it to cover the entrances, and
  * across it up to the seats, in the row's own frame (derived from the zone, the sofa_in spots and the seats, no room coordinates) */
 export interface RowApproach {
   zone: SofaRow
@@ -92,9 +103,11 @@ export interface RowApproach {
   vMax: number
   /** the seats of the row that count as seated (not the chaise or a beanbag elsewhere) */
   seats: { x: number; z: number }[]
+  /** the pass floor: the seat pitch (smallest distance between two seats of the row, read off the nav spots), at most SOFA_ROW.passFloorM */
+  passM: number
 }
 
-export function rowApproach(zone: SofaRow, entrances: { x: number; z: number }[], seats: { x: number; z: number }[]): RowApproach {
+export function rowApproach<S extends { x: number; z: number }>(zone: SofaRow, entrances: { x: number; z: number }[], seats: S[]): RowApproach & { seats: S[] } {
   const own = seats.filter((s) => {
     const q = rowLocal(zone, s.x, s.z)
     return q.v > zone.sizeZ / 2 && q.v <= zone.sizeZ / 2 + SOFA_ROW.stripM && Math.abs(q.u) <= zone.sizeX / 2 + SOFA_ROW.stripM
@@ -108,7 +121,9 @@ export function rowApproach(zone: SofaRow, entrances: { x: number; z: number }[]
   }
   const vSeat = own.reduce((m, s) => Math.max(m, rowLocal(zone, s.x, s.z).v), zone.sizeZ / 2)
   const pad = SOFA_ROW.approachPadM
-  return { zone, uMin: uMin - pad, uMax: uMax + pad, vMin: -zone.sizeZ / 2 - pad, vMax: vSeat + SOFA_ROW.seatEps, seats: own }
+  let passM = Infinity
+  for (let i = 0; i < own.length; i++) for (let j = i + 1; j < own.length; j++) passM = Math.min(passM, Math.hypot(own[i].x - own[j].x, own[i].z - own[j].z))
+  return { zone, uMin: uMin - pad, uMax: uMax + pad, vMin: -zone.sizeZ / 2 - pad, vMax: vSeat + SOFA_ROW.seatEps, seats: own, passM: Math.min(Number.isFinite(passM) ? passM : Infinity, SOFA_ROW.passFloorM) }
 }
 
 const inApproach = (a: RowApproach, x: number, z: number) => {
@@ -118,7 +133,7 @@ const inApproach = (a: RowApproach, x: number, z: number) => {
 
 const restsOnSeat = (a: RowApproach, x: number, z: number) => a.seats.some((s) => Math.hypot(s.x - x, s.z - z) < SOFA_ROW.seatEps)
 
-/** one body rests on a seat of the row and the other is in the approach area: the pair that may be seatedM apart */
+/** one body rests on a seat of the row and the other is in the approach area: the pair that may be the seat pitch apart */
 export function seatedPair(a: RowApproach, x1: number, z1: number, x2: number, z2: number): boolean {
   return (restsOnSeat(a, x1, z1) && inApproach(a, x2, z2)) || (restsOnSeat(a, x2, z2) && inApproach(a, x1, z1))
 }
