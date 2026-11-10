@@ -289,3 +289,45 @@ export function runErrand(w: World, agent: string, plant: string, guard: Guard, 
   }
   return { walk, stages, at, ended }
 }
+
+/**
+ * One reading errand by `agent` (#280) on `seat`, from its desk, until the Director has nothing more to do with it and the hand has let go: the book from the low table,
+ * read seated, put back. The others work at their desks unless `others` says otherwise (a napper on a sofa seat, for the seat choice); the caller's guard watches every frame.
+ */
+export function runRead(w: World, agent: string, seat: 0 | 1, guard: Guard, opts: { dt?: number; reduced?: boolean; maxS?: number; onStep?: (walk: Walk, stage: string | undefined) => void; setup?: (walk: Walk) => void } = {}) {
+  const dt = opts.dt ?? 0.03
+  const walk = new Walk(w, undefined, opts.reduced ?? false)
+  for (const id of IDS) walk.status[id] = { state: 'working', activity: 'test', since: 0 }
+  for (let k = 0; k < 10; k++) walk.step(dt, guard) // standing at the desks first
+  walk.status[agent] = { state: 'idle', since: 0 }
+  opts.setup?.(walk)
+  // it goes where the reading sends it but plays nothing else: the schedule's plays are not what this checks
+  walk.director.forceRead(agent, walk.t0 + walk.t * 1000, seat)
+  const stages: string[] = []
+  const at: Record<string, { t: number; x: number; z: number }> = {}
+  const started = walk.t
+  let ended = -1
+  for (let k = 0; k < (opts.maxS ?? 150) / dt; k++) {
+    walk.step(dt, guard)
+    const g = walk.goals[agent]
+    const st = g.read?.stage
+    opts.onStep?.(walk, st)
+    if (st && stages[stages.length - 1] !== st) {
+      stages.push(st)
+      const r = w.rigs[agent].parts.root.position
+      at[st] = { t: walk.t - started, x: r.x, z: r.z }
+    }
+    if (!g.read && stages.length) {
+      ended = walk.t - started
+      break
+    }
+  }
+  // back to the desk, the hand lets go and settles
+  for (const id of IDS) walk.status[id] = { state: 'working', activity: 'test', since: 0 }
+  for (let k = 0; k < 20 / dt; k++) {
+    walk.step(dt, guard)
+    const home = IDS.every((id) => w.rigs[id].arrived === `work_${id.split('_')[1]}` && !w.rigs[id].want?.attached)
+    if (home && k > 1 / dt) break
+  }
+  return { walk, stages, at, ended }
+}
