@@ -739,6 +739,13 @@ export class AgentRig {
     if (reduced) this.paperFace.nodAt = null // the nod is motion; the surprise face is information and stays
   }
 
+  /** the hands' height lift of the seat (m) and whether it sits at a desk / seat now (a paper pass reads them) */
+  get seatLift() {
+    return this.seat
+  }
+  get seated() {
+    return this.stance.seated
+  }
   /** tests: whether the face shows the received-paper surprise now */
   surprisedAt(t: number): boolean {
     return !!this.paperFace && t < this.paperFace.until
@@ -771,7 +778,7 @@ export class AgentRig {
   private cueMem: { kind: NonNullable<Sample['cue']>['kind']; dur: number; gesture: boolean; toward: { x: number; z: number } | null; startT: number } | null = null
   private cueT = 0
   /** a short gesture set by the paper plane (#51): until = the scene clock time it ends */
-  gesture: { kind: 'throw' | 'catch'; until: number; oneHand?: boolean; caught?: boolean; t0?: number; at?: Vector3; plan?: Plan } | null = null
+  gesture: { kind: 'throw' | 'catch'; until: number; oneHand?: boolean; caught?: boolean; t0?: number; at?: Vector3; plan?: Plan; calm?: boolean; handsOff?: boolean } | null = null
   /** this frame's look-and-turn of a gesture (aim.ts); null without one */
   aim: AimPose | null = null
   private stance = { seated: false, still: true }
@@ -781,7 +788,7 @@ export class AgentRig {
    * Begin a throw or a catch (#224): look at `at` (a point the caller keeps moving, e.g. the plane), turn as aim.ts says.
    * Returns the gesture; `until` is when everything is back at the desk.
    */
-  startGesture(kind: 'throw' | 'catch', t: number, at: Vector3, o: { reduced?: boolean; flyFor?: number; holdS?: number; oneHand?: boolean } = {}) {
+  startGesture(kind: 'throw' | 'catch', t: number, at: Vector3, o: { reduced?: boolean; flyFor?: number; holdS?: number; oneHand?: boolean; calm?: boolean } = {}) {
     const theta = Math.hypot(at.x - this.x, at.z - this.z) > 0.05 ? wrap(Math.atan2(-(at.x - this.x), -(at.z - this.z)) - this.heading) : 0
     const plan = planGesture(kind, theta, {
       seated: this.stance.seated,
@@ -792,7 +799,7 @@ export class AgentRig {
       flyFor: o.flyFor,
       holdS: o.holdS,
     })
-    return (this.gesture = { kind, until: t + plan.times.end, oneHand: o.oneHand, t0: t, at, plan })
+    return (this.gesture = { kind, until: t + plan.times.end, oneHand: o.oneHand, t0: t, at, plan, calm: o.calm })
   }
 
   constructor(id: string, index: number, parts: RigParts, color: string) {
@@ -1034,6 +1041,8 @@ export class AgentRig {
       gazeFrom = aim.phase === 'done' ? 0 : 1
     }
     this.aim = gazeFrom ? aim : null
+    // a paper handed over (#262): the look and the turn are the same, the narrowed / wide eyes of a throw and a catch are not (the faces are paper-pass.md 4's)
+    if (this.aim && gz?.calm) this.aim = { ...this.aim, mood: null }
     const { root, head, beam } = this.parts
     root.visible = !this.hidden
     root.position.set(this.drawAt?.x ?? this.x, 0, this.drawAt?.z ?? this.z)
@@ -1271,7 +1280,7 @@ export class AgentRig {
   private handPose(side: 'l' | 'r', pose: string, t: number, reduced: boolean): HandPose {
     const g = this.gesture
     const a = this.aim
-    if (!g?.plan || !a || reduced) return this.basePose(side, pose, t, reduced)
+    if (!g?.plan || !a || reduced || g.handsOff) return this.basePose(side, pose, t, reduced)
     const sx = side === 'l' ? -1 : 1
     const sit = this.seat
     const rest = this.parts.hands[side].restPos
@@ -1297,11 +1306,7 @@ export class AgentRig {
       if (caught) {
         // looking at what was caught (paper-pass.md 5, #273): in front of the face screen and below it, so neither the hand
         // nor the plane covers the screen: 0.22 ahead, 0.10 down, 0.06 to the holding hand's side, in the head's frame
-        const head = this.parts.head.position
-        const yaw = a.head
-        const ox = sx * LOOK_AT.side
-        const oz = -LOOK_AT.ahead
-        target = v(head.x + ox * Math.cos(yaw) + oz * Math.sin(yaw), head.y - LOOK_AT.down, head.z - ox * Math.sin(yaw) + oz * Math.cos(yaw))
+        target = this.readingPlace(side)
         curl = PINCH_POSE
       } else {
         // the usual catching place in front, drifting to the plane's side as the angle grows
@@ -1324,6 +1329,15 @@ export class AgentRig {
     return { pos: lift(base.pos.clone().lerp(target, a.arm)), turn: base.turn.clone().slerp(reach, a.arm), curl: a.arm > 0.3 ? curl : base.curl }
   }
   private tmpAt = new Vector3()
+
+  /** where a held paper / plane is looked at (paper-pass.md 5, #273): 0.22 ahead of the face screen, 0.10 below it, 0.06 to the holding hand's side, in the head's frame (the agent's frame; `out`) */
+  readingPlace(side: 'l' | 'r', out = new Vector3()) {
+    const head = this.parts.head.position
+    const yaw = this.aim?.head ?? 0
+    const ox = (side === 'l' ? -1 : 1) * LOOK_AT.side
+    const oz = -LOOK_AT.ahead
+    return out.set(head.x + ox * Math.cos(yaw) + oz * Math.sin(yaw), head.y - LOOK_AT.down, head.z - ox * Math.sin(yaw) + oz * Math.cos(yaw))
+  }
 
   /** #255: the hand turn (a pose's `turn`) for a hand at `pos` whose palm faces `palm` (agent frame; null: no object) */
   private reachAt(side: 'l' | 'r', pos: Vector3, palm: Vector3 | null): Quaternion {

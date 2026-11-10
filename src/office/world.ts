@@ -121,6 +121,8 @@ export interface OfficeWorld {
   rigs: Record<string, AgentRig>
   /** the paper planes in flight (#51), set by the scene */
   planes: PaperPlanes | null
+  /** ?debug=1: window.__office.paper.pass(from, to, method?) / .log() / .choose(from, to) (#262) */
+  paper: { pass: (from: string, to: string, method?: 'hand' | 'slide' | 'toss' | 'plane') => void; log: () => unknown[]; choose: (from: string, to: string) => unknown } | null
   graph: NavGraph | null
   check: NavCheck | null
   /** the traffic planner (#138), set by the scene; ?debug=1 draws its grid and plans when showGrid is on */
@@ -215,6 +217,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     goals: {},
     rigs: {},
     planes: null,
+    paper: null,
     graph: null,
     check: null,
     traffic: null,

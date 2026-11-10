@@ -145,7 +145,8 @@ export class Guard {
         const d = now.distanceTo(this.home.get(n.name)!)
         for (const s of both) {
           s.looseWorst = Math.max(s.looseWorst, d)
-          if (d > 0.01) s.loose++
+          // a prop somebody else moves right now (the paper in a slide or a toss, paperRun.ts) is in transit, not loose; it goes home when the pass ends
+          if (d > 0.01 && !w.props.borrowed.has(n)) s.loose++
           if (was) {
             s.releases++
             const g = gripPoint(w, n, was.side)
@@ -194,6 +195,8 @@ export class Walk {
   private first = true
   private departs = new Map<string, number>()
   t = 0
+  /** called each frame after the stage drew the hands and before the prop bank reads who holds what (the paper passes, #262) */
+  before: ((t: number) => void) | null = null
   constructor(readonly w: World, readonly t0 = Date.UTC(2026, 10, 9, 5, 0, 0), readonly reduced = false) {}
 
   step(dt: number, guard?: Guard) {
@@ -227,6 +230,7 @@ export class Walk {
       w.rigs[id].update(dt, this.t, GRAPH, w.rigs, this.reduced, this.status[id])
     }
     w.stage.update({ now, t: this.t, dt, reduced: this.reduced, replaying: false, rigs: w.rigs, goals: this.goals, status: this.status, tablet: false, stamp: false, colors: {} })
+    this.before?.(this.t)
     w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
     w.props.update(dt)
     w.scene.updateMatrixWorld(true)
