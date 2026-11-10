@@ -3089,7 +3089,7 @@ BOOK_HALVES = []  # live bot: prop_book_l, prop_book_r
 def build_book(G):
     """the book (#135); #280 3 (user, lounge-props.md 3.1): it rests on the low table, centred on table_low_slot_2"""
     T = 0.025
-    bx, bz, ry = TABLE_LOW[0] + 0.24, TABLE_LOW[1] + 0.14, 0.15  # the slot (2.85, 2.55); the book turned 0.15 like before
+    bx, bz, ry = TABLE_LOW[0] + 0.19, TABLE_LOW[1] + 0.10, 0.15  # the slot (2.80, 2.51, designer #359: inside the east half circle); turned 0.15 like before
     ox, oz = bx - 0.075 * math.cos(ry), bz + 0.075 * math.sin(ry)  # the frame's origin = the spine axis, 7.5 cm from the centre
     return make_book("prop_book", 0.15, 0.22, T, "#2f6f9f", (ox, 0.40 + T / 2, oz), (0.0, ry, 0.0), G, ribbon=True)
 
@@ -4655,8 +4655,8 @@ def build_table_low():
         p.append(box("magazine", (0.21, 0.006, 0.28), (tx - 0.1 + k * 0.01, 0.163 + k * 0.0065, tz + 0.0), plastic(c, 0.7, 0, 0.2, f"magazine_{k}"), L2, rot_y=rot))
     fp("table_low", p, "floor")
     # mugs on the north edge of the west half 18 cm apart, the pillow south of them (2.9 cm clear; it overhangs the
-    # south edge 9 cm), the book on the east half (designer: (2.85, 2.55))
-    for k, (dx, dz, kind) in enumerate(((-0.30, -0.15, "mug"), (-0.12, -0.15, "mug"), (0.24, 0.14, "book"), (-0.20, 0.13, "pillow"))):
+    # south edge 9 cm), the book on the east half (designer #359: (2.80, 2.51))
+    for k, (dx, dz, kind) in enumerate(((-0.30, -0.15, "mug"), (-0.12, -0.15, "mug"), (0.19, 0.10, "book"), (-0.20, 0.13, "pillow"))):
         child_empty(None, f"table_low_slot_{k}", Mx((tx + dx, 0.40, tz + dz)), {"slot_on": "table_low", "for": kind})
     return l2("table_low", p)
 
