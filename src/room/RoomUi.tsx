@@ -1,5 +1,6 @@
 import { useFrame } from '@react-three/fiber'
 import { useEffect, useRef, useState } from 'react'
+import { markFirstScreen } from '../office/atlases'
 import { DESK_URL, ROOM_MODE, isLocked, leaveOffice, listenToDesk, onEntered, onLeaveStart, postToParent } from './link'
 import { closeApprovalBox, isApprovalBoxOpen } from '../office/approval/panel'
 import { closeDocs, isDocsOpen } from '../office/docs/panel'
@@ -61,6 +62,7 @@ let sent = false
 export function ReadyPing() {
   const frames = useRef(0)
   useFrame(() => {
+    if (frames.current === 2) markFirstScreen() // the room is on screen: the close-up atlases may start (#280)
     if (!sent && ++frames.current === 3) {
       sent = true
       postToParent({ type: 'ready', room: 'office' })

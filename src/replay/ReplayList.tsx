@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Point, PointKind } from '../timeline/types'
+import { dayId } from './days'
 import { ALL, AGENT_NAME, KIND_NAME, SECRET_NOTE, atMs, dayKey, describe, isDeploy, kindWord, kst, laneOf, prepare, whoName, shortName, sizeText, type Lane } from './engine'
 import { Glyph } from './Glyph'
 import { replay, useReplay } from './store'
@@ -41,10 +42,19 @@ export function ReplayList() {
     if (!n.delete(v)) n.add(v)
     put(n)
   }
-  const watch = async () => {
-    await replay.setProject(project)
-    replay.setMode('office')
-  }
+  // "사무실에서 보기": the latest day with points; "▶ 이 날 보기": that day (timelapse.md 10.8)
+  const watch = (day: string | null) => void replay.showDay(project, day)
+  // opened from the office: scroll to the day that was being viewed and mark it for a moment
+  const [mark, setMark] = useState<string | null>(null)
+  useEffect(() => {
+    const id = replay.markDay
+    const el = id ? root.current?.querySelector<HTMLElement>(`[data-day="${id}"]`) : null
+    if (!id || !el || !root.current) return
+    root.current.scrollTop = el.offsetTop - (root.current.querySelector('header')?.offsetHeight ?? 0)
+    setMark(id)
+    const t = setTimeout(() => setMark(null), 1500)
+    return () => clearTimeout(t)
+  }, [])
   const first = inProject[0]
   const last = inProject.at(-1)
   const range = first && last ? `${dayKey(first)} – ${dayKey(last)}` : ''
@@ -67,7 +77,7 @@ export function ReplayList() {
         <Spark days={perDay} />
         <div className="sum">{range} · 점 {shown.length}개 · 최근이 위</div>
         <div className="chips">
-          <button type="button" className="chip" onClick={() => void watch()}>▶ 사무실에서 보기</button>
+          <button type="button" className="chip" onClick={() => watch(null)}>▶ 사무실에서 보기</button>
         </div>
         <div className="chips" role="group" aria-label="종류 거르기">
           {KINDS.map((k) => (
@@ -84,9 +94,13 @@ export function ReplayList() {
         const k = kst(atMs(list[0]))
         const rows = [...list].reverse()
         const all = open.has(day)
+        const id = dayId(atMs(list[0]))
         return (
-          <section key={day} className="day" aria-label={`${k.m}월 ${k.d}일 ${k.w}요일`}>
-            <h3>{k.m}월 {k.d}일 {k.w}요일 · {list.length}개</h3>
+          <section key={day} className={`day${mark === id ? ' mark' : ''}`} data-day={id} aria-label={`${k.m}월 ${k.d}일 ${k.w}요일`}>
+            <div className="day-head">
+              <h3>{k.m}월 {k.d}일 {k.w}요일 · {list.length}개</h3>
+              <button type="button" className="watch" onClick={() => watch(id)}>▶ 이 날 보기</button>
+            </div>
             <ol>
               {(all ? rows : rows.slice(0, PER_DAY)).map((p) => (
                 <Row key={p.key} p={p} />

@@ -48,14 +48,14 @@ export function ReplayDriver({ world }: { world: OfficeWorld }) {
     }
 
     let was = replay.getSnapshot().mode
-    let lastI = -1
+    let lastPoint: unknown = null
     const sync = () => {
       const s = replay.getSnapshot()
       if (s.mode === 'office') {
         world.board.lock(replay.scene()?.board ?? null)
         if (was !== 'office') animate(Date.now(), target())
-        else if (!anim && s.i !== lastI) setClockTime(new Date(target()))
-        lastI = s.i
+        else if (!anim && replay.point !== lastPoint) setClockTime(new Date(target()))
+        lastPoint = replay.point
       } else if (was === 'office') {
         world.board.lock(null)
         world.meeting.stop()

@@ -140,7 +140,9 @@ export const daybreakMs = (speed: Speed = 1) => DAYBREAK_MS / speed
 export const isDaybreak = (a: Point, b: Point) => dayKey(a) !== dayKey(b) && atMs(b) - atMs(a) >= DAYBREAK_GAP_MS
 
 /** the time left from point `i` at this speed, ms; `wait` adds the expected holds per point (replay ms, they run faster too) */
-export function remainingMs(points: readonly Point[], i: number, speed: Speed, wait?: (k: number, first: boolean) => number): number {
+export function remainingMs(points: readonly Point[], i: number, speed: Speed, wait?: (k: number, first: boolean) => number, ended = false): number {
+  // the last point has played (the end card is up): nothing is left, not the 3 s the last point itself lasts
+  if (ended) return 0
   let ms = 0
   for (let k = Math.max(0, i); k < points.length; k++) {
     ms += stepMs(points[k], speed) + (wait ? wait(k, k === Math.max(0, i)) / speed : 0)
