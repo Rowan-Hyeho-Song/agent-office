@@ -3,9 +3,13 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { CanvasTexture, Color, Group, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace, type Object3D } from 'three'
 import { boardColors, drawBoard, font } from '../board/draw'
 import { BH, BW, FS_L, FS_S, layoutBoard, type BoardLayout, type CardLayout, type Measure } from '../board/layout'
-import type { BoardState } from '../board/state'
-import { getDocsPanel, openDocs } from './docs/panel'
-import { useCanvasPick } from './pick'
+import { COLUMNS, type BoardState } from '../board/state'
+import { useCameraBusy } from '../room/Door'
+import { replay } from '../replay/store'
+import { getDocsPanel } from './docs/panel'
+import { getBoardView, openBoard, setBoardHover } from './boardView/store'
+import { canOpen } from './boardView/view'
+import { hitBox, useCanvasPick } from './pick'
 import type { OfficeWorld } from './world'
 
 /** a new card fades in over this long (docs-ui 3.4) */
@@ -46,12 +50,20 @@ export function Whiteboard({ world, scene }: { world: OfficeWorld; scene: Object
     if (world.debug) (window as unknown as { __docsPanel: typeof getDocsPanel }).__docsPanel = getDocsPanel
   }, [world])
   useFrame((_, dt) => rig?.tick(dt))
+  // a press on the board (a card, or anywhere on its face) flies the camera to it and opens the board screen (#234)
+  const busy = useCameraBusy()
+  const hit = useMemo(() => hitBox(scene, 'whiteboard'), [scene])
+  const may = () => canOpen({ replayOn: replay.getSnapshot().mode !== 'off', cameraBusy: busy, phase: getBoardView().phase })
   useCanvasPick(
-    () => rig?.targets ?? [],
+    () => (may() ? [...(rig?.targets ?? []), ...(rig?.face ? [rig.face] : []), ...(hit ? [hit] : [])] : []),
     (hits) => {
+      if (!may()) return
       const card = hits.map((h) => h.object.userData.card as CardLayout | undefined).find(Boolean)
-      if (card) openDocs({ repo: card.card.repo, n: card.card.n })
+      const u = hits.find((h) => h.object === rig?.face)?.uv?.x
+      const column = card ? COLUMNS.indexOf(card.column) : u === undefined ? null : (rig?.columnAtU(u) ?? null)
+      openBoard({ mode: matchMedia('(max-width: 640px)').matches ? 'sheet' : 'stage', column, focusKey: card?.card.key ?? null })
     },
+    (over) => setBoardHover(over),
   )
   return null
 }
@@ -70,6 +82,8 @@ class BoardRig {
   private fading = new Map<string, number>()
   /** one invisible plane per card, children of the group */
   targets: Mesh[] = []
+  /** an invisible plane over the whole face: a press anywhere on the board counts */
+  face: Mesh
 
   constructor(
     private surface: Object3D,
@@ -84,7 +98,11 @@ class BoardRig {
     this.plane.raycast = () => {} // clicks go to the per-card planes only
     this.plane.position.z = 0.001 // 1 mm in front of the board (the empty already sits on the face)
     this.group.add(this.plane)
+    this.face = new Mesh(new PlaneGeometry(w, h), new MeshBasicMaterial({ visible: false }))
+    this.face.position.z = 0.0015
+    this.group.add(this.face)
     surface.add(this.group)
+    this.group.updateMatrixWorld(true)
   }
 
   private measure: Measure = (text, size, bold) => {
@@ -99,6 +117,15 @@ class BoardRig {
     this.seen = new Set(keys)
     this.paint()
     this.rebuildTargets()
+  }
+
+  /** the column a press at u (0..1 across the face) falls in; the notes on the right count as the last column */
+  columnAtU(u: number): number | null {
+    const x = u * BW
+    const cols = this.layout?.columns
+    if (!cols) return null
+    const i = cols.findIndex((c) => x < c.x + c.w + 12)
+    return i < 0 ? cols.length - 1 : i
   }
 
   tick(dt: number) {
@@ -154,6 +181,7 @@ class BoardRig {
     this.texture.dispose()
     this.material.dispose()
     this.plane.geometry.dispose()
+    this.face.geometry.dispose()
     for (const m of this.targets) m.geometry.dispose()
   }
 }

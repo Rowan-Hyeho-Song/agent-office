@@ -9,6 +9,7 @@ import { setAmbienceMinute, startAmbience } from './ambience'
 import { onInput, type InputEvent } from '../office/inputEvents'
 import { cue, getCueSpeed, setCueSpeed } from './cues'
 import { inputCues } from './inputSound'
+import { pressesBetween, type BeatLike } from './wrapSound'
 import { audioGraph, ensureAudio, fadeRoom, setListener } from './engine'
 import { loadKeySample } from './keys'
 import { getSetting, setSetting, subscribe } from './settings'
@@ -93,6 +94,7 @@ const isResting = (r: OfficeWorld['rigs'][string]) => {
 
 const frustum = new Frustum()
 const viewProj = new Matrix4()
+const hand = new Vector3()
 
 /**
  * inside the canvas: the listener is the camera, and the agents' keys and mouse (#225): the input bus
@@ -102,6 +104,8 @@ const viewProj = new Matrix4()
  */
 export function SoundListener({ world }: { world: OfficeWorld }) {
   const pending = useRef<InputEvent[]>([])
+  /** each agent's wrap-up beat of the last frame (#229 card.press) */
+  const beats = useRef<Record<string, BeatLike | undefined>>({})
   const off = useRef<(() => void) | null>(null)
   useEffect(
     () => () => {
@@ -137,11 +141,29 @@ export function SoundListener({ world }: { world: OfficeWorld }) {
       }
       pending.current = []
     }
-    if (!hearing || !pending.current.length) return
-    const batch = pending.current
-    pending.current = []
+    if (!hearing) {
+      beats.current = {}
+      return
+    }
     viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
     frustum.setFromProjectionMatrix(viewProj)
+
+    // #229 the wrap-up: a card pressed onto the board (wrapSound.ts), on screen only, at the pressing hand
+    for (const id in world.rigs) {
+      const beat = world.goals[id]?.beat
+      const before = beats.current[id]
+      beats.current[id] = beat ? { kind: beat.kind, u: beat.u, k: beat.k } : undefined
+      const hits = pressesBetween(before, beat)
+      if (!hits.length || !beat) continue
+      const r = world.rigs[id]
+      r.parts.hands.r.node.getWorldPosition(hand)
+      if (!r.visible || !frustum.containsPoint(hand)) continue
+      for (const i of hits) cue('card.press', { pos: { x: hand.x, y: hand.y, z: hand.z }, agent: id, key: `card:${id}:${beat.kind}:${beat.k}:${i}:${Math.round(ms / 1000)}` })
+    }
+
+    if (!pending.current.length) return
+    const batch = pending.current
+    pending.current = []
     const seen = batch.filter((e) => frustum.containsPoint(e.pos))
     for (const c of inputCues(seen, getCueSpeed())) cue(c.name, { pos: c.pos, agent: c.agent, at: c.at, keyKind: c.keyKind, key: c.key })
   })
