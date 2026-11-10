@@ -52,8 +52,9 @@ describe('the mouse and the tour (#405)', () => {
     expect(stops).toEqual([false, false, false, false])
   })
 
-  it('pressing the picture ends it; a held move without a seen press counts from its first move', () => {
-    expect(run([{ kind: 'down', x: 5, y: 5, buttons: 1 }])).toEqual([true])
+  it('a press on the picture alone (a click) does not end it, its drag does; a held move without a seen press counts from its first move', () => {
+    expect(run([{ kind: 'down', x: 5, y: 5, buttons: 1 }, { kind: 'up', x: 5, y: 5 }])).toEqual([false, false])
+    expect(run([{ kind: 'down', x: 5, y: 5, buttons: 1 }, { kind: 'move', x: 5 + DRAG_PX + 1, y: 5, buttons: 1 }])).toEqual([false, true])
     expect(run([{ kind: 'move', x: 0, y: 0, buttons: 1 }, { kind: 'move', x: 20, y: 0, buttons: 1 }, { kind: 'move', x: 40, y: 0, buttons: 1 }])).toEqual([false, false, true])
   })
 

@@ -16,11 +16,8 @@ export type MouseEv =
 /** the next state and whether the tour ends; the pointer events on the bar / agent list / view toggle never end it */
 export function mouseStep(s: MouseState, e: MouseEv): { state: MouseState; stop: boolean } {
   if (e.kind === 'up') return { state: e.buttons === 0 ? NO_MOUSE : s, stop: false }
-  if (e.kind === 'down') {
-    const state = { down: { x: e.x, y: e.y } }
-    // a press on the picture ends it (the camera then follows the drag); one on the bar is the bar's own press
-    return { state, stop: e.active && !e.onBar }
-  }
+  // a press only marks where a drag would start (office-ui.md 10.1: the input that ends it is press-AND-drag; a click on the picture does not)
+  if (e.kind === 'down') return { state: { down: { x: e.x, y: e.y } }, stop: false }
   // a plain move: no button held, nothing happens
   if (e.buttons === 0) return { state: NO_MOUSE, stop: false }
   // a drag that began before the tour (or this event stream) started counts from its first move
