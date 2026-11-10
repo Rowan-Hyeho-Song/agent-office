@@ -96,6 +96,8 @@ export const TRAFFIC = {
     handSweepM: 0.12,
     /** the same pair meeting again within this skips the hand gesture */
     repeatS: 30,
+    /** a yield that is over by the closest approach (#272): the yielder stood still this long (s) at least, within this long (s) before it */
+    aside: { minStopS: 0.5, lookBackS: 3 },
     passHeadDeg: 10,
     passS: 0.4,
     wideHeadDeg: 10,
@@ -937,8 +939,12 @@ export class TrafficPlanner {
         const x = dd <= leg1 ? p.x + (w.x - p.x) * (dd / Math.max(1e-6, leg1)) : w.x + (ctx.gx - w.x) * ((dd - leg1) / SOFA_ROW.laneM)
         const z = dd <= leg1 ? p.z + (w.z - p.z) * (dd / Math.max(1e-6, leg1)) : w.z + (ctx.gz - w.z) * ((dd - leg1) / SOFA_ROW.laneM)
         this.px(r, tt, q)
-        // a body resting on a seat of the row is judged by the pitch (chord rule above)
-        if (this.restsOnRowSeat(q.x, q.z)) continue
+        // a body resting on a seat of the row is judged by the pitch (chord rule above); but not the one still on the very seat we are walking in to (#272:
+        // somebody getting up from it, on its way out the same lane): that one must be off the seat's lane before we come in
+        if (this.restsOnRowSeat(q.x, q.z)) {
+          if (Math.hypot(q.x - ctx.gx, q.z - ctx.gz) < SOFA_ROW.seatEps && Math.hypot(q.x - x, q.z - z) < this.thr) return false
+          continue
+        }
         if (Math.hypot(q.x - x, q.z - z) < this.thr) return false
       }
     }
@@ -1416,19 +1422,15 @@ export class TrafficPlanner {
           if (prevD < prevPrevD && prevD <= d && prevD < TRAFFIC.passRangeM && tPrev > now) {
             const sa = this.speedAt(tr, tPrev)
             const sb = this.speedAt(b.traj, tPrev)
-            if (sa > 0.1 && sb > 0.1) gen.push({ kind: 'wide', t0: tPrev - C.wideS / 2, t1: tPrev + C.wideS / 2, target: b.id, gesture: false })
+            // both moving at the closest approach, but one of them stood aside to let the other come by and has just set off again (#272): that was a yield,
+            // not two bodies passing wide. The one that waited is the yielder; if both waited, neither is
+            const aStop = sa > 0.1 && sb > 0.1 ? this.asideStop(tr, tPrev) : null
+            const bStop = aStop !== null ? this.asideStop(b.traj, tPrev) : null
+            if (aStop !== null && bStop === null) this.pushYield(gen, a, b, aStop)
+            else if (sa > 0.1 && sb > 0.1) gen.push({ kind: 'wide', t0: tPrev - C.wideS / 2, t1: tPrev + C.wideS / 2, target: b.id, gesture: false })
             else if (sa > 0.1 && sb <= 0.1 && this.movedAside(b.traj, tPrev)) gen.push({ kind: 'pass', t0: tPrev - C.passS / 2, t1: tPrev + C.passS / 2, target: b.id, gesture: false })
             else if (sa <= 0.1 && sb > 0.1 && this.movedAside(tr, tPrev)) {
-              const t0 = this.stoppedSince(tr, tPrev)
-              const key = [a.id, b.id].sort().join('|')
-              const last = this.met.get(key)
-              let gesture: boolean
-              if (last !== undefined && Math.abs(last - t0) < 0.5) gesture = true
-              else if (last === undefined || t0 - last >= C.repeatS) {
-                this.met.set(key, t0)
-                gesture = true
-              } else gesture = false
-              gen.push({ kind: 'yield', t0, t1: t0 + C.yieldS, target: b.id, gesture })
+              this.pushYield(gen, a, b, this.stoppedSince(tr, tPrev))
             }
           }
           prevPrevD = prevD
@@ -1440,6 +1442,39 @@ export class TrafficPlanner {
       for (const c of gen) if (c.t1 > now && !out.some((k) => k.kind === c.kind && k.target === c.target && c.t0 < k.t1 + 0.5)) out.push(c)
       a.cues = out.sort((p, q) => p.t0 - q.t0)
     }
+  }
+
+  /** a yield cue from the time `t0` the yielder stopped: the full gesture unless this pair met just before */
+  private pushYield(gen: Cue[], a: AgentRec, b: AgentRec, t0: number) {
+    const C = TRAFFIC.cue
+    const key = [a.id, b.id].sort().join('|')
+    const last = this.met.get(key)
+    let gesture: boolean
+    if (last !== undefined && Math.abs(last - t0) < 0.5) gesture = true
+    else if (last === undefined || t0 - last >= C.repeatS) {
+      this.met.set(key, t0)
+      gesture = true
+    } else gesture = false
+    gen.push({ kind: 'yield', t0, t1: t0 + C.yieldS, target: b.id, gesture })
+  }
+
+  /**
+   * The start of a stop it made just before `t` (within aside.lookBackS) after stepping aside (#272): standing still for aside.minStopS or more, having walked at
+   * least 0.25 m to get there. Null when it did not stop, or only stood where it was. Looks only back from t: what the pair does after the closest approach
+   * is not what made it a yield.
+   */
+  private asideStop(tr: Traj, t: number): number | null {
+    const A = TRAFFIC.cue.aside
+    const dt = TRAFFIC.sampleDt
+    for (let tt = t; tt >= Math.max(tr.t0, t - A.lookBackS); tt -= dt) {
+      if (this.speedAt(tr, tt) > 0.1) continue
+      const t0 = this.stoppedSince(tr, tt)
+      if (tt - t0 < A.minStopS) return null
+      const q = this.px(tr, t0)
+      const p = this.px(tr, Math.max(tr.t0, t0 - 2.5))
+      return Math.hypot(q.x - p.x, q.z - p.z) > 0.25 ? t0 : null
+    }
+    return null
   }
 
   /** it moved at least 0.25 m in the 2.5 s before t (it stepped aside, rather than just standing there) */
