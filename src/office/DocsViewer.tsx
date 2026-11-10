@@ -268,7 +268,14 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
               </div>
             ) : (
               <nav className="doc-nav" aria-label="서재 목록" onScroll={markScrolled}>
-                {view === 'files' && folder && <DocPath folder={folder} file={null} onRoot={() => setStage('folders')} onFolder={() => setStage('files')} />}
+                {view === 'files' && folder && (
+                  // the path, the heading and the filter / sort rows stay on top as one block while the files scroll (#319)
+                  <div className="doc-head">
+                    <DocPath folder={folder} file={null} onRoot={() => setStage('folders')} onFolder={() => setStage('files')} />
+                    <h4>파일철</h4>
+                    <ListControls files={folder.files} value={listView} onChange={changeView} />
+                  </div>
+                )}
                 {snap.metas === null && !snap.error && <p className="doc-note">불러오는 중…</p>}
                 {snap.error && (
                   <p className="approval-error" role="alert">
@@ -287,8 +294,6 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
                       {fo.label}
                     </button>
                   ))}
-                {view === 'files' && <h4>파일철</h4>}
-                {view === 'files' && folder && <ListControls files={folder.files} value={listView} onChange={changeView} />}
                 {view === 'files' &&
                   folder &&
                   viewFiles(folder.files, listView).map((f) => (
