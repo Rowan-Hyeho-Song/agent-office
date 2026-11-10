@@ -388,6 +388,23 @@ html[data-motion='reduce'] .corner-dock { transition: none; }
 .doc-nav { flex: 1; min-height: 0; padding: var(--space-3) var(--space-4); overflow: auto; scrollbar-gutter: stable; }
 .doc-path { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); padding: var(--space-3) var(--space-4) 0; font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
 .doc-nav .doc-path { padding: 0 0 var(--space-3); }
+/* the path line stays at the top while the list scrolls (#319): full width over the 16px sides, the surface behind it and a line under it so the rows read as passing under */
+/* the path, the heading and the filter / sort rows: one block on top while the files scroll (#319): full width over the 16px sides, the surface behind it and one line under it */
+.doc-nav > .doc-head { position: sticky; top: calc(-1 * var(--space-3)); z-index: 1; margin: calc(-1 * var(--space-3)) calc(-1 * var(--space-4)) var(--space-2); padding: var(--space-3) var(--space-4) 0; background: var(--color-surface); border-bottom: 1px solid var(--color-line); }
+.doc-head > .doc-path { padding: 0 0 var(--space-2); }
+.doc-nav .doc-head h4 { margin-top: var(--space-1); }
+/* phone: once the list is scrolled, the '파일철' heading folds away (0.15 s) and gives the files its row back (designer, #322) */
+@media (max-width: 640px) {
+  .doc-nav .doc-head h4 { max-height: 2em; overflow: hidden; transition: max-height 0.15s ease, opacity 0.15s ease, margin 0.15s ease; }
+  .doc-nav[data-scrolled='true'] .doc-head h4 { max-height: 0; opacity: 0; margin-top: 0; margin-bottom: 0; }
+}
+html[data-motion='reduce'] .doc-nav .doc-head h4 { transition: none; }
+@media (prefers-reduced-motion: reduce) { .doc-nav .doc-head h4 { transition: none; } }
+.doc-main > .doc-path { border-bottom: 1px solid var(--color-line); padding-bottom: var(--space-2); }
+/* scrolled: a short shadow under the header, so a half-hidden title does not read as stuck to it (designer, #321) */
+.doc-nav[data-scrolled='true'] > .doc-head { box-shadow: 0 6px 8px -6px rgb(0 0 0 / 0.7); }
+.doc-main > :has(+ .doc-stage) { position: relative; z-index: 1; }
+.doc-main[data-scrolled='true'] > :has(+ .doc-stage) { box-shadow: 0 6px 8px -6px rgb(0 0 0 / 0.7); }
 .doc-path button { font: inherit; background: none; border: 0; padding: 2px 0; color: var(--color-text); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .doc-path button:hover { color: var(--color-amber); }
 .doc-path button:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
@@ -399,7 +416,8 @@ html[data-motion='reduce'] .corner-dock { transition: none; }
 .doc-folder[aria-current='true'] { background: var(--surface-raised); color: var(--color-amber); }
 .doc-folder svg, .doc-file svg { width: 12px; height: 12px; flex: none; }
 .doc-file { flex-direction: column; align-items: stretch; gap: var(--space-1); container: docfile / inline-size; font-size: 13px; line-height: 1.4; border-left: var(--bubble-stripe) solid transparent; }
-.doc-file .l1 { display: flex; gap: var(--space-2); align-items: center; min-width: 0; }
+.doc-file .l1 { display: flex; gap: var(--space-2); align-items: baseline; min-width: 0; } /* number · title · SECRET on the title's first line, however many lines it wraps to (#319) */
+.doc-file .l1 .doc-dot { align-self: flex-start; margin-top: calc((1.4em - 6px) / 2); }
 .doc-file .l1 .ttl { min-width: 0; word-break: keep-all; overflow-wrap: anywhere; } /* break between words; only a word longer than the line breaks inside (designer, #301) */
 .doc-file .l2 { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); min-width: 0; padding-left: calc(var(--space-2) + 2ch); font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); } /* the second line: topics, date, agents (#236) */
 .doc-file .l2 .who i { font-style: normal; color: var(--agent-ink); }
@@ -460,7 +478,7 @@ html[data-motion='reduce'] .corner-dock { transition: none; }
 .doc-toc button[aria-selected='true'] { background: var(--paper); color: var(--paper-ink); }
 .doc-stage { flex: 1; min-height: 0; padding: var(--space-3) var(--space-4) var(--space-4); overflow: auto; scrollbar-gutter: stable; }
 .doc-stage > * + * { margin-top: var(--space-4); }
-.doc-paper { position: relative; overflow-wrap: anywhere; background: var(--paper); color: var(--paper-ink); padding: var(--space-6) var(--space-6) var(--space-8); font-family: var(--font-text); font-size: 14.5px; line-height: 1.75; box-shadow: 0 1px 0 color-mix(in srgb, var(--paper-ink) 20%, transparent), 0 10px 24px var(--color-halo); max-width: 640px; margin-inline: auto; }
+.doc-paper { position: relative; word-break: keep-all; overflow-wrap: anywhere; background: var(--paper); color: var(--paper-ink); padding: var(--space-6) var(--space-6) var(--space-8); font-family: var(--font-text); font-size: 14.5px; line-height: 1.75; box-shadow: 0 1px 0 color-mix(in srgb, var(--paper-ink) 20%, transparent), 0 10px 24px var(--color-halo); max-width: 640px; margin-inline: auto; }
 .doc-paper h5 { font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); letter-spacing: var(--letter-spacing-label); color: var(--paper-muted); margin: var(--space-4) 0 var(--space-1); border-bottom: 1px solid color-mix(in srgb, var(--paper-ink) 18%, transparent); padding-bottom: 2px; }
 .doc-paper h5:first-of-type { margin-top: 0; }
 .doc-paper p { margin: 0 0 var(--space-2); }
@@ -697,3 +715,88 @@ html[data-motion='reduce'] .tour-bar { animation: none; }
   .topics.fold .topic-more { display: inline; }
 }
 .doc-filehead .topics { margin: var(--space-1) 0; }
+
+/* portrait phone: the landmarks the home view leaves out (EdgeHints.tsx) */
+/* the button is a transparent 44 x 44 px touch area; the chip inside keeps the look (designer, #340) */
+.edge-hint {
+  position: fixed; z-index: 5; translate: 0 -50%;
+  display: flex; align-items: center; min-width: 44px; min-height: 44px; padding: 0; cursor: pointer;
+  background: none; border: 0; color: var(--color-text-muted);
+}
+.edge-hint-l { left: 0; justify-content: flex-start; }
+.edge-hint-r { right: 0; justify-content: flex-end; }
+.edge-chip {
+  font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1);
+  min-height: 32px; display: inline-flex; align-items: center; padding: 0 var(--space-2);
+  background: rgba(10, 13, 19, 0.82); border: 1px solid var(--color-line);
+}
+.edge-hint-l .edge-chip { border-left: 0; }
+.edge-hint-r .edge-chip { border-right: 0; }
+.edge-hint:hover, .edge-hint:focus-visible { color: var(--color-text); }
+.edge-hint:focus-visible { outline: none; }
+.edge-hint:focus-visible .edge-chip { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+/* reduced motion: the pan is a fade cut */
+.edge-fade { position: fixed; inset: 0; z-index: 4; pointer-events: none; background: var(--color-bg, #0b0e13); opacity: 0; transition: opacity 0.15s linear; }
+.edge-fade[data-on] { opacity: 1; }
+
+/* sound settings panel (#353, docs/design/office-ui.md 11): popover by the turntable / HUD, bottom sheet <= 640 px */
+.sound-volume { gap: 4px; }
+.sound-volume { width: calc(120px + 36px + 24px + 4px); }
+.sound-detail { flex: none; width: 24px; height: 24px; padding: 0; display: grid; place-items: center; background: none; border: 0; color: var(--color-text-muted); cursor: pointer; }
+.sound-detail svg { width: 16px; height: 16px; }
+.sound-detail:hover, .sound-detail[aria-expanded='true'] { color: var(--color-cyan); }
+.sound-detail:focus-visible, .sound-panel :is(button, input):focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+.sound-dock.panel-open .sound-volume { opacity: 1; visibility: visible; pointer-events: auto; transition: none; }
+.sound-panel { position: fixed; left: 0; top: 0; z-index: 40; box-sizing: border-box; padding: 8px 12px 10px; background: var(--color-surface); color: var(--color-text);
+  box-shadow: inset 0 0 0 1px var(--color-line), 0 0 0 1px var(--color-halo); border-radius: 8px; font: 13px var(--font-pixel, monospace); }
+.sound-panel::before { content: ''; position: absolute; top: var(--tail-y, 20px); width: 10px; height: 10px; margin-top: -5px; background: var(--color-surface); rotate: 45deg; }
+.sound-panel[data-side='right']::before { left: -5px; border-left: 1px solid var(--color-line); border-bottom: 1px solid var(--color-line); }
+.sound-panel[data-side='left']::before { right: -5px; border-right: 1px solid var(--color-line); border-top: 1px solid var(--color-line); }
+.sound-panel[data-tail='0']::before, .sound-panel.sheet::before { display: none; }
+.sound-head { display: flex; align-items: center; gap: 8px; height: 32px; }
+.sound-head h2 { margin: 0; font: inherit; font-weight: 700; }
+.sound-off { color: var(--color-text-muted); font-size: 11px; }
+.sound-mute { margin-left: auto; }
+.sound-ib { width: 24px; height: 24px; padding: 0; display: grid; place-items: center; background: none; border: 0; color: var(--color-text); cursor: pointer; }
+.sound-ib svg { width: 16px; height: 16px; }
+.sound-panel.sheet .sound-ib { width: 44px; height: 44px; margin: -10px 0; }
+.sound-panel.sheet .sound-mute { margin-left: auto; }
+.sound-dock.panel-open .sound-hint { display: none; }
+.sound-row { display: block; height: 48px; margin-top: 8px; }
+.sound-top { display: flex; align-items: baseline; gap: 6px; height: 18px; line-height: 18px; margin-bottom: 4px; }
+.sound-name { flex: none; font-size: 12px; color: var(--color-text); }
+.sound-top small { font-size: 11px; color: var(--color-text-muted); white-space: nowrap; }
+.sound-row input[type='range'] { display: block; width: 100%; height: 26px; margin: 0; background: transparent; appearance: none; -webkit-appearance: none; cursor: pointer; }
+.sound-row input[type='range']::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--color-cyan) var(--fill, 0%), var(--color-text-faint) var(--fill, 0%)); }
+.sound-row input[type='range']::-moz-range-track { height: 4px; border-radius: 2px; background: var(--color-text-faint); }
+.sound-row input[type='range']::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--color-cyan); }
+.sound-row input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%; background: var(--color-text); border: 0; }
+.sound-row input[type='range']::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--color-text); border: 0; }
+.sound-val { flex: none; margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--color-text-muted); }
+/* muted: the track and thumb at half strength, never the focus ring. One rule per engine: a selector list holding the other engine's
+   pseudo-elements is dropped whole (Chrome ignored the dim) */
+.sound-panel.muted .sound-val { opacity: 0.5; }
+.sound-panel.muted input::-webkit-slider-runnable-track, .sound-panel.muted input::-webkit-slider-thumb { opacity: 0.5; }
+.sound-panel.muted input::-moz-range-track, .sound-panel.muted input::-moz-range-progress, .sound-panel.muted input::-moz-range-thumb { opacity: 0.5; }
+.sound-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--color-line); min-height: 28px; }
+.sound-reset { background: none; border: 0; padding: 4px 0; color: var(--color-text); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.sound-reset[aria-disabled='true'] { opacity: 0.5; cursor: default; text-decoration: none; }
+.sound-done { color: var(--color-cyan); font-size: 11px; }
+.sound-panel.sheet { left: 0; right: 0; bottom: 0; top: auto; width: 100%; border-radius: 12px 12px 0 0; padding: 4px 16px calc(12px + env(safe-area-inset-bottom, 0px)); animation: sound-sheet-up 240ms ease-out; }
+.sound-panel.sheet .sound-row { height: 60px; }
+.sound-panel.sheet .sound-top { height: 20px; line-height: 20px; margin-bottom: 4px; }
+.sound-panel.sheet .sound-row input[type='range'] { height: 36px; }
+.sound-grip { display: block; width: 24px; height: 4px; margin: 6px auto 4px; border-radius: 2px; background: var(--color-text-faint); }
+.sound-dim { position: fixed; left: 0; right: 0; top: 0; height: 20%; z-index: 39; background: rgb(0 0 0 / 0.6); }
+@keyframes sound-sheet-up { from { translate: 0 100%; } }
+@media (prefers-reduced-motion: reduce) { .sound-panel.sheet { animation: sound-sheet-fade 120ms linear; } }
+html[data-motion='reduce'] .sound-panel.sheet { animation: sound-sheet-fade 120ms linear; }
+@keyframes sound-sheet-fade { from { opacity: 0; } }
+/* turntable hover / open outline (TurntablePick): a screen-space box on the turntable */
+.tt-outline { position: fixed; left: 0; top: 0; z-index: 25; pointer-events: none; box-sizing: border-box; border: 2px solid var(--color-cyan); border-radius: 4px; display: none; }
+.tt-outline[data-show='1'] { display: block; }
+.tt-outline[data-open='1'][data-hover='0'] { opacity: 0.6; }
+.tt-outline[data-press='1'] { background: rgb(77 243 255 / 0.25); box-shadow: 0 0 8px var(--color-cyan); }
+.tt-tag { position: absolute; left: 50%; bottom: calc(100% + 6px); translate: -50% 0; white-space: nowrap; padding: 2px 8px; background: var(--color-surface-alpha); color: var(--color-text);
+  box-shadow: inset 0 0 0 1px var(--color-cyan); font: 12px var(--font-pixel, monospace); }
+.tt-outline[data-hover='0'] .tt-tag { display: none; }

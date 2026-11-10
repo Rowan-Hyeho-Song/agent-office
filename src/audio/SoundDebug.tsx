@@ -5,7 +5,7 @@ import { CUES, CUE_NAMES, cue, cueCounts, type CueName } from './cues'
 import { BUS_LEVEL, audioDebug, audioGraph, ensureAudio, getBusLevel, meter, setBusLevel, testTone, type Bus, type Vec } from './engine'
 import { silenceReasons } from './audible'
 import { measureCue, type Level } from './levels'
-import { LAYERS, TEMPOS, getMusicState, getTempo, isLayerMuted, setMusicState, setTempo, toggleLayer, type MusicState, type Tempo } from './music'
+import { LAYERS, TEMPOS, getMusicState, getTempo, isHissOn, isLayerMuted, setHiss, setMusicState, setTempo, toggleLayer, type MusicState, type Tempo } from './music'
 import { getSetting, setSetting, subscribe } from './settings'
 import { faderLevels, forceMusic, forcedMusic, getMusicDist, setMusicDist, speakerCells, speakerCone, speakerForMe, toggleSpeakerForMe, type MusicDist } from './speaker'
 import { midi, tone } from './synth'
@@ -20,6 +20,11 @@ type Verdict = '좋음' | '크다' | '작다'
 type Where = 'near' | 'far' | 'left' | 'right'
 const WHERE: Record<Where, string> = { near: '가까이', far: '멀리', left: '왼쪽', right: '오른쪽' }
 const BUSES: Bus[] = ['music', 'sfx', 'keys', 'voice', 'ambience']
+const BUS_NAMES: Record<Bus, string> = { music: '음악', sfx: '효과음', keys: '타자', voice: '말소리', ambience: '공간음' }
+/** buses switched off by hand (#194 crackle: the user hears which layer the noise is in), with the level to come back to */
+const busOff = new Map<Bus, number>()
+/** Chrome's playback stats (underruns = the audio thread missed its deadline: the classic "찌직"), where it has them */
+const underruns = () => (audioGraph()?.ctx as unknown as { playbackStats?: { underrunEvents: number } } | undefined)?.playbackStats?.underrunEvents
 const PERIOD_NAMES = ['새벽', '낮', '저녁', '밤']
 const STATE_NAMES: Record<MusicState, string> = { off: '끔', work: '일할 때 (−12 dB)', break: '쉴 때' }
 const DIST_NAMES: Record<MusicDist, string> = { room: '방 어디서나 같게', near: '가까이 크게 · 멀리 작게' }
@@ -67,7 +72,7 @@ export function SoundDebug() {
 
   // debug only: lets level-check scripts drive the mix (like the desk room's window.__audio)
   useEffect(() => {
-    ;(window as unknown as { __sound: unknown }).__sound = { audioGraph, ensureAudio, setBusLevel, getBusLevel, cue, cueCounts, setMusicState, forceMusic, setMusicDist, startAmbience, setAmbienceOverride, meter, setSetting }
+    ;(window as unknown as { __sound: unknown }).__sound = { audioGraph, ensureAudio, setBusLevel, getBusLevel, cue, cueCounts, setMusicState, forceMusic, setMusicDist, startAmbience, setAmbienceOverride, meter, setSetting, setHiss, toggleLayer }
   }, [])
 
   const [tonePeak, setTonePeak] = useState<number | null>(null)
@@ -98,8 +103,24 @@ export function SoundDebug() {
   const judge = (key: string, v: Verdict) => setVerdicts((o) => ({ ...o, [key]: v }))
   // bus faders move in dB around the defaults; any change goes into the copy line so a "louder/quieter" comes back as numbers
   const busDb = (b: Bus) => Math.round(20 * Math.log10(Math.max(1e-6, getBusLevel(b) / BUS_LEVEL[b])))
-  const busLine = BUSES.filter((b) => busDb(b) !== 0).map((b) => `bus.${b}=${busDb(b) > 0 ? '+' : ''}${busDb(b)}dB`)
-  const copyLine = [...Object.entries(verdicts).map(([k, v]) => `${k}=${v}`), ...busLine, `keys.voice=${getKeyVoice()}`, `music.dist=${getMusicDist()}`].join(' ')
+  const busLine = BUSES.filter((b) => busOff.has(b) || busDb(b) !== 0).map((b) => `bus.${b}=${busOff.has(b) ? 'off' : `${busDb(b) > 0 ? '+' : ''}${busDb(b)}dB`}`)
+  const copyLine = [
+    ...Object.entries(verdicts).map(([k, v]) => `${k}=${v}`),
+    ...busLine,
+    `keys.voice=${getKeyVoice()}`,
+    `music.dist=${getMusicDist()}`,
+    ...(isHissOn() ? [] : ['music.hiss=off']),
+  ].join(' ')
+  const setBusOn = (b: Bus, on: boolean) => {
+    if (!on && !busOff.has(b)) {
+      busOff.set(b, getBusLevel(b))
+      setBusLevel(b, 0)
+    } else if (on && busOff.has(b)) {
+      setBusLevel(b, busOff.get(b)!)
+      busOff.delete(b)
+    }
+    tick()
+  }
   // keyboard demo: one agent typing a few seconds with the live rhythm, or several at once, or one special key
   const typeDemo = (typists: number, seconds = 4, offset = 0) => {
     start()
@@ -220,6 +241,31 @@ export function SoundDebug() {
 
       <section aria-label="미터">
         <b>미터</b> 피크 {m ? fmt(m.peak) : '—'} dBFS · 3초 평균 {fmt(avg)} dBFS · {audioGraph()?.ctx.state ?? '아직 없음'}
+        {underruns() !== undefined && <> · 끊김 {underruns()}번</>}
+      </section>
+
+      <section aria-label="층별 끄기">
+        <b>층별 끄기</b>{' '}
+        {(['ambience', 'music', 'sfx', 'keys'] as Bus[]).map((b) => (
+          <label key={b}>
+            <input type="checkbox" checked={!busOff.has(b)} onChange={(e) => setBusOn(b, e.target.checked)} /> {BUS_NAMES[b]}
+          </label>
+        ))}{' '}
+        <label>
+          <input
+            type="checkbox"
+            checked={isHissOn()}
+            onChange={(e) => {
+              setHiss(e.target.checked)
+              tick()
+            }}
+          />{' '}
+          음악 테이프 잡음
+        </label>
+        <small>
+          {' '}
+          거슬리는 소리가 어느 층에서 나는지 하나씩 꺼 보세요. 고른 것은 복사 줄에 들어가요. '끊김'이 늘 때 찌직거리면 소리가 아니라 브라우저가 바쁜 것이에요.
+        </small>
       </section>
 
       <section aria-label="master">
@@ -229,6 +275,15 @@ export function SoundDebug() {
         </button>{' '}
         <input type="range" min={0} max={100} value={Math.round(s.volume * 100)} onChange={(e) => setSetting({ volume: Number(e.target.value) / 100 })} aria-label="음량" />{' '}
         {Math.round(s.volume * 100)}%
+        {/* #353 the visitor's two category levels (the turntable panel's 배경음악 · 효과음), saved and shared like the volume */}
+        {(['music', 'sfx'] as const).map((k) => (
+          <label key={k}>
+            {' '}
+            {k === 'music' ? '배경음악' : '효과음'}{' '}
+            <input type="range" min={0} max={100} value={Math.round(s[k] * 100)} onChange={(e) => setSetting({ [k]: Number(e.target.value) / 100 })} />{' '}
+            {Math.round(s[k] * 100)}%
+          </label>
+        ))}
       </section>
 
       <section aria-label="버스">

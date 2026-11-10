@@ -25,9 +25,16 @@ export const PLAYS: PlayDef[] = [
   { kind: 'sofa', label: '소파에서 낮잠', spots: ['sofa_0', 'sofa_1', 'sofa_2'], weight: 2 },
   // one of the floor plants (water.ts), chosen per block, watered from its own stand beside the pot
   { kind: 'water', label: '화분 물 주기', spots: ['hall_lounge'], weight: 1 },
-  // the book on the side table by the sofa (the model's only book prop): read standing in front of that table, put back after (#184)
-  { kind: 'books', label: '책 고르기', spots: ['shelf'], weight: 1, face: { x: 0.065, z: 2.66 }, stand: { x: 0.07, z: 2.0 } },
+  // the book on the low table by the sofa (the model's only book prop), picked standing north of sofa seat 0 facing slot 2. PAUSED below: the designer's reading is seated
+  // (taken from the table, read on sofa seat 0, else seat 1, put back; lounge-props.md, #341), which comes with the lounge behaviours and #231's
+  // open book. This stand stays for the debug close-up and the grip tests only
+  { kind: 'books', label: '책 고르기', spots: ['shelf'], weight: 1, face: { x: 2.85, z: 2.55 }, stand: { x: 2.81, z: 2.88 } },
 ]
+
+/** plays kept off the schedule (day and night) for now; their definitions stay for the debug tools and the grip tests */
+export const PAUSED: ReadonlySet<PlayKind> = new Set<PlayKind>(['books'])
+/** what the schedule hands out */
+const SCHEDULED = PLAYS.filter((p) => !PAUSED.has(p.kind))
 
 /**
  * What each agent likes (#28 personalities): a multiplier on an activity's weight. The planner (메모) and the
@@ -147,12 +154,12 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
     out[agent] = { kind: p.kind, label: p.label, spot, ...(plantName ? { plant: plantName } : {}), ...(partner ? { partner } : {}), ...(p.face ? { face: p.face } : {}), ...(p.stand ? { stand: p.stand } : {}) }
   }
 
-  const solos = PLAYS.filter((p) => !p.pair)
+  const solos = SCHEDULED.filter((p) => !p.pair)
   for (let i = 0; i < order.length; i++) {
     const agent = order[i]
     if (out[agent]) continue
     const partner = order.slice(i + 1).find((a) => !out[a])
-    const open = PLAYS.filter((p) => !clashes(p, agent) && (p.pair ? partner && !taken.has(p.kind) : freeSpot(p)))
+    const open = SCHEDULED.filter((p) => !clashes(p, agent) && (p.pair ? partner && !taken.has(p.kind) : freeSpot(p)))
     const p = pick(open.length ? open : solos.filter((q) => !clashes(q, agent)), agent, partner)
     if (p.pair && partner) {
       taken.add(p.kind)
@@ -186,7 +193,7 @@ export const NIGHT_PLAYS: PlayKind[] = ['coffee', 'books']
 /** the night-duty agent's solo activity at this minute: same block length as the day schedule, same for every visitor */
 export function soloAt(minute: number, agent: string): PlayAssignment {
   const rand = rng(hash(`${blockOf(minute)}|solo|${agent}`))
-  const choices = PLAYS.filter((p) => NIGHT_PLAYS.includes(p.kind))
+  const choices = SCHEDULED.filter((p) => NIGHT_PLAYS.includes(p.kind))
   const p = choices[Math.floor(rand() * choices.length)]
   return { kind: p.kind, label: p.label, spot: p.spots[0], ...(p.face ? { face: p.face } : {}), ...(p.stand ? { stand: p.stand } : {}) }
 }

@@ -1,10 +1,11 @@
 // The one leaf that turns (#231, grips.md "한 장 넘기기"). The glb carries `<book>_page`: two sheets back to back, 16 columns along the width
 // (point attribute _PAGE_U, spine 0 → fore-edge 1) × 4 rows (_PAGE_V), its pivot on the spine axis, turned about local z (extras turn_axis z,
-// turn_dir 1). The leaf rotates 0 → 180° about the spine; while it does, its outer third lags behind the turn (bent), most at mid-turn, and is
+// turn_dir 1). The leaf rotates 0 → 150° (OPEN_ANGLE) about the spine, from the lower half's lifted face (LIFT) to the upper half's; while it does, its outer third lags behind the turn (bent), most at mid-turn, and is
 // straight again at the end. The halves never rotate. The bend is done on the CPU on the mesh's own float vertices (17 columns × 10 vertices,
 // nothing allocated per frame).
 
 import { Matrix4, Mesh, Quaternion, Vector3, type BufferAttribute, type Object3D } from 'three'
+import { LIFT, OPEN_ANGLE } from './bookGeom'
 
 /** the leaf's whole turn, s (grips.md: 0.75, 0.6–0.9) */
 export const TURN_S = 0.75
@@ -18,24 +19,24 @@ const smooth = (a: number, b: number, x: number) => {
   return k * k * (3 - 2 * k)
 }
 
-/** the leaf's angle about the spine at `tau` s from the start of the turn proper (tau < 0: the corner being lifted for the pinch) */
+/** the leaf's angle about the spine, from the right page's face (φ = 0; the node itself is turned LIFT + φ), at `tau` s from the start of the turn proper (tau < 0: the corner being lifted for the pinch) */
 export function leafAngle(tau: number, dur = TURN_S, lead = 0.2): number {
   if (tau <= -lead) return 0
   if (tau < 0) return PINCH_LIFT * smooth(0, 1, (tau + lead) / lead)
-  if (tau >= dur) return Math.PI
-  return PINCH_LIFT + (Math.PI - PINCH_LIFT) * smooth(0, 1, tau / dur)
+  if (tau >= dur) return OPEN_ANGLE
+  return PINCH_LIFT + (OPEN_ANGLE - PINCH_LIFT) * smooth(0, 1, tau / dur)
 }
 
-/** the hand lets go of the leaf (and starts back) this far into the turn, as a fraction of its duration: the index is under the leaf, which must not land on it (angle there ~94°) */
+/** the hand lets go of the leaf (and starts back) this far into the turn, as a fraction of its duration: the index is under the leaf, which must not land on it (angle there ~79°) */
 export const PINCH_LET_GO = 0.5
 
 /**
  * The hand goes to the corner and comes back along an arc: the straight blend between the reading pose (behind the cover) and the pinch pose
  * (above the corner) would pass through the book. With k = how far the hand is from the reading pose (0 … 1) it is also pushed, in the book
- * frame, first straight off the fore-edge (+x: the thumb slides off the page, the fingers slide off the cover), and later off the cover and up
- * the page (−y, −z), over the book's top edge. bookGrip.test.ts walks this path and finds no finger inside the book.
+ * frame, first straight off the fore-edge (+x: the thumb slides off the page, the fingers slide off the cover), and later off the cover and down
+ * past the book's lower edge (−y, +z: the pinch corner is the lower one). bookGrip.test.ts walks this path and finds no finger inside the book.
  */
-export const PINCH_ARC = { x: 0.1, y: -0.12, z: -0.15 }
+export const PINCH_ARC = { x: 0.1, y: -0.12, z: 0.15 }
 export function pinchArc(k: number, out: Vector3): Vector3 {
   const s = Math.sin(Math.PI * Math.min(1, Math.max(0, k)))
   const early = s ** 0.4
@@ -51,9 +52,9 @@ export function pinchArc(k: number, out: Vector3): Vector3 {
 export const poseWeight = (k: number) => smooth(0.15, 1, k)
 export const fingerWeight = (k: number) => smooth(0.4, 1, k)
 
-/** how much of LAG the leaf shows at angle theta: none flat, most at mid-turn, none again when it lies down (the last 10° are straight) */
-export function bendAmount(theta: number): number {
-  return Math.sin(Math.min(theta, Math.PI)) ** 0.8
+/** how much of LAG the leaf shows at angle theta: none flat, most at mid-turn (75°), none again when it lies down */
+export function bendAmount(phi: number): number {
+  return Math.sin((Math.min(phi, OPEN_ANGLE) / OPEN_ANGLE) * Math.PI) ** 0.8
 }
 
 /** a leaf's lag at arc position s (0 spine … 1 fore-edge): nothing over the inner part, rising smoothly over the outer third */
@@ -85,6 +86,8 @@ export class LeafBend {
   readonly phi: Float32Array
   /** the page's top edge (v = 0) in the leaf frame: z */
   readonly zTop: number
+  /** the page's other edge (v = 1) in the leaf frame: z; the bake's pinch contacts are at this end (the reader's lower edge) */
+  readonly zEnd: number
   theta = 0
   bend = 0
   /** the leaf's width (the columns' extent) */
@@ -101,6 +104,7 @@ export class LeafBend {
     let xmin = Infinity
     let xmax = -Infinity
     let zmin = Infinity
+    let zmax = -Infinity
     for (const m of meshes) {
       const g = m.geometry
       const pos = g.getAttribute('position') as BufferAttribute
@@ -115,6 +119,7 @@ export class LeafBend {
         if (u < 1e-4) xmin = Math.min(xmin, pos.getX(i))
         if (u > 1 - 1e-4) xmax = Math.max(xmax, pos.getX(i))
         if (!av || av.getX(i) < 1e-4) zmin = Math.min(zmin, pos.getZ(i))
+        if (av && av.getX(i) > 1 - 1e-4) zmax = Math.max(zmax, pos.getZ(i))
         part.col[i] = Math.min(this.cols, Math.max(0, u * this.cols))
         part.y0[i] = pos.getY(i)
         part.z0[i] = pos.getZ(i)
@@ -126,16 +131,17 @@ export class LeafBend {
     this.ds = (xmax - xmin) / this.cols
     this.width = xmax - xmin
     this.zTop = zmin
+    this.zEnd = zmax
     this.px = new Float32Array(this.cols + 1)
     this.py = new Float32Array(this.cols + 1)
     this.phi = new Float32Array(this.cols)
     this.set(0)
   }
 
-  /** the leaf at angle `theta` (rad) about the spine: the node's turn and the vertices' bend */
+  /** the leaf at angle `theta` (rad, φ: 0 on the right page, OPEN_ANGLE on the left) about the spine: the node's turn (on top of LIFT) and the vertices' bend */
   set(theta: number) {
     this.theta = theta
-    this.node.rotation.z = theta
+    this.node.rotation.z = LIFT + theta
     const k = bendAmount(theta)
     this.bend = k
     const C = this.cols
@@ -170,11 +176,11 @@ export class LeafBend {
   }
 
   /**
-   * The corner the thumb and index take (the top corner at the fore-edge) as a frame in the BOOK frame (the page node's parent frame): the
+   * The corner the thumb and index take (the lower outer corner, +z, at the fore-edge) as a frame in the BOOK frame (the page node's parent frame): the
    * origin on the leaf's middle surface at the corner, x along the leaf (outward), y the face's normal (up while the leaf lies on the right
    * page), z along the page's height (down the page: the corner is at z = top edge).
    */
-  corner(out: Matrix4, theta = this.theta): Matrix4 {
+  corner(out: Matrix4, theta = this.theta, z = this.zEnd): Matrix4 {
     const q = Q1
     const v = V1
     const C = this.cols
@@ -188,11 +194,12 @@ export class LeafBend {
       y += this.ds * Math.sin(a)
     }
     y += 0.00035
-    const ct = Math.cos(theta)
-    const st = Math.sin(theta)
+    const turn = LIFT + theta
+    const ct = Math.cos(turn)
+    const st = Math.sin(turn)
     // the leaf's own turn about z, then the polyline's end direction
-    v.set(ct * x - st * y, st * x + ct * y, this.zTop)
-    q.setFromAxisAngle(Z_AXIS, theta + a)
+    v.set(ct * x - st * y, st * x + ct * y, z)
+    q.setFromAxisAngle(Z_AXIS, turn + a)
     return out.compose(v, q, ONE)
   }
 }
@@ -204,9 +211,9 @@ const ONE = new Vector3(1, 1, 1)
 
 /**
  * The pinch corner of a leaf at angle `theta` as a frame in the book frame, from the page's size alone (the leaf's polyline, as LeafBend.set
- * draws it): used once to place the pinch grip, not per frame. `x0` the leaf's first column (0.003 m), `width` page_w, `zTop` = −page_h / 2.
+ * draws it): used once to place the pinch grip, not per frame. `x0` the leaf's first column (0.003 m), `width` page_w, `zCorner` = the corner's z (+page_h / 2 for the baked pinch contacts).
  */
-export function cornerOf(theta: number, x0: number, width: number, zTop: number, out = new Matrix4()): Matrix4 {
+export function cornerOf(theta: number, x0: number, width: number, zCorner: number, out = new Matrix4()): Matrix4 {
   const C = 16
   const ds = width / C
   let x = x0
@@ -219,7 +226,8 @@ export function cornerOf(theta: number, x0: number, width: number, zTop: number,
     y += ds * Math.sin(a)
   }
   y += 0.00035
-  const ct = Math.cos(theta)
-  const st = Math.sin(theta)
-  return out.compose(new Vector3(ct * x - st * y, st * x + ct * y, zTop), new Quaternion().setFromAxisAngle(Z_AXIS, theta + a), ONE)
+  const turn = LIFT + theta
+  const ct = Math.cos(turn)
+  const st = Math.sin(turn)
+  return out.compose(new Vector3(ct * x - st * y, st * x + ct * y, zCorner), new Quaternion().setFromAxisAngle(Z_AXIS, turn + a), ONE)
 }

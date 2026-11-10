@@ -99,7 +99,7 @@ describe('props stay home unless a hand has them', () => {
           jump = prev ? prop.position.distanceTo(prev) : 0
           // 2: the grips (palm props)
           const pg = w.scene.getObjectByName(prop.name + '_grip_' + side)
-          // the open book's grip frame is the computed one (bookGeom.ts readingGrip), not the glb's closed-book grip empty
+          // the open book's grip frame is the baked <book>_l|r_grip (turned by the half's open angle), not the glb's closed-book grip empty
           const bookTarget = sc.kind === 'book' ? resolveTarget(w.scene, prop.name, 'book', side) : null
           const hg = rig.parts.hands[side].grip
           if (pg && hg) {
@@ -109,7 +109,7 @@ describe('props stay home unless a hand has them', () => {
           // 1: every contact finger's pad point against its contact (fingertip props), both hands of a two-handed hold
           for (const hs of ['l', 'r'] as const) {
             for (const [fi, finger] of FINGER_NAMES.entries()) {
-              // the open book's contacts are derived from the book's own size (bookGeom.ts, #231); the other props' are the glb's empties
+              // the open book's contacts are the bake's <book>_l|r_contact_* empties turned by the half's open angle (gripTargets.ts resolveBookTarget, #231); the other props' are the glb's empties
               const bc = sc.kind === 'book' ? resolveTarget(w.scene, prop.name, 'book', hs)?.contacts.find((c) => c.finger === finger) : undefined
               const cn = bc ? null : w.scene.getObjectByName(prop.name + '_contact_' + finger + (hs === 'l' ? '_l' : '')) ?? (hs === 'r' ? null : null)
               if (!(bc || cn) || !GRIPS[sc.kind]?.[hs]?.contacts.includes(finger)) continue
@@ -146,7 +146,7 @@ describe('props stay home unless a hand has them', () => {
       if (PALM.has(sc.kind)) expect(grasp!, sc.name + ' hand grip on the prop grip').toBeLessThan(0.02)
       else {
         expect(tips.length, sc.name + ' contact fingers measured').toBeGreaterThan(0)
-        expect(worstTip, sc.name + ' fingertip pads on their contacts').toBeLessThanOrEqual(sc.kind === 'book' ? 0.012 : 0.003) // the book's pads land anywhere on a 6 mm disc (fallback contacts)
+        expect(worstTip, sc.name + ' fingertip pads on their contacts').toBeLessThanOrEqual(0.003)
       }
     }, 60000)
   }

@@ -29,6 +29,7 @@ import { GRIPS, GripClock, STONE_ABD, STONE_FALLBACK_M, STONE_H, STONE_PITCH, ST
 import { DIP_K, POSES, fingerFromC, toVec } from './handPose'
 import { contactNormal, fitFingers, handGripMatrix, offsetOf, resolveTarget, type GripTarget } from './gripTargets'
 import { fingerModelOf, type AgentRig, type PropBank } from './rig'
+import { LIFT, OPEN_ANGLE, halfAngle } from './bookGeom'
 import { LeafBend, PINCH_LET_GO, TURN_S, fingerWeight, leafAngle, pinchArc, poseWeight } from './bookLeaf'
 import { noteTourEvent } from './tourEvents'
 import { meshesOf } from './nodes'
@@ -152,6 +153,10 @@ export class PlayStage {
   private rings: Mesh[] = []
   private line: Mesh | null = null
   private reactedGame = new Map<string, number>()
+  /** the faces of a result (#193): the games and points already answered, the coffee drinkers who had their first sip */
+  private faced = new Set<string>()
+  private lastPoint = new Map<string, string>()
+  private sipped = new Map<string, number>()
   /** each mover's place sequence of this frame (tests read it) */
   readonly lastPlace: Record<string, Place> = {}
   /** per mover: whether the move's hand began from the pick (a move first seen after its pick, a seat taken mid-move, is left to the board: no hand ever took its stone) */
@@ -322,11 +327,15 @@ export class PlayStage {
       return false
     }
     const hand = rig.parts.hands[side]
-    const info = tgt.obj ? this.props.info(rig, kind, prefer ?? objName) : null
-    const home = tgt.obj ? this.props.homeWorld(tgt.obj) : new Matrix4()
+    // the mouse body is live but not a prop (#305): the hand is placed on the body where it is now, wherever the typist has slid it
+    const body = kind === 'mouse' ? tgt.obj : null
+    if (body) body.updateWorldMatrix(true, false)
+    const info = tgt.obj && !body ? this.props.info(rig, kind, prefer ?? objName) : null
+    const home = body ? body.matrixWorld.clone() : tgt.obj ? this.props.homeWorld(tgt.obj) : new Matrix4()
     let pose = home
     // reduced motion: the can is simply in the hand (watering.md 5); everything else is lifted from where it rests
-    if (out.attached && held) pose = inp.reduced && kind === 'watering_can' ? held : blend(home, held, ease((inp.t - (clock.attachedAt ?? inp.t)) / Math.max(LIFT_S, rig.gestureMin)))
+    if (body) pose = home
+    else if (out.attached && held) pose = inp.reduced && kind === 'watering_can' ? held : blend(home, held, ease((inp.t - (clock.attachedAt ?? inp.t)) / Math.max(LIFT_S, rig.gestureMin)))
     else if (out.attached && !tgt.obj) pose = held ?? home
     this.lastObjPose = pose
     const seat = Number(rig.id.split('_')[1])
@@ -339,7 +348,7 @@ export class PlayStage {
     if (out.stage === 'rest') return false
     const fit = this.holdFit(rig, side, tgt)
     rig.drive[side] = { target, w: out.wHand, curl: null, angles: mixVec(rig.curlVec(side, spec.pre), fit.hold, rig.curlVec(side, spec.after), out.mix), wc: out.wCurl, spread: null, reach: REACH_KINDS.has(kind) }
-    if (tgt.obj && info) {
+    if (tgt.obj && info && !body) {
       rig.want = { kind, side: 'r' === side || kind !== 'book' ? side : side, prefer: prefer ?? objName, attached: out.attached }
       if (out.attached) {
         this.props.force(tgt.obj, pose)
@@ -527,6 +536,12 @@ export class PlayStage {
     const before = playing ? rallyAt(s.seed, s.players, tMs - 2000, d, true) : null
     if (playing && before && (before.score[0] !== rally.score[0] || before.score[1] !== rally.score[1]) && before.game === rally.game) {
       this.tag = { text: `${rally.score[0]} : ${rally.score[1]}`, at: this.tableWorld([0, d.netH! + 0.35, 0]) }
+      // the one who lost the point is startled (놀람); once per point
+      const pk = `${rally.game}|${rally.score[0]}:${rally.score[1]}`
+      if (this.lastPoint.get(s.spot) !== pk) {
+        this.lastPoint.set(s.spot, pk)
+        inp.rigs[s.players[rally.score[0] > before.score[0] ? 1 : 0]]?.faceEvent('surprised', inp.t)
+      }
       for (const p of s.players) noteTourEvent(p, 2500) // the tour (#207): a point is an event at both players
     }
   }
@@ -647,6 +662,16 @@ export class PlayStage {
         this.line.rotation.set(0, Math.atan2(-dir.z, dir.x), 0)
         this.line.scale.set(dir.length() * k, 1, 1)
         ;(this.line.material as MeshBasicMaterial).color.set(col)
+      }
+    }
+    // the faces of the result: the winner is glad (기쁨), the loser embarrassed (당황); an expression is information, reduced motion keeps it
+    if (view.phase === 'won' && view.winner && view.wonMs > 500) {
+      const fk = `${key}:${view.game}`
+      if (!this.faced.has(fk)) {
+        this.faced.add(fk)
+        const w = (view.winner === 1 ? view.black : (1 - view.black)) as 0 | 1
+        inp.rigs[s.players[w]]?.faceEvent('joy', inp.t)
+        inp.rigs[s.players[1 - w]]?.faceEvent('embarrassed', inp.t)
       }
     }
     if (inp.reduced) return
@@ -887,6 +912,11 @@ export class PlayStage {
       if (pressing) this.button(rig, 'coffee_button', u, inp)
       else if (cup) {
         const k = ((u - 1.8) % 12) / 12
+        // the first sip of the cup (기쁨)
+        if (u - 1.8 > 0.7 && this.sipped.get(rig.id) !== this.arrivedAt.get(rig.id)) {
+          this.sipped.set(rig.id, this.arrivedAt.get(rig.id) ?? 0)
+          rig.faceEvent('joy', inp.t)
+        }
         const sipping = k < 0.12 ? Math.sin((k / 0.12) * Math.PI) : 0
         const tilt = 30 * DEG * sipping
         // in front of the chest, the handle to the right; the sip tips it toward the face and lifts it 8 cm
@@ -1085,15 +1115,17 @@ export class PlayStage {
     if (!h) return
     const r = this.reading
     this.reading = null
-    // the halves never turn on their own after the opening: a page is one leaf (turnLeaf)
-    h.r.rotation.z = 0
+    // the halves do not turn on their own after the opening: a page is one leaf (turnLeaf). Open = 150°: the upper half lies at π − LIFT, the lower one is lifted by LIFT
     if (!r) this.hideLeaf()
     if (!r || inp.reduced) {
       // closed on its shelf, or (reduced motion) open without the turning
-      h.l.rotation.z = r ? Math.PI : 0
+      h.l.rotation.z = r ? halfAngle('l') : 0
+      h.r.rotation.z = r ? halfAngle('r') : 0
       return
     }
-    h.l.rotation.z = Math.PI * ease((inp.t - r.openAt) / 0.5)
+    const open = ease((inp.t - r.openAt) / 0.5)
+    h.l.rotation.z = halfAngle('l') * open
+    h.r.rotation.z = LIFT * open
   }
 
   private hideLeaf() {
@@ -1104,8 +1136,8 @@ export class PlayStage {
   }
 
   /**
-   * One leaf turns every 6 s (grips.md "한 장 넘기기"; the timeline of bookLeaf.ts leafAngle). The right thumb and index go to the leaf's top
-   * corner along an arc that keeps them out of the book (lead, 0.2 s) while the corner lifts, take it, and turn it 0 → 180° about the spine in
+   * One leaf turns every 6 s (grips.md "한 장 넘기기"; the timeline of bookLeaf.ts leafAngle). The right thumb and index go to the leaf's lower (baked)
+   * corner along an arc that keeps them out of the book (lead, 0.2 s) while the corner lifts, take it, and turn it 0 → 150° about the spine (on the lifted page) in
    * 0.75 s with the outer third lagging (LeafBend); the hand follows the leaf's own corner frame, so what is fitted (thumb on its top face,
    * index under it) is what is shown. Half way through the turn (PINCH_LET_GO: the index is under the leaf, which must not land on it) the hand lets go
    * and goes home along the same arc (0.3 s after the turn's end) while the leaf finishes lying down on the left page. Reduced motion: nothing
@@ -1125,7 +1157,7 @@ export class PlayStage {
     if (tau >= dur + back) return this.hideLeaf()
     const theta = leafAngle(tau, dur, lead)
     lf.set(theta)
-    lf.node.visible = theta < Math.PI - 1e-3
+    lf.node.visible = theta < OPEN_ANGLE - 1e-3
     // the hand's weight: 0 = on the reading grip, 1 = pinching. It lets go at PINCH_LET_GO of the turn (the index is under the leaf, which must not land on it)
     const go = PINCH_LET_GO * dur
     const a = tau < 0 ? ease((tau + lead) / lead) : tau < go ? 1 : 1 - ease((tau - go) / (dur + back - go))

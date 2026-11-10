@@ -1,6 +1,6 @@
 /// <reference types="node" />
 // The hands at the keyboard (#225) against the baked model: the home row, the fitted presses, the keycap shader's arrays, the input events.
-import { Matrix4, Vector3 } from 'three'
+import { Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import { loadOffice, stubCanvas } from './glbLoad'
 import { AgentRig, buildRig } from './rig'
@@ -235,7 +235,9 @@ describe('hands at the keyboard (against office.glb)', () => {
       expect(s.mouse, `desk ${i} mouse`).toBeTruthy()
       // the hand where the mouse grip puts it (the stage's own formula), then the index fitted onto the wheel
       const tgt = resolveTarget(scene, `desk_${i}_mouse`, 'mouse', 'r')!
-      const target = handFor(new Matrix4(), tgt.pg, handGripMatrix(rig.parts.hands.r)).multiply(offsetOf(tgt.key, i))
+      // the grip is in the live body's frame since #305: the pose is the body's own world matrix
+      expect(tgt.obj?.name, `desk ${i} the mouse grip is on the body`).toBe(`desk_${i}_mouse`)
+      const target = handFor(tgt.obj!.matrixWorld, tgt.pg, handGripMatrix(rig.parts.hands.r)).multiply(offsetOf(tgt.key, i))
       ty.fitWheel(rig, i, target, rig.curlVec('r', GRIPS.mouse.r!.hold))
       expect(s.wheelFit).toBeTruthy()
       expect(s.wheelErr, `desk ${i} wheel`).toBeLessThan(0.008)

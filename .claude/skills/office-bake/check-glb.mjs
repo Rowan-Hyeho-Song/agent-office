@@ -119,7 +119,11 @@ if (overlap) {
   // #195 (desks.md 2.1.4 / 2.1.6): named pairs with their own minimum (the main aisle: the pod with its chair room
   // to the omok table). #185: the can stand stands under the fig's canopy (that box is the canopy) and beside the lamp
   // (that box is its shade, 1.6 m up); the designer's real-outline gaps (path 0.45, lamp pole 0.15) are measured apart
-  const PAIR_NEED = { 'game|pod': 1.12, 'can_stand|plant_corner': 0, 'can_stand|floor_lamp': 0.05 }
+  // #280: the L sofa is two boxes (sofa · sofa_chaise) of one thing; the low table stands 0.42 / 0.45 off it (room-280.md 2:
+  // 0.35-0.45); the fridge and the water dispenser stand against the counter and each other (one coffee bar)
+  const PAIR_NEED = { 'game|pod': 1.12, 'shelf|shelf_2': 0.03, 'floor_lamp|sofa': 0.02, 'can_stand|plant_corner': 0, 'can_stand|floor_lamp': 0.05, 'sofa|sofa_chaise': 0,
+    'sofa|table_low': 0.35, 'sofa_chaise|table_low': 0.35, 'counter|fridge': 0, 'fridge|water_dispenser': 0,
+    'counter|water_dispenser': 0, 'side_table|sofa': 0.1, 'side_table|table_low': 0.4 }
   const rows = []
   for (let i = 0; i < items.length; i++)
     for (let j = i + 1; j < items.length; j++) {
@@ -232,7 +236,7 @@ if (overlap) {
 // mm², under a pixel at the default camera). COPLANAR_KNOWN: faces never seen from outside, each with its issue and
 // why it is hidden; any other pair of SMALL or more fails the check
 const COPLANAR_KNOWN = [
-  [/^prop_(shelf)?book(_\d+)?_l · prop_(shelf)?book(_\d+)?_r$/, '#281', 'a closed book: its halves\' inner pages (paper, ink lines) meet at the middle plane inside the book and part when it opens'],
+  [/^prop_(shelf)?book(_\d+)?_(l · prop_(shelf)?book(_\d+)?_(r|page)|page · prop_(shelf)?book(_\d+)?_r)$/, '#281', 'a closed book: its halves\' inner pages and the turning page (paper, ink lines) meet inside the book and part when it opens'],
 ]
 if (overlap) {
   const TOL = 0.00015 // 0.15 mm: meshopt moves a vertex by up to ~0.04 mm; deliberate decal offsets are >= 0.3 mm

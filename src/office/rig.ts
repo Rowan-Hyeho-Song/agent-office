@@ -16,12 +16,14 @@ import {
   MeshBasicMaterial,
   Object3D,
   Quaternion,
-  SRGBColorSpace,
   Vector3,
 } from 'three'
 import type { Goal } from './director'
 import { aimPose, planGesture, type AimPose, type Plan } from './aim'
 import { DOZE } from './doze'
+import { FaceScreen } from './faceScreen'
+import { baseExpression, CallTracker, FaceMind, newInput, type FaceInput } from './faceMind'
+import type { Expression } from './faceModel'
 import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
 import { GLOW } from './nodes'
 import type { FingerModel } from './grip'
@@ -44,16 +46,21 @@ import {
   type JointSpec,
   type Range,
 } from './handPose'
-import { TRAFFIC, type Sample } from './traffic'
+import { CRUISE, CRUISE_TUNED, TRAFFIC, type Sample } from './traffic'
 import type { AgentStatus } from './status'
 import { musicGlow, speakerCone, speakerOn } from '../audio/speaker'
 
 /** the poses of the play schedule (play.ts PlayKind): what "resting" means (sound.md 5) */
 const RESTING_POSES: ReadonlySet<string> = new Set(['pingpong', 'boardgame', 'coffee', 'sofa', 'water', 'books'])
-const SPEED = 0.75 // m/s cruising
-const ACCEL = 1.4 // m/s²
-const CORNER_SPEED = 0.32 // through a sharp turn
-const TURN_RATE = 4.5 // rad/s
+/** the walk (#329): cruising from traffic.ts CRUISE; acceleration, the corner speed and the turn rate keep their proportions to it (tuned at 0.75) */
+const PACE = CRUISE / CRUISE_TUNED
+const SPEED = CRUISE // m/s cruising
+const ACCEL = 1.4 * PACE // m/s²
+const CORNER_SPEED = 0.32 * PACE // through a sharp turn
+const TURN_RATE = 4.5 * PACE // rad/s
+/** squaring up on a spot it has just stopped on: any way in (up to 180°) turns to the spot's facing in 0.35 s, inside the designer's 0.4 s (#333).
+ * The walking rate (with its frame damping) took 0.8 s for a half turn: a body that came in from behind stood across the table for most of a second */
+const ARRIVE_TURN_RATE = Math.PI / 0.35 // rad/s
 // a meeting listener's nod (#141): how long it takes, how far the head dips, how long the addressee's hand stays up
 const NOD_S = 0.5
 /** where a caught paper / plane is held to be looked at, from the head (paper-pass.md 5, #273) */
@@ -79,7 +86,15 @@ const HAND_OMEGA = 12
  * swing below stillV (turning on the spot); settleS: on a stop the swing sinks to nothing, without overshoot, then bobS blends the standing bob in; attachS: the
  * hand's spring state (when it is farther than attachNear from the place) blends into the attached place (a hand that was elsewhere does not jump); carryShare: the free hand beside a carrying one swings this much.
  */
-const WALK = { hz: 0.8, hzMin: 0.5, hzMax: 1.0, cruise: 0.75, amp: 0.05, ampMax: 0.07, arc: 0.012, inward: 0.01, wristDeg: 10, startS: 0.4, stillV: 0.1, stillBand: 0.1, settleS: 0.5, bobS: 0.3, attachS: 0.25, attachNear: 0.15, carryShare: 0.6, heldBob: 0.006, canBob: 0.01 } as const
+const WALK = { hz: 0.8, hzMin: 0.5, hzMax: 1.0, cruise: CRUISE_TUNED, amp: 0.05, ampMax: 0.07, arc: 0.012, inward: 0.01, wristDeg: 10, startS: 0.4, stillV: 0.1, stillBand: 0.1, settleS: 0.5, bobS: 0.3, attachS: 0.25, attachNear: 0.15, carryShare: 0.6, heldBob: 0.006, canBob: 0.01 } as const
+// #329 (designer): the swing keeps its 0.75 m/s reference, so the faster 1.0 m/s cruise swings faster and wider: 0.8 x sqrt(1 / 0.75) = 0.92 Hz, +-6.7 cm (agents.md 2.5)
+/**
+ * The hand tuck (lounge-props.md 3, rule 3: "자는 몸 쪽 손은 몸 쪽으로 당긴다", #280): within rangeM of a body resting on a sofa seat (or dozing on the chaise) the free
+ * hand on the sitter's side is pulled inM toward its own body (a smaller lateral offset), fully inside nearM and fading out to rangeM, blended at rate (1/s) so
+ * it never jumps; the other hand is untouched. A hand that holds something is not tucked.
+ */
+const TUCK = { rangeM: 0.7, nearM: 0.5, inM: 0.05, rate: 8 } as const
+
 interface Swing {
   dx: number
   dy: number
@@ -174,6 +189,8 @@ export interface RigParts {
   face: Mesh | undefined
   beam: Object3D | undefined
   floor: Mesh | undefined
+  /** the ring round the pool of light (agent_i_floor_ring); both follow the floor's top under the agent (#316) */
+  floorRing: Object3D | undefined
   hands: { l: Hand; r: Hand }
   /** role parts: 3D orbit (agent_1), coder's ring (agent_3_tip), coder's ear-cup glow, planner's sticky notes */
   orbit: Object3D | undefined
@@ -393,6 +410,7 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
     face: n('_face') as Mesh | undefined,
     beam,
     floor,
+    floorRing: n('_floor_ring'),
     hands: { l: hand('l'), r: hand('r') },
     orbit: n('_orbit'),
     ring: i === 3 ? n('_tip') : undefined,
@@ -404,60 +422,6 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
   rig.postits.forEach((p, k) => (p.visible = k < POSTITS))
   scene.userData[key] = rig
   return rig
-}
-
-// ------------------------------------------------------------------ the face screen (#28, simple first)
-
-type FaceMood = 'open' | 'blink' | 'happy' | 'sleep' | 'fail' | 'doze' | 'focus' | 'wide'
-/** the eyes' look is drawn in steps of this many px (up to 3 steps each way) */
-const EYE_STEP = 4
-
-/** the head's screen: two eyes in the agent's color on a dark glass; drawn only when the mood changes */
-class FaceScreen {
-  private ctx: CanvasRenderingContext2D
-  readonly texture: CanvasTexture
-  private mood: string | null = null
-  private color: string
-
-  constructor(color: string) {
-    const c = document.createElement('canvas')
-    c.width = 300
-    c.height = 180
-    this.ctx = c.getContext('2d')!
-    this.color = color
-    this.texture = new CanvasTexture(c)
-    this.texture.flipY = false // glTF UVs (v = 0 at the top of the image)
-    this.texture.colorSpace = SRGBColorSpace
-  }
-
-  /** `gx`, `gy`: where the eyes look, in steps (−3 … 3; +x = the viewer's right = the agent's left, +y = down) */
-  draw(mood: FaceMood, gx = 0, gy = 0) {
-    const key = `${mood}|${gx}|${gy}`
-    if (key === this.mood) return
-    this.mood = key
-    const dx = gx * EYE_STEP
-    const dy = gy * EYE_STEP
-    const g = this.ctx
-    g.fillStyle = '#05080b'
-    g.fillRect(0, 0, 300, 180)
-    g.strokeStyle = g.fillStyle = mood === 'fail' ? '#ff5a5f' : this.color
-    g.globalAlpha = mood === 'doze' ? DOZE.faceBrightness : 1
-    g.lineWidth = 14
-    g.lineCap = 'round'
-    for (const x of [100, 200]) {
-      g.beginPath()
-      // aiming: narrowed eyes; a plane coming: wide ones
-      if (mood === 'open') g.roundRect(x - 16 + dx, 60 + dy, 32, 60, 12)
-      else if (mood === 'focus') g.roundRect(x - 18 + dx, 78 + dy, 36, 26, 10)
-      else if (mood === 'wide') g.roundRect(x - 20 + dx, 48 + dy, 40, 84, 14) // 1.25 x 1.4 the open bar, same centre (#273)
-      if (mood === 'open' || mood === 'focus' || mood === 'wide') g.fill()
-      else if (mood === 'blink' || mood === 'sleep' || mood === 'doze') (g.moveTo(x - 20, 95), g.lineTo(x + 20, 95), g.stroke())
-      else if (mood === 'happy') (g.moveTo(x - 22, 102), g.lineTo(x, 80), g.lineTo(x + 22, 102), g.stroke())
-      else (g.moveTo(x - 18, 72), g.lineTo(x + 18, 108), g.moveTo(x + 18, 72), g.lineTo(x - 18, 108), g.stroke())
-    }
-    g.globalAlpha = 1
-    this.texture.needsUpdate = true
-  }
 }
 
 // ------------------------------------------------------------------ props in hand (#20 nodes, #27 grips)
@@ -698,6 +662,13 @@ const PROP_FOR: Record<string, { kind: string; side: 'l' | 'r' }> = {
   boardgame: { kind: 'piece', side: 'r' },
 }
 
+/**
+ * 메시's orbiting cube must not cover the face screen (#193, designer): the orbit's axis leans so the front of the circle rises, and the whole
+ * orbit sits a little higher, so the cube passes above the screen in front and beside the head's sides, then dips behind the head.
+ */
+export const ORBIT_TILT = (30 * Math.PI) / 180
+export const ORBIT_LIFT = 0.08
+
 export class AgentRig {
   readonly id: string
   readonly parts: RigParts
@@ -730,6 +701,13 @@ export class AgentRig {
   private lift = 0
   private seat = 0
   private surface = 0
+  /**
+   * The floor's height under the agent (#316: a rug's top over a rug, see ground.ts); the pool of light and its ring sit
+   * this much higher than their baked height, so a rug never hides them. Set by the scene (Agents.tsx); 0 without one.
+   */
+  ground: (x: number, z: number) => number = () => 0
+  /** the pool's and the ring's baked heights in the root's frame (the light's own few mm above the floor) */
+  private floorY: { pool: number; ring: number } | null = null
   /** 0 → 1 while dozing (#110): lowers the head, dims the beam */
   private dozing = 0
   private look = { pitch: 0, yaw: 0, roll: 0 }
@@ -749,7 +727,26 @@ export class AgentRig {
   private spin = { orbit: 0, ring: 0 }
   /** echo's fork: how hard it rings now (0..1), decays over ~0.4 s after the sound stops */
   private forkAmp = 0
-  private blinkAt = 0
+  private mind: FaceMind
+  private faceIn: FaceInput = newInput()
+  private seenResult = 0
+  private wasOnline: boolean | null = null
+  private called = new CallTracker()
+  private yieldAt = -99
+  /** set by the scene each frame: this agent's own bubble is being typed, and the one it listens to is speaking (meetings, desk talks) */
+  faceTalk = { speaking: false, listening: false }
+  /** an approval of this agent has waited over 30 minutes (#64): the worried face one second in four */
+  anxious = false
+  /** the late hour before it dozes (#193): set by the scene from the office's KST clock */
+  lateHour = false
+  /** the giver's face (#262): 'yield' or 'happy' until `until` (scene time); side = +1 when the receiver is on the viewer's right */
+  private giveFace: { mood: 'yield' | 'happy'; until: number; side: number; fired: boolean } | null = null
+  giverFace(mood: 'yield' | 'happy', until: number, side: number) {
+    this.giveFace = { mood, until, side, fired: false }
+  }
+  giverFaceAt(t: number): 'yield' | 'happy' | null {
+    return this.giveFace && t < this.giveFace.until ? this.giveFace.mood : null
+  }
   /** what it is holding this frame (read by the PropBank) */
   want: { kind: string; side: 'l' | 'r'; prefer?: string; attached?: boolean } | null = null
   /** the meeting reaction in progress (#141): when it started on the scene clock, whether a hand lifts with it; the key it answered last */
@@ -764,11 +761,24 @@ export class AgentRig {
    */
   paperReaction(kind: 'surprise' | 'nod', t: number, reduced = false) {
     const surpriseS = Math.max(PAPER_SURPRISE_S, this.gestureMin)
-    if (kind === 'surprise') this.paperFace = { until: t + surpriseS, nodAt: t + surpriseS }
-    else this.paperFace = { until: t, nodAt: t }
+    if (kind === 'surprise') {
+      this.paperFace = { until: t + surpriseS, nodAt: t + surpriseS }
+      this.mind.fire('surprised', t, surpriseS)
+      this.mind.nod(t + surpriseS, 1)
+    } else {
+      this.paperFace = { until: t, nodAt: t }
+      this.mind.nod(t, 1)
+    }
     if (reduced) this.paperFace.nodAt = null // the nod is motion; the surprise face is information and stays
   }
 
+  /** the hands' height lift of the seat (m) and whether it sits at a desk / seat now (a paper pass reads them) */
+  get seatLift() {
+    return this.seat
+  }
+  get seated() {
+    return this.stance.seated
+  }
   /** tests: whether the face shows the received-paper surprise now */
   surprisedAt(t: number): boolean {
     return !!this.paperFace && t < this.paperFace.until
@@ -801,7 +811,7 @@ export class AgentRig {
   private cueMem: { kind: NonNullable<Sample['cue']>['kind']; dur: number; gesture: boolean; toward: { x: number; z: number } | null; startT: number } | null = null
   private cueT = 0
   /** a short gesture set by the paper plane (#51): until = the scene clock time it ends */
-  gesture: { kind: 'throw' | 'catch'; until: number; oneHand?: boolean; caught?: boolean; t0?: number; at?: Vector3; plan?: Plan } | null = null
+  gesture: { kind: 'throw' | 'catch'; until: number; oneHand?: boolean; caught?: boolean; t0?: number; at?: Vector3; plan?: Plan; calm?: boolean; handsOff?: boolean } | null = null
   /** this frame's look-and-turn of a gesture (aim.ts); null without one */
   aim: AimPose | null = null
   private stance = { seated: false, still: true }
@@ -811,7 +821,7 @@ export class AgentRig {
    * Begin a throw or a catch (#224): look at `at` (a point the caller keeps moving, e.g. the plane), turn as aim.ts says.
    * Returns the gesture; `until` is when everything is back at the desk.
    */
-  startGesture(kind: 'throw' | 'catch', t: number, at: Vector3, o: { reduced?: boolean; flyFor?: number; holdS?: number; oneHand?: boolean } = {}) {
+  startGesture(kind: 'throw' | 'catch', t: number, at: Vector3, o: { reduced?: boolean; flyFor?: number; holdS?: number; oneHand?: boolean; calm?: boolean } = {}) {
     const theta = Math.hypot(at.x - this.x, at.z - this.z) > 0.05 ? wrap(Math.atan2(-(at.x - this.x), -(at.z - this.z)) - this.heading) : 0
     const plan = planGesture(kind, theta, {
       seated: this.stance.seated,
@@ -822,7 +832,7 @@ export class AgentRig {
       flyFor: o.flyFor,
       holdS: o.holdS,
     })
-    return (this.gesture = { kind, until: t + plan.times.end, oneHand: o.oneHand, t0: t, at, plan })
+    return (this.gesture = { kind, until: t + plan.times.end, oneHand: o.oneHand, t0: t, at, plan, calm: o.calm })
   }
 
   constructor(id: string, index: number, parts: RigParts, color: string) {
@@ -831,7 +841,15 @@ export class AgentRig {
     this.phase = index * 1.7
     // one screen per face node: StrictMode builds the rigs twice, and both must draw on the texture that's shown
     const face = parts.face
-    this.face = face ? (face.userData.faceScreen ??= new FaceScreen(color)) : null
+    const orbit = parts.orbit
+    if (orbit && !orbit.userData.orbitTilted) {
+      // once per node: StrictMode builds the rigs twice
+      orbit.userData.orbitTilted = true
+      orbit.rotation.x = ORBIT_TILT
+      orbit.position.y += ORBIT_LIFT
+    }
+    this.mind = new FaceMind(index)
+    this.face = face ? (face.userData.faceScreen ??= new FaceScreen(color, index)) : null
     if (face && this.face && (face.material as MeshBasicMaterial).map !== this.face.texture) {
       const old = face.material as MeshBasicMaterial
       // the screen sits exactly on the head's front glass on some heads (메시, 루프: same plane): pull it forward
@@ -1019,7 +1037,9 @@ export class AgentRig {
 
     // heading with a capped turn rate; the turn rate drives the lean
     const diff = wrap(wantHeading - this.heading)
-    const turn = MathUtils.clamp(diff, -TURN_RATE * dt, TURN_RATE * dt) * Math.min(1, dt * 12 + 0.4)
+    const squaring = !moving && !!this.arrived && this.arrived === this.goal.spot
+    const rate = squaring ? ARRIVE_TURN_RATE : TURN_RATE
+    const turn = MathUtils.clamp(diff, -rate * dt, rate * dt) * (squaring ? 1 : Math.min(1, dt * 12 + 0.4))
     this.heading = wrap(this.heading + turn)
     this.turnVel = damp(this.turnVel, turn / Math.max(dt, 1e-3), 8, dt)
 
@@ -1063,6 +1083,8 @@ export class AgentRig {
       gazeFrom = aim.phase === 'done' ? 0 : 1
     }
     this.aim = gazeFrom ? aim : null
+    // a paper handed over (#262): the look and the turn are the same, the narrowed / wide eyes of a throw and a catch are not (the faces are paper-pass.md 4's)
+    if (this.aim && gz?.calm) this.aim = { ...this.aim, mood: null }
     const { root, head, beam } = this.parts
     root.visible = !this.hidden
     root.position.set(this.drawAt?.x ?? this.x, 0, this.drawAt?.z ?? this.z)
@@ -1109,16 +1131,22 @@ export class AgentRig {
     }
     // the pool of light on the floor: fainter and wider the higher the head floats (#54)
     const pool = this.parts.floor
+    const ringN = this.parts.floorRing
+    this.floorY ??= { pool: pool?.position.y ?? 0, ring: ringN?.position.y ?? 0 }
+    const lift = this.ground(this.parts.root.position.x, this.parts.root.position.z)
+    if (pool) pool.position.y = this.floorY.pool + lift
+    if (ringN) ringN.position.y = this.floorY.ring + lift
     if (pool) {
       const up = MathUtils.clamp(dy, 0, 0.3) / 0.3
       pool.scale.setScalar(1 + up * 0.35)
       ;(pool.material as MeshBasicMaterial).opacity = FLOOR_POOL.opacity * (1 - up * 0.45)
     }
 
+    this.stepTuck(dt, g, others)
     this.updateHands(dt, t, pose, reduced, others)
     this.updateCards(goal.carry ?? 0, goal.pose === 'write')
     this.updateRole(dt, t, status, reduced)
-    this.updateFace(t, pose, status, reduced)
+    this.updateFace(t, pose, status, reduced, others)
 
     // the prop for this activity (the planner takes the pen from its ear to the whiteboard)
     const prop = resting ? PROP_FOR[goal.pose] : undefined
@@ -1300,7 +1328,7 @@ export class AgentRig {
   private handPose(side: 'l' | 'r', pose: string, t: number, reduced: boolean): HandPose {
     const g = this.gesture
     const a = this.aim
-    if (!g?.plan || !a || reduced) return this.basePose(side, pose, t, reduced)
+    if (!g?.plan || !a || reduced || g.handsOff) return this.basePose(side, pose, t, reduced)
     const sx = side === 'l' ? -1 : 1
     const sit = this.seat
     const rest = this.parts.hands[side].restPos
@@ -1326,11 +1354,7 @@ export class AgentRig {
       if (caught) {
         // looking at what was caught (paper-pass.md 5, #273): in front of the face screen and below it, so neither the hand
         // nor the plane covers the screen: 0.22 ahead, 0.10 down, 0.06 to the holding hand's side, in the head's frame
-        const head = this.parts.head.position
-        const yaw = a.head
-        const ox = sx * LOOK_AT.side
-        const oz = -LOOK_AT.ahead
-        target = v(head.x + ox * Math.cos(yaw) + oz * Math.sin(yaw), head.y - LOOK_AT.down, head.z - ox * Math.sin(yaw) + oz * Math.cos(yaw))
+        target = this.readingPlace(side)
         curl = PINCH_POSE
       } else {
         // the usual catching place in front, drifting to the plane's side as the angle grows
@@ -1353,6 +1377,15 @@ export class AgentRig {
     return { pos: lift(base.pos.clone().lerp(target, a.arm)), turn: base.turn.clone().slerp(reach, a.arm), curl: a.arm > 0.3 ? curl : base.curl }
   }
   private tmpAt = new Vector3()
+
+  /** where a held paper / plane is looked at (paper-pass.md 5, #273): 0.22 ahead of the face screen, 0.10 below it, 0.06 to the holding hand's side, in the head's frame (the agent's frame; `out`) */
+  readingPlace(side: 'l' | 'r', out = new Vector3()) {
+    const head = this.parts.head.position
+    const yaw = this.aim?.head ?? 0
+    const ox = (side === 'l' ? -1 : 1) * LOOK_AT.side
+    const oz = -LOOK_AT.ahead
+    return out.set(head.x + ox * Math.cos(yaw) + oz * Math.sin(yaw), head.y - LOOK_AT.down, head.z - ox * Math.sin(yaw) + oz * Math.cos(yaw))
+  }
 
   /** #255: the hand turn (a pose's `turn`) for a hand at `pos` whose palm faces `palm` (agent frame; null: no object) */
   private reachAt(side: 'l' | 'r', pos: Vector3, palm: Vector3 | null): Quaternion {
@@ -1622,6 +1655,32 @@ export class AgentRig {
     return out.normalize()
   }
 
+  /** how much each hand is tucked now (0 .. 1) */
+  private tuck = { l: 0, r: 0 }
+
+  /** the tuck amount of a hand (0 .. 1); the pull toward the body is TUCK.inM times this */
+  tuckAmount(side: 'l' | 'r') {
+    return this.tuck[side]
+  }
+
+  /** the hand on the side of a nearby sitter (a body resting on a seat of the sofa, kind 'sofa' in the nav graph) is wanted tucked */
+  private stepTuck(dt: number, g: NavGraph, others: Record<string, AgentRig>) {
+    const want = { l: 0, r: 0 }
+    const h = this.heading
+    for (const id in others) {
+      const o = others[id]
+      if (o === this || !o.visible || !o.at || o.speed > 0.05 || g.spots[o.at]?.kind !== 'sofa') continue
+      const dx = o.x - this.x
+      const dz = o.z - this.z
+      const d = Math.hypot(dx, dz)
+      if (d >= TUCK.rangeM) continue
+      // the sitter's side: right of the heading is (cos h, -sin h)
+      const side = dx * Math.cos(h) - dz * Math.sin(h) > 0 ? 'r' : 'l'
+      want[side] = Math.max(want[side], 1 - smooth01(MathUtils.clamp((d - TUCK.nearM) / (TUCK.rangeM - TUCK.nearM), 0, 1)))
+    }
+    for (const side of ['l', 'r'] as const) this.tuck[side] = damp(this.tuck[side], want[side], TUCK.rate, dt)
+  }
+
   private tmpTip = new Vector3()
   private tmpQuat2 = new Quaternion()
   private tmpPos = new Vector3()
@@ -1644,6 +1703,9 @@ export class AgentRig {
         p.pos.z += swing.dz
         p.turn = new Quaternion().setFromAxisAngle(AXIS_X, swing.wrist).multiply(p.turn)
       }
+      // the tuck: the free hand on a sitter's side comes in toward the body (the walking place and the standing rest place only)
+      const tk = this.tuck[side] * (1 - this.heldAmount(side))
+      if (tk > 0.001 && (p.walk || p.rest)) p.pos.x -= (side === 'l' ? -1 : 1) * TUCK.inM * tk
       if (this.forced[side]) p.curl = this.forced[side]!
       const sp = this.spring[side]
       if (sp) {
@@ -1882,44 +1944,101 @@ export class AgentRig {
     tint(this.parts.grille, (base) => this.tmpColor.copy(base).multiplyScalar(k))
   }
 
-  private updateFace(t: number, pose: string, status: AgentStatus | undefined, reduced: boolean) {
-    // a received paper / plane: the nod once its surprise is over, the wide eyes until then (#267)
+  /** a face event (robots.md 4, #193): the expression lasts its table duration, or `dur` s, from the scene time t */
+  faceEvent(expr: Expression, t: number, dur?: number) {
+    this.mind.fire(expr, t, dur)
+  }
+  /** a failed test / build: embarrassed for 3 s, red for the first 1.5 s */
+  faceFail(t: number) {
+    this.mind.fail(t)
+  }
+  /** ?debug=1: force an expression (null = the real ones) */
+  forceFace(e: Expression | null) {
+    this.mind.force(e)
+  }
+  /** the expression on the screen now, and how often the canvas was redrawn (tests, debug) */
+  faceState() {
+    return { expr: this.mind.shown, draws: this.face?.draws ?? 0, lastMs: this.face?.lastMs ?? 0, totalMs: this.face?.totalMs ?? 0 }
+  }
+  get faceScreen() {
+    return this.face
+  }
+
+  private updateFace(t: number, pose: string, status: AgentStatus | undefined, reduced: boolean, others: Record<string, AgentRig>) {
+    // a received paper / plane: the nod once its surprise is over (#267); the faces are the mind's (faceEvent)
     const pf = this.paperFace
     if (pf) {
       if (pf.nodAt !== null && t >= pf.nodAt) {
         this.nod = reduced ? null : { t0: t, hand: false }
         pf.nodAt = null
       }
-      if (t < pf.until) {
-        if (!this.face) return
-        const a = this.aim
-        const gx = a ? Math.round(MathUtils.clamp(a.eyes, -1, 1) * 3) : 0
-        return this.face.draw('wide', gx, 0)
-      }
-      if (pf.nodAt === null) this.paperFace = null
+      if (pf.nodAt === null && t >= pf.until) this.paperFace = null
+    }
+    // the giver's face (#262, paper-pass.md 4): 'yield' = the 양보 expression, 'happy' = the 기쁨 expression, until its own time
+    const gf = this.giveFace
+    if (gf && !gf.fired) {
+      gf.fired = true
+      this.mind.fire(gf.mood === 'yield' ? 'yielding' : 'joy', t, Math.max(0, gf.until - t))
     }
     if (!this.face) return
-    // looking at the plane / the one it throws to (#224): the eyes go first, the mood narrows to aim and widens to catch.
-    // Eye direction is information, not motion: it stays with reduced motion
+    const i = this.faceIn
+    const mind = this.mind
+    // events from what the statuses say
+    const lr = status?.lastResult
+    if (lr && lr.at !== this.seenResult) {
+      this.seenResult = lr.at
+      if (Date.now() - lr.at < 8_000) {
+        if (lr.ok) mind.fire('proud', t)
+        else mind.fail(t)
+      }
+    }
+    const online = !!status && status.state !== 'off'
+    if (this.wasOnline === false && online) mind.fire('greeting', t) // coming to work
+    this.wasOnline = online
+    // called out of the blue (#314): a prompt after over two minutes without work: surprised, then a nod
+    if (status && this.called.step(status.state === 'working' || status.state === 'wrapping', status.activity, status.since, Date.now())) {
+      const s = Math.max(1.2, this.gestureMin)
+      mind.fire('surprised', t, s)
+      mind.nod(t + s, 1)
+    }
+    // a yield on the road (#138): a smile and the arrow, once per cue
+    const cue = this.track?.cue
+    if (cue && cue.kind === 'yield' && cue.gesture) {
+      const start = t - cue.age
+      if (Math.abs(start - this.yieldAt) > 0.5) mind.fire('yielding', t, cue.dur)
+      this.yieldAt = start
+    }
+    i.t = t
+    i.reduced = reduced
+    i.fast = this.gestureMin > 0 && this.ambient === 0
+    i.base = baseExpression({ pose, state: status?.state, activity: status?.activity, night: status?.night, idleMs: status ? Date.now() - status.since : 0, chin: this.chin, late: this.lateHour })
+    i.talk = this.faceTalk.listening ? 'nodding' : null
+    i.speaking = this.faceTalk.speaking
+    i.anxious = this.anxious
+    i.voice = this.id === 'agent_4' && speakerOn() ? speakerCone() : 0
+    // looking at the plane / the one it throws to (#224): the eyes go first, the mood narrows to aim and widens to catch
     const aim = this.aim
+    i.aim = aim?.mood === 'focus' ? 'focused' : aim?.mood === 'wide' ? 'surprised' : null
+    let gx = 0
+    let gy = 0
     if (aim) {
-      const gx = Math.round(MathUtils.clamp(aim.eyes, -1, 1) * 3)
-      const gy = -Math.round(MathUtils.clamp(this.aimPitch / 0.4, -1, 1) * 2) // up = negative y on the screen
-      return this.face.draw(aim.mood ?? 'open', gx, gy)
+      gx = aim.eyes
+      gy = -this.aimPitch / 0.4 // up = negative y on the screen
+    } else {
+      const who = this.goal?.gaze ?? this.goal?.lookAt
+      const o = who ? others[who] : undefined
+      if (o) {
+        const a = wrap(Math.atan2(-(o.x - this.x), -(o.z - this.z)) - this.heading)
+        gx = Math.abs(a) > 0.15 ? Math.sign(a) : 0
+      }
     }
-    if (pose === 'sofa') return this.face.draw('sleep')
-    if (pose === 'doze') return this.face.draw('doze')
-    if (this.id === 'agent_3' && status?.lastResult && !(status.state === 'working' && (status.activity === 'test' || status.activity === 'build'))) {
-      const fresh = Date.now() - status.lastResult.at < 8_000
-      if (!status.lastResult.ok) return this.face.draw('fail')
-      if (fresh) return this.face.draw('happy')
+    i.gaze.x = gx
+    i.gaze.y = gy
+    mind.update(i)
+    if (mind.dirty(t)) {
+      mind.fill(this.face.params)
+      this.face.draw()
+      mind.drawnAt(t)
     }
-    if (pose === 'talk' || pose === 'pingpong') return this.face.draw('happy')
-    // a blink every few seconds (never with reduced motion)
-    if (!reduced && t > this.blinkAt) {
-      if (t > this.blinkAt + 0.14) this.blinkAt = t + 2.5 + ((this.phase * 7.3 + t) % 3)
-      else return this.face.draw('blink')
-    }
-    this.face.draw('open')
   }
 }

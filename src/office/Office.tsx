@@ -4,9 +4,11 @@ import { useEffect, useMemo, useRef } from 'react'
 import { Box3, Vector3, type Object3D } from 'three'
 import { openApprovalBox } from './approval/panel'
 import { Door } from '../room/Door'
+import { Frames } from './Frames'
 import { ReadyPing } from '../room/RoomUi'
 import { ClockRig } from './ClockRig'
 import { SpeakerClick } from './SpeakerClick'
+import { TurntablePick } from './TurntablePick'
 import { Agents } from './Agents'
 import { useRole } from './ApprovalBox'
 import { Icon } from './ApprovalIcons'
@@ -34,10 +36,12 @@ export function Office({ world }: { world: OfficeWorld }) {
       <TrayClick scene={scene} nodes={nodes} />
       <ClockRig scene={scene} nodes={nodes} />
       <SpeakerClick nodes={nodes} />
+      <TurntablePick scene={scene} />
       <Shelf world={world} scene={scene} nodes={nodes} />
       <Whiteboard world={world} scene={scene} />
       {world.approvals && <DoorKey world={world} nodes={nodes} />}
       <Door nodes={nodes} />
+      <Frames nodes={nodes} />
       <ReadyPing />
     </>
   )

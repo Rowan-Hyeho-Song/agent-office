@@ -20,6 +20,6 @@ export async function loadOffice(): Promise<{ scene: Object3D; nodes: OfficeNode
 export function stubCanvas() {
   const g = globalThis as { document?: unknown }
   if (g.document) return
-  const ctx = { createRadialGradient: () => ({ addColorStop() {} }), fillRect() {}, fillStyle: '' }
+  const ctx = { createRadialGradient: () => ({ addColorStop() {} }), fillRect() {}, beginPath() {}, rect() {}, fill() {}, fillStyle: '', globalAlpha: 1 }
   g.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ctx }) }
 }

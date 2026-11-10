@@ -3,14 +3,42 @@ import { BLEND_MIN, PERIODS } from '../office/outside'
 import { PERIOD_LEVELS, ambienceAt } from './ambience'
 import { AGENT_PITCH, CUES, CUE_NAMES, speedRule } from './cues'
 import { momentaryMax } from './levels'
-import { CHORDS, HOOK, LAYERS, WORK_LAYERS, stepEvents } from './music'
-import { clampVolume, parseSetting } from './settings'
+import { CHORDS, HISS_LEVEL, HOOK, LAYERS, WORK_LAYERS, stepEvents } from './music'
+import { BUS_CATEGORY } from './engine'
+import { applyPatch, clampVolume, mergeStored, parseSetting } from './settings'
 
 describe('parseSetting', () => {
-  it('keeps the two known fields, clamps volume, drops the rest', () => {
-    expect(parseSetting({ muted: false, volume: 0.5, extra: 'x' })).toEqual({ muted: false, volume: 0.5 })
-    expect(parseSetting({ muted: true, volume: 7 })).toEqual({ muted: true, volume: 1 })
-    expect(parseSetting({ muted: true, volume: -1 })).toEqual({ muted: true, volume: 0 })
+  it('keeps the known fields, clamps volume, drops the rest; a value from before #353 has music and sfx at 1', () => {
+    expect(parseSetting({ muted: false, volume: 0.5, extra: 'x' })).toEqual({ muted: false, volume: 0.5, music: 1, sfx: 1 })
+    expect(parseSetting({ muted: true, volume: 7 })).toEqual({ muted: true, volume: 1, music: 1, sfx: 1 })
+    expect(parseSetting({ muted: true, volume: -1 })).toEqual({ muted: true, volume: 0, music: 1, sfx: 1 })
+  })
+  it('#353 reads music / sfx, clamped; a bad level is 1, not a rejection', () => {
+    expect(parseSetting({ muted: false, volume: 1, music: 0.3, sfx: 2 })).toEqual({ muted: false, volume: 1, music: 0.3, sfx: 1 })
+    expect(parseSetting({ muted: false, volume: 1, music: 'x', sfx: NaN })).toEqual({ muted: false, volume: 1, music: 1, sfx: 1 })
+  })
+  it('#353 saving keeps what the other room stored, and writes all four fields', () => {
+    const s = { muted: false, volume: 0.8, music: 0.2, sfx: 0.6 }
+    expect(mergeStored({ muted: true, volume: 1, deskOnly: 7 }, s)).toEqual({ deskOnly: 7, ...s })
+    expect(mergeStored(null, s)).toEqual(s)
+    expect(mergeStored([1], s)).toEqual(s)
+  })
+  it('#353 a patch changes only its fields', () => {
+    const cur = { muted: false, volume: 1, music: 0.5, sfx: 0.7 }
+    expect(applyPatch(cur, { muted: true, volume: 0.4 })).toEqual({ muted: true, volume: 0.4, music: 0.5, sfx: 0.7 })
+    expect(applyPatch(cur, { music: 5 })).toEqual({ ...cur, music: 1 })
+  })
+  it('#353 the panel preview sounds at most once in 150 ms; 기본값으로 is the three levels at 1', async () => {
+    const { previewDue, PREVIEW_GAP_MS } = await import('./cues')
+    const { DEFAULT_LEVELS } = await import('./settings')
+    expect(PREVIEW_GAP_MS).toBe(150)
+    expect(previewDue(-Infinity, 0)).toBe(true)
+    expect(previewDue(1000, 1100)).toBe(false)
+    expect(previewDue(1000, 1150)).toBe(true)
+    expect(DEFAULT_LEVELS).toEqual({ volume: 1, music: 1, sfx: 1 })
+  })
+  it('#353 배경음악 = the music bus; 효과음 = every other bus, the room tone too', () => {
+    expect(BUS_CATEGORY).toEqual({ music: 'music', sfx: 'sfx', voice: 'sfx', ambience: 'sfx', keys: 'sfx' })
   })
   it('rejects anything else', () => {
     for (const bad of [null, 'x', 1, {}, { muted: 'no', volume: 1 }, { muted: true }, { muted: true, volume: NaN }]) expect(parseSetting(bad)).toBeNull()
@@ -39,6 +67,11 @@ describe('ambienceAt', () => {
 })
 
 describe('music', () => {
+  it('keeps the tape hiss under the desk room’s (#194 치지직: it was 8.5 dB over)', () => {
+    // the desk room: 0.012 on ±0.5 noise = 0.006 on full scale; ours is on full scale
+    expect(HISS_LEVEL).toBeLessThanOrEqual(0.006)
+    expect(20 * Math.log10(HISS_LEVEL / 0.016)).toBeLessThanOrEqual(-15)
+  })
   it('opens the hook with the mushroom notes A C E G', () => {
     const notes = [0, 2, 3, 5].map((s) => stepEvents(s, ['hook'])[0].note)
     expect(notes).toEqual([69, 72, 76, 79])
@@ -91,6 +124,14 @@ describe('cues', () => {
       expect(CUES[n].kind).toBe('event')
     }
     expect(CUES['handoff.toss'].length).toBeLessThan(CUES['plane.throw'].length)
+  })
+  it('has the lounge props (#280): small events in the room, effects bus', () => {
+    const lounge = ['record.out', 'record.place', 'record.needle', 'record.lift', 'fridge.open', 'fridge.close', 'dispenser.pour', 'sofa.sit', 'pillow.hug', 'mat.step'] as const
+    for (const n of lounge) {
+      expect(CUES[n].spatial).toBe(true)
+      expect(CUES[n].kind).toBe('event')
+      expect(CUES[n].bus).toBe('sfx')
+    }
   })
   it('only room sounds are spatial', () => {
     expect(CUES.approve.spatial).toBe(false)

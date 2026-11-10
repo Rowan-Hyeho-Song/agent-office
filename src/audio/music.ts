@@ -140,6 +140,23 @@ type Player = {
   step: number
   next: number
   hiss?: AudioBufferSourceNode
+  hissGain?: GainNode
+}
+
+/**
+ * tape hiss under the music, as a gain on full-scale white noise (see `start`). Was 0.016 (#194 crackle, user: "배경음
+ * 중에 치지지지직하는 소음이 껴 있는데"): the desk room's 0.012 is on noise of ±0.5, ours on ±1, so it came out 8.5 dB
+ * over the desk room and only ~1 dB under the music itself (above 4 kHz the hiss was 15 dB of the music's energy).
+ * 0.0025 = −16 dB: the hiss sits ~17 dB under the music, a texture you notice only in the gaps.
+ */
+export const HISS_LEVEL = 0.0025
+let hissOn = true
+export const isHissOn = () => hissOn
+/** debug: the tape hiss on or off (#194 crackle: so the user can hear whether it is the "치지직") */
+export function setHiss(on: boolean) {
+  hissOn = on
+  const g = audioGraph()
+  if (p?.hissGain && g) p.hissGain.gain.setTargetAtTime(on ? HISS_LEVEL : 0, g.ctx.currentTime, 0.05)
 }
 
 let p: Player | null = null
@@ -212,10 +229,10 @@ function start(c: AudioContext, into: AudioNode) {
   hf.frequency.value = 5000
   hf.Q.value = 0.4
   const hg = c.createGain()
-  hg.gain.value = 0.016
+  hg.gain.value = hissOn ? HISS_LEVEL : 0
   hiss.connect(hf).connect(hg).connect(out)
   hiss.start()
-  p = { out, echo: d, step: 0, next: c.currentTime + 0.15, hiss }
+  p = { out, echo: d, step: 0, next: c.currentTime + 0.15, hiss, hissGain: hg }
   const tick = () => {
     if (!p) return
     const g = audioGraph()

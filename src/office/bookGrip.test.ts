@@ -1,9 +1,10 @@
 /// <reference types="node" />
-// The open book (#231): the hands hold it per grips.md without a finger inside it, and one leaf turns, bent, under the right thumb and index.
-//  1. the solids the check uses (bookGeom.ts: cover boards and paper blocks) agree with the baked halves' bounds, for all six books;
-//  2. reading grip: for every book (the table one and the five shelf books) and agent, with the stored hand offsets and the fitted fingers,
-//     no sampled point of any finger's centre line is inside a cover board or a paper block (≥ −0.1 mm), each pad is within 1 mm of its
-//     surface, the four fingers are on the cover's outer face and only the thumb is on the paper, within 1.5 cm of its fore-edge;
+// The open book, 150° (#231): the hands hold it per grips.md without a finger inside it, and one leaf turns, bent, under the right thumb and index.
+//  1. the solids the check uses (bookGeom.ts: cover boards and paper blocks, each half lifted by LIFT) agree with the baked halves' bounds, for all six books;
+//  2. reading grip, from the bake's own grip / contact empties (<book>_l|r_grip, <book>_l|r_contact_*): for every book (the table one and the five
+//     shelf books) and agent, with the stored hand offsets and the fitted fingers, no sampled point of any finger's centre line is inside a cover
+//     board or a paper block (≥ −0.1 mm), each pad is within 1 mm of its surface, the four fingers are on the cover's outer face and only the
+//     thumb is on the paper, within 1.5 cm of its fore-edge;
 //  3. the turn: the hand's whole path (to the corner along the arc, with the corner through the turn, back along the arc) stays out of the book;
 //  4. the leaf: the outer third lags 25° at mid-turn, it is straight flat and landed, 16 segments, the vertices change in place.
 // The numbers are appended to FIT_LOG when set (the PR's table).
@@ -14,7 +15,7 @@ import { loadOffice, stubCanvas } from './glbLoad'
 import { buildRig, fingerModelOf } from './rig'
 import { GRIPS, pointsAtJoints, tableJoints } from './grip'
 import { fingerPenetration, fitFingers, handInObject, offsetOf, resolveTarget } from './gripTargets'
-import { COVER_T, bookBoxes, bookDimsOf, distToBook, readingContacts } from './bookGeom'
+import { COVER_T, LIFT, OPEN_ANGLE, bookBoxes, bookDimsOf, distToBook, halfAngle, readingContacts } from './bookGeom'
 import { LeafBend, PINCH_LET_GO, PINCH_LIFT, TURN_S, cornerOf, fingerWeight, lagAt, leafAngle, pinchArc, poseWeight } from './bookLeaf'
 
 stubCanvas()
@@ -23,15 +24,20 @@ const log = (s: string) => LOG && appendFileSync(LOG, s + '\n')
 const BOOKS = ['prop_book', ...[0, 1, 2, 3, 4].map((k) => 'prop_shelfbook_' + k)]
 const FINGERS = ['index', 'middle', 'ring', 'little'] as const
 const EPS = 1e-4
-/**
- * The reading grip here is the computed FALLBACK (bookGeom.ts readingContacts): the 3D artist re-places grip_l / grip_r and the thumb contact in
- * the next bake and the grip is finished on top of that. Until then its fit is only held to LOOSE bounds (a finger at most 2.5 mm inside, a pad at
- * most 5 mm off its surface); set STRICT once the bake lands to demand "nothing inside, pads within 1 mm" (the numbers are in FIT_LOG).
- */
-const STRICT = false
+/** nothing inside (≥ −0.1 mm), pads within 1 mm of their surface (the numbers are in FIT_LOG) */
+const STRICT = true
 const IN_LIMIT = STRICT ? EPS : 0.0025
 const PAD_LIMIT = STRICT ? 0.001 : 0.005
 const mm = (x: number) => (x * 1000).toFixed(2)
+
+/** the first mesh under a node (the leaf's paper) */
+const firstMesh = (n: Object3D) => {
+  let m: Mesh | null = null
+  n.traverse((o) => {
+    if (!m && (o as Mesh).isMesh) m = o as Mesh
+  })
+  return m as unknown as Mesh
+}
 
 const halfBox = (n: Object3D) => {
   const b = new Box3()
@@ -79,7 +85,44 @@ describe('the open book as geometry', () => {
     }
   })
 
-  it('the reading contacts: four fingers on the cover face, the thumb alone on the paper within 1.5 cm of the fore-edge', async () => {
+  it('the angle between the halves is 150°: each lifted 15° (the bake lies them flat)', () => {
+    expect(OPEN_ANGLE).toBeCloseTo((150 * Math.PI) / 180, 9)
+    expect(LIFT).toBeCloseTo((15 * Math.PI) / 180, 9)
+    expect(halfAngle('l') - halfAngle('r')).toBeCloseTo(OPEN_ANGLE, 9)
+  })
+
+  it("the bake's grip and contact empties: four fingers on the cover face, the thumb alone on the paper within 1.5 cm of the fore-edge (all six books, both halves)", async () => {
+    const { scene } = await loadOffice()
+    for (const name of BOOKS) {
+      const d = bookDimsOf(scene.getObjectByName(name + '_l')!, scene.getObjectByName(name + '_r')!)
+      const boxes = bookBoxes(d)
+      for (const side of ['l', 'r'] as const) {
+        for (const f of [...FINGERS, 'thumb'] as const) expect(scene.getObjectByName(`${name}_${side}_contact_${f}`), `${name} has the baked ${side} ${f} contact (else the computed one is used)`).toBeTruthy()
+        expect(scene.getObjectByName(`${name}_${side}_grip`), `${name} has the baked ${side} grip`).toBeTruthy()
+        const cs = resolveTarget(scene, name, 'book', side)!.contacts
+        expect(cs.map((c) => c.finger)).toEqual(['index', 'middle', 'ring', 'little', 'thumb'])
+        for (const c of cs) {
+          const { d: dist, box } = distToBook(c.p, boxes)
+          expect(Math.abs(dist), `${name} ${side} ${c.finger} on a surface`).toBeLessThan(1e-3)
+          // in the half's own frame (the closed pose): x along the page, +y the half's outside
+          const nb = c.n.clone().transformDirection(box.toBox)
+          const pb = c.p.clone().applyMatrix4(box.toBox)
+          if (c.finger === 'thumb') {
+            expect(box.name.startsWith('paper'), `${name} ${side} thumb on the paper`).toBe(true)
+            expect(nb.y, `${name} ${side} thumb's normal out of the paper`).toBeCloseTo(side === 'r' ? 1 : -1, 5)
+            expect(d.W - 0.004 - Math.abs(pb.x), `${name} ${side} thumb from the fore-edge`).toBeLessThanOrEqual(0.015)
+            expect(c.p.z).toBeGreaterThan(0)
+          } else {
+            expect(box.name, `${name} ${side} ${c.finger} on the cover`).toBe('cover')
+            expect(nb.y, `${name} ${side} ${c.finger}'s normal out of the cover`).toBeCloseTo(side === 'r' ? -1 : 1, 5)
+            expect(c.p.z, `${name} ${side} ${c.finger} in the lower half`).toBeGreaterThan(0)
+          }
+        }
+      }
+    }
+  })
+
+  it('the computed fallback (for a missing empty) lies on the same surfaces: four fingers on the cover, the thumb on the paper', async () => {
     const { scene } = await loadOffice()
     for (const name of BOOKS) {
       const d = bookDimsOf(scene.getObjectByName(name + '_l')!, scene.getObjectByName(name + '_r')!)
@@ -90,17 +133,15 @@ describe('the open book as geometry', () => {
         for (const c of cs) {
           const { d: dist, box } = distToBook(c.p, boxes)
           expect(Math.abs(dist), `${name} ${side} ${c.finger} on a surface`).toBeLessThan(1e-3)
+          const nb = c.n.clone().transformDirection(box.toBox)
           if (c.finger === 'thumb') {
             expect(box.name.startsWith('paper'), `${name} ${side} thumb on the paper`).toBe(true)
-            expect(c.n.y).toBe(1)
-            // within 1.5 cm of the paper block's fore-edge (W − 4 mm), in the lower part of the page
-            expect(d.W - 0.004 - Math.abs(c.p.x) + c.radius, `${name} ${side} thumb (its whole disc) from the fore-edge`).toBeLessThanOrEqual(0.015)
-            expect(c.p.z).toBeGreaterThan(0)
+            expect(nb.y).toBeCloseTo(side === 'r' ? 1 : -1, 5)
           } else {
             expect(box.name, `${name} ${side} ${c.finger} on the cover`).toBe('cover')
-            expect(c.n.y).toBe(-1)
-            expect(c.p.z, `${name} ${side} ${c.finger} in the lower half`).toBeGreaterThan(0)
+            expect(nb.y).toBeCloseTo(side === 'r' ? -1 : 1, 5)
           }
+          expect(c.p.z, `${name} ${side} ${c.finger} in the lower half`).toBeGreaterThan(0)
         }
       }
     }
@@ -134,8 +175,7 @@ describe('no finger through the book while it is read', () => {
           for (const f of fits) {
             // the pad is on its surface: not through it, not more than 1 mm off it
             expect(f.off, `${t.key} agent_${i} ${f.finger} off the surface`).toBeGreaterThanOrEqual(-EPS)
-            // (the right thumb is aimed 0.4 mm higher, where a leaf lying on the page would be: bookGeom.ts LEAF_ON_PAGE)
-            expect(f.off, `${t.key} agent_${i} ${f.finger} pad within 1 mm`).toBeLessThanOrEqual(STRICT && f.finger === 'thumb' && side === 'r' ? 0.0013 : PAD_LIMIT)
+            expect(f.off, `${t.key} agent_${i} ${f.finger} pad within 1 mm`).toBeLessThanOrEqual(PAD_LIMIT)
             farthestPad = Math.max(farthestPad, f.off)
           }
         }
@@ -196,17 +236,16 @@ describe('the turn: the hand never goes into the book', () => {
           }
           return { mn, wf }
         }
-        const pinchAt = (th: number) => cornerOf(th, 0.003, ex.page_w, -ex.page_h / 2).multiply(handInObject(tl, hand, ol))
+        const pinchAt = (th: number) => cornerOf(th, 0.003, ex.page_w, ex.page_h / 2).multiply(handInObject(tl, hand, ol))
         const thGo = leafAngle(PINCH_LET_GO * TURN_S)
-        const readingMin = minAt(M0, 0).mn
         const check = (what: string, M: Matrix4, k: number) => {
           const { mn, wf } = minAt(M, k)
           if (mn < worst) {
             worst = mn
             worstAt = `${name} agent_${i} ${what} ${wf}`
           }
-          // the path may not be worse than the reading grip it starts from (the fallback's own penetration is judged above), nor go inside by more than 0.2 mm
-          if (mn < Math.min(-2e-4, readingMin - 2e-4)) bad.push(`${name} agent_${i} ${what}: ${wf} ${mm(mn)} mm`)
+          // no finger inside the book at any point of the path (the reading grip's own clearance is judged above)
+          if (mn < -EPS) bad.push(`${name} agent_${i} ${what}: ${wf} ${mm(mn)} mm`)
         }
         // approach: the leaf lifts to PINCH_LIFT while the hand goes to its corner (k eased as the stage does), with the arc
         const arcAt = (M: Matrix4, k: number) => M.clone().premultiply(new Matrix4().makeTranslation(...pinchArc(k, new Vector3()).toArray()))
@@ -232,12 +271,12 @@ describe('the turn: the hand never goes into the book', () => {
 })
 
 describe('the leaf', () => {
-  it('the timeline: 0.75 s, lifted for the pinch first, 0 → 180° without going back', () => {
+  it('the timeline: 0.75 s, lifted for the pinch first, 0 → 150° without going back', () => {
     expect(TURN_S).toBeGreaterThanOrEqual(0.6)
     expect(TURN_S).toBeLessThanOrEqual(0.9)
     expect(leafAngle(-1)).toBe(0)
     expect(leafAngle(0)).toBeCloseTo(PINCH_LIFT, 9)
-    expect(leafAngle(TURN_S)).toBeCloseTo(Math.PI, 9)
+    expect(leafAngle(TURN_S)).toBeCloseTo(OPEN_ANGLE, 9)
     let prev = -1
     for (let t = -0.2; t <= TURN_S + 0.1; t += 0.01) {
       const a = leafAngle(t)
@@ -250,12 +289,12 @@ describe('the leaf', () => {
     const { scene } = await loadOffice()
     for (const name of BOOKS) {
       const lf = new LeafBend(scene.getObjectByName(name + '_page')!)
-      const pos = (lf.node as unknown as { geometry: { getAttribute(n: string): { array: Float32Array; count: number } } }).geometry.getAttribute('position')
+      const pos = firstMesh(lf.node).geometry.getAttribute('position') as unknown as { array: Float32Array; count: number }
       const arr = pos.array
       const n = pos.count
       expect(n).toBe(170)
       expect(lf.phi.length).toBe(16)
-      lf.set(Math.PI / 2)
+      lf.set(OPEN_ANGLE / 2)
       expect(pos.array, 'the vertex array is reused').toBe(arr)
       const deg = (x: number) => (x * 180) / Math.PI
       expect(Math.abs(deg(lf.phi[0])), `${name} inner part`).toBeLessThan(1)
@@ -269,43 +308,39 @@ describe('the leaf', () => {
       expect(bentX, `${name} the bent leaf is shorter along x`).toBeLessThan(straightY)
       lf.set(0)
       for (let j = 0; j < 16; j++) expect(Math.abs(lf.phi[j])).toBeLessThan(1e-6)
-      lf.set(Math.PI)
+      lf.set(OPEN_ANGLE)
       for (let j = 0; j < 16; j++) expect(Math.abs(deg(lf.phi[j])), `${name} landed leaf is straight`).toBeLessThan(0.5)
       // the corner frame is where the polyline ends
       const C = lf.corner(new Matrix4(), PINCH_LIFT)
-      const ref = cornerOf(PINCH_LIFT, 0.003, lf.width, lf.zTop)
+      const ref = cornerOf(PINCH_LIFT, 0.003, lf.width, lf.zEnd)
       for (let q = 0; q < 16; q++) expect(C.elements[q]).toBeCloseTo(ref.elements[q], 4)
     }
   })
 
-  it('bends every mesh under the leaf: the paper alone, or the paper with a second primitive (text lines carrying _PAGE_U / _PAGE_V)', async () => {
+  it('bends every mesh under the leaf: the paper and the text lines (both carry _PAGE_U / _PAGE_V); a vertex between two columns lies between their places', async () => {
     const { scene } = await loadOffice()
-    const node = scene.getObjectByName('prop_book_page') as Mesh
-    const second = node.clone()
-    second.geometry = node.geometry.clone()
-    // text-line vertices need not sit on a column: move one vertex of the copy half a column along the leaf
-    const au = second.geometry.getAttribute('_page_u')
-    const px = second.geometry.getAttribute('position')
-    px.setX(0, px.getX(0) + 0.5 * (0.142 / 16))
-    au.setX(0, au.getX(0) + 0.5 / 16)
-    node.add(second)
+    const node = scene.getObjectByName('prop_book_page')!
+    const meshes: Mesh[] = []
+    node.traverse((o) => {
+      if ((o as Mesh).isMesh) meshes.push(o as Mesh)
+    })
+    expect(meshes.length, 'paper and text lines').toBe(2)
     const lf = new LeafBend(node)
-    lf.set(Math.PI / 2)
-    const a = node.geometry.getAttribute('position')
-    const b = second.geometry.getAttribute('position')
-    let moved = 0
-    for (let k = 1; k < a.count; k++) {
-      expect(b.getX(k)).toBeCloseTo(a.getX(k), 6)
-      expect(b.getY(k)).toBeCloseTo(a.getY(k), 6)
-      if (Math.abs(a.getY(k)) > 1e-3) moved++
+    lf.set(OPEN_ANGLE / 2)
+    for (const m of meshes) {
+      const pos = m.geometry.getAttribute('position')
+      const au = m.geometry.getAttribute('_page_u')
+      let moved = 0
+      for (let k = 0; k < pos.count; k++) {
+        if (Math.abs(pos.getY(k)) > 1e-3) moved++
+        // the vertex is on its column's segment of the bent polyline: x between that segment's two ends
+        const c0 = Math.min(15, Math.floor(au.getX(k) * 16))
+        const lo = Math.min(lf.px[c0], lf.px[c0 + 1])
+        const hi = Math.max(lf.px[c0], lf.px[c0 + 1])
+        expect(pos.getX(k)).toBeGreaterThan(lo - 1.5e-3)
+        expect(pos.getX(k)).toBeLessThan(hi + 1.5e-3)
+      }
+      expect(moved, `${m.name}: the bend lifted the outer vertices`).toBeGreaterThan(10)
     }
-    expect(moved, 'the bend lifted the outer vertices').toBeGreaterThan(10)
-    // the off-column vertex lies between its two columns' places
-    const c0 = Math.round(au.getX(0) * 16 - 0.5)
-    const lo = Math.min(lf.px[c0], lf.px[c0 + 1])
-    const hi = Math.max(lf.px[c0], lf.px[c0 + 1])
-    expect(b.getX(0)).toBeGreaterThan(lo - 1e-4)
-    expect(b.getX(0)).toBeLessThan(hi + 1e-4)
-    node.remove(second)
   })
 })

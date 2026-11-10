@@ -15,7 +15,7 @@ const mesh = (name: string, x: number, userData: Record<string, unknown> = {}) =
 
 describe('fade groups', () => {
   it('the bookshelf (binders, plates, hit box) is one fade group', () => {
-    for (const n of ['shelf_r0_b0', 'shelf_r2_b9_label', 'screen_shelf_r1', 'hit_library']) expect(fadeGroupOfNode(n)).toBe(SHELF)
+    for (const n of ['shelf_r0_b0', 'shelf_r0_b20_label', 'screen_shelf_r0_g1', 'hit_library']) expect(fadeGroupOfNode(n)).toBe(SHELF)
   })
   it('desks and their screens fade with their desk', () => {
     expect(fadeGroupOfNode('desk_2_lamp')).toBe('desk2')
@@ -23,7 +23,7 @@ describe('fade groups', () => {
   })
   it('lounge parts: floor-touching ones are furniture, only ones hanging by a wall plane go with it', () => {
     expect(wallOfLoose(box([3.9, 0, 0.9], [4.4, 1.3, 1.7]))).toBeNull()
-    expect(wallOfLoose(box([-0.4, 1.0, -3.5], [0.4, 1.4, -3.4]))).toBe('n')
+    expect(wallOfLoose(box([-0.4, 1.0, -4.1], [0.4, 1.4, -4.0]))).toBe('n')
   })
 })
 
@@ -65,8 +65,8 @@ describe('furniture never fades (#253)', () => {
 })
 
 describe('room geometry (room.ts)', () => {
-  it('defaults match the glb: 4.5 x 3.5, walls 2.6 m', () => {
-    expect(floorRect()).toEqual({ minX: -4.5, maxX: 4.5, minZ: -3.5, maxZ: 3.5 })
+  it('defaults match the glb: 4.8 x 4.1, walls 2.6 m', () => {
+    expect(floorRect()).toEqual({ minX: -4.8, maxX: 4.8, minZ: -4.1, maxZ: 4.1 })
     expect(VIEW.wallH).toBe(2.6)
   })
   it('reads the room extras, rejects junk', () => {
@@ -75,11 +75,11 @@ describe('room geometry (room.ts)', () => {
     expect(VIEW.wallH).toBe(3)
     expect(setRoomFromExtras([5, 'x', 3])).toBe(false)
     expect(setRoomFromExtras(undefined)).toBe(false)
-    setRoomFromExtras([4.5, 3.5, 2.6])
-    expect(ROOM).toEqual({ hx: 4.5, hz: 3.5, wallH: 2.6 })
+    setRoomFromExtras([4.8, 4.1, 2.6])
+    expect(ROOM).toEqual({ hx: 4.8, hz: 4.1, wallH: 2.6 })
   })
   it('each wall cap sits just outside the floor edge', () => {
-    expect(wallRect('n').cz).toBeLessThan(-3.5)
-    expect(wallRect('e').cx).toBeGreaterThan(4.5)
+    expect(wallRect('n').cz).toBeLessThan(-4.1)
+    expect(wallRect('e').cx).toBeGreaterThan(4.8)
   })
 })

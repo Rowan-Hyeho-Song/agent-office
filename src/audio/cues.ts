@@ -221,6 +221,139 @@ export const CUES = {
       }
     },
   },
+  // ── #280 라운지 소품 (lounge-props.md, sound.md 4.4). 모두 그 자리에서 나는 작은 사건음이다. 레코드에는 지직거림을
+  // 넣지 않는다(사용자 "치지지지직" 뒤, 5.2) ──
+  'record.out': {
+    label: '레코드 자켓에서 판 꺼냄',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 300,
+    length: 0.4,
+    // a paper sleeve letting go of the disc: a soft brush that rises a little
+    play: (o) => noise(o, 0.35, { kind: 'pink', freq: 1800, to: 2600, q: 0.8, level: 0.035, shape: 'swell' }),
+  },
+  'record.place': {
+    label: '판을 플래터에 놓음',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 300,
+    length: 0.08,
+    // vinyl onto the rubber mat: a flat, dull tap with a little ring of the platter under it
+    play: (o) => {
+      knock(o, 380, 0.05, 0.04, 3, 0.8)
+      tone(o, 1900, 0.06, { type: 'sine', level: 0.005, attack: 0.002 })
+    },
+  },
+  'record.needle': {
+    label: '바늘 내려놓음',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 400,
+    length: 0.12,
+    // the stylus meets the groove: a tiny low thump through the arm and one soft tick; then the speaker plays (no crackle)
+    play: (o) => {
+      tone(o, 70, 0.1, { type: 'sine', level: 0.018, slide: 0.8, attack: 0.002 })
+      noise(o, 0.006, { freq: 2500, q: 1.5, level: 0.007, attack: 0.0005 })
+    },
+  },
+  'record.lift': {
+    label: '톤암 들어 올림',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 400,
+    length: 0.05,
+    // the arm off the groove and onto its rest: two small clicks
+    play: (o) => {
+      noise(o, 0.005, { freq: 3000, q: 1.5, level: 0.045, attack: 0.0005 })
+      knock(o, 1300, 0.02, 0.036, 8, 0.5)
+    },
+  },
+  'fridge.open': {
+    label: '냉장고 문 열림',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 400,
+    length: 0.3,
+    // the seal letting go ("쩍"), then a moment of the cold inside: a low hum that fades
+    play: (o) => {
+      noise(o, 0.06, { kind: 'pink', filter: 'lowpass', freq: 450, level: 0.05, attack: 0.003 })
+      tone(o, 170, 0.08, { type: 'sine', level: 0.02, slide: 0.7, attack: 0.002 })
+      tone(o, 120, 0.25, { type: 'sine', level: 0.006, attack: 0.04, at: 0.04 })
+    },
+  },
+  'fridge.close': {
+    label: '냉장고 문 닫힘',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 400,
+    length: 0.16,
+    // a padded thud, the seal pulling in, a bottle in the door clinking once
+    play: (o) => {
+      tone(o, 80, 0.12, { type: 'sine', level: 0.032, slide: 0.7, attack: 0.002 })
+      noise(o, 0.05, { kind: 'pink', filter: 'lowpass', freq: 700, level: 0.038 })
+      knock(o, 2600, 0.03, 0.004, 14, 0.4)
+    },
+  },
+  'dispenser.pour': {
+    label: '정수기 물 받기',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 600,
+    length: 1.2,
+    // the tap clicks, water into a mug climbs in pitch as it fills (dur, ~1 s), then the bottle on top glugs twice
+    play: (o, v) => {
+      const d = Math.max(0.4, Math.min(2, v.dur ?? 1))
+      knock(o, 1400, 0.02, 0.02, 6, 0.5)
+      noise(o, d, { freq: 900, to: 2200, q: 2.5, level: 0.022, shape: 'flat', attack: 0.05, at: 0.03 })
+      for (let k = 0; k < d / 0.05; k++)
+        noise({ ...o, t: o.t + 0.03 + k * 0.05 + Math.random() * 0.02 }, 0.04, { freq: 900 + (k / (d / 0.05)) * 1300 + Math.random() * 500, q: 7, level: 0.014 })
+      tone(o, 240, 0.09, { type: 'sine', level: 0.02, slide: 1.6, attack: 0.01, at: d + 0.08 })
+      tone(o, 280, 0.08, { type: 'sine', level: 0.014, slide: 1.6, attack: 0.01, at: d + 0.22 })
+    },
+  },
+  'sofa.sit': {
+    label: '소파에 앉음',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 500,
+    length: 0.25,
+    // a cushion taking the weight: a low padded thump and the fabric breathing out
+    play: (o) => {
+      tone(o, 70, 0.14, { type: 'sine', level: 0.018, slide: 0.75, attack: 0.01 })
+      noise(o, 0.22, { kind: 'pink', filter: 'lowpass', freq: 800, level: 0.016, shape: 'swell' })
+    },
+  },
+  'pillow.hug': {
+    label: '쿠션 끌어안음',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 500,
+    length: 0.2,
+    // fabric squeezed: a short soft puff
+    play: (o) => noise(o, 0.18, { kind: 'pink', freq: 900, q: 0.7, level: 0.04, shape: 'swell' }),
+  },
+  'mat.step': {
+    label: '문 매트 밟음',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 300,
+    length: 0.14,
+    // a foot on coir: a short rough scrape
+    play: (o) => {
+      noise(o, 0.12, { kind: 'pink', freq: 1300, q: 0.9, level: 0.042, shape: 'swell' })
+      noise(o, 0.05, { freq: 3500, q: 1.2, level: 0.011, at: 0.03 })
+    },
+  },
   'door.enter': {
     label: '출입문 (따로 열었을 때)',
     kind: 'ui',
@@ -450,6 +583,21 @@ let active: Span[] = []
 let activeKeys: Span[] = []
 /** how many spans overlap [t, t + len) (pure, tested) */
 export const overlapping = (spans: Span[], t: number, len: number) => spans.filter(([s, e]) => s < t + len && e > t).length
+
+/** #353 the settings panel's preview: at most one in this many ms (designer, office-ui.md 11) */
+export const PREVIEW_GAP_MS = 150
+let lastPreview = -Infinity
+/** whether a preview at `now` (ms) may sound after one at `last` (pure, tested) */
+export const previewDue = (last: number, now: number) => now - last >= PREVIEW_GAP_MS
+/**
+ * #353 the 전체 / 효과음 slider was let go: one `ui.click` (the desk room's click, level 0.04) at the new level. It goes
+ * through the sfx category and the master, so it sounds exactly as loud as the setting now is.
+ */
+export function previewClick(now = performance.now()): boolean {
+  if (!previewDue(lastPreview, now)) return false
+  lastPreview = now
+  return cue('ui.click')
+}
 
 /** play a cue now. Returns whether it sounded (for tests and the debug panel). */
 export function cue(name: CueName, opts: CueOpts = {}): boolean {

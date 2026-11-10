@@ -14,6 +14,7 @@ import { meshesOf } from './nodes'
 import { rasterFootprint } from './floorMask'
 import { setRoomFromExtras } from './room'
 import type { NavSpot } from './nav'
+import type { SofaRow } from './sofaRow'
 
 const path = (f: string) => new URL(f, import.meta.url)
 
@@ -44,7 +45,9 @@ export const GRAPH = buildGraph(SPOTS)
 `
 }
 
-function footFile(f: { cell: number; minX: number; minZ: number; w: number; h: number; bits: Uint8Array }): string {
+const r4 = (v: number) => Number(v.toFixed(4))
+
+function footFile(f: { cell: number; minX: number; minZ: number; w: number; h: number; bits: Uint8Array; zone?: SofaRow }): string {
   let bin = ''
   for (let k = 0; k < f.bits.length; k += 8) {
     let v = 0
@@ -62,7 +65,9 @@ export const FOOTPRINT_DATA = {
   minZ: ${f.minZ},
   w: ${f.w},
   h: ${f.h},
-  b64: [
+${f.zone ? `  // the sofa's knee row (zone_sofa_row)
+  zone: { cx: ${r4(f.zone.cx)}, cz: ${r4(f.zone.cz)}, ry: ${r4(f.zone.ry)}, face: ${r4(f.zone.face)}, sizeX: ${f.zone.sizeX}, sizeZ: ${f.zone.sizeZ} },
+` : ''}  b64: [
 ${lines}
   ].join(''),
 }

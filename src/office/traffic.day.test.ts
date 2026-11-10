@@ -25,11 +25,16 @@ describe('a whole day through the planner', () => {
     const t0 = Date.now()
     const r = wholeDay()
     const q = (p: number) => r.planMs[Math.min(r.planMs.length - 1, Math.floor(r.planMs.length * p))]?.toFixed(1)
-    const line = `day sim: min pair distance ${r.min.toFixed(3)} m (2R = ${2 * TRAFFIC.bodyR}); min between exempt sofa pairs ${r.minExempt.toFixed(3)} m; replans ${r.replans} (median ${q(0.5)} ms, p95 ${q(0.95)} ms, max ${q(1)} ms); ${r.samples} samples; ${Date.now() - t0} ms total`
+    const line = `day sim: min pair distance ${r.min.toFixed(3)} m (2R = ${2 * TRAFFIC.bodyR}); min between exempt sofa pairs ${r.minExempt.toFixed(3)} m; min seated-pair (row) ${r.minSeated.toFixed(3)} m; min to a body resting on a row seat ${r.minSeatRest.toFixed(3)} m; max drift off a seat once arrived ${r.maxSeatDrift.toFixed(3)} m; replans ${r.replans} (median ${q(0.5)} ms, p95 ${q(0.95)} ms, max ${q(1)} ms); ${r.samples} samples; ${Date.now() - t0} ms total`
     console.log(line)
     if (r.worst.length) console.log(JSON.stringify(incidents(r.worst).slice(0, 10)))
     expect(r.worst.slice(0, 5)).toEqual([])
     expect(r.min).toBeGreaterThanOrEqual(2 * TRAFFIC.bodyR)
+    // nobody comes nearer than the seat pitch (the closest two seats of the row, read off the nav graph; two heads are 0.42 m wide) to a body resting on a sofa seat (#280)
+    expect(r.seatPassM).toBeGreaterThan(0.42)
+    expect(r.minSeatRest).toBeGreaterThanOrEqual(r.seatPassM - 0.005)
+    // a body on a sofa seat is never moved off it for someone else
+    expect(r.maxSeatDrift).toBeLessThanOrEqual(0.02)
   }, 120_000)
 
   // #186: what an agent shows is what its body does (one decision in the director), and nobody waits for a spot another holds

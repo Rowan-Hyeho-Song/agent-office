@@ -28,6 +28,7 @@ import type { TrafficPlanner } from './traffic'
 import type { DemoKind, DemoState } from './trafficDemo'
 import type { PaperPlanes } from './plane'
 import type { AgentRig } from './rig'
+import { makeFaceTools } from './debugFace'
 import { makePlayTools, type makeTypingTools, type GripDemo } from './debugPlay'
 import type { PlaySession } from '../play/session'
 import { FakePropsFeed, LivePropsFeed, type PropsFeed } from './propsFeed'
@@ -120,6 +121,8 @@ export interface OfficeWorld {
   rigs: Record<string, AgentRig>
   /** the paper planes in flight (#51), set by the scene */
   planes: PaperPlanes | null
+  /** ?debug=1: window.__office.paper.pass(from, to, method?) / .log() / .choose(from, to) (#262) */
+  paper: { pass: (from: string, to: string, method?: 'hand' | 'slide' | 'toss' | 'plane') => void; log: () => unknown[]; choose: (from: string, to: string) => unknown } | null
   graph: NavGraph | null
   check: NavCheck | null
   /** the traffic planner (#138), set by the scene; ?debug=1 draws its grid and plans when showGrid is on */
@@ -137,6 +140,8 @@ export interface OfficeWorld {
   grip: ReturnType<typeof makePlayTools>['grip'] | null
   /** ?debug=1: window.__office.typing.force(agent, activity) / .keys(agent) / .watch() / .log() (debugPlay.ts, #225) */
   typing: ReturnType<typeof makeTypingTools> | null
+  /** ?debug=1: window.__office.face.set(agent, expression | null) / .sheet() / .stats() (debugFace.ts, #193) */
+  face: ReturnType<typeof makeFaceTools> | null
   /** ?debug=1: window.__office.hand.pose(agent, side, poseId | null) forces a named hand pose (debugPlay.ts) */
   hand: ReturnType<typeof makePlayTools>['hand'] | null
   /** the planner's clock, s (accumulated frame time) */
@@ -212,6 +217,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     goals: {},
     rigs: {},
     planes: null,
+    paper: null,
     graph: null,
     check: null,
     traffic: null,
@@ -223,6 +229,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     play: null,
     grip: null,
     hand: null,
+    face: null,
     typing: null,
     simTime: 0,
     demo: null,
@@ -238,6 +245,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     world.play = tools.play
     world.grip = tools.grip
     world.hand = tools.hand
+    world.face = makeFaceTools(world)
   }
   if (debug) setKst(world, query.get('kst') ?? '')
   if (library) {

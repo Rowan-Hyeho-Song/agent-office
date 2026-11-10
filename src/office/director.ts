@@ -100,6 +100,12 @@ export class Director {
   private lastGoal: Record<string, { spot: string; key: string }> = {}
   /** what each agent shows right now (the name tags, head chips, monitors read this, not the raw status): decided in goals(), nowhere else (#186) */
   shown: Record<string, Shown> = {}
+  /** what goals() decided before the meeting's words (#354) */
+  private baseShown: Record<string, Shown> = {}
+  /** who is at the meeting and the words of the stage it is in (set by the runner after goals(); the next frame's goals() holds their wrap-ups) */
+  private meet: Record<string, string> = {}
+  /** when a held wrap-up stopped (its clock is shifted by the time away) */
+  private heldAt: Record<string, number> = {}
   /** the same statuses alone (the monitors take a StatusMap) */
   shownStatus: StatusMap = {}
   private shownKey = ''
@@ -108,6 +114,26 @@ export class Director {
 
   constructor(agents: string[]) {
     this.agents = agents
+  }
+
+  /**
+   * A meeting is in progress for these agents (#354): their display says the meeting's words for the whole meeting, whatever the
+   * schedule, the status or a wrap-up would say, and a wrap-up waits (its stage does not run on to "자리로 돌아가는 중").
+   */
+  setMeeting(words: Record<string, string>) {
+    this.meet = words
+    this.setShown(this.patched())
+  }
+
+  private patched(): Record<string, Shown> {
+    const out = { ...this.baseShown }
+    for (const [a, detail] of Object.entries(this.meet)) {
+      const sh = out[a]
+      if (!sh) continue
+      const s = sh.status
+      out[a] = { status: s.state === 'off' || s.night ? s : { ...s, state: 'idle' }, detail, kind: 'meet' }
+    }
+    return out
   }
 
   getShown = () => this.shown
@@ -188,11 +214,25 @@ export class Director {
     for (const a of this.agents) {
       const s = rawOf(a)
       if (s.state !== 'wrapping') {
+        delete this.heldAt[a]
         delete this.runs[a]
         delete this.wrapDone[a]
         continue
       }
       if (this.wrapDone[a] === s.since) continue
+      // at a meeting the wrap-up waits where it is; back from it, a stage that needs the desk / the board starts over from the way there
+      if (a in this.meet) {
+        this.heldAt[a] ??= now
+        continue
+      }
+      const held = this.heldAt[a]
+      if (held !== undefined && this.runs[a]) {
+        delete this.heldAt[a]
+        const r0 = this.runs[a]
+        const shift = now - held
+        const back = (r0.step === 'write' || r0.step === 'tidy') && arrivedAt(a) !== `work_${deskOf(a)}` ? { step: 'seat' as const } : r0.step === 'post' && arrivedAt(a) !== 'whiteboard' ? { step: 'seat' as const, last: false } : {}
+        this.runs[a] = { ...r0, ...back, t0: r0.t0 + shift, waitFrom: r0.waitFrom === null ? null : r0.waitFrom + shift }
+      }
       let run = this.runs[a]
       if (!run || run.since !== s.since) run = this.runs[a] = startWrap(a, s.since, now, arrivedAt(a) === `work_${deskOf(a)}`)
       const others = this.agents.filter((b) => b !== a)
@@ -333,7 +373,8 @@ export class Director {
     }
     this.settle(out, playing, deskIdle)
     this.putAway(now, out)
-    this.setShown(shown)
+    this.baseShown = shown
+    this.setShown(this.patched())
     return out
   }
 

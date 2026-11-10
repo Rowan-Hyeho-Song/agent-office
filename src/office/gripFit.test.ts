@@ -3,7 +3,7 @@
 // (grip.ts solveContacts). This test checks that they still hold for the committed glb on every agent's hands: each contact
 // fingertip within 3 mm of its point, none through the surface. After a re-bake that moves contacts:
 //   FIT_WRITE=1 npx vitest run src/office/gripFit.test.ts    (rewrites gripFit.data.ts)
-import { appendFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { Euler, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import { loadOffice, stubCanvas } from './glbLoad'
@@ -28,6 +28,10 @@ const OBJECTS: [string, string, 'l' | 'r'][] = [
 const LOG = process.env.FIT_LOG
 /** FIT_WRITE=1 FIT_ONLY=prop_book,prop_shelfbook:leaf: recompute only the targets whose "name:kind" starts with one of these; the others keep their stored offsets */
 const ONLY = process.env.FIT_ONLY?.split(',')
+/** FIT_MERGE=a.json,b.json (FIT_PART files of runs that each solved a share of the targets): those offsets are taken as they are; with FIT_ONLY=- nothing else is solved */
+/** FIT_AGENTS=0,1: with FIT_PART, only these agents (a share of the solving; the data file is not written) */
+const AGENTS = process.env.FIT_AGENTS?.split(',').map(Number)
+const MERGE: Record<string, number[]> | null = process.env.FIT_MERGE ? Object.assign({}, ...process.env.FIT_MERGE.split(',').map((f) => JSON.parse(readFileSync(f, 'utf8')))) : null
 
 describe('grip fit against the baked model', () => {
   it('every contact fingertip lands within 3 mm and none goes through the surface', async () => {
@@ -38,11 +42,15 @@ describe('grip fit against the baked model', () => {
     const out: Record<string, number[]> = ONLY ? Object.fromEntries(Object.entries(GRIP_OFFSETS).map(([k, v]) => [k, [...v]])) : {}
     if (LOG) writeFileSync(LOG, '')
     for (const [name, kind, side] of OBJECTS) {
+      // a share of the solving (FIT_PART): only the targets this run owns
+      if (process.env.FIT_PART && ONLY && !ONLY.some((o) => `${name}:${kind}`.startsWith(o))) continue
       const t = resolveTarget(scene, name, kind, side) as GripTarget
       expect(t, `${name} has a ${side} grip`).toBeTruthy()
       for (const [i, rig] of rigs.entries()) {
+        if (AGENTS && !AGENTS.includes(i)) continue
         const key = `${t.key}:${i}`
-        if (write && (!ONLY || ONLY.some((o) => `${name}:${kind}`.startsWith(o)))) {
+        if (write && MERGE?.[key]) out[key] = MERGE[key]
+        else if (write && (!ONLY || ONLY.some((o) => `${name}:${kind}`.startsWith(o)))) {
           const s = solveTarget(t, rig.hands[side])
           const e = new Euler().setFromRotationMatrix(s.offset, 'XYZ')
           const p = new Vector3().setFromMatrixPosition(s.offset)
@@ -52,8 +60,7 @@ describe('grip fit against the baked model', () => {
         expect(v, `${key} has an offset`).toBeTruthy()
         for (const f of fitFingers(t, rig.hands[side], composeOffset(v))) {
           if (LOG) appendFileSync(LOG, `${t.key} agent_${i} ${f.finger} err ${(f.err * 1000).toFixed(2)} mm off ${(f.off * 1000).toFixed(2)} mm (joints ${f.joints.map((x) => x.toFixed(0)).join('/')})\n`)
-          // the open book's computed fallback contacts (#231) are held to 15 mm until the re-baked grip spots replace them
-          if (!write) expect(f.err, `${t.key} agent_${i} ${f.finger}`).toBeLessThanOrEqual(kind === 'book' ? 0.015 : 0.003)
+          if (!write) expect(f.err, `${t.key} agent_${i} ${f.finger}`).toBeLessThanOrEqual(0.003)
           if (!write) expect(f.off, `${t.key} agent_${i} ${f.finger} not through the surface`).toBeGreaterThanOrEqual(-1e-4)
         }
       }

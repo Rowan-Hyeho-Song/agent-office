@@ -304,7 +304,12 @@ def kit_mouse(G, at=(0.3, 0.07), split=False):
     # its middle), press = turn about local x by -2 deg; wheel: pivot on its axle, rolls about local x
     lives = [(f"mouse_{s_}", [btns[s_]], Mx((x0 + sx_ * 0.012, top_y(sx_ * 0.012, -y_hinge), z0 - y_hinge))) for s_, sx_ in (("l", -1), ("r", 1))]
     lives.append(("mouse_wheel", wheel, Mx((x0, wy, z0 + zw))))
-    return parts, lives
+    # #305 (coder): the body moves too (dragged on the pad): its own live node, pivot = the middle of its underside on
+    # the pad. A contact shadow (a dark card the app fades at the edge) rides with it, 0.4 mm over the pad cloth
+    shadow = quad("mouse_shadow", 0.075, 0.13, plastic("#000000", 1.0, 0, 0, "mouse_shadow"), G)
+    shadow.matrix_world = Mx((x0, DESK_H + 0.0036, z0), rx=-math.pi / 2)  # the quad faces web +z: turned to face up
+    lives += [("mouse", parts, Mx((x0, h, z0))), ("mouse_shadow", [shadow], Mx((x0, h, z0)))]
+    return [], lives
 
 
 def kit_pad(G, at=(0.3, 0.1)):  # z 0.10: clear of MEMO's tray (its front edge at z -0.01)

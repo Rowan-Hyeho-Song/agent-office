@@ -1,14 +1,15 @@
 /// <reference types="node" />
-// A page turn on the stage (#231): one leaf turns about the spine, bent, held at its corner by the right thumb and index; the halves
-// never turn after the book has opened. Headless: PlayStage on the baked model, a reader at the book.
+// A page turn on the stage (#231): one leaf turns about the spine (0 → 150°), bent, held at its corner by the right thumb and index; the halves
+// stay at their open angle (150° between them: lower +15°, upper π − 15°) after the book has opened. Headless: PlayStage on the baked model, a reader at the book.
 import { appendFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { Vector3 } from 'three'
+import { Vector3, type Mesh } from 'three'
 import { stubCanvas } from './glbLoad'
 import { IDS, world, type World } from './errandWorld.fixture'
 import { SPOTS } from './navSpots.fixture'
 import { PLAYS } from './play'
 import { TURN_S } from './bookLeaf'
+import { LIFT, OPEN_ANGLE, halfAngle } from './bookGeom'
 import type { Goal } from './director'
 
 stubCanvas()
@@ -25,6 +26,7 @@ interface Frame {
   t: number
   lz: number
   rz: number
+  /** the leaf's angle on top of the lower half's lift (φ) */
   th: number
   vis: boolean
   corner: Vector3 | null
@@ -48,13 +50,18 @@ function run(w: World, secs: number, reduced = false, gestureMin = 0): Frame[] {
   const page = w.nodes.prop_book_page
   const l = w.nodes.prop_book_l
   const r = w.nodes.prop_book_r
-  const geo = (page as unknown as { geometry: { getAttribute(n: string): { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number } } }).geometry
+  // the page node is a pivot with the paper mesh (and the text lines' mesh) under it
+  let paper: Mesh | null = null
+  page.traverse((o) => {
+    if (!paper && (o as Mesh).isMesh) paper = o as Mesh
+  })
+  const geo = (paper as unknown as Mesh).geometry as unknown as { getAttribute(n: string): { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number } }
   const pos = geo.getAttribute('position')
   const au = geo.getAttribute('_page_u')
   const av = geo.getAttribute('_page_v')
   const nor = geo.getAttribute('normal')
   let corner = -1
-  for (let i = 0; i < pos.count; i++) if (au.getX(i) > 0.999 && av.getX(i) < 0.001 && nor.getY(i) > 0) corner = i
+  for (let i = 0; i < pos.count; i++) if (au.getX(i) > 0.999 && av.getX(i) > 0.999 && nor.getY(i) > 0) corner = i
   const out: Frame[] = []
   const dt = 0.02
   for (let k = 0; k * dt < secs; k++) {
@@ -73,9 +80,9 @@ function run(w: World, secs: number, reduced = false, gestureMin = 0): Frame[] {
       t,
       lz: l.rotation.z,
       rz: r.rotation.z,
-      th: page.rotation.z,
+      th: page.rotation.z - LIFT,
       vis: page.visible,
-      corner: corner >= 0 ? page.localToWorld(new Vector3(pos.getX(corner), pos.getY(corner), pos.getZ(corner))) : null,
+      corner: corner >= 0 ? (paper as unknown as Mesh).localToWorld(new Vector3(pos.getX(corner), pos.getY(corner), pos.getZ(corner))) : null,
       thumb: tip('thumb'),
       index: tip(0),
     })
@@ -84,14 +91,18 @@ function run(w: World, secs: number, reduced = false, gestureMin = 0): Frame[] {
 }
 
 describe('one leaf turns', () => {
-  it('the halves do not turn after the opening; the leaf shows only while it turns, 0 → 180° without going back, in the turn time', async () => {
+  it('the halves stay at 150° after the opening; the leaf shows only while it turns, 0 → 150° without going back, in the turn time', async () => {
     const w = await world()
     const f = run(w, 14)
-    // the lower half never turns; the upper half opens once (monotonic to π) and stays
-    expect(f.every((x) => x.rz === 0)).toBe(true)
-    for (let i = 1; i < f.length; i++) expect(f[i].lz).toBeGreaterThanOrEqual(f[i - 1].lz - 1e-9)
-    expect(f[f.length - 1].lz).toBeCloseTo(Math.PI, 6)
-    // the leaf: visible only in runs of frames (its turns); within one run the angle never goes down; a run reaches 90° at least
+    // both halves open once (monotonic to their open angle: the lower one is lifted by LIFT, the upper one at π − LIFT) and stay
+    for (let i = 1; i < f.length; i++) {
+      expect(f[i].lz).toBeGreaterThanOrEqual(f[i - 1].lz - 1e-9)
+      expect(f[i].rz).toBeGreaterThanOrEqual(f[i - 1].rz - 1e-9)
+    }
+    expect(f[f.length - 1].lz).toBeCloseTo(halfAngle('l'), 6)
+    expect(f[f.length - 1].rz).toBeCloseTo(halfAngle('r'), 6)
+    expect(f[f.length - 1].lz - f[f.length - 1].rz, 'the angle between the two halves').toBeCloseTo(OPEN_ANGLE, 6)
+    // the leaf: visible only in runs of frames (its turns); within one run the angle never goes down; a run reaches 135° at least
     const runs: Frame[][] = []
     for (const x of f) {
       if (x.vis) {
@@ -102,7 +113,7 @@ describe('one leaf turns', () => {
     expect(runs.length, 'at least two turns in 14 s (one every 6 s)').toBeGreaterThanOrEqual(2)
     for (const run of runs) {
       for (let i = 1; i < run.length; i++) expect(run[i].th).toBeGreaterThanOrEqual(run[i - 1].th - 1e-9)
-      expect(run[run.length - 1].th).toBeGreaterThan(Math.PI * 0.9)
+      expect(run[run.length - 1].th).toBeGreaterThan(OPEN_ANGLE * 0.9)
       // the leaf is on show for about the turn plus the lift before it
       const shown = run[run.length - 1].t - run[0].t
       expect(shown).toBeGreaterThan(TURN_S * 0.6)
@@ -118,11 +129,11 @@ describe('one leaf turns', () => {
     let worstThumb = 0
     let worstIndex = 0
     for (const x of f) {
-      if (!x.vis || !x.corner || x.th < 0.3 || x.th > 1.5) continue // from ~17° to ~86°: the hand holds the corner
+      if (!x.vis || !x.corner || x.th < 0.3 || x.th > 1.3) continue // from ~17° to ~75°: the hand holds the corner
       n++
-      // the pads are 8 mm in from the edge and 8 mm down the page: about 11 mm from the corner point
-      worstThumb = Math.max(worstThumb, Math.abs(x.thumb.distanceTo(x.corner) - 0.0113))
-      worstIndex = Math.max(worstIndex, Math.abs(x.index.distanceTo(x.corner) - 0.0113))
+      // the pads are 12 mm in from the edge and from the end (the bake's page contacts): about 17 mm from the corner point
+      worstThumb = Math.max(worstThumb, Math.abs(x.thumb.distanceTo(x.corner) - 0.017))
+      worstIndex = Math.max(worstIndex, Math.abs(x.index.distanceTo(x.corner) - 0.017))
     }
     if (LOG) appendFileSync(LOG, `turn on stage: ${n} frames holding the corner, thumb pad ${(worstThumb * 1000).toFixed(1)} mm and index pad ${(worstIndex * 1000).toFixed(1)} mm off their place at the corner (worst)\n`)
     expect(n).toBeGreaterThan(10)
@@ -134,8 +145,8 @@ describe('one leaf turns', () => {
     const w = await world()
     const f = run(w, 9, true)
     expect(f.every((x) => !x.vis)).toBe(true)
-    expect(f.every((x) => x.rz === 0)).toBe(true)
-    expect(f[f.length - 1].lz).toBeCloseTo(Math.PI, 6)
+    expect(f[f.length - 1].rz).toBeCloseTo(halfAngle('r'), 6)
+    expect(f[f.length - 1].lz).toBeCloseTo(halfAngle('l'), 6)
   }, 120000)
 
   it('a timelapse (gestureMin 0.8 s) turns it in at least that long', async () => {

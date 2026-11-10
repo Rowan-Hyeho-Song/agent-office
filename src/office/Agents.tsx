@@ -30,7 +30,10 @@ import { replayDoorLine } from '../replay/scene'
 import { DrawnTrack, lineMode, Stage } from '../replay/stage'
 import { setLineSub, type LineSub } from '../replay/lineSub'
 import { STAMP_MS } from './props'
+import { ANXIOUS_AFTER_MS, ownerConnected } from './faceMind'
+import { isLateHour } from './duty'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
+import { groundAt, readRugs, type Rug } from './ground'
 import type { RootState } from '@react-three/fiber'
 
 /**
@@ -85,6 +88,11 @@ export function Agents({ world }: { world: OfficeWorld }) {
       ),
     [world, scene, nodes],
   )
+  // the hover light follows the floor's top under each agent: a rug's top over a rug (#316); once per loaded scene
+  useMemo(() => {
+    const rugs = (scene.userData.rugs ??= readRugs(scene)) as Rug[]
+    for (const r of Object.values(rigs)) r.ground = (x, z) => groundAt(rugs, x, z)
+  }, [scene, rigs])
   // the props agents pick up while playing (#20, #27); once per loaded scene
   const props = useMemo(() => (scene.userData.props ??= new PropBank(scene, nodes)) as PropBank, [scene, nodes])
   // what the hands do with things: play in 3D, grips (#135, #164); once per loaded scene
@@ -105,6 +113,22 @@ export function Agents({ world }: { world: OfficeWorld }) {
   // handoffs between agents fly as a paper plane (#51)
   const planes = useMemo(() => (scene.userData.planes ??= new PaperPlanes(props, nodes)) as PaperPlanes, [scene, props, nodes])
   world.planes = planes
+  // ?debug=1: window.__office.paper.pass(from, to, method?) forces a pass ('hand' | 'slide' | 'toss' | 'plane'; none: paper-pass.md 1's choice)
+  world.paper = world.debug
+    ? {
+        pass: (from: string, to: string, method?: 'hand' | 'slide' | 'toss' | 'plane') => {
+          planes.pass(from, to, method)
+          const tour = (world as unknown as { tour?: { event: (a: string, ms?: number) => void } }).tour
+          tour?.event(from, 3500)
+          tour?.event(to, 6000)
+        },
+        log: () => planes.passes.log.slice(),
+        choose: (from: string, to: string) => {
+          const c = planes.passes.choose(world.rigs[from], world.rigs[to], world.rigs)
+          return { method: c.method, rule: c.rule, d: c.d, lane: c.lane?.offset ?? null }
+        },
+      }
+    : null
   const reduced = useReducedMotion()
   const layer = useRef<BubbleLayer | null>(null)
   // the timelapse (#158): its own planner, clocked by the replay clock, while the replay is open in the office
@@ -128,6 +152,9 @@ export function Agents({ world }: { world: OfficeWorld }) {
     }
   }, [])
   world.rigs = rigs
+  // the scene clock of the last frame: the faces' events (messages, decisions) start on it
+  const sceneT = useRef(0)
+  const lateAt = useRef(-1)
   for (const id in rigs) {
     const seat = Number(id.split('_')[1])
     const path = graph.spots.whiteboard ? shortestPath(graph, `work_${seat}`, 'whiteboard') : null
@@ -141,15 +168,39 @@ export function Agents({ world }: { world: OfficeWorld }) {
       world.source.onMessage((m) => {
         world.director.receive(m)
         planes.receive(m)
+        // a talk asked of someone who is busy at work: the one who asked stands there puzzled (robots.md 4, 의문)
+        if (m.kind === 'talk' && world.source.getSnapshot()[m.to]?.state === 'working') rigs[m.from]?.faceEvent('question', sceneT.current)
       }),
-    [world, planes],
+    [world, planes, rigs],
   )
+  // a decision pinned on the board: the meeting's agents are glad (기쁨)
+  useEffect(
+    () =>
+      world.meeting.onDecisionPinned(({ script }) => {
+        for (const seat of script.seats) rigs[`agent_${seat}`]?.faceEvent('joy', sceneT.current)
+      }),
+    [world, rigs],
+  )
+  // the owner connects (the approvals role becomes 'owner'): every robot is glad to see them (반가움, 2 s)
+  useEffect(() => {
+    const src = world.approvals
+    if (!src) return
+    let prev: string | null = src.role()
+    return src.subscribe(() => {
+      const next = src.role()
+      if (ownerConnected(prev, next)) for (const id in rigs) rigs[id].faceEvent('greeting', sceneT.current)
+      prev = next
+    })
+  }, [world, rigs])
+  // the owner decided an approval: its requester is proud (뿌듯); the seats that stopped waiting
+  const waitingBefore = useRef<number[]>([])
 
   useFrame((state, dt) => {
     sim.current += Math.min(dt, 0.1)
     world.simTime = sim.current
     const now = officeNow(world)
     const t = state.clock.elapsedTime
+    sceneT.current = t
     // the timelapse (#82, #158): the record's statuses and desk goals stand in for the live ones (and the director's play).
     // Everything of it runs on the replay clock (stage.ts): the speed only sets how fast that clock advances.
     const wantReplay = replay.getSnapshot().mode === 'office' && replay.scene() !== null
@@ -204,15 +255,21 @@ export function Agents({ world }: { world: OfficeWorld }) {
       const carrying = Object.fromEntries(world.director.agents.filter((a) => world.director.carries(a)).map((a) => [a, goals[a]]))
       world.meeting.apply(now, (a) => rigs[a].arrived, goals, door ? { x: door.x, z: door.z } : undefined, { at: (a) => rigs[a] ?? null, spot: (s) => graph.spots[s] ?? null })
       Object.assign(goals, carrying)
-      // forget the departures no goal holds any more (a held one keeps its planner time: recomputed each frame it would drift and replan every frame, #228)
-      const held = new Set(Object.entries(goals).filter(([, g]) => g.depart !== undefined).map(([id, g]) => `${id}|${g.spot}|${g.depart}`))
-      for (const k of [...departs.current.keys()]) if (!held.has(k) && !world.meeting.busy) departs.current.delete(k)
+      // the list, the tags and the monitors say the meeting's words for the whole meeting (#354); a carrier keeps its errand's words
+      world.director.setMeeting(Object.fromEntries(Object.entries(world.meeting.words).filter(([a]) => !carrying[a])))
     }
     const scene = st ? replay.scene() : null
     const status = scene ? scene.status : world.source.getSnapshot()
     // ?debug=1: window.__office.forceSpots = { agent_0: 'whiteboard', ... } sends agents to spots (head-on tests, screenshots)
     if (world.debug && world.forceSpots) for (const id in world.forceSpots) if (goals[id]) goals[id] = { ...goals[id], spot: world.forceSpots[id], pose: 'idle', label: 'debug' }
     if (world.debug && world.forceGoal) for (const id in world.forceGoal) if (goals[id]) goals[id] = { ...goals[id], ...world.forceGoal[id], label: 'debug' }
+    if (!st) {
+      // forget the departures no goal holds any more (a held one keeps its planner time: recomputed each frame it would drift and replan every frame,
+      // #228). After the debug overrides: a forced spot keys the departure it is requested with; judged on the director's own spot, the forced one's
+      // was dropped and recomputed every frame, and the agent stood unlabelled at the play spot, facing the way it walked in (#333)
+      const held = new Set(Object.entries(goals).filter(([, g]) => g.depart !== undefined).map(([id, g]) => `${id}|${g.spot}|${g.depart}`))
+      for (const k of [...departs.current.keys()]) if (!held.has(k) && !world.meeting.busy) departs.current.delete(k)
+    }
     // ?debug=1: window.__office.trafficDemo('narrow' | 'wide') stands agent_0 and agent_1 at the two ends, then swaps them
     const demo = world.debug ? world.demo : null
     const fresh = !!demo && demo.at === null
@@ -228,6 +285,22 @@ export function Agents({ world }: { world: OfficeWorld }) {
         if (fresh) planner.place(id, r.req, sim.current, Number(id.split('_')[1]))
       }
     world.goals = goals
+    // the late hour (KST, the debug clock counts): worked out twice a second, not per frame
+    const lateKey = Math.floor(now / 500)
+    if (lateKey !== lateAt.current) {
+      lateAt.current = lateKey
+      for (const id in rigs) rigs[id].lateHour = isLateHour(now, Number(id.split('_')[1]))
+    }
+    // approvals (#64): a request waiting over 30 minutes worries its agent; one that is gone makes the requester proud
+    if (!st) {
+      const extra = world.props.getSnapshot()
+      for (const id in rigs) {
+        const since = extra.waitingSince?.[Number(id.split('_')[1])]
+        rigs[id].anxious = since !== undefined && now - since > ANXIOUS_AFTER_MS
+      }
+      for (const seat of waitingBefore.current) if (!extra.waitingSeats.includes(seat)) rigs[`agent_${seat}`]?.faceEvent('proud', t)
+      waitingBefore.current = extra.waitingSeats
+    } else for (const id in rigs) rigs[id].anxious = false
     const desk = scene
       ? deskProps({
           ...world.props.getSnapshot(),
@@ -311,8 +384,9 @@ export function Agents({ world }: { world: OfficeWorld }) {
         tagAt.current = [tag.at.x, tag.at.y, tag.at.z]
       }
     }
-    props.hold(new Map(Object.values(rigs).map((r) => [r, r.want])))
+    // a paper handed / slid / tossed (#262) sets who holds it (rig.want) after the stage reset it, before the bank reads it
     planes.update(state.clock.elapsedTime, graph, rigs, reduced)
+    props.hold(new Map(Object.values(rigs).map((r) => [r, r.want])))
     props.update(Math.min(dt, 0.1))
     desks.update(desk, t, Math.min(dt, 0.1), reduced)
     // the monitors show what the director says each agent is doing now (#186); the timelapse shows its record's statuses
@@ -366,6 +440,16 @@ export function Agents({ world }: { world: OfficeWorld }) {
           who: seatName(b.seat),
         })
       }
+    }
+    // the faces: who is typing a line (the mouth moves), who listens to one (the nod while the speaker is typing)
+    for (const id in rigs) {
+      const b = byId.get(id)
+      rigs[id].faceTalk.speaking = !!b && b.kind === 'talk' && b.typed < [...b.text].length
+    }
+    for (const id in rigs) {
+      const g = world.goals[id]
+      const who = g && (g.pose === 'talk' || g.pose === 'listen') ? (g.gaze ?? g.lookAt) : undefined
+      rigs[id].faceTalk.listening = !!who && !rigs[id].faceTalk.speaking && !!rigs[who]?.faceTalk.speaking
     }
     const d = meet?.frame.door
     const chars = d ? [...d.text] : []
