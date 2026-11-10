@@ -2845,9 +2845,9 @@ def build_espresso(G):
     brew bay (its front at x 0.14 keeps COFFEE_BUTTON), a dark panel with a pressure gauge, the group head and a
     portafilter (two spouts 5 mm over the mug on the tray, its handle 30 deg off the front), a drip tray with a chrome
     grid, a steam wand and its knob on the left, a blue-grey tank at the back, a cup warmer with two cups on top"""
-    body_m = plastic("#c9ccd1", 0.55, 0.25, 0.05, "esp_body")  # matte: a high metallic baked into rainbow speckles
+    body_m = plastic("#c9ccd1", 0.5, 0.0, 0.05, "esp_body")  # matte paint: any metallic baked into pink / green speckles
     dark = plastic("#2a2d33", 0.5, 0, 0.1, "esp_panel")
-    chrome = plastic("#c8ccd4", 0.35, 0.45, 0, "esp_chrome")  # baked: lower metallic (speckles)
+    chrome = plastic("#c8ccd4", 0.35, 0.15, 0, "esp_chrome")  # baked: near-dielectric (metallic speckled the grid)
     tank_m = plastic("#9fb0bd", 0.15, 0, 0, "esp_tank")
     handle_m = plastic("#1d1f23", 0.45, 0, 0.05, "esp_handle")
     face_m = plastic("#f2efe6", 0.4, 0, 0, "esp_gauge")
