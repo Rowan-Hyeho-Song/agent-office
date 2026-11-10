@@ -2,6 +2,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { Box3, CanvasTexture, MeshBasicMaterial, Raycaster, SRGBColorSpace, Vector2, Vector3, type PerspectiveCamera } from 'three'
 import { meshesOf, type OfficeNodes } from '../office/nodes'
+import { PORTRAIT_ASPECT, portraitPose } from '../office/portraitCamera'
 import { DEFAULT_CAMERA, DEFAULT_TARGET } from '../office/room'
 import { hitAllowed } from '../office/walls'
 import { DOOR_FX } from './doorFx'
@@ -12,9 +13,23 @@ import { ROOM_MODE, isLocked, leaveOffice, onEntered, onLeaveStart } from './lin
 // The door screen's states (hover, press) and, in room mode, the camera that starts in front of it (O) and
 // dives into it (X1). The desk's CRT is what the visitor sees around these (rowansong.dev #6 spec).
 
-/** default view (App.tsx): the intro ends here */
+/** default view (App.tsx): the intro ends here. Mutated in place by setHomeAspect: the portrait-phone pose below PORTRAIT_ASPECT (portraitCamera.ts) */
 export const HOME_POS = new Vector3(...DEFAULT_CAMERA)
 export const HOME_TARGET = new Vector3(...DEFAULT_TARGET)
+export const CAMERA_FOV = 32
+
+let homePortrait = false
+/** the default view for a viewport aspect; true when it changed (the portrait threshold was crossed) */
+export function setHomeAspect(aspect: number): boolean {
+  const portrait = aspect < PORTRAIT_ASPECT
+  if (portrait === homePortrait) return false
+  homePortrait = portrait
+  const p = portrait ? portraitPose(aspect, CAMERA_FOV) : { camera: DEFAULT_CAMERA, target: DEFAULT_TARGET }
+  HOME_POS.set(p.camera[0], p.camera[1], p.camera[2])
+  HOME_TARGET.set(p.target[0], p.target[1], p.target[2])
+  return true
+}
+if (typeof window !== 'undefined' && window.innerHeight > 0) setHomeAspect(window.innerWidth / window.innerHeight)
 
 const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
 
