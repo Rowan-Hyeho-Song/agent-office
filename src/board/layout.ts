@@ -15,7 +15,7 @@ const PAD = 40
 const COL_W = 330
 const GAP = 24
 const CARD_H = 172
-const CARD_STEP = 196
+export const CARD_STEP = 196
 const NOTE_H = 260
 const NOTE_STEP = 300
 
@@ -101,12 +101,13 @@ export function wrapLines(text: string, w: number, size: number, bold: boolean, 
   return lines
 }
 
-export function layoutBoard(state: BoardState, measure: Measure): BoardLayout {
+/** `expand`: columns whose hidden cards unfold below the shown four (the board screen's "+N"; the 3D board never expands) */
+export function layoutBoard(state: BoardState, measure: Measure, expand: readonly Column[] = []): BoardLayout {
   const headerH = PAD + FS_L + 34
   const columns: ColumnLayout[] = COLUMNS.map((column, ci) => {
     const x = PAD + ci * (COL_W + GAP)
     const all = state[column]
-    const shown = all.slice(0, CARDS_PER_COLUMN)
+    const shown = expand.includes(column) ? all : all.slice(0, CARDS_PER_COLUMN)
     const cards: CardLayout[] = shown.map((card, k) => ({
       card,
       column,

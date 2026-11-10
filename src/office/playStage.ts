@@ -29,6 +29,8 @@ import { GRIPS, GripClock, STONE_ABD, STONE_FALLBACK_M, STONE_H, STONE_PITCH, ST
 import { DIP_K, POSES, fingerFromC, toVec } from './handPose'
 import { contactNormal, fitFingers, handGripMatrix, offsetOf, resolveTarget, type GripTarget } from './gripTargets'
 import { fingerModelOf, type AgentRig, type PropBank } from './rig'
+import { LIFT, OPEN_ANGLE, halfAngle } from './bookGeom'
+import { LeafBend, PINCH_LET_GO, TURN_S, fingerWeight, leafAngle, pinchArc, poseWeight } from './bookLeaf'
 import { noteTourEvent } from './tourEvents'
 import { meshesOf } from './nodes'
 import type { StatusMap } from './status'
@@ -54,6 +56,9 @@ const dimsOf = (size: number[], netH: number): Dims => ({ L: size[0], W: size[1]
 const BLADE_Y = 0.175
 /** ball centre to the paddle face at contact: the ball radius and half the blade */
 const FACE_GAP = 0.023
+/** the hand goes to the leaf's corner in this long before the turn, and comes back in this long after it, s (grips.md: 0.2) */
+const LEAD_S = 0.2
+const BACK_S = 0.3
 /** the held object rises from where it rests to where it is held in this long, s */
 const LIFT_S = 0.35
 /** the grips whose approach turns the hand along the reach direction (#255, grips.md 1.1): the high-shelf book, the board marker, the ping-pong paddle */
@@ -179,6 +184,15 @@ export class PlayStage {
   private fxT = -1
   private spout: Object3D | undefined
   private bookHalves: { l: Object3D; r: Object3D } | null = null
+  /** the one leaf that turns (#231): bent about the spine, hidden while the book is read without a turn */
+  private leaf: LeafBend | null = null
+  private leafTargets = new Map<string, GripTarget | null>()
+  private mCorner = new Matrix4()
+  private mCornerWorld = new Matrix4()
+  private vPos = new Vector3()
+  private vScale = new Vector3()
+  private vArc = new Vector3()
+  private qPose = new Quaternion()
 
   private sceneRef: Object3D
   /** the lounge's acts, drawn (#280, loungeActs.ts): the fridge door, the dispenser, the turntable, the pillow, the lever, the mat */
@@ -277,6 +291,12 @@ export class PlayStage {
       book.attach(l)
       book.attach(r)
       this.bookHalves = { l, r }
+      const page = nodes.prop_book_page
+      if (page) {
+        book.attach(page)
+        this.leaf = new LeafBend(page)
+        page.visible = false
+      }
     }
   }
 
@@ -957,7 +977,9 @@ export class PlayStage {
           this.rightHand(rig, 'book', tr, this.lastObjPose)
           if (attached) this.setExtra(rig, 'l', book.node.name, (m) => this.rightHand(rig, 'book', tr, m))
         }
-        this.reading = { rig, openAt: (this.clocks.get(`${rig.id}:l`)?.attachedAt ?? t), turnAt: u }
+        const openAt = this.clocks.get(`${rig.id}:l`)?.attachedAt ?? t
+        this.reading = { rig, openAt, turnAt: u }
+        if (attached && tr) this.turnLeaf(rig, book.node.name, u, openAt, this.lastObjPose, inp)
       }
       return
     }
@@ -1235,16 +1257,71 @@ export class PlayStage {
     if (!h) return
     const r = this.reading
     this.reading = null
+    // the halves do not turn on their own after the opening: a page is one leaf (turnLeaf). Open = 150°: the upper half lies at π − LIFT, the lower one is lifted by LIFT
+    if (!r) this.hideLeaf()
     if (!r || inp.reduced) {
       // closed on its shelf, or (reduced motion) open without the turning
-      h.l.rotation.z = r ? Math.PI : 0
-      h.r.rotation.z = 0
+      h.l.rotation.z = r ? halfAngle('l') : 0
+      h.r.rotation.z = r ? halfAngle('r') : 0
       return
     }
     const open = ease((inp.t - r.openAt) / 0.5)
-    h.l.rotation.z = Math.PI * open
-    const c = (r.turnAt - 1) % 6
-    h.r.rotation.z = open >= 1 && c >= 0 && c < 0.4 ? Math.PI * 0.96 * ease(c / 0.4) : 0
+    h.l.rotation.z = halfAngle('l') * open
+    h.r.rotation.z = LIFT * open
+  }
+
+  private hideLeaf() {
+    const lf = this.leaf
+    if (!lf) return
+    lf.node.visible = false
+    if (lf.theta !== 0) lf.set(0)
+  }
+
+  /**
+   * One leaf turns every 6 s (grips.md "한 장 넘기기"; the timeline of bookLeaf.ts leafAngle). The right thumb and index go to the leaf's lower (baked)
+   * corner along an arc that keeps them out of the book (lead, 0.2 s) while the corner lifts, take it, and turn it 0 → 150° about the spine (on the lifted page) in
+   * 0.75 s with the outer third lagging (LeafBend); the hand follows the leaf's own corner frame, so what is fitted (thumb on its top face,
+   * index under it) is what is shown. Half way through the turn (PINCH_LET_GO: the index is under the leaf, which must not land on it) the hand lets go
+   * and goes home along the same arc (0.3 s after the turn's end) while the leaf finishes lying down on the left page. Reduced motion: nothing
+   * turns (the leaf stays hidden). A timelapse (rig.gestureMin) stretches each stage to at least that long, and the 6 s beat grows if the
+   * stages no longer fit in it.
+   */
+  private turnLeaf(rig: AgentRig, bookName: string, u: number, openAt: number, pose: Matrix4, inp: StageIn) {
+    const lf = this.leaf
+    if (!lf) return
+    const gm = inp.reduced ? 0 : rig.gestureMin
+    const lead = Math.max(LEAD_S, gm)
+    const dur = Math.max(TURN_S, gm)
+    const back = Math.max(BACK_S, gm)
+    const c = u - 1 + lead
+    if (inp.reduced || inp.t - openAt < 0.5 || c < 0) return this.hideLeaf()
+    const tau = (c % Math.max(6, lead + dur + back + 1)) - lead
+    if (tau >= dur + back) return this.hideLeaf()
+    const theta = leafAngle(tau, dur, lead)
+    lf.set(theta)
+    lf.node.visible = theta < OPEN_ANGLE - 1e-3
+    // the hand's weight: 0 = on the reading grip, 1 = pinching. It lets go at PINCH_LET_GO of the turn (the index is under the leaf, which must not land on it)
+    const go = PINCH_LET_GO * dur
+    const a = tau < 0 ? ease((tau + lead) / lead) : tau < go ? 1 : 1 - ease((tau - go) / (dur + back - go))
+    const drive = rig.drive.r
+    if (a <= 0 || !drive?.target || !drive.angles) return
+    if (!this.leafTargets.has(bookName)) this.leafTargets.set(bookName, resolveTarget(this.sceneRef, bookName, 'leaf', 'r'))
+    const pt = this.leafTargets.get(bookName)
+    if (!pt) return
+    const seat = Number(rig.id.split('_')[1])
+    lf.corner(this.mCorner, tau < go ? theta : leafAngle(go, dur, lead))
+    this.mCornerWorld.copy(pose).multiply(this.mCorner)
+    const target = handFor(this.mCornerWorld, pt.pg, handGripMatrix(rig.parts.hands.r)).multiply(offsetOf(pt.key, seat))
+    const pinch = this.holdFit(rig, 'r', pt).hold
+    drive.target = blend(drive.target, target, poseWeight(a))
+    // out along the arc (book frame → world), so the fingers never cross the book
+    pose.decompose(this.vPos, this.qPose, this.vScale)
+    pinchArc(a, this.vArc).applyQuaternion(this.qPose)
+    drive.target.elements[12] += this.vArc.x
+    drive.target.elements[13] += this.vArc.y
+    drive.target.elements[14] += this.vArc.z
+    const fw = fingerWeight(a)
+    drive.angles = drive.angles.map((x, i) => x * (1 - fw) + pinch[i] * fw)
   }
 
   private water(inp: StageIn) {

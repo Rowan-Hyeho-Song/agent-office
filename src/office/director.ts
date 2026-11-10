@@ -10,7 +10,7 @@ import { ACT_LABEL, ACT_PLACE, isAct, type ActKind, type RecordMode } from './lo
 import { PATH_BLOCKERS, STAND_BLOCKERS, WATER_PLANTS } from './water'
 import { holding, placeOf, startWater, stepWater, WATER_LABEL, type WaterRun, type WaterStage } from './waterRun'
 import { habitFor, type HabitKind } from './waterFx'
-import { startWrap, stepWrap, viewOf, WALKING_TO_DESK, type BeatKind, type Shown, type WrapRun } from './wrap'
+import { startWrap, stepWrap, viewOf, WALKING_TO_DESK, type BeatKind, type PieceKind, type Shown, type WrapRun } from './wrap'
 
 /** `write` / `carry` / `cardpost` / `tidy` are the wrap-up's own (#186, wrap.ts) */
 export type Pose = 'idle' | 'type' | 'post' | 'talk' | 'listen' | 'leave' | 'doze' | 'write' | 'carry' | 'cardpost' | 'tidy' | PlayKind
@@ -36,7 +36,7 @@ export interface Goal {
   quiet?: boolean
   /** the wrap-up (#186): cards still in the left hand, the current beat of the hands, re-reading, standing by the taken board */
   carry?: number
-  beat?: { kind: BeatKind; u: number; k: number }
+  beat?: { kind: BeatKind; u: number; k: number; piece: PieceKind; v?: number; end?: boolean }
   reread?: boolean
   waiting?: boolean
   /** the watering errand (#228): its stage, the plant, and how long (s) the stage has lasted: the hands are drawn from these, not from where the agent stands */
@@ -241,9 +241,10 @@ export class Director {
 
   /**
    * @param opts.reduced  reduced motion: the wrap-up does not walk (writes, tidies in place)
+   * @param opts.gm  the replay's gesture minimum, s (0 live): from 2.4 (x16) the wrap-up leaves out its mixed pieces (wrapup.md 6)
    * @param opts.wantsBreak  the break music is due (speaker.ts musicWantsBreak): somebody goes to put a record on (agent_4 first); `false` with the needle down: somebody lifts the arm
    */
-  goals(now: number, minute: number, status: StatusMap, arrivedAt: (a: string) => string | null, opts: { reduced?: boolean; wantsBreak?: boolean } = {}): Record<string, Goal> {
+  goals(now: number, minute: number, status: StatusMap, arrivedAt: (a: string) => string | null, opts: { reduced?: boolean; wantsBreak?: boolean; gm?: number } = {}): Record<string, Goal> {
     this.startTalks(now, status)
     this.updateTalks(now, arrivedAt)
 
@@ -258,8 +259,9 @@ export class Director {
         continue
       }
       if (this.wrapDone[a] === s.since) continue
-      // at a meeting the wrap-up waits where it is; back from it, a stage that needs the desk / the board starts over from the way there
-      if (a in this.meet) {
+      // at a meeting (or in a talk: a stage that lasts a minute is long enough to meet one) the wrap-up waits where it is; back from it, a stage that needs
+      // the desk / the board goes back there first (the desk stages go on from where they were, the board's start over)
+      if (a in this.meet || this.inTalk(a)) {
         this.heldAt[a] ??= now
         continue
       }
@@ -268,11 +270,11 @@ export class Director {
         delete this.heldAt[a]
         const r0 = this.runs[a]
         const shift = now - held
-        const back = (r0.step === 'write' || r0.step === 'tidy') && arrivedAt(a) !== `work_${deskOf(a)}` ? { step: 'seat' as const } : r0.step === 'post' && arrivedAt(a) !== 'whiteboard' ? { step: 'seat' as const, last: false } : {}
+        const back = (r0.step === 'write' || r0.step === 'tidy') && arrivedAt(a) !== `work_${deskOf(a)}` ? { step: 'seat' as const, last: r0.step === 'tidy', skip: r0.wrote ? 0 : (held - r0.t0) / 1000 } : r0.step === 'post' && arrivedAt(a) !== 'whiteboard' ? { step: 'seat' as const, last: false } : {}
         this.runs[a] = { ...r0, ...back, t0: r0.t0 + shift, waitFrom: r0.waitFrom === null ? null : r0.waitFrom + shift }
       }
       let run = this.runs[a]
-      if (!run || run.since !== s.since) run = this.runs[a] = startWrap(a, s.since, now, arrivedAt(a) === `work_${deskOf(a)}`)
+      if (!run || run.since !== s.since) run = this.runs[a] = startWrap(a, s.since, now, arrivedAt(a) === `work_${deskOf(a)}`, { reduced: !!opts.reduced, gm: opts.gm })
       const others = this.agents.filter((b) => b !== a)
       const r = stepWrap(run, {
         now,
@@ -281,6 +283,7 @@ export class Director {
         boardTaken: others.some((b) => this.runs[b]?.step === 'post' || arrivedAt(b) === 'whiteboard'),
         boardBusy: others.some((b) => this.runs[b]?.step === 'walk' || this.runs[b]?.step === 'post'),
         reduced: !!opts.reduced,
+        gm: opts.gm,
       })
       if (r.done) {
         // tidy-up over: the display is rest from this very frame, and the play assignment below applies at once
@@ -435,7 +438,7 @@ export class Director {
       if (s.state === 'wrapping' && run) {
         const others = this.agents.filter((b) => b !== a)
         const boardTaken = others.some((b) => this.runs[b]?.step === 'post' || arrivedAt(b) === 'whiteboard')
-        const v = viewOf(run, { now, boardTaken })
+        const v = viewOf(run, { now, boardTaken, gm: opts.gm })
         const base = { carry: v.carry, beat: v.beat, reread: v.reread, waiting: v.waiting, label: `정리 중 · ${v.label}` }
         out[a] =
           v.step === 'write' ? { spot: `work_${desk}`, pose: 'write', ...base }

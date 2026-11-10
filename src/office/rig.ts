@@ -16,6 +16,7 @@ import {
   MeshBasicMaterial,
   Object3D,
   Quaternion,
+  Vector2,
   Vector3,
 } from 'three'
 import type { Goal } from './director'
@@ -23,6 +24,8 @@ import { aimPose, planGesture, type AimPose, type Plan } from './aim'
 import { DOZE } from './doze'
 import { FaceScreen } from './faceScreen'
 import { baseExpression, CallTracker, FaceMind, newInput, type FaceInput } from './faceMind'
+import { WRITE_ASIDE, wrapBack, wrapHand, wrapHead, writePlace, type HandSpec, type WritePlace } from './wrapPose'
+import { WRAP } from './wrap'
 import type { Expression } from './faceModel'
 import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
 import { GLOW } from './nodes'
@@ -715,6 +718,9 @@ export class AgentRig {
   private dozing = 0
   /** the body leaning over something it reaches for (the farthest go-board cells): drawn this far off its plan position, the plan never sees it; eases back */
   private lean = new Vector3()
+  /** how far back from the board the body is drawn, 0..1, and the direction (x, z) of back (wrap-up, #229) */
+  private wrapKind: string | undefined
+  private stepBack = { k: 0, dir: new Vector2(0, 1) }
   /** lying on the chaise (nav extras lie + head, lounge-props.md 1): how far it has gone (0 … 1), and where the head goes in the root's frame */
   private lying = 0
   private lieOff = new Vector3()
@@ -960,6 +966,8 @@ export class AgentRig {
   setGoal(goal: Goal, g: NavGraph) {
     const prev = this.goal
     this.goal = goal
+    // writing at a desk that faces the default camera: the card lies beside the monitor (wrapPose.ts writePlace)
+    this.place = goal.pose === 'write' ? writePlace(g.spots, goal.spot) : null
     if (this.traffic) {
       this.placed = true
       return
@@ -1115,9 +1123,17 @@ export class AgentRig {
     const { root, head, beam } = this.parts
     root.visible = !this.hidden
     this.lean.multiplyScalar(Math.exp(-6 * dt))
-    root.position.set((this.drawAt?.x ?? this.x) + this.lean.x, -this.bodyDip, (this.drawAt?.z ?? this.z) + this.lean.z)
+    // the wrap-up's step back from the board (#229): drawn only, 0.45 m, at walking pace, in the direction behind the body when it set off
+    const stepBack = this.stepBack
+    const wantBack = resting && !reduced && goal.pose === 'cardpost' ? wrapBack(goal.beat) : 0
+    if (wantBack > 0 && stepBack.k === 0) stepBack.dir.set(Math.sin(this.heading), Math.cos(this.heading))
+    stepBack.k = MathUtils.clamp(wantBack > stepBack.k ? Math.min(wantBack, stepBack.k + dt / 0.6) : Math.max(wantBack, stepBack.k - dt / 0.6), 0, 1)
+    root.position.set((this.drawAt?.x ?? this.x) + this.lean.x + stepBack.dir.x * stepBack.k * WRAP.backM, -this.bodyDip, (this.drawAt?.z ?? this.z) + this.lean.z + stepBack.dir.y * stepBack.k * WRAP.backM)
+    // writing beside the monitor: the body turns 15 degrees toward the card (slowly, not a snap)
+    const turnTo = resting && !reduced && goal.pose === 'write' && this.place ? -this.place.side * WRITE_ASIDE.turnDeg * (Math.PI / 180) : 0
+    this.writeTurn += MathUtils.clamp(turnTo - this.writeTurn, -dt / 0.5 * 0.27, dt / 0.5 * 0.27)
+    root.rotation.set(0, this.heading + (this.aim?.body ?? 0) + this.writeTurn, 0)
     this.bodyDip = 0
-    root.rotation.set(0, this.heading + (this.aim?.body ?? 0), 0)
     root.updateMatrixWorld(true)
 
     // the head: lifts while moving, sits lower on seats, bobs, leans into turns and forward with speed
@@ -1309,16 +1325,13 @@ export class AgentRig {
         return { pitch: 0.2, yaw: 0, roll: 0 }
       // the wrap-up (#186, wrap.ts): writing nods 2° every 0.6 s, re-reading turns the head ±3° (2 s loop), carrying looks at
       // the board and then at the poster while it waits, posting looks at the card after the last one, tidying leans back 3°
-      case 'write': {
-        const nod = this.goal?.reread ? 0 : Math.max(0, Math.sin((t / 0.6) * Math.PI * 2)) * 0.035
-        return { pitch: -0.14 + nod, yaw: this.goal?.reread ? Math.sin(t * Math.PI) * 0.052 : 0, roll: 0 }
-      }
+      case 'write':
+        // beside the monitor: the head turns a little toward the card as well as the body
+        return (({ pitch, yaw, roll }) => ({ pitch, yaw: yaw - (this.place?.side ?? 0) * 0.12, roll }))(wrapHead('write', this.goal?.beat, t, reduced))
       case 'carry':
         return { pitch: 0.04, yaw: this.goal?.waiting ? (Math.floor(t / 2) % 2 === 0 ? 0 : 0.5) : 0, roll: 0 }
-      case 'cardpost': {
-        const b = this.goal?.beat
-        return { pitch: b?.kind === 'look' ? 0.12 + Math.sin(b.u * Math.PI) * 0.035 : 0.06, yaw: 0, roll: 0 }
-      }
+      case 'cardpost':
+        return wrapHead('cardpost', this.goal?.beat, t, reduced)
       case 'tidy': {
         const b = this.goal?.beat
         return { pitch: b?.kind === 'lean' ? -0.03 - Math.sin(b.u * Math.PI) * 0.05 : -0.1, yaw: 0, roll: 0 }
@@ -1340,14 +1353,29 @@ export class AgentRig {
     }
   }
 
+  /** a wrap-up hand spec (wrapPose.ts) as the rig's hand pose */
+  private wrapSpec(side: 'l' | 'r', s: HandSpec, down: Quaternion): HandPose {
+    const curl = { pen: PEN_POSE, support: STAMP_POSE, pinch: PINCH_POSE, point: POINT_POSE, fist: POSES.fist, rest: REST_POSE, loose: LOOSE_POSE, stamp: STAMP_POSE }[s.curl]
+    const pos = v(...s.pos)
+    const turn = s.palm === 'down' ? down : s.palm === 'up' ? down.clone().invert() : s.palm === 'reach' ? this.reachAt(side, pos, v(0, 0, -1)) : NONE
+    return { pos, turn, curl }
+  }
+
   /** the wrap-up's stack of cards (#186): a thin card box on the left palm, one card thicker per card; hidden without a stack */
-  private cards: Mesh | null = null
+  private cards: Record<'l' | 'r', Mesh | null> = { l: null, r: null }
+  /** where the card is written (wrapPose.ts writePlace): beside the monitor on a desk facing the camera, else null; the body's turn toward it (rad) */
+  private place: WritePlace = null
+  private writeTurn = 0
   private updateCards(count: number, flat: boolean) {
-    const hand = this.parts.hands.l
-    if (!this.cards) {
+    // the stack is on the hand that presses the card: the left, or on the aisle-side desks the one opposite the pen
+    const side: 'l' | 'r' = this.place && this.goal?.pose === 'write' && this.place.side < 0 ? 'r' : 'l'
+    const other = this.cards[side === 'l' ? 'r' : 'l']
+    if (other) other.visible = false
+    const hand = this.parts.hands[side]
+    if (!this.cards[side]) {
       if (count <= 0) return
       // the palm's normal and the finger direction in the hand's own frame (the palm faces +x of the agent at rest)
-      const n = new Vector3(...REST_PALM.l).applyQuaternion(hand.restQuat.clone().invert()).normalize()
+      const n = new Vector3(...REST_PALM[side]).applyQuaternion(hand.restQuat.clone().invert()).normalize()
       const knuckle = hand.fingers[1][0]?.node.position ?? new Vector3(0, 0.08, 0)
       const f = knuckle.clone().addScaledVector(n, -knuckle.dot(n)).normalize()
       const x = new Vector3().crossVectors(n, f)
@@ -1356,9 +1384,9 @@ export class AgentRig {
       m.userData.base = f.clone().multiplyScalar(Math.max(0.045, knuckle.length() * 0.8))
       m.userData.n = n
       hand.node.add(m)
-      this.cards = m
+      this.cards[side] = m
     }
-    const m = this.cards
+    const m = this.cards[side]!
     m.visible = count > 0 && this.parts.root.visible
     if (!m.visible) return
     const n = m.userData.n as Vector3
@@ -1498,13 +1526,10 @@ export class AgentRig {
     const wg = this.goal
     if (side === 'l' && wg?.carry && pose !== 'write' && pose !== 'tidy') return at(-0.13, 1.0 + sit, -0.3, down.clone().invert(), STAMP_POSE)
     const wb = wg?.beat
-    const stroke = m * (wg?.reread ? 0.35 : 1)
     switch (pose) {
       case 'write':
-        // the right hand writes (small strokes, the wrist moves within 2 cm), the left presses the card flat and pushes it to the stack
-        return side === 'l'
-          ? at(-0.13 - (wb?.kind === 'push' ? Math.sin(wb.u * Math.PI) * 0.1 : 0), 0.82, -0.42, down, STAMP_POSE)
-          : at(0.14 + 0.012 * Math.sin(t * 9) * stroke, 0.83, -0.41 + 0.01 * Math.sin(t * 6.5 + 1) * stroke, down, PEN_POSE)
+        // the pieces of writing (wrap.ts, wrapPose.ts): the right hand writes, the left presses the card flat, lifts it to read, pushes it to the stack
+        return this.wrapSpec(side, wrapHand(side, 'write', wb, t, { rest: [rest.x, rest.y, rest.z], read: this.readingPlace(this.place && this.place.side < 0 ? 'r' : 'l').toArray() as [number, number, number], sit, m, reduced, place: this.place }), down)
       case 'carry': {
         // the free hand (designer, #217): at the resting height 0.86 m, not hanging below the desk; it swings ±8 cm back and
         // forth with the walk (a stride a second), still when standing by the board
@@ -1512,28 +1537,9 @@ export class AgentRig {
         const walk = reduced ? 0 : MathUtils.clamp(this.speed / 0.5, 0, 1) * m
         return at(rest.x, 0.86 + sit, rest.z - 0.08 * walk * Math.sin(t * Math.PI * 2 + this.phase))
       }
-      case 'cardpost': {
-        if (side === 'l') return at(rest.x, rest.y, rest.z)
-        const u = wb?.u ?? 0
-        const stack = v(-0.06, 1.04 + sit, -0.3)
-        const cell = v(0.1, 1.34 + sit, -0.6)
-        const lerp3 = (a: Vector3, b: Vector3, k: number) => a.clone().lerp(b, k)
-        const from = v(rest.x, rest.y, rest.z)
-        switch (wb?.kind) {
-          case 'pick':
-            return { pos: lerp3(from, stack, u), turn: NONE, curl: PINCH_POSE }
-          case 'place':
-            return { pos: lerp3(stack, cell, u), turn: NONE, curl: PINCH_POSE }
-          case 'press':
-            return { pos: cell.clone().add(v(0, 0, -0.02 * Math.sin(u * Math.PI))), turn: NONE, curl: STAMP_POSE }
-          case 'release':
-            return { pos: lerp3(cell, stack, u), turn: NONE, curl: REST_POSE }
-          case 'gap':
-            return { pos: stack, turn: NONE, curl: REST_POSE }
-          default:
-            return at(rest.x, rest.y, rest.z)
-        }
-      }
+      case 'cardpost':
+        // posting, then the pieces that touch the cards (stepping back to think, moving, swapping, straightening, pointing, the last look)
+        return this.wrapSpec(side, wrapHand(side, 'cardpost', wb, t, { rest: [rest.x, rest.y, rest.z], read: [0, 0, 0], sit, m, reduced }), down)
       case 'tidy': {
         // gather the papers, tap them twice (palms facing each other), push the keyboard in with the right hand, lean back
         const u = wb?.u ?? 0
@@ -2059,7 +2065,15 @@ export class AgentRig {
     i.t = t
     i.reduced = reduced
     i.fast = this.gestureMin > 0 && this.ambient === 0
-    i.base = baseExpression({ pose, state: status?.state, activity: status?.activity, night: status?.night, idleMs: status ? Date.now() - status.since : 0, chin: this.chin, late: this.lateHour })
+    // the wrap-up's faces (wrapup.md 5, #229): writing is focused, tapping the pen and thinking at the board are thinking; striking out is a 0.6 s question, the last look a 1 s pride
+    const wb = status?.state === 'wrapping' && (pose === 'write' || pose === 'cardpost') ? this.goal?.beat : undefined
+    const wrapFace = !wb ? undefined : wb.kind === 'tapPen' || wb.kind === 'think' || wb.kind === 'back' ? 'thinking' : pose === 'write' ? 'focused' : undefined
+    if (wb?.kind !== this.wrapKind) {
+      this.wrapKind = wb?.kind
+      if (!reduced && wb?.kind === 'strike') mind.fire('question', t, 0.6)
+      if (!reduced && wb?.kind === 'final') mind.fire('proud', t, 1)
+    }
+    i.base = baseExpression({ pose, state: status?.state, activity: status?.activity, night: status?.night, idleMs: status ? Date.now() - status.since : 0, chin: this.chin, late: this.lateHour, wrap: wrapFace })
     i.talk = this.faceTalk.listening ? 'nodding' : null
     i.speaking = this.faceTalk.speaking
     i.anxious = this.anxious

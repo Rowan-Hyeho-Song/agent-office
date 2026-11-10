@@ -109,6 +109,7 @@ Node contract (the app reads glTF extras):
   prop_paper_grip_side_l|r         empties (#280, paper-pass.md 5): children of prop_paper_a, the long edges 1.5 cm in, 45%
                                    up from the near edge (grip_for l|r, pose side_read); _contact_thumb (writing face) |
                                    _contact_index (back), also children of prop_paper_a
+  hit_whiteboard                   (#234) empty: the whiteboard's click box on its face (extras hit, size [1.6, 1.1, 0.1], wall n)
   pp_net                           live "bot" (#280 3): the net's navy 1 cm lattice (static; the posts, clamps and white
                                    band are in the lounge atlas)
   nav_<id>                         empties: where agents go and which way they face (navigation); nav_meet_center_*
@@ -1425,6 +1426,9 @@ def build_hits():
     hit("library", "library", Mx((SHELF_X, 1.05, -HZ + 0.01 + SHELF_D / 2)), (SHELF_W + 0.03, 2.1, SHELF_D))
     # the wall clock (#91): face and hands, a little proud of the face
     hit("clock", "clock", CLOCK_M @ Mx((0, 0, 0.015)), (CLOCK_S + 0.04, CLOCK_S + 0.04, 0.05))["wall"] = "w"
+    # #234 / #388 (coder): the whiteboard's click box over its face (1.5 x 1.0 + a margin), on the board face, with the
+    # back wall (it fades with it)
+    hit("whiteboard", "whiteboard", Mx((WHITEBOARD_X, 1.5, -HZ + 0.04)), (1.6, 1.1, 0.1))["wall"] = "n"
 
 
 # ================================================================ WALL ITEMS (atlas: wall_items)
@@ -3920,8 +3924,12 @@ def hand_fingers(n, Mh, sx, shell, square=False):
                 bev = 0.006 if (tip and square) else 0.0015
                 parts.append(box("seg", (w, seg_len, depth), (0, y0 + seg_len / 2, 0), shell, "export", bev=bev, seg=1))
                 if tip:  # the pad: 2/3 of the tip segment on the palm side, 1.5 mm
+                    # #231: its far end a half circle (round_tip, as the other hands' pads), not a rectangle: the app's
+                    # fingertip (rig.ts tipOf) is the vertex farthest from the joint, and a square pad's far corner won
+                    # it, 7 mm off the finger's axis (LOOP alone failed the open book by 4-6.5 mm). Now it is the middle
+                    # of the arc. The keycap segment itself is unchanged; the pad stays 1.5 mm proud of its palm face
                     pl = seg_len * 0.67
-                    parts.append(box("pad", (w * 0.86, pl, 0.0015), (0, y0 + seg_len - pl / 2 - 0.0015, depth / 2 + 0.00075), pad_m, "export"))
+                    parts.append(round_tip("pad", w * 0.86, y0 + seg_len - pl - 0.0015, y0 + seg_len - 0.0015, 0.0015, pad_m, z=depth / 2 + 0.00075))
             out.append(pivot(join(f"{name}_{k + 1}", place(parts, Mk)), Mk))
             joint += ln
 
@@ -3945,7 +3953,9 @@ def hand_fingers(n, Mh, sx, shell, square=False):
     # faces the index finger, so its MCP / IP bend it across the palm (a fist: the tip over the middle finger) and an
     # opposed thumb meets the index tip (1.7 mm at the joint limits; 13.8 mm untwisted)
     T = Mh @ Mx(tuple(root)) @ Mx(rz=-sx * math.radians(35)) @ Mx(rx=math.radians(20)) @ Mx(ry=-sx * math.radians(75))
-    finger(f"{n}_t", T, [0.030, 0.023], 0.019, 0.017)  # #288 designer: +15% (0.026 + 0.020 reached the index tip only at 6.8 mm)
+    # #231 (designer, coder): LOOP's keycap tip is chamfered 6 mm, so its fingertip (the pad's far end, rig.ts tipOf)
+    # sat 2 mm short of the round tips' apex (thumb 71.3 vs 73.3 mm): its thumb tip segment is 2 mm longer instead
+    finger(f"{n}_t", T, [0.030, 0.023 + (0.002 if square else 0.0)], 0.019, 0.017)  # #288 designer: +15% (0.026 + 0.020 reached the index tip only at 6.8 mm)
     joint_axes(out, Mh, sx)
     return out
 
