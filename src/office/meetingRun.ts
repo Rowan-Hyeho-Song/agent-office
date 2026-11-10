@@ -69,6 +69,19 @@ export interface Place {
 type Phase = 'gather' | 'lines' | 'decide' | 'follow'
 
 const id = (seat: number) => `agent_${seat}`
+/** the words of each meeting stage: the goal's label and, for the whole meeting, what the agent list / tags / monitors say (#354) */
+export const MEET_WORDS = {
+  gather: '회의하러 가는 중',
+  talk: '회의: 말하는 중',
+  listen: '회의: 듣는 중',
+  watch: '회의: 결정 지켜보는 중',
+  wrapUp: '회의 정리하는 중',
+  postDone: '결정을 붙이고 정리하는 중',
+  post: '결정을 화이트보드에 붙이는 중',
+  stepBack: '회의 끝, 자리를 뜨는 중',
+  follow: '후속 일하러 자리로',
+}
+const MEET_SET = new Set<string>(Object.values(MEET_WORDS))
 /** the label a seat of the formation reports as `arrived` (the planner's slot name) */
 export const seatLabel = (seat: number) => `meet_seat_${seat}`
 const PLANNER = 0
@@ -117,9 +130,14 @@ export class MeetingRunner {
   private pinned = new Set<(d: DecisionPinned) => void>()
   private ended = new Set<(s: MeetingScript) => void>()
   private status: StatusMap = {}
+  private shownWords: Record<string, string> = {}
 
   get busy() {
     return this.cur !== null || this.queue.length > 0
+  }
+  /** each participant's meeting words this frame (what the display shows instead of the schedule's / wrap-up's: director.setMeeting) */
+  get words(): Record<string, string> {
+    return this.shownWords
   }
   get script() {
     return this.cur?.script ?? null
@@ -219,6 +237,7 @@ export class MeetingRunner {
    */
   apply(now: number, arrivedAt: (agent: string) => string | null, goals: Record<string, Goal>, door?: { x: number; z: number }, place?: Place): void {
     const c = this.cur
+    this.shownWords = {}
     if (!c) return
     const { script } = c
     const plan = this.planOf(c, goals, place)
@@ -266,7 +285,7 @@ export class MeetingRunner {
           const next = waiting.filter((w) => now >= (plan.depart.get(w) ?? 0)).sort((a, b) => dist(a) - dist(b))[0]
           if (next !== undefined) lookAt = id(next)
         }
-        goals[me] = { ...own, pose: 'idle', depart: plan.depart.get(seat), ...(lookAt ? { lookAt } : {}), label: '회의하러 가는 중' }
+        goals[me] = { ...own, pose: 'idle', depart: plan.depart.get(seat), ...(lookAt ? { lookAt } : {}), label: MEET_WORDS.gather }
       } else if (c.phase === 'lines' && frame) {
         // the body faces the centre; only the head turns: the speaker to its addressee, the listeners to the speaker
         const toward = frame.speaker === seat ? frame.addressee : frame.speaker
@@ -276,7 +295,7 @@ export class MeetingRunner {
           pose: 'talk',
           ...(frame.door && door ? { face: door } : toward !== null && toward !== seat ? { gaze: id(toward) } : {}),
           ...(react ? { gesture: react } : {}),
-          label: frame.speaker === seat ? '회의: 말하는 중' : '회의: 듣는 중',
+          label: frame.speaker === seat ? MEET_WORDS.talk : MEET_WORDS.listen,
         }
       } else if (c.phase === 'decide' && seat !== planner) {
         // stay on the seat, turn a little toward the board and watch the poster's hand; all nod when it is pinned
@@ -287,7 +306,7 @@ export class MeetingRunner {
           pose: 'talk',
           ...(planner !== null ? { gaze: id(planner) } : {}),
           ...(c.pinnedAt !== null && !script.reduced ? { gesture: { key: `${script.id}:pin`, hand: false } } : {}),
-          label: '회의: 결정 지켜보는 중',
+          label: MEET_WORDS.watch,
         }
       } else if (c.phase === 'follow') {
         const at = c.leave.get(seat) ?? now
@@ -295,17 +314,22 @@ export class MeetingRunner {
         const goTo = script.followUps.includes(seat) ? `work_${seat}` : null
         if (now < at) {
           // the planner stays at the board; the others keep the circle until their turn
-          goals[me] = posted ? { spot: BOARD_STAND, pose: 'idle', label: '결정을 붙이고 정리하는 중' } : { ...own, pose: 'talk', label: '회의 정리하는 중' }
+          goals[me] = posted ? { spot: BOARD_STAND, pose: 'idle', label: MEET_WORDS.postDone } : { ...own, pose: 'talk', label: MEET_WORDS.wrapUp }
         } else if (now < at + CHOREO.stepMs && !posted) {
           // a step back and a turn toward where it is going, so nobody spins on the spot
           const to = goTo ? place?.spot(goTo) : place?.spot(goals[me]?.spot ?? '')
-          goals[me] = { spot: `meet_step_${seat}`, slot: stepBack(plan.centre, slot, CHOREO.stepBackM, to ?? null), pose: 'idle', label: '회의 끝, 자리를 뜨는 중' }
-        } else if (goTo) goals[me] = { spot: goTo, pose: 'idle', label: '후속 일하러 자리로' }
+          goals[me] = { spot: `meet_step_${seat}`, slot: stepBack(plan.centre, slot, CHOREO.stepBackM, to ?? null), pose: 'idle', label: MEET_WORDS.stepBack }
+        } else if (goTo) goals[me] = { spot: goTo, pose: 'idle', label: MEET_WORDS.follow }
       }
     }
-    if (c.phase === 'decide' && planner !== null) goals[id(planner)] = { spot: BOARD_STAND, pose: 'post', label: '결정을 화이트보드에 붙이는 중' }
+    if (c.phase === 'decide' && planner !== null) goals[id(planner)] = { spot: BOARD_STAND, pose: 'post', label: MEET_WORDS.post }
     // a follow-up owner who was not at the meeting still goes to its seat
-    if (c.phase === 'follow') for (const seat of script.followUps) if (!script.seats.includes(seat) && now >= (c.leave.get(seat) ?? now)) goals[id(seat)] = { spot: `work_${seat}`, pose: 'idle', label: '후속 일하러 자리로' }
+    if (c.phase === 'follow') for (const seat of script.followUps) if (!script.seats.includes(seat) && now >= (c.leave.get(seat) ?? now)) goals[id(seat)] = { spot: `work_${seat}`, pose: 'idle', label: MEET_WORDS.follow }
+    // whoever the runner is steering this frame shows the stage's words, until it hands the agent back to the director's goal
+    for (const seat of new Set([...script.seats, ...script.followUps])) {
+      const l = goals[id(seat)]?.label
+      if (l && MEET_SET.has(l)) this.shownWords[id(seat)] = l
+    }
   }
 
   private go(phase: Phase, now: number) {
