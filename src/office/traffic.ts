@@ -624,7 +624,7 @@ export class TrafficPlanner {
     const sitters: { x: number; z: number }[] = []
     for (const r of ctx.reserved) {
       this.px(r, r.ghost ? r.t0 : r.endT, tmp)
-      if (this.restsOnRowSeat(tmp.x, tmp.z, SOFA_ROW.sittingM) && Math.hypot(tmp.x - seat.x, tmp.z - seat.z) > SOFA_ROW.seatEps) sitters.push({ x: tmp.x, z: tmp.z })
+      if (this.restsOnRowSeat(tmp.x, tmp.z, SOFA_ROW.seatEps) && Math.hypot(tmp.x - seat.x, tmp.z - seat.z) > SOFA_ROW.seatEps) sitters.push({ x: tmp.x, z: tmp.z })
     }
     const g = this.grid
     const cands: number[] = []
@@ -654,7 +654,7 @@ export class TrafficPlanner {
           const z = onLane ? here.z + (w.z - here.z) * f : w.z + (p.z - w.z) * f
           if (r.ghost && tt > r.endT) continue
           this.px(r, tt, q)
-          if (this.restsOnRowSeat(q.x, q.z, SOFA_ROW.sittingM)) continue
+          if (this.restsOnRowSeat(q.x, q.z, SOFA_ROW.seatEps)) continue
           if (Math.hypot(q.x - x, q.z - z) < this.thr) {
             clear = false
             break
@@ -719,6 +719,9 @@ export class TrafficPlanner {
     const here = this.px(old, t)
     if (!req || !this.spots[req.spot]) return old
     const goal = this.pointOf(req)
+    // resting on a sofa seat (a row seat or the chaise) and asked for the same seat: it stays put. A neighbour coming or going, however close (a designed pair is 0.47 m
+    // apart), is never a reason to be moved: the search's own "someone is too close, step aside" would shove a sitter off its seat (#280)
+    if (this.spots[req.spot].kind === 'sofa' && !req.slot && old.reached && this.speedAt(old, t) < 0.15 && Math.hypot(here.x - goal.x, here.z - goal.z) < 0.05) return this.restTraj(t, goal.x, goal.z, req.spot)
     const g = this.grid
     let startCell = cellAt(g, here.x, here.z)
     if (startCell < 0 || g.blocked[startCell]) startCell = nearestWalkable(g, here.x, here.z)

@@ -426,6 +426,7 @@ describe('the re-baked lounge: passing a seated body keeps the seat pitch', () =
       const pitch = p.seatPassM
       expect(pitch).toBeGreaterThan(0.42)
       let min = Infinity
+      let moved = 0
       let sat = -1
       let out = -1
       let sent = false
@@ -439,8 +440,10 @@ describe('the re-baked lounge: passing a seated body keeps the seat pitch', () =
         const w = p.sample('w', t)
         const s = p.sample('s', t)
         min = Math.min(min, Math.hypot(w.x - s.x, w.z - s.z))
+        moved = Math.max(moved, Math.hypot(s.x - GRAPH.spots[sitter].x, s.z - GRAPH.spots[sitter].z))
         if (sent && out < 0 && w.arrived === from) out = t
       }
+      expect(moved, 'the sitter stays on its seat (m)').toBeLessThanOrEqual(0.02)
       expect(sat, 'sat on the seat').toBeGreaterThanOrEqual(0)
       expect(sat).toBeLessThan(60)
       expect(out, 'left again').toBeGreaterThan(sat)
@@ -462,6 +465,7 @@ describe('the re-baked lounge: passing a seated body keeps the seat pitch', () =
         p.request('w', req(seat.id), 0)
         const pitch = p.seatPassM
         let min = Infinity
+        let moved = 0
         let sat = -1
         let out = -1
         let sent = false
@@ -473,12 +477,15 @@ describe('the re-baked lounge: passing a seated body keeps the seat pitch', () =
           }
           p.update(t)
           const w = p.sample('w', t)
-          for (const id of ['l', 'r']) {
+          for (const [id, spot] of [['l', l], ['r', r]] as const) {
             const s = p.sample(id, t)
             min = Math.min(min, Math.hypot(w.x - s.x, w.z - s.z))
+            moved = Math.max(moved, Math.hypot(s.x - spot.x, s.z - spot.z))
           }
           if (sent && out < 0 && w.arrived === from) out = t
         }
+        // the sitters stay on their seats: nobody is shoved off a seat to let another by (it would show as a seated body sliding)
+        expect(moved, 'a sitter moved off its seat (m)').toBeLessThanOrEqual(0.02)
         expect(sat, 'sat on the seat').toBeGreaterThanOrEqual(0)
         expect(sat).toBeLessThan(60)
         expect(out, 'left again').toBeGreaterThan(sat)

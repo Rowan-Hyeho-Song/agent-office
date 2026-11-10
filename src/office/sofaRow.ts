@@ -31,8 +31,6 @@ export const SOFA_ROW = {
   approachM: 0.4,
   /** a body this close to a sofa seat spot rests on it: seated, it does not count as standing in the row, m */
   seatEps: 0.12,
-  /** a body this close to a seat still counts as the seat's sitter when judging the way out past it (it shifts in its seat when someone passes), m */
-  sittingM: 0.3,
   /** a body that waits for the row stays this much longer clear of another's occupancy (s): the smoothed path
    * is a fraction of a second ahead of / behind the cells it was planned on */
   gapS: 0.4,
