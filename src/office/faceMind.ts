@@ -89,7 +89,7 @@ function animHz(agent: number, e: Expression): number {
       default: return 0
     }
   }
-  return e === 'proud' || e === 'joy' ? 2.5 : e === 'asleep' ? 1.5 : 0
+  return e === 'proud' || e === 'joy' ? 2.5 : e === 'asleep' ? 1 : 0 // asleep: the z's rise and fall on a 2 s cycle (#326)
 }
 
 const idx = (e: Expression | null) => (e ? EXPRESSIONS.indexOf(e) + 1 : 0)

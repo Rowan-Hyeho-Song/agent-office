@@ -229,6 +229,8 @@ function mouth(g: FaceGrid, kind: Mouth, code: number) {
 // ------------------------------------------------------------------------------------------------------------------ symbols
 
 const SYMBOL_X = 20
+/** a 3 x 3 z */
+const Z = ['###', '.#.', '###'] as const
 function symbol(g: FaceGrid, e: Expression, agent: number, p: FaceParams) {
   const still = p.anim === 0
   switch (e) {
@@ -251,11 +253,12 @@ function symbol(g: FaceGrid, e: Expression, agent: number, p: FaceParams) {
       return stamp(g, SYMBOL_X, 0, ['###', '.#.', '.#.', '#.#', '###'], P.IVORY)
     case 'asleep': {
       // zzz: three z's climbing, one more every step
-      const n = still ? 3 : (p.anim % 4) + 0
-      clearRect(g, 14, 0, 23, 9)
-      if (n >= 1) stamp(g, 15, 7, ['###', '.#.', '###'], P.IVORY)
-      if (n >= 2) stamp(g, 18, 3, ['###', '.#.', '###'], P.IVORY)
-      if (n >= 3) stamp(g, 21, 0, ['##', '.#', '##'], P.IVORY)
+      // two z's inside the symbol cell (x 19-23, y 0-6) like every symbol, rising a row and back on a 2 s cycle (designer, #326:
+      // the old zzz cleared x 14-23 down to y 9 and erased the right closed eye, so a sleeper showed one eye)
+      clearRect(g, 19, 0, 23, 6)
+      const up = !still && p.anim % 2 === 0 ? 1 : 0
+      stamp(g, 19, 4 - up, Z, P.IVORY)
+      stamp(g, 21, 1 - up, Z, P.IVORY)
       return
     }
     case 'yielding':
@@ -367,14 +370,16 @@ const LOOK: Record<Expression, Look> = {
 /** the eyes that a blink may close: arches, crosses and the already closed ones stay as they are except by `blink` */
 const OPENABLE: ReadonlySet<EyeKind> = new Set<EyeKind>(['open', 'wide', 'narrow', 'flat', 'brow', 'lid'])
 
-export function renderFace(g: FaceGrid, p: FaceParams): void {
+/** `symbols: false` draws the face without its symbol (tests: a symbol must not change anything outside the symbol cell) */
+export function renderFace(g: FaceGrid, p: FaceParams, opts: { symbols?: boolean } = {}): void {
+  const sym = opts.symbols !== false
   g.cells.fill(P.OFF)
   g.lum.fill(0)
   const main = p.red ? P.RED : P.MAIN
   if (p.agent === ECHO) {
     if (p.from && p.blend < 1) echoWave(g, p.from, p, main, Math.round(255 * (1 - p.blend)))
     echoWave(g, p.expr, p, main, Math.round(255 * (p.from && p.blend < 1 ? p.blend : 1)))
-    symbol(g, p.expr, ECHO, p)
+    if (sym) symbol(g, p.expr, ECHO, p)
     return
   }
   const look = LOOK[p.expr]
@@ -403,7 +408,7 @@ export function renderFace(g: FaceGrid, p: FaceParams): void {
   if (p.agent === 3 && (m === 'short' || m === 'tiny' || m === 'wide' || m === 'o') && p.expr !== 'asleep') {
     if (p.cursor) hline(g, 10, 12, 11, main)
   } else mouth(g, m, main)
-  symbol(g, p.expr, p.agent, p)
+  if (sym) symbol(g, p.expr, p.agent, p)
 }
 
 /** the number of pixels lit by a face (tests) */

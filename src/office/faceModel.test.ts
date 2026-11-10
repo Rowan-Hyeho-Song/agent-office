@@ -83,7 +83,7 @@ describe('colours and dimming', () => {
     expect(EXPRESSIONS.filter((e) => dimOf(e) < 1)).toEqual(['sleepy', 'asleep'])
   })
   it('asleep has zzz (all three at rest), thinking has the dots, question a ?', () => {
-    expect(litCount(draw(0, 'asleep'))).toBeGreaterThan(litCount(draw(0, 'asleep', { anim: 1 })))
+    expect(rows(draw(0, 'asleep', { anim: 1 }))).not.toEqual(rows(draw(0, 'asleep', { anim: 2 }))) // the z's rise and fall (#326)
     expect(rows(draw(0, 'thinking'))[6].slice(19)).toBe('#.#.#')
   })
 })
@@ -121,4 +121,29 @@ describe('priority and durations (robots.md 4)', () => {
     expect([...EVENT_EXPRESSIONS].sort()).toEqual(['embarrassed', 'greeting', 'joy', 'proud', 'question', 'surprised', 'yielding'])
     expect(EVENT_SECONDS).toEqual({ proud: 3, embarrassed: 3, surprised: 1.2, greeting: 2, joy: 2.5, question: 2, yielding: 1.5 })
   })
+})
+
+
+describe('a symbol changes nothing outside its cell (#326, robots.md 4)', () => {
+  // the symbol cell: x 19-23, y 0-6; the eyes, the mouth and Echo's wave must be the same with and without the symbol
+  const outside = (g: ReturnType<typeof newGrid>) => Array.from(g.cells).map((c, i) => (i % FACE_W >= 19 && Math.floor(i / FACE_W) <= 6 ? 0 : c)).join('')
+  for (let agent = 0; agent < 5; agent++)
+    for (const expr of EXPRESSIONS)
+      it(`agent ${agent} / ${expr}`, () => {
+        for (const anim of [0, 1, 2]) {
+          const withSym = newGrid()
+          const without = newGrid()
+          renderFace(withSym, { ...newParams(), agent, expr, anim })
+          renderFace(without, { ...newParams(), agent, expr, anim }, { symbols: false })
+          expect(outside(withSym)).toBe(outside(without))
+        }
+      })
+  for (let agent = 0; agent < 4; agent++)
+    it(`agent ${agent} asleep: two closed eyes`, () => {
+      for (const anim of [0, 1, 2]) {
+        const r = rows(draw(agent, 'asleep', { anim }))
+        const eyeRow = r.findIndex((x) => x.slice(0, 19).includes('#'))
+        expect(r[eyeRow].slice(0, 19).match(/#+/g)?.length).toBe(2)
+      }
+    })
 })
