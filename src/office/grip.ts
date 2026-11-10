@@ -48,6 +48,11 @@ export const GRIPS: Record<string, GripSpec> = {
   },
   // the right thumb and index pinching the corner of the one leaf that turns (#231): the index 0.6, the thumb (0.25, 0.85), the others 0.3
   leaf: { r: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.6, 0.3, 0.3, 0.3], [0.25, 0.85]), after: REST, contacts: ['index', 'thumb'] } },
+  // the loose sheet held by its long sides for reading (#374, grips.md "낱장 옆 쥐고 읽기"): the thumb on the text face, four fingers flat on the back, both hands
+  paper_side: {
+    l: { pre: curlOf([0.15, 0.15, 0.2, 0.2], [0.1, 0.3]), hold: curlOf([0.25, 0.25, 0.3, 0.3], [0.35, 0.5]), after: REST, contacts: ['index', 'thumb'] },
+    r: { pre: curlOf([0.15, 0.15, 0.2, 0.2], [0.1, 0.3]), hold: curlOf([0.25, 0.25, 0.3, 0.3], [0.35, 0.5]), after: REST, contacts: ['index', 'thumb'] },
+  },
   paddle: { r: { pre: curlOf([0.15, 0.4, 0.45, 0.5], [0.1, 0.3]), hold: curlOf([0.15, 0.8, 0.85, 0.9], [0.25, 0.7]), after: REST, contacts: ['index', 'thumb'] } },
   // the pen family: a tripod grip, ring and little folded
   tablet_pen: { r: { pre: curlOf([0.3, 0.35, 0.6, 0.65], [0.2, 0.5]), hold: curlOf([0.45, 0.55, 0.8, 0.85], [0.35, 0.8]), after: REST, contacts: ['thumb', 'index', 'middle'] } },

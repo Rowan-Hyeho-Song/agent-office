@@ -3,25 +3,31 @@
 // pose and fold, who holds it, and where each hand goes. The paper and the hands are both placed from the script, so the paper never
 // jumps and never leaves a hand it is held by (the #228 guards watch exactly that).
 //
-// The frame of the sheet (paperProp.ts): x the short side, z the long side, +y the text side. +z is the text's TOP edge: the edge the
-// receiver takes and holds it by, so the sheet reads the right way up where it is looked at (paper-pass.md 5: 0.22 ahead of the face
-// screen, 0.10 below it, top edge in the hand, tilted 25 degrees back, the text side toward the face and up).
-import { DoubleSide, MathUtils, Matrix4, Quaternion, Vector3 } from 'three'
+// The frame of the sheet (paperProp.ts): x the short side, z the long side, +y the text side, +z the text's TOP edge. The receiver holds the
+// sheet by its two LONG edges (#374, paper-pass.md 2.1-2.3 and 5, grips.md "낱장 옆 쥐고 읽기": thumb on the text face, four fingers on the
+// back, 1.5 cm in from the edge, 45 % up) and reads it where it is looked at: 0.26 ahead of the face screen's centre, VIEW.down below it,
+// tilted 40 degrees back from vertical, the text side toward the face. The giver holds the short edge far from the receiver (the top, since
+// the sheet is turned to read the right way up for the receiver), so the hands never overlap. The grips are paperGrip.ts's.
+import { Box3, DoubleSide, MathUtils, Matrix4, Quaternion, Vector3 } from 'three'
 import { cue } from '../audio/cues'
 import { HAND_POSES, type AgentRig, type PropBank } from './rig'
 import { POSES, toVec, type HandAngles } from './handPose'
 import { reachFrame } from './reach'
 import { DeskStuff, Furniture, chooseMethod, findLane, timesFor, tossApex, arcY, type Choice, type Method, type Times } from './paperPass'
 import { PAPER, paperOf, placePaper, type PaperProp } from './paperProp'
+import { SideGrips } from './paperGrip'
+import { VIEW } from './paperSide'
+
+export { VIEW }
 import type { OfficeMessage } from './status'
 import type { Object3D } from 'three'
 
 const UP = new Vector3(0, 1, 0)
 const CHEST = 0.95
 const DESK_TOP = 0.745
-const READ_TILT = MathUtils.degToRad(25)
-/** how far under LOOK_AT's reading place the sheet is held so that its top edge clears the face screen, m */
-const READ_DROP = 0.03
+/** how high the slid sheet is lifted off the desk before the hand has it by its edge, m (the fingers go under the edge) */
+const RAISE = 0.05
+const ONE = new Vector3(1, 1, 1)
 
 const smooth = (u: number) => {
   const x = Math.min(1, Math.max(0, u))
@@ -47,6 +53,9 @@ export interface HandCmd {
   pose: HandAngles
   /** 0..1: how much the hand is on this place instead of its own pose's */
   w: number
+  /** the hand holds the sheet by its long side `side` (paperGrip.ts): `pinch` and `pose` are not used, `mix` 0..1 is pre-grip to closed */
+  grip?: boolean
+  mix?: number
 }
 
 export interface PassState {
@@ -87,6 +96,10 @@ interface Pass {
   lookTo: Vector3
   /** the receiver starts looking at the paper (its hand holds it at the reading place) from this time */
   readAt: number
+  /** the hand the receiver already has busy (a mug, the can, a racket) when the pass begins: it holds the sheet with the other one only */
+  busy: 'l' | 'r' | null
+  /** the receiver's hands that hold the sheet, in the order they take it */
+  sides: ('l' | 'r')[]
   /** debug / tests: the last state */
   last: PassState
 }
@@ -107,9 +120,14 @@ export class PaperPasses {
   /** how each method went, newest last (tests and the debug hook) */
   readonly log: { id: string; method: Method; from: string; to: string }[] = []
   private pinchOff = new Map<string, Vector3>()
+  private readonly grips: SideGrips | null
+  private half = new Matrix4()
 
   constructor(props: PropBank, nodes: Record<string, Object3D>) {
     this.paper = paperOf(nodes)
+    let root: Object3D | null = this.paper?.node ?? null
+    while (root?.parent) root = root.parent
+    this.grips = root ? new SideGrips(root) : null
     const hasFurn = Object.values(nodes).some((n) => n.userData.atlas)
     this.furniture = hasFurn ? Furniture.from(nodes) : null
     this.desks = hasFurn ? DeskStuff.from(nodes) : null
@@ -212,6 +230,15 @@ export class PaperPasses {
 
   /** drive a hand so that its contact point is at `pinch` and it points along the reach (grips.md 1.1) */
   private drive(rig: AgentRig, c: HandCmd, t: number, reduced: boolean) {
+    if (c.grip) {
+      // the long-side grip: the hand's pose is the fitted one on the sheet's lower half (paperGrip.ts), the fingers from pre-grip to closed
+      const g = this.grips?.place(rig, c.side, this.half, c.mix ?? 1)
+      if (g) {
+        rig.drive[c.side] = { target: g.target, w: c.w, curl: null, angles: g.angles, wc: c.w, spread: null, reach: true }
+        rig.applyDrive(c.side, t, reduced)
+        return
+      }
+    }
     const hand = rig.parts.hands[c.side]
     const root = rig.parts.root
     root.updateWorldMatrix(true, false)
@@ -228,12 +255,17 @@ export class PaperPasses {
 
   // ------------------------------------------------------------ playing
 
-  /** world point of a pinch spot of the sheet at its pose and fold (the near spot sits on the half that folds) */
+  /** world point of a pinch spot of the sheet at its pose and fold (the far spot sits on the half that folds over: placePaper) */
   private spot(near: boolean, st: PassState, out = new Vector3()) {
     const p = this.paper!
     const local = (near ? p.gripNear : p.gripFar).clone()
-    if (near) local.applyAxisAngle(AX, st.fold)
+    if (!near) local.applyAxisAngle(AX, -st.fold)
     return out.copy(local).applyQuaternion(st.quat).add(st.pos)
+  }
+
+  /** a long-side grip command for the receiver's hand `side` */
+  private holdCmd(side: 'l' | 'r', w: number, mix: number): HandCmd {
+    return { who: 'to', side, pinch: this.tmpP.clone(), palm: null, pose: HAND_POSES.pinch, w, grip: true, mix }
   }
 
   start(msg: OfficeMessage, method: Exclude<Method, 'plane'>, choice: Choice, from: AgentRig, to: AgentRig, t: number, reduced: boolean) {
@@ -245,7 +277,10 @@ export class PaperPasses {
     const lookFrom = new Vector3()
     const lookTo = new Vector3()
     const build = reduced ? this.buildReduced : method === 'hand' ? this.buildHand : method === 'slide' ? this.buildSlide : this.buildToss
-    const p: Pass = { method, id: msg.id, from, to, t0: t, dur: 0, times: T, reduced, state: () => {}, events: [], fired: 0, lookFrom, lookTo, readAt: 0, last: state(), fromSpan: 0, keep: null }
+    // a hand that is busy with something else (the mug, the can, a racket) is left to it: the other one holds the sheet alone (paper-pass.md 5 "한 손")
+    const busy = to.want && to.want.attached !== false && to.want.kind !== 'paper' ? to.want.side : null
+    const sides: ('l' | 'r')[] = busy === 'r' ? ['l'] : busy === 'l' ? ['r'] : ['r', 'l']
+    const p: Pass = { method, id: msg.id, from, to, t0: t, dur: 0, times: T, reduced, state: () => {}, events: [], fired: 0, lookFrom, lookTo, readAt: 0, last: state(), fromSpan: 0, keep: null, busy, sides }
     build.call(this, p, choice)
     this.pass = p
     this.homing = false
@@ -286,11 +321,12 @@ export class PaperPasses {
     while (p.fired < p.events.length && s >= p.events[p.fired].at) p.events[p.fired++].fn()
     const paper = this.paper!
     placePaper(paper, st.pos, st.quat, st.fold)
+    this.half.compose(st.pos, st.quat, ONE)
     this.setOpacity(st.opacity)
     paper.node.visible = paper.a.visible = paper.b.visible = st.opacity > 0.001
     // who holds it: the prop bank's holder (rig.want), set after the stage reset it this frame
     if (st.holder.from) from.want = { kind: 'paper', side: 'r', prefer: paper.node.name, attached: true }
-    if (st.holder.to) to.want = { kind: 'paper', side: 'r', prefer: paper.node.name, attached: true }
+    if (st.holder.to) to.want = { kind: 'paper', side: p.sides[0], prefer: paper.node.name, attached: true }
     // reading starts: the receiver's catching hand is the reading hand (rig.handPose) from now on
     const ge = to.gesture
     if (ge && s >= p.readAt && p.readAt > 0) {
@@ -314,20 +350,36 @@ export class PaperPasses {
     return out.set(0, 0, -1).applyQuaternion(rig.parts.root.getWorldQuaternion(this.tmpQ)).setY(0).normalize()
   }
 
-  /** the reading pose of the sheet held by `rig`'s right hand: pinch point (world), the sheet's rotation, in paper-pass.md 5's place */
-  private reading(rig: AgentRig, pinch = new Vector3(), quat = new Quaternion()) {
-    rig.parts.root.updateWorldMatrix(true, false)
-    pinch.copy(rig.readingPlace('r', this.tmpP)).applyMatrix4(rig.parts.root.matrixWorld)
-    // the sheet's top edge stands 1.4 cm past the pinch (the grip is 1.5 cm in from it) and the edge must stay below the face screen (paper-pass.md 5):
-    // the hand holds it 3 cm under the plane's reading place
-    pinch.y -= READ_DROP
-    const f = this.facing(rig)
-    // the top edge: up and a little away from the face; the text side: toward the face and up
-    const top = new Vector3().copy(UP).multiplyScalar(Math.cos(READ_TILT)).addScaledVector(f, Math.sin(READ_TILT))
-    const normal = new Vector3().copy(f).multiplyScalar(-Math.cos(READ_TILT)).addScaledVector(UP, Math.sin(READ_TILT))
+  /**
+   * Where the sheet is read by `rig` (paper-pass.md 5): the sheet's centre and rotation. 0.26 in front of the face screen's centre and VIEW.down below
+   * it, the top edge up and leaning away, the text side toward the face and up. With one hand busy the centre is in front of the body's centre line
+   * and the body faces it, not the turned head.
+   */
+  private view(rig: AgentRig, one: boolean, centre = new Vector3(), quat = new Quaternion()) {
+    rig.parts.root.updateWorldMatrix(true, true)
+    const head = rig.parts.head.getWorldPosition(this.tmpV2)
+    const face = rig.parts.face ? new Box3().setFromObject(rig.parts.face).getCenter(this.tmpV3) : this.tmpV3.copy(head)
+    const body = this.facing(rig, this.tmpV4)
+    const f = this.tmpV5.copy(face).sub(head).setY(0)
+    if (one || f.lengthSq() < 1e-6) f.copy(body)
+    else f.normalize()
+    if (one) {
+      const root = rig.parts.root.getWorldPosition(this.tmpV2)
+      const ahead = this.tmpV6.copy(face).sub(root).dot(body)
+      centre.copy(root).addScaledVector(body, ahead + VIEW.ahead)
+    } else centre.copy(face).addScaledVector(f, VIEW.ahead)
+    centre.y = face.y - VIEW.down
+    // the top edge: up and away from the face; the text side: toward the face and up
+    const top = new Vector3().copy(UP).multiplyScalar(Math.cos(VIEW.tilt)).addScaledVector(f, Math.sin(VIEW.tilt))
+    const normal = new Vector3().copy(f).multiplyScalar(-Math.cos(VIEW.tilt)).addScaledVector(UP, Math.sin(VIEW.tilt))
     quatOf(top, normal, quat)
-    return { pinch, quat }
+    return { centre, quat }
   }
+  private tmpV2 = new Vector3()
+  private tmpV3 = new Vector3()
+  private tmpV4 = new Vector3()
+  private tmpV5 = new Vector3()
+  private tmpV6 = new Vector3()
 
   private fadeOf(s: number, g0: number) {
     return 1 - seg(s, g0, g0 + 0.3)
@@ -337,7 +389,6 @@ export class PaperPasses {
 
   buildHand(p: Pass) {
     const { from, to, times: T } = p
-    const paper = this.paper!
     const S = new Vector3(from.x, 0, from.z)
     const R = new Vector3(to.x, 0, to.z)
     const u = R.clone().sub(S).setY(0).normalize()
@@ -345,11 +396,12 @@ export class PaperPasses {
     const d = S.distanceTo(R)
     const hs = from.seatLift
     const hr = to.seatLift
-    const P0 = S.clone().addScaledVector(fwd, 0.3).setY(DESK_TOP + PAPER.t / 2)
+    // the sheet turned so it reads the right way up for the receiver: its top edge toward the giver, who holds that short edge (the one far from the receiver)
+    const P0 = S.clone().addScaledVector(fwd, 0.4).setY(DESK_TOP + PAPER.t / 2)
     const C = S.clone().addScaledVector(u, Math.min(0.3, d / 2 - 0.1)).setY(CHEST + hs)
     const M = S.clone().addScaledVector(u, d / 2).setY(CHEST + (hs + hr) / 2)
-    const Q0 = quatOf(fwd, UP)
-    const Q1 = quatOf(u, UP)
+    const Q0 = quatOf(fwd.clone().negate(), UP)
+    const Q1 = quatOf(u.clone().negate(), UP)
     const a = T.pick
     const b = a + T.signal
     const c = b + T.reach
@@ -361,12 +413,12 @@ export class PaperPasses {
     p.fromSpan = dd + 0.3
     p.readAt = dd
     const rs = Math.max(a, b - 0.1) + T.late
+    // the left hand takes its edge 0.3 s after the right (paper-pass.md 2.1), in the same proportion when the times are shortened
+    const tl = c + (0.3 * (T.shared + T.lift)) / 0.45
     const pose = HAND_POSES.pinch
-    const tmp = state()
-    const readP = new Vector3()
+    const one = p.busy !== null
+    const readC = new Vector3()
     const readQ = new Quaternion()
-    const froz = new Vector3()
-    let frozen = false
     const sideSign = (r: AgentRig, at: Vector3) => sideOf(r, at)
     p.events.push(
       { at: b - T.signal * 0.5, fn: () => from.giverFace('yield', p.t0 + dd, sideSign(from, to.parts.root.position)) },
@@ -386,35 +438,32 @@ export class PaperPasses {
         st.quat.copy(Q1)
         st.opacity = 1
       } else {
-        // M-state pinch (far edge) to the reading place, the sheet turning to hang in the hand
-        if (!frozen) {
-          tmp.pos.copy(M)
-          tmp.quat.copy(Q1)
-          tmp.fold = 0
-          this.spot(false, tmp, froz)
-          frozen = true
-        }
+        // out of the giver's hand and up to the reading place, the receiver's hands on its long edges
         const k = seg(s, dd, e)
-        this.reading(to, readP, readQ)
-        const pinch = this.tmpV.lerpVectors(froz, readP, k)
+        this.view(to, one, readC, readQ)
+        st.pos.lerpVectors(M, readC, k)
         st.quat.slerpQuaternions(Q1, readQ, k)
-        st.pos.copy(pinch).sub(paper.gripFar.clone().applyQuaternion(st.quat))
         st.opacity = this.fadeOf(s, f)
       }
       st.fold = 0
       st.holder.from = s >= a * 0.85 && s < dd
       st.holder.to = s >= c && s < g
-      // the sender's right hand: down onto the sheet, up with it, out to the middle, let go after the shared hold, back
-      const near = this.spot(true, st, new Vector3())
-      if (s < dd) p.keep = near.clone()
+      // the giver's right hand: down onto the far short edge, up with it, out to the middle, let go after the shared hold, back
+      const far = this.spot(false, st, new Vector3())
+      if (s < dd) p.keep = far.clone()
       const sendW = Math.min(seg(s, 0, a * 0.7), 1 - seg(s, dd, dd + T.back))
       if (sendW > 0.001) {
         const hover = s < a * 0.85 ? 0.05 * (1 - seg(s, 0, a * 0.85)) : 0
-        st.hands.push({ who: 'from', side: 'r', pinch: s < dd ? near.setY(near.y + hover) : p.keep!.clone(), palm: palmIn(from), pose, w: sendW })
+        st.hands.push({ who: 'from', side: 'r', pinch: s < dd ? far.setY(far.y + hover) : p.keep!.clone(), palm: palmIn(from), pose, w: sendW })
       }
-      // the receiver's right hand: late behind the sender, to the far edge, takes it, then holds it at the reading place
-      const recW = Math.min(seg(s, rs, c), 1 - seg(s, g, g + 0.3))
-      if (recW > 0.001) st.hands.push({ who: 'to', side: 'r', pinch: this.spot(false, st, new Vector3()), palm: palmIn(to), pose, w: s >= c ? 1 - seg(s, g, g + 0.3) : recW })
+      // the receiver: late behind the giver, one hand to its long edge (the right one takes the right edge), takes it; 0.3 s into the way back the left takes the left edge
+      const out = 1 - seg(s, g, g + 0.3)
+      const first = Math.min(seg(s, rs, c), out)
+      if (first > 0.001) st.hands.push(this.holdCmd(p.sides[0], s >= c ? out : first, seg(s, c - 0.1, c + 0.05)))
+      if (p.sides[1]) {
+        const second = Math.min(seg(s, dd, tl), out)
+        if (second > 0.001) st.hands.push(this.holdCmd(p.sides[1], second, seg(s, tl - 0.1, tl + 0.05)))
+      }
     }
   }
 
@@ -422,14 +471,14 @@ export class PaperPasses {
 
   buildSlide(p: Pass, choice: Choice) {
     const { from, to, times: T } = p
-    const paper = this.paper!
     const lane = choice.lane!
     const y = DESK_TOP + PAPER.t / 2
     const put = lane.put.clone().setY(y)
     const reach = lane.reach.clone().setY(y)
     const stop = lane.stop.clone().setY(y)
     const dir = lane.dir.clone()
-    const Q = quatOf(dir, UP)
+    // text toward the receiver, top edge toward the giver (it reads the right way up for the receiver); the giver's fingers are on that top edge
+    const Q = quatOf(dir.clone().negate(), UP)
     const a = T.signal
     const b = a + T.push
     const c = b + T.slide
@@ -442,11 +491,10 @@ export class PaperPasses {
     p.fromSpan = b + 0.3
     p.readAt = e
     const pulled = stop.clone().addScaledVector(dir, 0.1)
-    const readP = new Vector3()
+    const one = p.busy !== null
+    const readC = new Vector3()
     const readQ = new Quaternion()
-    const froz = new Vector3()
-    const tmp = state()
-    let frozen = false
+    const lifted = pulled.clone().setY(y + RAISE)
     p.events.push(
       { at: 0, fn: () => from.giverFace('yield', p.t0 + c, sideOf(from, to.parts.root.position)) },
       { at: b, fn: () => cue('handoff.slide', { pos: reach.clone(), agent: from.id, dur: T.slide, key: `handoff:${p.id}:slide` }) },
@@ -467,45 +515,40 @@ export class PaperPasses {
         st.pos.lerpVectors(reach, stop, 1 - (1 - k) ** 3)
         st.quat.copy(Q)
       } else if (s < e) {
-        // blocked by the palm and drawn 0.1 m in
+        // blocked by the palm, drawn 0.1 m in, then lifted off the desk (RAISE) so the fingers go under its edge
         st.pos.lerpVectors(stop, pulled, seg(s, c, dd))
+        st.pos.y += RAISE * seg(s, dd, e)
         st.quat.copy(Q)
       } else {
-        if (!frozen) {
-          tmp.pos.copy(pulled)
-          tmp.quat.copy(Q)
-          tmp.fold = 0
-          this.spot(false, tmp, froz)
-          frozen = true
-        }
         const k = seg(s, e, ee)
-        this.reading(to, readP, readQ)
-        const pinch = this.tmpV.lerpVectors(froz, readP, k)
+        this.view(to, one, readC, readQ)
+        st.pos.lerpVectors(lifted, readC, k)
         st.quat.slerpQuaternions(Q, readQ, k)
-        st.pos.copy(pinch).sub(paper.gripFar.clone().applyQuaternion(st.quat))
         st.opacity = this.fadeOf(s, f)
       }
       st.holder.from = false
       st.holder.to = s >= e && s < g
-      // the sender: two fingers on the near edge, along the lane, then off (not flicked) and back
+      // the giver: two fingers on the near (top) edge, along the lane, then off (not flicked) and back
       const sw = Math.min(seg(s, 0, a * 0.8), 1 - seg(s, b, b + T.back))
       if (sw > 0.001) {
-        if (s < b) p.keep = this.spot(true, st, new Vector3())
+        if (s < b) p.keep = this.spot(false, st, new Vector3())
         const at = p.keep!.clone()
         st.hands.push({ who: 'from', side: 'r', pinch: at, palm: DOWN, pose: HAND_POSES.point, w: sw })
       }
-      // the receiver: the palm stands on the paper 0.2 s before it stops, draws it in, then pinches the near-to-me edge and lifts
-      const rw = Math.min(seg(s, c - 0.2, c), 1 - seg(s, g, g + 0.3))
+      // the receiver: the palm stands on the paper 0.2 s before it stops and draws it in; then the hand goes to the paper's long edge (fingers under it, thumb on top)
+      // and lifts it, and the other hand takes the other edge on the way to the reading place
+      const out = 1 - seg(s, g, g + 0.3)
+      const rw = Math.min(seg(s, c - 0.2, c), out)
       if (rw > 0.001) {
-        if (s < dd) {
+        if (s < e) {
           const at = this.tmpP.copy(st.pos).setY(st.pos.y + 0.035)
-          st.hands.push({ who: 'to', side: 'r', pinch: at.clone(), palm: DOWN, pose: POSES.support, w: rw })
-        } else {
-          const near = this.spot(false, st, new Vector3())
-          const k = seg(s, dd, e)
-          const palmAt = pulled.clone().setY(pulled.y + 0.035)
-          st.hands.push({ who: 'to', side: 'r', pinch: s < e ? palmAt.lerp(near, k) : near, palm: palmIn(to), pose: HAND_POSES.pinch, w: s >= g ? 1 - seg(s, g, g + 0.3) : rw })
+          st.hands.push({ who: 'to', side: p.sides[0], pinch: at.clone(), palm: DOWN, pose: POSES.support, w: rw })
         }
+        if (s >= dd) st.hands.push(this.holdCmd(p.sides[0], Math.min(seg(s, dd, e), out), seg(s, e - 0.12, e + 0.03)))
+      }
+      if (p.sides[1]) {
+        const second = Math.min(seg(s, e, ee), out)
+        if (second > 0.001) st.hands.push(this.holdCmd(p.sides[1], second, seg(s, ee - 0.1, ee + 0.05)))
       }
     }
   }
@@ -524,7 +567,11 @@ export class PaperPasses {
     const P0 = S.clone().addScaledVector(fwd, 0.3).setY(DESK_TOP + PAPER.t / 2)
     const C = S.clone().addScaledVector(u, 0.3).setY(CHEST + hs)
     const Q0 = quatOf(fwd, UP)
+    // thrown top edge first, the thrower holding the near short edge; it turns half a turn more than whole ones in the air and lands top edge toward the thrower:
+    // the right way up for the receiver, whose right hand takes the sheet's right long edge
     const Qf = quatOf(u, UP)
+    const Qland = quatOf(u.clone().negate(), UP)
+    const one = p.busy !== null
     const a = T.pick
     const b = a + T.lift
     const c = b + T.fold
@@ -541,18 +588,20 @@ export class PaperPasses {
     const release = S.clone().addScaledVector(u, 0.45).setY(0.9 + hs)
     const catchAt = R.clone().addScaledVector(u, -0.35).setY(CHEST + 0.05 + hr)
     const apex = tossApex(release.y, catchAt.y, choice.between.maxTop)
-    const tmp = state()
-    const readP = new Vector3()
+    const readC = new Vector3()
     const readQ = new Quaternion()
-    const startP = new Vector3()
     const spinTurns = Math.max(1, Math.round(T.fly))
     const foldedPinch = (st: PassState) => this.spot(true, st, new Vector3())
     // the thrower's hand: held out (signal), pulled back 0.12 m over the first 0.15 s of the throw, then forward to the release point
     const held = C.clone().addScaledVector(u, 0.1)
     const back = held.clone().addScaledVector(u, -0.12)
     const wind = dd + 0.15 * (T.throw / 0.35)
-    const pinchC = C.clone().add(paper.gripNear.clone().applyAxisAngle(AX, Math.PI).applyQuaternion(Qf))
+    const pinchC = C.clone().add(paper.gripNear.clone().applyQuaternion(Qf))
     const pinchPath = (s: number, out: Vector3) => (s < wind ? out.lerpVectors(held, back, seg(s, dd, wind)) : out.lerpVectors(back, release, seg(s, wind, rel)))
+    // the sheet's centre when the right hand's grip (the right long edge) sits at the catch point
+    const gripR = this.grips?.target(p.sides[0])?.pg
+    const gripOff = gripR ? new Vector3().setFromMatrixPosition(gripR) : new Vector3((p.sides[0] === 'r' ? -1 : 1) * 0.09, 0, -0.0148)
+    const centerCatch = catchAt.clone().sub(gripOff.clone().applyQuaternion(Qland))
     p.events.push(
       { at: b, fn: () => from.giverFace('yield', p.t0 + rel, sideOf(from, to.parts.root.position)) },
       { at: rel, fn: () => cue('handoff.toss', { pos: release.clone(), agent: from.id, key: `handoff:${p.id}:toss` }) },
@@ -560,13 +609,11 @@ export class PaperPasses {
       { at: land, fn: () => cue('handoff.catch', { pos: catchAt.clone(), agent: to.id, key: `handoff:${p.id}:catch` }) },
       { at: land, fn: () => to.paperReaction('surprise', p.t0 + land, false) },
     )
-    // before the flight the sheet is placed from the throwing hand's pinch, so it stays in the fingers
+    // before the flight the sheet is placed from the throwing hand's pinch (the near edge), so it stays in the fingers
     const heldPose = (pinch: Vector3, fold: number, st: PassState) => {
       st.fold = fold
       st.quat.copy(Qf)
-      // the pinch spot (near spot rotated by the fold) sits at `pinch`
-      const local = paper.gripNear.clone().applyAxisAngle(AX, fold).applyQuaternion(Qf)
-      st.pos.copy(pinch).sub(local)
+      st.pos.copy(pinch).sub(paper.gripNear.clone().applyQuaternion(Qf))
     }
     p.state = (s, st) => {
       st.opacity = 1
@@ -579,7 +626,7 @@ export class PaperPasses {
         st.quat.slerpQuaternions(Q0, Qf, k)
         st.opacity = Math.min(1, Math.max(0, s) / T.appear)
       } else if (s < dd) {
-        // folded in the air: the near half comes up and over (0.4 of the 0.6 s), the crease is pressed (0.2)
+        // folded in the air: the far half comes up and over (0.4 of the 0.6 s), the crease is pressed (0.2); the near half stays in the thrower's fingers
         const fold = Math.PI * seg(s, b, b + T.fold * 0.67)
         st.fold = fold
         st.quat.copy(Qf)
@@ -588,22 +635,19 @@ export class PaperPasses {
       } else if (s < rel) {
         heldPose(pinchPath(s, this.tmpV), Math.PI, st)
       } else if (s < land) {
-        // the arc: flat, spinning once a second about its own normal, the apex over what is between
+        // the arc: flat, spinning about its own normal (a second a turn, and half a turn more so it lands top edge toward the thrower), the apex over what is between
         const k = (s - rel) / T.fly
-        const centerRel = this.centerAt(release, Math.PI, Qf)
-        const centerCatch = this.centerAtFar(catchAt, Qf)
+        const centerRel = release.clone().sub(paper.gripNear.clone().applyQuaternion(Qf))
         st.pos.set(MathUtils.lerp(centerRel.x, centerCatch.x, k), arcY(centerRel.y, centerCatch.y, apex, k), MathUtils.lerp(centerRel.z, centerCatch.z, k))
         st.fold = Math.PI
-        st.quat.copy(Qf).multiply(this.tmpQ.setFromAxisAngle(UP, Math.PI * 2 * spinTurns * k))
+        st.quat.copy(Qf).multiply(this.tmpQ.setFromAxisAngle(UP, Math.PI * 2 * (spinTurns + 0.5) * k))
       } else {
-        // caught, then lifted to the reading place while both hands open it out
-        if (s < land + 1e-6) startP.copy(catchAt)
+        // caught, then lifted to the reading place while the far half is opened out; both hands stay on the near half, so nothing is regripped
         const k = seg(s, land, e)
-        this.reading(to, readP, readQ)
-        const pinch = this.tmpV.lerpVectors(catchAt, readP, k)
-        st.quat.slerpQuaternions(Qf, readQ, k)
+        this.view(to, one, readC, readQ)
+        st.pos.lerpVectors(centerCatch, readC, k)
+        st.quat.slerpQuaternions(Qland, readQ, k)
         st.fold = Math.PI * (1 - seg(s, land + 0.05, e))
-        st.pos.copy(pinch).sub(paper.gripFar.clone().applyQuaternion(st.quat))
         st.opacity = this.fadeOf(s, f)
       }
       // the thrower: right hand on the sheet through the fold and the throw; the left holds it up from underneath while it is folded
@@ -615,30 +659,18 @@ export class PaperPasses {
       }
       const lw = Math.min(seg(s, b - 0.1, b + 0.15), 1 - seg(s, dd, dd + 0.3))
       if (lw > 0.001) st.hands.push({ who: 'from', side: 'l', pinch: new Vector3(st.pos.x, st.pos.y - 0.03, st.pos.z), palm: UPV, pose: POSES.support, w: lw })
-      // the catcher: a hand up toward the thrower from the signal on, palm to them; it closes at the catch
-      const cw = Math.min(seg(s, c - 0.1, dd), 1 - seg(s, g, g + 0.3))
-      if (cw > 0.001) {
-        const at = s < land ? catchAt.clone() : this.spot(false, st, new Vector3())
-        st.hands.push({ who: 'to', side: 'r', pinch: at, palm: s < land ? u.clone().negate() : palmIn(to), pose: s < land - 0.05 ? HAND_POSES.wave : HAND_POSES.pinch, w: s >= g ? 1 - seg(s, g, g + 0.3) : cw })
+      // the catcher: a hand up toward the thrower from the signal on, palm to them; as the sheet lands it takes the right long edge and closes on it
+      const out = 1 - seg(s, g, g + 0.3)
+      const cw = Math.min(seg(s, c - 0.1, dd), s < land ? 1 : 0)
+      if (cw > 0.001) st.hands.push({ who: 'to', side: p.sides[0], pinch: catchAt.clone(), palm: u.clone().negate(), pose: HAND_POSES.wave, w: cw })
+      const gw = Math.min(seg(s, land - 0.12, land), out)
+      if (gw > 0.001) st.hands.push(this.holdCmd(p.sides[0], s >= land ? out : gw, seg(s, land - 0.1, land + 0.05)))
+      // the other hand takes the left long edge of the folded sheet and opens it out with the far half
+      if (p.sides[1]) {
+        const uw = Math.min(seg(s, land + 0.03, land + 0.15), out)
+        if (uw > 0.001) st.hands.push(this.holdCmd(p.sides[1], uw, seg(s, land + 0.08, land + 0.2)))
       }
-      // the other hand opens the fold: pinch on the folded half's edge while it unfolds
-      const uw = Math.min(seg(s, land + 0.03, land + 0.15), 1 - seg(s, e, e + 0.3))
-      if (uw > 0.001) st.hands.push({ who: 'to', side: 'l', pinch: this.spot(true, st, new Vector3()), palm: palmIn(to, 'l'), pose: HAND_POSES.pinch, w: uw })
     }
-    void tmp
-  }
-
-  /** the sheet's centre when its pinch spot (the near spot at `fold`) sits at `pinch` with rotation q */
-  private foldedAt(pinch: Vector3, q: Quaternion, fold: number) {
-    const local = this.paper!.gripNear.clone().applyAxisAngle(AX, fold).applyQuaternion(q)
-    return pinch.clone().sub(local)
-  }
-  private centerAt(pinch: Vector3, fold: number, q: Quaternion) {
-    return this.foldedAt(pinch, q, fold)
-  }
-  /** the sheet's centre when its far spot sits at `pinch` with rotation q */
-  private centerAtFar(pinch: Vector3, q: Quaternion) {
-    return pinch.clone().sub(this.paper!.gripFar.clone().applyQuaternion(q))
   }
 
   // ------------------------------------------------------------ reduced motion (paper-pass.md 5)
@@ -654,12 +686,13 @@ export class PaperPasses {
     p.dur = g + 0.2
     p.fromSpan = b
     p.readAt = a
-    const readP = new Vector3()
+    const one = p.busy !== null
+    const readC = new Vector3()
     const readQ = new Quaternion()
     const giverP = new Vector3()
     p.events.push(
-      { at: 0, fn: () => from.giverFace(method === 'toss' ? 'yield' : 'yield', p.t0 + b, sideOf(from, to.parts.root.position)) },
-      { at: a, fn: () => cue('handoff.give', { pos: this.reading(to, new Vector3()).pinch, agent: to.id, key: `handoff:${p.id}:give` }) },
+      { at: 0, fn: () => from.giverFace('yield', p.t0 + b, sideOf(from, to.parts.root.position)) },
+      { at: a, fn: () => cue('handoff.give', { pos: this.view(to, one, new Vector3()).centre, agent: to.id, key: `handoff:${p.id}:give` }) },
       { at: a, fn: () => (method === 'toss' ? to.paperReaction('surprise', p.t0 + a, true) : to.paperReaction('nod', p.t0 + a, true)) },
     )
     p.state = (s, st) => {
@@ -671,14 +704,14 @@ export class PaperPasses {
         from.pinchPoint('r', giverP)
         st.quat.copy(quatOf(this.facing(from), UP))
         st.pos.copy(giverP).sub(paper.gripNear.clone().applyQuaternion(st.quat))
-        st.opacity = Math.max(0, 1 - s / a) * Math.min(1, 1)
+        st.opacity = Math.max(0, 1 - s / a)
         if (s < 0.0001) st.opacity = 1
       } else {
-        this.reading(to, readP, readQ)
+        this.view(to, one, readC, readQ)
         st.quat.copy(readQ)
-        st.pos.copy(readP).sub(paper.gripFar.clone().applyQuaternion(readQ))
+        st.pos.copy(readC)
         st.opacity = Math.min((s - a) / T.appear, 1 - seg(s, f, f + T.fade))
-        st.hands.push({ who: 'to', side: 'r', pinch: readP.clone(), palm: palmIn(to), pose: HAND_POSES.pinch, w: 1 })
+        for (const side of p.sides) st.hands.push(this.holdCmd(side, 1, 1))
       }
     }
   }
