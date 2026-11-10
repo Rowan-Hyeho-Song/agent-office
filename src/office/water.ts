@@ -31,7 +31,7 @@ export const WATERED = PLANTS[0]
  */
 export const STANDS: Record<string, { x: number; z: number }> = {
   plant_corner: { x: 4.1, z: 0.95 }, // 0.57 m, north-west of the fig (the east wall is 0.3 m behind it), between it and the can: the can's own stand too (#280 footprint scan)
-  plant_sofa: { x: 1.3, z: 3.15 }, // 0.50 m, in front (north) of the pot, the monstera stands at the south wall (#280)
+  plant_sofa: { x: 0.87, z: 3.27 }, // 0.57 m, north-west of the pot, outside the west mouth of the sofa's way in: standing in the 0.9 m gap closed it to one lane for the whole pour (#341, lounge-props.md: no stay on the mouths or between them)
   plant_desk: { x: -4.03, z: -3.33 }, // 0.45 m, in front of the stand (found by scanning the walkable footprint, stream error < 0.6 soil radius)
   succulent: { x: -3.33, z: -1.37 }, // 0.45 m, west of the desk: soil_succulent moved with the desk pod (#280); scanned on the walkable footprint, stream error 0
   // the can's own stand (#228, #259): where the agent takes the can up and puts it back. Since #259 the can rests on its low stand in front of the

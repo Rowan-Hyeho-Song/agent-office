@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { stubCanvas } from './glbLoad'
 import { Guard, IDS, Walk, expectClean, expectCleanAll, runErrand, world, type World } from './errandWorld.fixture'
 import { SPOTS } from './navSpots.fixture'
-import { BLOCK_MINUTES, PLAYS, playAt, soloAt } from './play'
+import { BLOCK_MINUTES, PAUSED, PLAYS, playAt, soloAt } from './play'
 import type { Goal } from './director'
 import { sessionsAt, type PlaySession } from '../play/session'
 
@@ -104,7 +104,8 @@ describe('a day of the schedule: no prop moves on its own, whatever the schedule
 
   it('the day really contains what the checks below cover', () => {
     const kinds = new Set([...day.solo].map((x) => x.split('|')[1]))
-    expect([...kinds].sort()).toEqual(['books', 'coffee'])
+    // reading is off the schedule for now (play.ts PAUSED, #341); propsHome still takes the book from its home and puts it back
+    expect([...kinds].sort()).toEqual((['books', 'coffee'] as const).filter((k) => !PAUSED.has(k)))
     expect(new Set([...day.water].map((x) => x.split('|')[1])).size, 'every watered plant').toBe(3)
     expect(new Set([...day.pairs.values()].map((s) => s.kind)).size, 'both pair games').toBe(2)
     if (LOG) appendFileSync(LOG, `props day: ${day.solo.size} solo (agent, activity), ${day.water.size} watering (agent, plant), ${day.pairs.size} pairs (game, players)\n`)
@@ -122,7 +123,8 @@ describe('a day of the schedule: no prop moves on its own, whatever the schedule
         n++
       }
     }
-    expect(n).toBeGreaterThanOrEqual(8)
+    expect(n, 'every (agent, solo) the day hands out').toBe(day.solo.size)
+    expect(n, 'every agent gets coffee').toBeGreaterThanOrEqual(IDS.length)
   }, 60000)
 
   it('watering: every (agent, plant) the day produces — fetch, lift, carry, pour, return, put; the body is beside the can and the plant', async () => {
