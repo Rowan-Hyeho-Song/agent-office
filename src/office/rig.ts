@@ -805,6 +805,8 @@ export class AgentRig {
   private attachOff: Record<'l' | 'r', Vector3> = { l: new Vector3(), r: new Vector3() }
   /** a small extra head turn while playing (the omok thinker's 5° tilt, 10° toward the last stone); rad */
   headExtra = { pitch: 0, yaw: 0, roll: 0 }
+  /** the body sinks this far (m) under a weight it takes up (the watering can, watering.md 2): set by the stage each frame, used by the next update and let go of */
+  bodyDip = 0
   /** a point the head glances at, up to `glanceMax` rad of yaw (the opponent's last stone) */
   glance: { at: Vector3; max: number } | null = null
   /** a short reaction on top of the hand pose: the winner's fist, the loser's three claps (play.md 2.5) */
@@ -1113,7 +1115,8 @@ export class AgentRig {
     const { root, head, beam } = this.parts
     root.visible = !this.hidden
     this.lean.multiplyScalar(Math.exp(-6 * dt))
-    root.position.set((this.drawAt?.x ?? this.x) + this.lean.x, 0, (this.drawAt?.z ?? this.z) + this.lean.z)
+    root.position.set((this.drawAt?.x ?? this.x) + this.lean.x, -this.bodyDip, (this.drawAt?.z ?? this.z) + this.lean.z)
+    this.bodyDip = 0
     root.rotation.set(0, this.heading + (this.aim?.body ?? 0), 0)
     root.updateMatrixWorld(true)
 
