@@ -318,22 +318,6 @@ export const CUES = {
       tone(o, 280, 0.08, { type: 'sine', level: 0.014, slide: 1.6, attack: 0.01, at: d + 0.22 })
     },
   },
-  'beanbag.sit': {
-    label: '빈백에 앉음',
-    kind: 'event',
-    bus: 'sfx',
-    spatial: true,
-    gap: 500,
-    length: 0.6,
-    // a soft whoomph, and the beads shifting: a short shower of tiny dry ticks that thins out
-    play: (o) => {
-      noise(o, 0.3, { kind: 'pink', filter: 'lowpass', freq: 500, level: 0.032, shape: 'swell' })
-      for (let k = 0; k < 18; k++) {
-        const at = Math.pow(k / 18, 1.6) * 0.55
-        noise({ ...o, t: o.t + at }, 0.008, { freq: 2500 + Math.random() * 2500, q: 2, level: 0.008 * (1 - k / 24), attack: 0.001 })
-      }
-    },
-  },
   'sofa.sit': {
     label: '소파에 앉음',
     kind: 'event',
