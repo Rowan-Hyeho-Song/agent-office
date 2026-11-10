@@ -521,3 +521,47 @@ describe('a meeting shows its own words (#354)', () => {
     expect(d.shown.agent_2.kind).toBe('rest')
   })
 })
+
+// the start rule (#228): an errand / act is not started when the agent's night is about to change under it (a few seconds in it would be called away)
+describe('Director start rule: not just before the night changes', () => {
+  const KST_H = (day: number, h: number, m: number, s: number) => Date.UTC(2026, 0, day, h - 9, m, s)
+  const ROSTER = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
+  const idleAll = (): StatusMap => Object.fromEntries(ROSTER.map((a) => [a, idle()]))
+  /** the first day (and agent) on which `who` is assigned water at this KST time */
+  function waterDay(who: string, h: number, m: number, s: number) {
+    for (let day = 1; day < 120; day++) {
+      const now = KST_H(day, h, m, s)
+      if (playAt(Math.floor(now / 60000), ROSTER)[who]?.kind === 'water') return now
+    }
+    throw new Error('no such day')
+  }
+  const goalsAt = (d: Director, now: number, st: StatusMap) => d.goals(now, Math.floor(now / 60000), st, () => null)
+
+  it('starts the errand by day, and not 10 s before agent_1 goes dark (23:03): its night changes within the lead', () => {
+    const day = waterDay('agent_1', 22, 56, 0)
+    expect(goalsAt(new Director(ROSTER), day, idleAll()).agent_1.water?.stage).toBe('fetch')
+    const late = waterDay('agent_1', 23, 2, 50)
+    expect(goalsAt(new Director(ROSTER), late, idleAll()).agent_1.water).toBeUndefined()
+  })
+
+  it('does not start while wrapping at night (asleep or on the night shift as soon as the wrap-up ends), does by day', () => {
+    const night = waterDay('agent_1', 1, 10, 0)
+    const wrapping = idleAll()
+    wrapping.agent_1 = { state: 'wrapping', since: night - 200_000 }
+    expect(goalsAt(new Director(ROSTER), night, wrapping).agent_1.water).toBeUndefined()
+    const noon = waterDay('agent_1', 13, 10, 0)
+    const wrapDay = idleAll()
+    wrapDay.agent_1 = { state: 'wrapping', since: noon - 200_000 }
+    // (a wrap-up still under way holds the agent; the errand may start once it has run, so only the night case is asserted above)
+    expect(goalsAt(new Director(ROSTER), noon, idleAll()).agent_1.water?.stage).toBe('fetch')
+  })
+
+  it('an errand already under way is not touched by the rule', () => {
+    const day = waterDay('agent_1', 23, 2, 30)
+    const d = new Director(ROSTER)
+    expect(goalsAt(d, day, idleAll()).agent_1.water?.stage).toBe('fetch')
+    // 10 s later its night is within the lead (a fresh start would be refused), but it is on its way already: still fetching
+    const edge = day + 10_000
+    expect(goalsAt(d, edge, idleAll()).agent_1.water?.stage).toBe('fetch')
+  })
+})

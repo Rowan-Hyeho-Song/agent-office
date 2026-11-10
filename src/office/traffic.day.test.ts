@@ -37,6 +37,25 @@ describe('a whole day through the planner', () => {
     expect(r.maxSeatDrift).toBeLessThanOrEqual(0.02)
   }, 120_000)
 
+  // #218: a replan is a frame's hitch if it is slow. The numbers are measured on the day's own replans (the best of three runs on a quiet machine: median 1.4 ms, p95 6.7, max 21; it was
+  // 9.6 / 24.7 / 65 before); a machine busy with other tests inflates them several times over, so they are reported here and only the median is bounded; the work itself is counted in traffic.perf.test.ts
+  it('replans are quick: the median is a fraction of a frame (p95 / max reported)', () => {
+    const r = wholeDay()
+    const q = (p: number) => r.planMs[Math.min(r.planMs.length - 1, Math.floor(r.planMs.length * p))]
+    console.log(`day sim (#218): ${r.replans} replans, median ${q(0.5).toFixed(1)} ms, p95 ${q(0.95).toFixed(1)} ms, p99 ${q(0.99).toFixed(1)} ms, max ${q(1).toFixed(1)} ms`)
+    // only a floor that no machine load explains (the full suite runs beside this: p99 117 ms, max 340 ms seen there); the work is counted in traffic.perf.test.ts
+    expect(q(0.5)).toBeLessThan(40)
+  }, 120_000)
+
+  // #339: no walker is ever pushed past 1.1 x the cruise (replan joins used to give up to 1.5 x)
+  it('nobody walks faster than 1.1 x the cruise', () => {
+    const r = wholeDay()
+    console.log(`day sim (#339): fastest sample ${r.maxSpeed.toFixed(3)} m/s (cruise ${TRAFFIC.cruise}); samples over 1.1 x cruise: ${r.fast.length}`)
+    if (r.fast.length) console.log(JSON.stringify(r.fast.slice(0, 8)))
+    expect(r.fast).toEqual([])
+    expect(r.maxSpeed).toBeLessThanOrEqual(1.1 * TRAFFIC.cruise)
+  }, 120_000)
+
   // #186: what an agent shows is what its body does (one decision in the director), and nobody waits for a spot another holds
   it('shown state and behaviour never disagree; nobody waits more than 60 s for a goal', () => {
     const r = wholeDay()
@@ -61,7 +80,7 @@ describe('a whole day through the planner', () => {
 describe('reading through the day', () => {
   it('the book is fetched, picked, carried to a seat, read, brought back and put down, one agent at a time, on seat 0 and also on seat 1', () => {
     const r = wholeDay()
-    console.log(`day sim (#280): reading errands ${JSON.stringify(r.reads)}; most at once ${r.readsAtOnce}`)
+    console.log(`day sim (#280): reading errands ${JSON.stringify(r.reads)}; forgotten before the book was taken ${JSON.stringify(r.readCancels)}; most at once ${r.readsAtOnce}`)
     expect(r.reads.fetch, 'readings started').toBeGreaterThan(5)
     // a reading called to work before it reached the table forgets the book (nothing to bring back); one that has taken the book always puts it back (the day's last one may be cut off)
     expect(r.reads.pick, 'most readings reach the table').toBeGreaterThan(r.reads.fetch * 0.8)

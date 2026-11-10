@@ -107,7 +107,28 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
 
     // ---- where a cut is shot from -------------------------------------------------------------------------------
     // null = no camera that is clear and sees the subject: the cut is skipped (#253)
+    // the camera spot each subject was last shot from: a subject shown again is composed differently (#277)
+    const lastShot = new Map<string, V3>()
     function plant(cut: Cut): { base: Pose; follow: Run['follow'] } | null {
+      // the plan names the composition (cut.variant); when the place's clearance made that pose the same spot as last time, the next composition
+      type Pick = { planted: { base: Pose; follow: Run['follow'] }; variant: number }
+      let chosen: Pick | null = null
+      let fallback: Pick | null = null
+      const prev = lastShot.get(cut.subject)
+      for (let k = 0; k < TOUR.variants && !chosen; k++) {
+        const variant = (cut.variant + k) % TOUR.variants
+        const planted = plantWith(cut, variant)
+        if (!planted) continue
+        fallback ??= { planted, variant }
+        if (!prev || Math.hypot(planted.base.pos[0] - prev[0], planted.base.pos[1] - prev[1], planted.base.pos[2] - prev[2]) >= 0.5) chosen = { planted, variant }
+      }
+      const pick = chosen ?? fallback
+      if (!pick) return null
+      cut.variant = pick.variant
+      lastShot.set(cut.subject, pick.planted.base.pos)
+      return pick.planted
+    }
+    function plantWith(cut: Cut, variant: number): { base: Pose; follow: Run['follow'] } | null {
       const c = clearance()
       // the robots parked at a place (work, sofa, circle, play; not the ones walking past) may cover the subject only a little (#270)
       const parked = Object.entries(world.rigs).filter(([id, r]) => isParked(r, world.goals[id]?.spot))
@@ -124,7 +145,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
         const n = Math.max(1, rigs.length)
         const centre = { x: rigs.reduce((s, r) => s + r.x, 0) / n, z: rigs.reduce((s, r) => s + r.z, 0) / n }
         c.shot = shotOf(cut.agents)
-        base = meetingPose(centre, c, homeNow())
+        base = meetingPose(centre, c, homeNow(), 4.0, 2.6, variant)
       } else {
         const id = cut.agents[0]
         const rig = world.rigs[id]
@@ -141,11 +162,11 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
         else if (doing === 'boardgame' && ga && gb) c.shot = shotOf(players(ga, gb))
         else if (seat && (rig?.arrived === seat.id || cut.why === 'working')) c.shot = shotOf([id], seat)
         else c.shot = shotOf([id])
-        if (doing === 'pingpong' && a && b) base = tablePose(a, b, c, homeNow(), { dist: 3.8, y: 2.2, targetY: 0.76 })
-        else if (doing === 'boardgame' && ga && gb) base = tablePose(ga, gb, c, homeNow(), { dist: 2.0, y: 1.8, targetY: 0.6 })
-        else if (seat && (rig?.arrived === seat.id || cut.why === 'working')) base = workPose(seat, c)
+        if (doing === 'pingpong' && a && b) base = tablePose(a, b, c, homeNow(), { dist: 3.8, y: 2.2, targetY: 0.76 }, variant)
+        else if (doing === 'boardgame' && ga && gb) base = tablePose(ga, gb, c, homeNow(), { dist: 2.0, y: 1.8, targetY: 0.6 }, variant)
+        else if (seat && (rig?.arrived === seat.id || cut.why === 'working')) base = workPose(seat, c, variant)
         else if (rig) {
-          base = standPose({ x: rig.x, z: rig.z, ry: rig.heading }, c)
+          base = standPose({ x: rig.x, z: rig.z, ry: rig.heading }, c, 2.2, 1.7, 1.0, variant)
           if (base) follow = { id, off: [base.target[0] - rig.x, base.target[1], base.target[2] - rig.z] }
         } else base = { pos: homeNow(), target: [HOME_TARGET.x, HOME_TARGET.y, HOME_TARGET.z] }
       }
@@ -211,6 +232,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
         relax = false
         setTourState({ active: true })
       }
+      lastShot.clear()
       begin(plan.startAt(Date.now(), agent, views(), speed()))
     }
 
@@ -413,7 +435,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
         stop: stopTour,
         /** the designer's check (#223): an event at an agent now, e.g. tour.event('agent_3') */
         event: (agent: string, ms = 6000) => noteTourEvent(agent, ms),
-        state: () => ({ ...getTourState(), pick: lastPick.work, phase: run?.phase ?? null, history: plan.history.map((c) => `${c.id}:${c.why}`), views: views() }),
+        state: () => ({ ...getTourState(), pick: lastPick.work, phase: run?.phase ?? null, history: plan.history.map((c) => `${c.id}:${c.why}:v${c.variant}`), views: views() }),
       }
     }
     return () => {

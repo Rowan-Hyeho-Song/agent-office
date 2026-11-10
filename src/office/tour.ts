@@ -32,6 +32,10 @@ export const TOUR = {
   /** an establishing shot after this many agent / meeting cuts */
   establishEvery: 4,
   historyMax: 8,
+  /** the same play (table tennis, omok, watering, books) may fill this many cuts in a row; then another subject or the establishing shot (#277) */
+  samePlayMax: 2,
+  /** how many compositions a subject has (see TourPlan.push): the next time it is shown it is shot differently */
+  variants: 3,
   /** the replay speed from which only event cuts are used */
   eventsOnlySpeed: 16,
   swipe: { px: 60, ms: 300 },
@@ -69,6 +73,11 @@ export interface AgentView {
 }
 
 const PLAY_POSES = new Set(['pingpong', 'boardgame', 'water', 'books'])
+/** the poses played at a table: both players are one subject, shot from the same places */
+const TABLE_POSES = new Set(['pingpong', 'boardgame'])
+
+/** what a cut / view shows, for "not the same shot twice" (#277): a table game is one subject whoever of the two is the agent, else the agent / the circle */
+const subjectOf = (id: string, focus?: string) => (focus && TABLE_POSES.has(focus) ? `table:${focus}` : id)
 
 /** the agents' observations as scored views: a circle is one view, off / dozing ones are left out */
 export function buildViews(obs: readonly AgentObs[], now: number): AgentView[] {
@@ -109,7 +118,14 @@ export interface Cut {
   focus?: string
   /** an event cut lasts until then + 2 s (office ms) */
   eventUntil?: number
+  /** what it shows: the agent, the circle, or a table game (both players); the same subject is never shot the same way twice in a row (#277) */
+  subject: string
+  /** the composition (0 .. TOUR.variants - 1): 0 the first choice of the pose functions, 1 from the other side, 2 higher and from the third side. Set by TourPlan when the cut is taken */
+  variant: number
 }
+
+/** the play a cut is about (tennis, omok, water, books), or undefined */
+export const playOf = (c: { type?: Cut['type']; focus?: string }): string | undefined => ((c.type ?? 'agent') === 'agent' && c.focus && PLAY_POSES.has(c.focus) ? c.focus : undefined)
 
 let cutSeq = 0
 export const cutOf = (v: AgentView): Cut => ({
@@ -119,20 +135,26 @@ export const cutOf = (v: AgentView): Cut => ({
   agents: v.agents,
   why: v.why,
   focus: v.focus,
+  subject: v.why === 'meeting' ? v.id : subjectOf(v.id, v.focus),
+  variant: 0,
   ...(v.event ? { eventUntil: v.event.until } : {}),
 })
-export const establishingCut = (): Cut => ({ key: `cut${++cutSeq}`, type: 'establishing', id: 'establishing', agents: [], why: 'establishing' })
+export const establishingCut = (): Cut => ({ key: `cut${++cutSeq}`, type: 'establishing', id: 'establishing', agents: [], why: 'establishing', subject: 'establishing', variant: 0 })
 
 /**
  * The order of the cuts: highest score first, the one not shown for longest on a tie; never the same agent(s) twice
  * in a row; an establishing shot every `establishEvery` cuts and whenever nobody scores (or the only one is the one
- * just shown); from replay speed x16 only event cuts. History of the last 8 cuts for the back button.
+ * just shown); no more than TOUR.samePlayMax cuts of the same play in a row (the next one is another subject, else the establishing shot,
+ * and an event at that play waits for the next one, #277); a subject shown again is composed differently from its last time; from
+ * replay speed x16 only event cuts. History of the last 8 cuts for the back button.
  */
 export class TourPlan {
   history: Cut[] = []
   cursor = -1
   private sinceEstablishing = 0
   private lastSeen = new Map<string, number>()
+  /** the composition each subject was last shot in */
+  private lastVariant = new Map<string, number>()
 
   get current(): Cut | null {
     return this.cursor >= 0 ? this.history[this.cursor] : null
@@ -145,6 +167,25 @@ export class TourPlan {
     this.history = []
     this.cursor = -1
     this.sinceEstablishing = 0
+    this.lastVariant.clear()
+  }
+
+  /** the play that fills the end of the history (up to the cursor) and how many cuts in a row */
+  private playRun(): { play?: string; n: number } {
+    let play: string | undefined
+    let n = 0
+    for (let i = this.cursor; i >= 0; i--) {
+      const p = playOf(this.history[i])
+      if (!p || (play && p !== play)) break
+      play = p
+      n++
+    }
+    return { play, n }
+  }
+
+  /** the next cut would be a play that has had its turns */
+  private overPlayed(v: AgentView, run: { play?: string; n: number }): boolean {
+    return run.n >= TOUR.samePlayMax && playOf({ focus: v.focus }) === run.play
   }
 
   private choose(views: readonly AgentView[], speed: number): Cut {
@@ -152,6 +193,8 @@ export class TourPlan {
     let pool = views.filter((v) => v.score > 0)
     if (speed >= TOUR.eventsOnlySpeed) pool = pool.filter((v) => v.why === 'event')
     pool = pool.filter((v) => !(last.length > 0 && v.agents.every((a) => last.includes(a))))
+    const run = this.playRun()
+    pool = pool.filter((v) => !this.overPlayed(v, run))
     if (this.sinceEstablishing >= TOUR.establishEvery || pool.length === 0) return establishingCut()
     const seen = (v: AgentView) => Math.max(...v.agents.map((a) => this.lastSeen.get(a) ?? -Infinity))
     pool.sort((a, b) => b.score - a.score || seen(a) - seen(b) || a.id.localeCompare(b.id))
@@ -161,6 +204,10 @@ export class TourPlan {
   private push(c: Cut, now: number) {
     // a new cut after going back replaces what came after it
     this.history = this.history.slice(0, this.cursor + 1)
+    // a subject shown again is composed another way than the last time it was (the first time: the first choice)
+    const was = this.lastVariant.get(c.subject)
+    c.variant = was === undefined ? 0 : (was + 1) % TOUR.variants
+    this.lastVariant.set(c.subject, c.variant)
     this.history.push(c)
     if (this.history.length > TOUR.historyMax) this.history.shift()
     this.cursor = this.history.length - 1
@@ -201,8 +248,9 @@ export class TourPlan {
   interrupt(now: number, views: readonly AgentView[], cutStart: number): Cut | null {
     if (now - cutStart < TOUR.interruptAfterMs) return null
     const cur = this.current
+    const run = this.playRun()
     const ev = views
-      .filter((v) => v.why === 'event' && v.event && v.event.at > cutStart && v.id !== cur?.id)
+      .filter((v) => v.why === 'event' && v.event && v.event.at > cutStart && v.id !== cur?.id && !this.overPlayed(v, run))
       .sort((a, b) => b.event!.at - a.event!.at)[0]
     if (!ev) return null
     const c = cutOf(ev)
@@ -468,7 +516,7 @@ const heightFor = (h: number, dist: number, y: number, targetY: number) => {
 
 /** 10.3: a working agent, over the shoulder (back 1.4 m, right 0.8 m, 1.75 m up -> between head and monitor) and the fallbacks */
 export const SHOULDER = { back: 2.3, side: 1.1, y: 2.0, aheadTo: 0.45, targetSide: 0.3, targetY: 0.98 }
-export function workCandidates(seat: Frame): Pose[] {
+export function workCandidates(seat: Frame, variant = 0): Pose[] {
   const [fx, fz] = forward(seat.ry)
   const [rx, rz] = rightOf(seat.ry)
   const out: Pose[] = []
@@ -486,20 +534,26 @@ export function workCandidates(seat: Frame): Pose[] {
     pos: v3(seat.x + rx * 1.3 * s + fx * 0.5, y, seat.z + rz * 1.3 * s + fz * 0.5),
     target: v3(seat.x + fx * 0.15, 1.15, seat.z + fz * 0.15),
   })
-  out.push(shoulder(1), shoulder(-1), head(1), head(-1), face(1, 2.0), face(-1, 2.0), face(1, 2.3), face(-1, 2.3))
+  // the composition of the cut (#277): 0 over the right shoulder, 1 over the left, 2 from beside the desk end, higher
+  if (variant % 3 === 1) out.push(shoulder(-1), shoulder(1), head(-1), head(1), face(-1, 2.0), face(1, 2.0), face(-1, 2.3), face(1, 2.3))
+  else if (variant % 3 === 2) out.push(face(1, 2.3), face(-1, 2.3), head(1), head(-1), shoulder(1), shoulder(-1), face(1, 2.0), face(-1, 2.0))
+  else out.push(shoulder(1), shoulder(-1), head(1), head(-1), face(1, 2.0), face(-1, 2.0), face(1, 2.3), face(-1, 2.3))
   return out
 }
 
 /** the work cut: over the shoulder when that camera spot is clear and sees the seat, else the next that does (nearer / higher / the other side); null = skip the cut */
-export function workPose(seat: Frame, c: Clearance): Pose | null {
-  return firstUsable(workCandidates(seat), c)
+export function workPose(seat: Frame, c: Clearance, variant = 0): Pose | null {
+  return firstUsable(workCandidates(seat, variant), c)
 }
 
 /** from the front of a standing / sitting agent (and then to the sides), 2.2 m away, 1.7 m up: the upper body */
-export function standPose(at: Frame, c: Clearance, dist = 2.2, y = 1.7, targetY = 1.0): Pose | null {
+export function standPose(at: Frame, c: Clearance, dist = 2.2, y = 1.7, targetY = 1.0, variant = 0): Pose | null {
   const [fx, fz] = forward(at.ry)
   const target = v3(at.x, targetY, at.z)
-  const angles = [0, 40, -40, 80, -80, 140, -140, 180].map((a) => a * DEG)
+  // the composition (#277): 0 from the front, 1 from its right front, 2 from its left front and a little higher
+  const order = variant % 3 === 1 ? [40, 80, 0, -40, -80, 140, -140, 180] : variant % 3 === 2 ? [-40, -80, 0, 40, 80, -140, 140, 180] : [0, 40, -40, 80, -80, 140, -140, 180]
+  if (variant % 3 === 2) y += 0.25
+  const angles = order.map((a) => a * DEG)
   for (const dy of [0, ...RAISE_STEPS]) {
     for (const k of [1, 0.8, 0.65, 0.5]) {
       for (const a of angles) {
@@ -514,11 +568,13 @@ export function standPose(at: Frame, c: Clearance, dist = 2.2, y = 1.7, targetY 
 }
 
 /** across a table: beside its long side (the side the default camera is on first), `dist` away and `y` up, looking at its middle */
-export function tablePose(a: { x: number; z: number }, b: { x: number; z: number }, c: Clearance, home: V3, opt: { dist: number; y: number; targetY: number }): Pose | null {
+export function tablePose(a: { x: number; z: number }, b: { x: number; z: number }, c: Clearance, home: V3, opt: { dist: number; y: number; targetY: number }, variant = 0): Pose | null {
   const mid = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 }
   const len = Math.hypot(b.x - a.x, b.z - a.z) || 1
   const perp = { x: -(b.z - a.z) / len, z: (b.x - a.x) / len }
-  const toHome = (home[0] - mid.x) * perp.x + (home[2] - mid.z) * perp.z >= 0 ? 1 : -1
+  // the composition (#277): 0 from the side the default camera is on, 1 from the other long side, 2 from the first side again but higher and nearer
+  const toHome = ((home[0] - mid.x) * perp.x + (home[2] - mid.z) * perp.z >= 0 ? 1 : -1) * (variant % 3 === 1 ? -1 : 1)
+  if (variant % 3 === 2) opt = { ...opt, dist: opt.dist * 0.85, y: opt.y + 0.6 }
   const target = v3(mid.x, opt.targetY, mid.z)
   // the straight side view as far away as the room allows; turned along the table (up to 55 degrees) or nearer when it is in the way
   const cands: { cost: number; pos: V3 }[] = []
@@ -540,14 +596,18 @@ export function tablePose(a: { x: number; z: number }, b: { x: number; z: number
 }
 
 /** a talk circle: 4.0 m from its middle towards the default camera, 2.6 m up, looking at the middle (1.0 m up) */
-export function meetingPose(centre: { x: number; z: number }, c: Clearance, home: V3, dist = 4.0, y = 2.6): Pose | null {
+export function meetingPose(centre: { x: number; z: number }, c: Clearance, home: V3, dist = 4.0, y = 2.6, variant = 0): Pose | null {
   const hx = home[0] - centre.x
   const hz = home[2] - centre.z
   const base = Math.atan2(hz, hx)
   const target = v3(centre.x, 1.0, centre.z)
+  // the composition (#277): 0 from the default camera's side, 1 70 degrees round to one side, 2 70 degrees round to the other
+  const OFFS = [0, 25, -25, 50, -50, 90, -90, 135, -135, 180]
+  const first = variant % 3 === 1 ? 70 : variant % 3 === 2 ? -70 : 0
+  const offs = first === 0 ? OFFS : [first, ...[...OFFS].sort((p, q) => Math.abs(p - first) - Math.abs(q - first))]
   for (const dy of [0, ...RAISE_STEPS]) {
     for (const k of [1, 0.85, 0.7, 0.55]) {
-      for (const off of [0, 25, -25, 50, -50, 90, -90, 135, -135, 180]) {
+      for (const off of offs) {
         const a = base + off * DEG
         const pos = v3(centre.x + Math.cos(a) * dist * k, Math.min(MAX_CAM_Y, y + dy), centre.z + Math.sin(a) * dist * k)
         if (usable(pos, target, c)) return { pos, target }
@@ -574,7 +634,8 @@ export const DRIFT = { deg: 4, establishingDeg: 24 }
 export const driftRange = (cut: Cut, reduced: boolean): [number, number] => {
   if (reduced) return [0, 0]
   const w = (cut.type === 'establishing' ? DRIFT.establishingDeg : DRIFT.deg) * DEG
-  return [-w / 2, w / 2]
+  // the establishing shot sweeps the other way every other time (#277): it starts from the other side, so two in a row are not the same picture
+  return cut.type === 'establishing' && cut.variant % 2 === 1 ? [w / 2, -w / 2] : [-w / 2, w / 2]
 }
 /** the yaw offset at k (0..1) of the dwell */
 export const driftYaw = (range: [number, number], k: number) => range[0] + (range[1] - range[0]) * Math.min(1, Math.max(0, k))
