@@ -55,7 +55,7 @@ Node contract (the app reads glTF extras):
   <book>_l|r_grip, _l|r_contact_thumb|index|middle|ring|little
                                    empties (#231 1, grips.md 2): the open book in both hands, children of each half
                                    (grip_for l|r, pose open_book): palm on the cover behind the lower third, fingers
-                                   flat on it toward the spine, the thumb on the paper 1.5 cm in from the fore-edge
+                                   flat on it toward the spine, the thumb on the paper 25 mm in from the cover's edge (#381)
   nav_meet_center                  (#195) the one meeting circle: extras ry (0 deg = toward the board), ring 0.9, r 1.16
   nav_chat_0|_1                    (#195) the second conversation's two spots by the window, facing each other
   <plant>_tip_0..2                 empties (#185 watering.md): leaf tips where a drop forms, extras tip_of
@@ -3662,7 +3662,9 @@ def build_hands():
             child_empty(o, f"{book}_{hs}_grip", o.matrix_world @ grip_frame((W_ - 0.035, yc, zl), (-1, 0, 0), (0, -sgn, 0), hs),
                         {"grip_for": hs, "pose": "open_book"})
             # the thumb on the paper (_r: just over the turning page, 0.3-0.4 mm up; _l: on its text lines' level)
-            contact(o, "thumb", (W_ - 0.015, 0.0005 if sgn < 0 else -0.0003, zl), (0, -sgn, 0))
+            # #231 (grips.md, #381): 25 mm in from the cover's outer edge (19.5 mm from the paper's): at 15 mm the hand
+            # could not reach it within 3 mm without going through the book
+            contact(o, "thumb", (W_ - 0.025, 0.0005 if sgn < 0 else -0.0003, zl), (0, -sgn, 0))
             for part, dz in zip(("index", "middle", "ring", "little"), (-0.027, -0.009, 0.009, 0.027)):
                 contact(o, part, (W_ * 0.55, yc, min(zl + dz, H_ / 2 - 0.01)), (0, sgn, 0))  # flat on the cover
     # stamp: grip over the knob's head, fingers level, palm down
