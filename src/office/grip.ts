@@ -46,6 +46,8 @@ export const GRIPS: Record<string, GripSpec> = {
     l: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.3, 0.3, 0.3, 0.3], [0.3, 0.4]), after: REST, contacts: ['index', 'middle', 'ring', 'little', 'thumb'] },
     r: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.3, 0.3, 0.3, 0.3], [0.3, 0.4]), after: REST, contacts: ['index', 'middle', 'ring', 'little', 'thumb'] },
   },
+  // the closed book carried in front of the chest (#280, the bake's prop_book_grip_l / _contact_thumb_l, children of the book itself): the left hand under it, the thumb on its edge
+  bookclosed: { l: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.3, 0.3, 0.3, 0.3], [0.3, 0.4]), after: REST, contacts: ['thumb'] } },
   // the right thumb and index pinching the corner of the one leaf that turns (#231): the index 0.6, the thumb (0.25, 0.85), the others 0.3
   leaf: { r: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.6, 0.3, 0.3, 0.3], [0.25, 0.85]), after: REST, contacts: ['index', 'thumb'] } },
   // the loose sheet held by its long sides for reading (#374, grips.md "낱장 옆 쥐고 읽기"): the thumb on the text face, four fingers flat on the back, both hands

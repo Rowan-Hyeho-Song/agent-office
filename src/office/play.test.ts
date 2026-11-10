@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BLOCK_MINUTES, NIGHT_PLAYS, PAUSED, PLAYS, blockOf, playAt, soloAt } from './play'
+import { BLOCK_MINUTES, NIGHT_PLAYS, PLAYS, blockOf, playAt, soloAt } from './play'
 
 const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
 const ALL_SPOTS = new Set(PLAYS.flatMap((p) => p.spots))
@@ -156,16 +156,6 @@ describe('likes (#28)', () => {
   })
 })
 
-describe('paused plays (#341)', () => {
-  it('are never handed out, day or night', () => {
-    const FIVE = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
-    for (let b = 0; b < 2000; b++) {
-      for (const o of Object.values(playAt(b * BLOCK_MINUTES, FIVE))) expect(PAUSED.has(o.kind), `block ${b}: ${o.kind}`).toBe(false)
-      expect(PAUSED.has(soloAt(b * BLOCK_MINUTES, 'agent_2').kind), `night block ${b}`).toBe(false)
-    }
-  })
-})
-
 describe('soloAt (night duty, #110)', () => {
   it('is quiet and alone, and stable per minute block', () => {
     for (let m = 0; m < 300; m += BLOCK_MINUTES) {
@@ -204,37 +194,45 @@ describe('five agents (#193)', () => {
   })
 })
 
-// reading is off the schedule while it becomes seated (PAUSED, #341): these two hold again when it is back
-describe.skipIf(PAUSED.has('books'))('reading and ping-pong never share a block (#193)', () => {
-  it('the side-table reader closes the aisle to the sofa and the lounge: with five agents no block has both', () => {
-    const FIVE = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
-    let books = 0
-    let pingpong = 0
+// Reading (#280) is a seated errand (readRun.ts): the book is taken from the low table, read on sofa seat 0 (1 when 0 is taken) and put back. Two rules of the standing reader at the
+// side table (#193) are gone with it, each for a reason the day simulation (traffic.day.test.ts: no pair under 2R, no wait over 60 s, no mismatch) confirms:
+//  - "reading and ping-pong never share a block": the standing reader closed the aisle south of the table and the east player the one round its end, which walled in whoever napped
+//    or came back from the plants. The reader now stands one body at a time in the knee row for about a second and then sits, away from the ping-pong table;
+//  - "no head-on change of places between the sofa and the side table": that was a sleeper leaving the sofa while the reader walked to it along a one-body aisle; the reader now
+//    goes to a seat itself (and a former napper simply reads from the seat it is on), and the knee row lets one standing body in at a time.
+describe('reading on the schedule (#280)', () => {
+  const FIVE = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
+  it('is handed out, to one reader at a time (one book), and never to the night shift', () => {
+    let blocks = 0
     for (let b = 0; b < 2000; b++) {
-      const out = playAt(b * BLOCK_MINUTES, FIVE)
-      const kinds = Object.values(out).map((o) => o.kind)
-      if (kinds.includes('books')) books++
-      if (kinds.includes('pingpong')) pingpong++
-      expect(kinds.includes('books') && kinds.includes('pingpong'), `block ${b}`).toBe(false)
+      const readers = Object.values(playAt(b * BLOCK_MINUTES, FIVE)).filter((o) => o.kind === 'books')
+      expect(readers.length, `block ${b}`).toBeLessThanOrEqual(1)
+      if (readers.length) blocks++
     }
-    // both still happen
-    expect(books).toBeGreaterThan(100)
-    expect(pingpong).toBeGreaterThan(100)
+    expect(blocks).toBeGreaterThan(100)
+    expect(NIGHT_PLAYS).not.toContain('books')
+    for (let b = 0; b < 500; b++) expect(soloAt(b * BLOCK_MINUTES, 'agent_2').kind).not.toBe('books')
   })
-})
-
-describe.skipIf(PAUSED.has('books'))('no head-on change of places between the sofa and the side table (#193)', () => {
-  it('nobody goes from the sofa to the book the block after somebody else read', () => {
-    const FIVE = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
-    let readers = 0
+  it('may share a block with ping-pong and with a napper on the sofa (the reader sits, away from the table and the aisles)', () => {
+    let withPingpong = 0
+    let withNap = 0
+    for (let b = 0; b < 2000; b++) {
+      const kinds = Object.values(playAt(b * BLOCK_MINUTES, FIVE)).map((o) => o.kind)
+      if (!kinds.includes('books')) continue
+      if (kinds.includes('pingpong')) withPingpong++
+      if (kinds.includes('sofa')) withNap++
+    }
+    expect(withPingpong).toBeGreaterThan(0)
+    expect(withNap).toBeGreaterThan(0)
+  })
+  it('somebody who napped on the sofa may read the block after (it reads from the seat it is on or the next)', () => {
+    let found = 0
     for (let b = 1; b < 2000; b++) {
       const now = playAt(b * BLOCK_MINUTES, FIVE)
-      const was = playAt((b - 1) * BLOCK_MINUTES, FIVE, new Set(), 0) // the draw the rule looks back at
+      const was = playAt((b - 1) * BLOCK_MINUTES, FIVE)
       const reader = Object.entries(now).find(([, o]) => o.kind === 'books')
-      if (!reader) continue
-      readers++
-      if (Object.values(was).some((o) => o.kind === 'books')) expect(was[reader[0]]?.kind, `block ${b}`).not.toBe('sofa')
+      if (reader && was[reader[0]]?.kind === 'sofa') found++
     }
-    expect(readers).toBeGreaterThan(100)
+    expect(found).toBeGreaterThan(0)
   })
 })

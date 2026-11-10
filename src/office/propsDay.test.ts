@@ -9,9 +9,9 @@
 import { appendFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { stubCanvas } from './glbLoad'
-import { Guard, IDS, Walk, expectClean, expectCleanAll, runErrand, world, type World } from './errandWorld.fixture'
+import { Guard, IDS, Walk, expectClean, expectCleanAll, runErrand, runRead, world, type World } from './errandWorld.fixture'
 import { GRAPH, SPOTS } from './navSpots.fixture'
-import { BLOCK_MINUTES, PAUSED, PLAYS, playAt, soloAt } from './play'
+import { BLOCK_MINUTES, PLAYS, playAt, soloAt } from './play'
 import type { Goal } from './director'
 import { SETTLE_MS, sessionsAt, type PlaySession } from '../play/session'
 import { WATER_PLANTS } from './water'
@@ -60,7 +60,7 @@ const stand = (w: World, id: string, at: string | null, place: { x: number; z: n
 const IDLE = (id: string): Goal => ({ spot: `work_${id.split('_')[1]}`, pose: 'idle', label: '' })
 
 /** one agent does a solo activity at its place for 10 s, then walks off */
-function solo(w: World, agent: string, kind: 'coffee' | 'books', guard: Guard) {
+function solo(w: World, agent: string, kind: 'coffee' | 'books' /* books: the old standing pick, kept for the close-up */, guard: Guard) {
   const def = PLAYS.find((p) => p.kind === kind)!
   const spot = def.spots[0]
   const goal: Goal = { spot, pose: kind, ...(def.stand ? { face: def.face, slot: slotOf(def, spot) } : {}), label: '' }
@@ -105,8 +105,7 @@ describe('a day of the schedule: no prop moves on its own, whatever the schedule
 
   it('the day really contains what the checks below cover', () => {
     const kinds = new Set([...day.solo].map((x) => x.split('|')[1]))
-    // reading is off the schedule for now (play.ts PAUSED, #341); propsHome still takes the book from its home and puts it back
-    expect([...kinds].sort()).toEqual((['books', 'coffee'] as const).filter((k) => !PAUSED.has(k)))
+    expect([...kinds].sort()).toEqual(['books', 'coffee'])
     expect(new Set([...day.water].map((x) => x.split('|')[1])).size, 'every watered plant').toBe(WATER_PLANTS.length)
     expect(new Set([...day.pairs.values()].map((s) => s.kind)).size, 'both pair games').toBe(2)
     if (LOG) appendFileSync(LOG, `props day: ${day.solo.size} solo (agent, activity), ${day.water.size} watering (agent, plant), ${day.pairs.size} pairs (game, players)\n`)
@@ -119,7 +118,9 @@ describe('a day of the schedule: no prop moves on its own, whatever the schedule
       for (const kind of ['coffee', 'books'] as const) {
         if (!day.solo.has(`${agent}|${kind}`)) continue
         const guard = new Guard(w)
-        solo(w, agent, kind, guard)
+        // the cup is taken at the machine; the book is a seated reading (#280): from the low table to the sofa and back
+        if (kind === 'coffee') solo(w, agent, kind, guard)
+        else runRead(w, agent, 0, guard)
         expectClean(`${agent} ${kind}`, guard.stats, kind === 'coffee' ? 'cup' : 'book')
         n++
       }

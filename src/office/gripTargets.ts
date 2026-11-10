@@ -154,7 +154,8 @@ export function resolveTarget(scene: Object3D, objName: string, kind: string, si
     const m = local(node)
     contacts.push({ finger: f, p: new Vector3().setFromMatrixPosition(m), n: (contactAxis(scene) === 'z' ? new Vector3(0, 0, 1) : new Vector3(0, 1, 0)).transformDirection(m) })
   }
-  return { key: `${objName}:${side}`, kind, side, obj, pg: local(grip), contacts }
+  // the closed book's grip is another target of the same book and hand: its offsets are stored under their own key
+  return { key: kind === 'bookclosed' ? `${objName}:closed:${side}` : `${objName}:${side}`, kind, side, obj, pg: local(grip), contacts }
 }
 
 /** the hand's `_grip` frame in the hand's own frame */

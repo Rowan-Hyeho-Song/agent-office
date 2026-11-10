@@ -112,10 +112,13 @@ describe('the turntable through the Director', () => {
     const st = idle()
     st.agent_4 = { state: 'working', activity: 'test', since: 0 }
     let who: string | null = null
+    // somebody the schedule has already sent on an errand (the book, #280; the can; another act) is not resting: the record goes to the first of the others
+    const away = new Set<string>()
     drive(d, 0, 3, () => null, { wantsBreak: true, status: st }, (_t, g) => {
+      for (const x of IDS) if (g[x].read || g[x].water || (g[x].act && g[x].act!.kind !== 'record')) away.add(x)
       who ??= IDS.find((a) => g[a].act?.kind === 'record') ?? null
     })
-    expect(who).toBe('agent_0')
+    expect(who).toBe(IDS.find((x) => x !== 'agent_4' && !away.has(x)))
     const w = new Director(IDS)
     const busy = Object.fromEntries(IDS.map((a) => [a, { state: 'working' as const, activity: 'test', since: 0 }])) as StatusMap
     drive(w, 0, 3, () => null, { wantsBreak: true, status: busy }, (_t, g) => expect(IDS.some((a) => g[a].act)).toBe(false))

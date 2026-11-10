@@ -9,6 +9,7 @@ import type { Request } from './traffic'
 import { actSpot, actU, deckAfter, startAct, stepAct, type ActRun } from './actRun'
 import { ACT_LABEL, ACT_PLACE, isAct, type ActKind, type RecordMode } from './lounge'
 import { PATH_BLOCKERS, STAND_BLOCKERS, WATER_PLANTS } from './water'
+import { callAway, chooseSeat, holding as readHolding, placeOf as readPlace, READ_LABEL, startRead, stepRead, type ReadRun, type ReadStage } from './readRun'
 import { holding, placeOf, startWater, stepWater, WATER_LABEL, type WaterRun, type WaterStage } from './waterRun'
 import { habitFor, type HabitKind } from './waterFx'
 import { startWrap, stepWrap, viewOf, WALKING_TO_DESK, type BeatKind, type PieceKind, type Shown, type WrapRun } from './wrap'
@@ -42,6 +43,8 @@ export interface Goal {
   waiting?: boolean
   /** the watering errand (#228): its stage, the plant, and how long (s) the stage has lasted: the hands are drawn from these, not from where the agent stands */
   water?: { stage: WaterStage; plant: string; u: number; habit?: HabitKind | null }
+  /** the reading errand (#280, readRun.ts): its stage, the seat it reads on, and how long (s) the stage has lasted: the hands are drawn from these */
+  read?: { stage: ReadStage; seat: number; u: number }
   /** a lounge act (lounge.ts: the fridge, the dispenser, the turntable): which, how long since the agent reached its stand (s, -1 on the way), the turntable's mode and whether a record was on the platter */
   act?: { kind: ActKind; u: number; mode?: RecordMode; recordOn: boolean }
   /** what it's doing, for the debug panel */
@@ -58,7 +61,7 @@ export const requestOf = (goal: Goal, pace: number, notBefore?: number): Request
 })
 
 /** the poses that hold a prop in the hand until the play ends, and how long the agent stays to put it back before it walks off */
-const PROP_POSES = new Set<Pose>(['coffee', 'books', 'pingpong', 'boardgame'])
+const PROP_POSES = new Set<Pose>(['coffee', 'pingpong', 'boardgame'])
 const PUT_AWAY_MS = 800
 /** an errand / act starts only if the agent's duty (rest, sleep, night shift) stays the same this long (ms) */
 const START_LEAD_MS = 20_000
@@ -104,6 +107,9 @@ export class Director {
   /** the watering errands in progress (waterRun.ts; at most one: there is one can) and the block each agent has watered in already */
   private waters: Record<string, WaterRun> = {}
   private waterDone: Record<string, number> = {}
+  /** the reading errand in progress (readRun.ts; at most one: there is one book) and the block each agent has read in already */
+  private reads: Record<string, ReadRun> = {}
+  private readDone: Record<string, number> = {}
   /** the lounge acts in progress (actRun.ts; the fridge and the dispenser share one bar, the turntable has its own) and the block each agent has acted in already */
   private acts: Record<string, ActRun> = {}
   private actDone: Record<string, number> = {}
@@ -193,6 +199,20 @@ export class Director {
 
   clearWater() {
     for (const k of Object.keys(this.waters)) delete this.waters[k]
+  }
+
+  clearReads() {
+    for (const k of Object.keys(this.reads)) delete this.reads[k]
+  }
+
+  /** ?debug=1: send an agent to read right now, on `seat` (0 when not said); the schedule's own readings take the first free seat */
+  forceRead(agent: string, now: number, seat: 0 | 1 = 0) {
+    this.clearReads()
+    delete this.waters[agent]
+    delete this.acts[agent]
+    const block = blockOf(Math.floor(now / 60000))
+    this.reads[agent] = startRead(seat, block, now)
+    this.readDone[agent] = block
   }
 
   /** ?debug=1: send an agent for the can right now (the schedule's own errands start the same way) */
@@ -330,7 +350,7 @@ export class Director {
       } else this.waters[a] = r.run
     }
     if (!Object.keys(this.waters).length) {
-      const a = this.agents.find((x) => resting(x) && steady(x) && !this.acts[x] && play[x]?.kind === 'water' && this.waterDone[x] !== block)
+      const a = this.agents.find((x) => play[x]?.kind === 'water' && this.waterDone[x] !== block && !this.acts[x] && !this.reads[x] && resting(x) && steady(x))
       if (a) {
         // the scheduled plant, or the next one whose stand is not taken by somebody resting beside it (water.ts STAND_BLOCKERS)
         const names = WATER_PLANTS.map((p) => p.name)
@@ -338,6 +358,35 @@ export class Director {
         const free = (n: string) => ![...(STAND_BLOCKERS[n] ?? []), ...(PATH_BLOCKERS[n] ?? [])].some((spot) => this.agents.some((x) => x !== a && (this.lastGoal[x]?.spot === spot || arrivedAt(x) === spot)))
         const plant = [0, 1, 2].map((k) => names[(first + k) % names.length]).find(free)
         if (plant) this.waters[a] = startWater(plant, block, now, !!opts.reduced, habitFor(a, block))
+      }
+    }
+    // the reading errand (readRun.ts, #280): the schedule's books assignment is an errand like the watering: the book is taken from the low table, read on sofa seat 0
+    // (seat 1 when somebody has it), and put back. One book, so one reader; called away before it has the book nothing is left to bring back, called away
+    // with it the agent first brings it back
+    for (const a of this.agents) {
+      const run = this.reads[a]
+      if (!run) continue
+      let cur = run
+      if (!resting(a) || a in this.meet) {
+        if (!readHolding(run)) {
+          delete this.reads[a]
+          continue
+        }
+        cur = callAway(run, now)
+      }
+      const r = stepRead(cur, { now, at: (spot) => arrivedAt(a) === spot })
+      if (r.done) {
+        this.readDone[a] = run.block
+        delete this.reads[a]
+      } else this.reads[a] = r.run
+    }
+    if (!Object.keys(this.reads).length) {
+      const a = this.agents.find((x) => play[x]?.kind === 'books' && this.readDone[x] !== block && !this.acts[x] && !this.waters[x] && resting(x) && steady(x))
+      if (a) {
+        // seat 0 when nobody rests on it or is heading for it, else seat 1, else this reading is skipped (the block counts as read)
+        this.readDone[a] = block
+        const seat = chooseSeat((spot) => this.agents.some((x) => x !== a && (this.lastGoal[x]?.spot === spot || arrivedAt(x) === spot)))
+        if (seat !== null) this.reads[a] = startRead(seat, block, now)
       }
     }
     // the lounge acts (lounge.ts): started by the schedule or by the music's wish for a break, once the agent is free; called away it simply stops
@@ -369,7 +418,7 @@ export class Director {
     // the break music is due and nobody has put the record on: whoever rests, agent_4 (echo) first; the break is over and the needle is still down: somebody lifts it
     const wishes = opts.wantsBreak === undefined ? null : opts.wantsBreak ? !this.deck.needle : this.deck.needle && now - this.needleAt >= LIFT_AFTER_MS
     if (wishes && !Object.values(this.acts).some((r) => r.kind === 'record')) {
-      const free = this.agents.filter((x) => resting(x) && steady(x) && !this.acts[x] && !this.waters[x])
+      const free = this.agents.filter((x) => !this.acts[x] && !this.waters[x] && !this.reads[x] && resting(x) && steady(x))
       const a = free.includes('agent_4') ? 'agent_4' : free[0]
       if (a) beginAct(a, 'record')
     }
@@ -377,10 +426,10 @@ export class Director {
       const k = play[a]?.kind
       // the break music is on and the needle is down: the schedule does not send anybody to lift the arm (that is for the end of the break, above)
       if (k === 'record' && opts.wantsBreak && this.deck.needle) continue
-      if (k && isAct(k) && resting(a) && steady(a) && !this.acts[a] && !this.waters[a] && this.actDone[a] !== block) beginAct(a, k)
+      if (k && isAct(k) && this.actDone[a] !== block && !this.acts[a] && !this.waters[a] && !this.reads[a] && resting(a) && steady(a)) beginAct(a, k)
     }
     // whoever is on an errand is not free for the schedule's other plays (a game partner left alone goes to a solo)
-    const away = [...Object.keys(this.waters), ...Object.keys(this.acts)]
+    const away = [...Object.keys(this.waters), ...Object.keys(this.acts), ...Object.keys(this.reads)]
     if (away.length) play = playAt(minute, this.agents, new Set([...busy, ...away]))
     const out: Record<string, Goal> = {}
     const shown: Record<string, Shown> = {}
@@ -417,6 +466,17 @@ export class Director {
         shown[a] = free
           ? { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
           : { status: s, kind: s.state === 'working' ? 'work' : s.state === 'wrapping' ? 'wrap' : s.state === 'off' ? 'off' : 'duty', detail: WATER_LABEL[wr.stage], ...(s.state === 'wrapping' ? { step: 'seat' as const } : {}) }
+        continue
+      }
+      // the reading errand: the stage's own place (the stand beside the table, or the sofa seat) and hands, until the book is back where it was taken from
+      const rr = this.reads[a]
+      if (rr) {
+        const pl = readPlace(rr)
+        out[a] = { spot: pl.spot, pose: 'books', ...(pl.stand ? { face: pl.face, ...standSlot({ stand: pl.stand, face: pl.face }) } : {}), read: { stage: rr.stage, seat: rr.seat, u: (now - rr.t0) / 1000 }, label: `책 읽기 · ${READ_LABEL[rr.stage]}` }
+        const free = (s.state === 'idle' && s.night !== 'duty') || (s.state === 'wrapping' && !this.runs[a])
+        shown[a] = free
+          ? { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
+          : { status: s, kind: s.state === 'working' ? 'work' : s.state === 'wrapping' ? 'wrap' : s.state === 'off' ? 'off' : 'duty', detail: READ_LABEL[rr.stage], ...(s.state === 'wrapping' ? { step: 'seat' as const } : {}) }
         continue
       }
       // a lounge act: its own place and hands for as long as it lasts
@@ -471,6 +531,11 @@ export class Director {
       }
       if (p?.kind === 'water') {
         out[a] = { ...deskIdle(desk), label: this.waterDone[a] === block ? '자리에서 쉬는 중' : '물뿌리개 차례 기다리는 중' }
+        continue
+      }
+      // reading is an errand too (above): one book, so an agent assigned to it waits for its turn, or finds both seats taken and skips this block's reading
+      if (p?.kind === 'books') {
+        out[a] = { ...deskIdle(desk), label: this.readDone[a] === block ? '자리에서 쉬는 중' : '책 차례 기다리는 중' }
         continue
       }
       if (p) playing.push(a)
