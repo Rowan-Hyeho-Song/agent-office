@@ -18,6 +18,14 @@ import { DESK_SIDES, dist, type NavGraph, type NavSpot } from './nav'
 
 /** how near its goal a walker is allowed the relaxed clearance to a neighbour resting on a designed pair spot (m): the arrival zone (0.45 m, the day sim's own) plus half a grid cell. It was 0.75; with the sofa against the south wall and the fig beside it (#280) a walker coming from the north-west cut in to 0.39 m from the sleeper from that far out */
 const EXEMPT_ZONE = 0.5
+/**
+ * The agents' cruising walk, m/s (#329: 0.75 -> 1.0, the user found them slow). The one number for the planner (TRAFFIC.cruise) and the
+ * rig (rig.ts SPEED, and its acceleration, corner speed and turn rate, which scale with it).
+ */
+export const CRUISE = 1.0
+/** what the walk was tuned at; the rig scales its acceleration / corner / turn numbers by CRUISE / this */
+export const CRUISE_TUNED = 0.75
+
 export const TRAFFIC = {
   /** body radius, m: two agents are never closer than 2 x this */
   bodyR: 0.3,
@@ -25,7 +33,7 @@ export const TRAFFIC = {
   planGap: 0.12,
   /** the finished trajectories are verified against 2R plus this */
   verifyGap: 0.02,
-  cruise: 0.75,
+  cruise: CRUISE,
   /** A* time grid, s (closed-list resolution) and stored trajectory grid, s */
   tick: 0.1,
   sampleDt: 0.05,

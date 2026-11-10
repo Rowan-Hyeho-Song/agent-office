@@ -46,16 +46,18 @@ import {
   type JointSpec,
   type Range,
 } from './handPose'
-import { TRAFFIC, type Sample } from './traffic'
+import { CRUISE, CRUISE_TUNED, TRAFFIC, type Sample } from './traffic'
 import type { AgentStatus } from './status'
 import { musicGlow, speakerCone, speakerOn } from '../audio/speaker'
 
 /** the poses of the play schedule (play.ts PlayKind): what "resting" means (sound.md 5) */
 const RESTING_POSES: ReadonlySet<string> = new Set(['pingpong', 'boardgame', 'coffee', 'sofa', 'water', 'books'])
-const SPEED = 0.75 // m/s cruising
-const ACCEL = 1.4 // m/s²
-const CORNER_SPEED = 0.32 // through a sharp turn
-const TURN_RATE = 4.5 // rad/s
+/** the walk (#329): cruising from traffic.ts CRUISE; acceleration, the corner speed and the turn rate keep their proportions to it (tuned at 0.75) */
+const PACE = CRUISE / CRUISE_TUNED
+const SPEED = CRUISE // m/s cruising
+const ACCEL = 1.4 * PACE // m/s²
+const CORNER_SPEED = 0.32 * PACE // through a sharp turn
+const TURN_RATE = 4.5 * PACE // rad/s
 // a meeting listener's nod (#141): how long it takes, how far the head dips, how long the addressee's hand stays up
 const NOD_S = 0.5
 /** where a caught paper / plane is held to be looked at, from the head (paper-pass.md 5, #273) */
@@ -81,7 +83,8 @@ const HAND_OMEGA = 12
  * swing below stillV (turning on the spot); settleS: on a stop the swing sinks to nothing, without overshoot, then bobS blends the standing bob in; attachS: the
  * hand's spring state (when it is farther than attachNear from the place) blends into the attached place (a hand that was elsewhere does not jump); carryShare: the free hand beside a carrying one swings this much.
  */
-const WALK = { hz: 0.8, hzMin: 0.5, hzMax: 1.0, cruise: 0.75, amp: 0.05, ampMax: 0.07, arc: 0.012, inward: 0.01, wristDeg: 10, startS: 0.4, stillV: 0.1, stillBand: 0.1, settleS: 0.5, bobS: 0.3, attachS: 0.25, attachNear: 0.15, carryShare: 0.6, heldBob: 0.006, canBob: 0.01 } as const
+const WALK = { hz: 0.8, hzMin: 0.5, hzMax: 1.0, cruise: CRUISE_TUNED, amp: 0.05, ampMax: 0.07, arc: 0.012, inward: 0.01, wristDeg: 10, startS: 0.4, stillV: 0.1, stillBand: 0.1, settleS: 0.5, bobS: 0.3, attachS: 0.25, attachNear: 0.15, carryShare: 0.6, heldBob: 0.006, canBob: 0.01 } as const
+// #329 (designer): the swing keeps its 0.75 m/s reference, so the faster 1.0 m/s cruise swings faster and wider: 0.8 x sqrt(1 / 0.75) = 0.92 Hz, +-6.7 cm (agents.md 2.5)
 interface Swing {
   dx: number
   dy: number
