@@ -64,6 +64,10 @@ describe('parseDeskAudio (#194)', () => {
     expect(parseDeskAudio(audio({ muted: false, volume: 0.4, x: 1 }), parent, allowed)).toEqual({ muted: false, volume: 0.4 })
     expect(parseDeskAudio(audio({ muted: true, volume: 3 }), parent, allowed)).toEqual({ muted: true, volume: 1 })
   })
+  it('#353 keeps music / sfx only when the desk sends them (an older desk leaves the office levels alone)', () => {
+    expect(parseDeskAudio(audio({ muted: false, volume: 1, music: 0.3, sfx: 4 }), parent, allowed)).toEqual({ muted: false, volume: 1, music: 0.3, sfx: 1 })
+    expect(parseDeskAudio(audio({ muted: false, volume: 1, music: 'x' }), parent, allowed)).toEqual({ muted: false, volume: 1 })
+  })
   it('needs the same envelope and allow-list as the rest', () => {
     expect(parseDeskAudio(audio({ muted: 'yes', volume: 1 }), parent, allowed)).toBeNull()
     expect(parseDeskAudio({ ...audio({ muted: true, volume: 1 }), origin: 'https://evil.test' }, parent, allowed)).toBeNull()

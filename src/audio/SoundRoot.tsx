@@ -39,7 +39,7 @@ export function SoundRoot({ world }: { world: OfficeWorld }) {
     // turning sound on (a click, so a gesture) or the desk saying so: start; local changes go back to the desk
     const offSetting = subscribe((s, from) => {
       if (!s.muted) wake()
-      if (from === 'local') postToParent({ type: 'audio', room: 'office', muted: s.muted, volume: s.volume })
+      if (from === 'local') postToParent({ type: 'audio', room: 'office', muted: s.muted, volume: s.volume, music: s.music, sfx: s.sfx })
     })
 
     const offs: (() => void)[] = []
