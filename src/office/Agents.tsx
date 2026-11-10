@@ -255,6 +255,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
       const carrying = Object.fromEntries(world.director.agents.filter((a) => world.director.carries(a)).map((a) => [a, goals[a]]))
       world.meeting.apply(now, (a) => rigs[a].arrived, goals, door ? { x: door.x, z: door.z } : undefined, { at: (a) => rigs[a] ?? null, spot: (s) => graph.spots[s] ?? null })
       Object.assign(goals, carrying)
+      // the list, the tags and the monitors say the meeting's words for the whole meeting (#354); a carrier keeps its errand's words
+      world.director.setMeeting(Object.fromEntries(Object.entries(world.meeting.words).filter(([a]) => !carrying[a])))
     }
     const scene = st ? replay.scene() : null
     const status = scene ? scene.status : world.source.getSnapshot()

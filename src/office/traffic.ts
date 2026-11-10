@@ -16,6 +16,7 @@
 // Time is the caller's simulation clock (seconds), never frame dependent. Pure: no three.js, no Date.
 
 import { cellAt, centre, distanceField, findPath, nearestWalkable, step, type Grid } from './grid'
+import { SEAT_R } from './formation'
 import { DESK_SIDES, dist, type NavGraph, type NavSpot } from './nav'
 import { inSofaRow, rowApproach, rowLocal, seatedPair, SOFA_ROW, type RowApproach, type SofaRow } from './sofaRow'
 
@@ -30,6 +31,15 @@ const LEAD_STEPS = 10
 export const CRUISE = 1.0
 /** what the walk was tuned at; the rig scales its acceleration / corner / turn numbers by CRUISE / this */
 export const CRUISE_TUNED = 0.75
+
+/** the inner half of the meeting circle (its ring is SEAT_R): a body not bound for the centre stays out of it (#355) */
+export const MEET_INNER_R = SEAT_R / 2
+/** the circle's reach: its ring (SEAT_R) and the step back out of it */
+const MEET_RING_R = SEAT_R + 0.4
+/** round its own goal the ban leaves cells open: a talk seat (MEET_SEAT_R 0.5 m) is a cell or two inside it */
+const MEET_GOAL_OPEN = 0.25
+/** ... and round where it stands: about a grid cell */
+const MEET_START_OPEN = 0.16
 
 export const TRAFFIC = {
   /** body radius, m: two agents are never closer than 2 x this */
@@ -225,6 +235,7 @@ export class TrafficPlanner {
   private fields = new Map<string, Float64Array>()
   private avoidCells = new Map<string, Uint8Array>()
   private unions = new Map<string, Uint8Array>()
+  private centreBans = new Map<string, Uint8Array>()
   private dirty = false
   private thr = 2 * TRAFFIC.bodyR + TRAFFIC.planGap
   private thrV = 2 * TRAFFIC.bodyR + TRAFFIC.verifyGap
@@ -609,6 +620,50 @@ export class TrafficPlanner {
   }
 
   /**
+   * The inner half of the meeting circle is nobody's way (#355): a body that is not going to the centre keeps out of the cells within
+   * MEET_INNER_R of it, so leaving a seat (or a talk seat) it goes out by the nearest side instead of across the middle, and one coming
+   * in comes from outside. Left open round its own goal (a seat of the circle's own is a cell or two from the ban) and for a body that
+   * is inside already (it must be able to get out).
+   */
+  private centreBan(req: Request, here: { x: number; z: number }, goal: { x: number; z: number }): { key: string; set: Uint8Array } | null {
+    if (this.spots[req.spot]?.kind === 'meet_center') return null
+    const centres = Object.values(this.spots).filter((s) => s.kind === 'meet_center')
+    if (!centres.length) return null
+    // only a body that sets off from the circle or is bound for it (its seats, the step back): the aisle through the middle stays everyone else's way
+    // (a body standing at another destination within the ring's reach, the whiteboard, is not leaving the circle)
+    const atOther = Object.values(this.spots).some((s) => s.kind !== 'meet_center' && s.kind !== 'hall' && !s.id.startsWith('meet_') && dist(s, here) < 0.2)
+    const ring = centres.filter((c) => (!atOther && dist(c, here) < MEET_RING_R) || (req.spot.startsWith('meet_') && dist(c, goal) < MEET_RING_R))
+    if (!ring.length || ring.some((c) => dist(c, here) < MEET_INNER_R)) return null
+    // the cell it stands in is open (the seat's own cell may lie inside the ban: it must be able to step out of it)
+    const g = this.grid
+    const own = cellAt(g, here.x, here.z)
+    const key = `centre|${ring.map((c) => c.id).join()}|${goal.x.toFixed(2)},${goal.z.toFixed(2)}|${own}`
+    let set = this.centreBans.get(key)
+    if (!set) {
+      set = new Uint8Array(g.w * g.h)
+      for (let c = 0; c < set.length; c++) {
+        const p = centre(g, c)
+        if (ring.some((m) => dist(m, p) < MEET_INNER_R) && Math.hypot(p.x - goal.x, p.z - goal.z) > MEET_GOAL_OPEN && Math.hypot(p.x - here.x, p.z - here.z) > MEET_START_OPEN) set[c] = 1
+      }
+      if (this.centreBans.size > 64) this.centreBans.clear()
+      this.centreBans.set(key, set)
+    }
+    return { key, set }
+  }
+
+  private mergeBans(a: { key: string; set: Uint8Array } | null, b: { key: string; set: Uint8Array } | null): { key: string; set: Uint8Array } | null {
+    if (!a || !b) return a ?? b
+    const key = `${a.key}+${b.key}`
+    let set = this.unions.get(key)
+    if (!set) {
+      set = new Uint8Array(a.set.length)
+      for (let c = 0; c < set.length; c++) set[c] = a.set[c] | b.set[c]
+      this.unions.set(key, set)
+    }
+    return { key, set }
+  }
+
+  /**
    * Getting up from a seat of the row (#280): out along the seat's lane to its far end, then a straight chord to a cell that keeps the pitch from every body
    * resting on a seat, and the usual search from there (the cells of the grid cannot find the way out between two seated neighbours: every cell beside the lane is
    * nearer them than the pitch). Null when it does not start on a seat, goes to another seat of the row, or no cell qualifies (the plain search then).
@@ -730,7 +785,10 @@ export class TrafficPlanner {
     const avoid = !!req.avoid
     // standing at a desk side (a night talk at a working desk): that side is not avoided for the way out
     const own = avoid ? ([...DESK_SIDES].find((id) => this.spots[id] && Math.hypot(here.x - this.spots[id].x, here.z - this.spots[id].z) < 0.6) ?? '') : ''
-    const ban = noBan ? null : this.entranceBan(req.spot, here)
+    // the entrance rule of the sofa row (#280) and the meeting circle's middle (#355). The retry by the other entrance drops only the first: the
+    // middle stays shut, or a body that found no way by its entrance would cut across the circle instead
+    const entrance = noBan ? null : this.entranceBan(req.spot, here)
+    const ban = this.mergeBans(entrance, this.centreBan(req, here, goal))
     const field = this.fieldFor(goalCell, avoid, own, ban)
     const extra = this.blockedFor(avoid, own, ban)
     const V = TRAFFIC.cruise * req.pace
@@ -759,7 +817,7 @@ export class TrafficPlanner {
     let reached = true
     if (!blockedForever) ways = this.leaveSeat(ctx, here, startCell, t0, req.spot, !!pre) ?? this.search(ctx, { t: t0, x: here.x, z: here.z, c: startCell })
     // no way by the nearest entrance (a seated neighbour shuts it at the seat pitch): the other one, rather than waiting for the neighbour to go
-    if (!ways && ban) return this.planAgent(a, t, reserved, lanePull, true)
+    if (!ways && entrance) return this.planAgent(a, t, reserved, lanePull, true)
     if (!ways) {
       reached = false
       ways = this.search({ ...ctx, near: true }, { t: t0, x: here.x, z: here.z, c: startCell })

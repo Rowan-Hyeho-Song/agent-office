@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { conversations, type DocMeta } from '../docs/library'
+import { buildScript } from './meeting'
+import { MEET_WORDS, MeetingRunner } from './meetingRun'
 import { BUBBLE_ASK, BUBBLE_REPLY, Director } from './director'
 import { playAt } from './play'
 import { WRAP_LABEL, wrapCards } from './wrap'
@@ -370,5 +373,100 @@ describe('handoffs are paper planes, not meetings (#51)', () => {
     expect(Object.values(g).some((x) => x.bubble)).toBe(false)
     expect(d.pending.talks).toEqual([])
     expect(d.pending.queued).toBe(0)
+  })
+})
+
+describe('a meeting shows its own words (#354)', () => {
+  const meta: DocMeta = { id: 7, kind: 'minutes', repo: 'o/r', folder: 28, title: 'T', agents: [], labels: [], grade: 'public', approved: true, readable: true, created_at: '', updated_at: '' }
+  const convs = conversations({
+    minutes: [{ date: null, rows: [{ order: 1, from: { seat: 2 }, to: [{ seat: 3 }], text: '하나.' }, { order: 2, from: { seat: 3 }, to: [{ seat: 2 }], text: '둘.' }], decision: '정했다.', followUp: '루프가 한다.' }],
+  })
+  const MEET = new Set(Object.values(MEET_WORDS))
+
+  /** the scene's frame order: director, then the meeting over the goals, then the meeting's words to the director */
+  function play(st: StatusMap, calledAt: number) {
+    const d = new Director(AGENTS)
+    const r = new MeetingRunner()
+    const at: Record<string, string | null> = {}
+    const during: Record<string, Set<string>> = {}
+    const kinds: Record<string, string[]> = {}
+    let started = false
+    let endedAt = -1
+    for (let now = 0; now < 200_000; now += 100) {
+      const goals = d.goals(now, MINUTE, st, (a) => at[a] ?? null)
+      if (!started && now >= calledAt) started = r.start(buildScript(meta, convs), now, st)
+      r.apply(now, (a) => at[a] ?? null, goals)
+      d.setMeeting(r.words)
+      for (const a of AGENTS) {
+        at[a] = goals[a].spot
+        if (r.busy && a in r.words) {
+          // for as long as the runner steers it: only the meeting's words, never a wrap stage or "자리로 가는 중"
+          ;(during[a] ??= new Set()).add(d.shown[a].detail ?? '')
+          ;(kinds[a] ??= []).push(d.shown[a].kind)
+          expect(MEET.has(d.shown[a].detail ?? '')).toBe(true)
+          expect(d.shown[a].detail).toBe(goals[a].label)
+        }
+      }
+      if (started && !r.busy && endedAt < 0) endedAt = now
+      if (endedAt >= 0 && now > endedAt + 60_000) break
+    }
+    return { d, during, kinds, endedAt }
+  }
+
+  it('a wrapping agent away from its desk shows the meeting text, not "자리로 돌아가는 중", and its wrap-up goes on afterwards', () => {
+    const st = allIdle()
+    st.agent_2 = { state: 'wrapping', since: 100 }
+    const { d, during, kinds, endedAt } = play(st, 1000)
+    expect(endedAt).toBeGreaterThan(0)
+    expect(during.agent_2.has(WRAP_LABEL.seat)).toBe(false)
+    expect(during.agent_2.has(MEET_WORDS.gather)).toBe(true)
+    expect(during.agent_2.has(MEET_WORDS.talk) || during.agent_2.has(MEET_WORDS.listen)).toBe(true)
+    expect(new Set(kinds.agent_2)).toEqual(new Set(['meet']))
+    // the meeting is over: the wrap-up carries on as before (the agent was at its desk at the start of the wrap, so it writes / tidies, then rests)
+    expect(['wrap', 'rest']).toContain(d.shown.agent_2.kind)
+  })
+
+  it('a wrap-up stage does not run on while the agent is at the meeting', () => {
+    const st = allIdle()
+    st.agent_2 = { state: 'wrapping', since: 100 }
+    const d = new Director(AGENTS)
+    const at: Record<string, string | null> = {}
+    const step = (now: number, meeting: boolean) => {
+      const g = d.goals(now, MINUTE, st, (a) => at[a] ?? null)
+      d.setMeeting(meeting ? { agent_2: MEET_WORDS.listen } : {})
+      return g
+    }
+    step(0, false)
+    expect(d.shown.agent_2).toMatchObject({ kind: 'wrap', step: 'seat' })
+    // called away while it is walking back (the meeting's words come after that frame's goals); at its desk it would start writing, but the meeting holds the wrap-up
+    step(50, true)
+    at.agent_2 = 'work_2'
+    step(100, true)
+    step(30_000, true)
+    expect(d.shown.agent_2).toMatchObject({ kind: 'meet', detail: MEET_WORDS.listen })
+    at.agent_2 = 'meet_seat_2'
+    step(40_000, false)
+    expect(d.shown.agent_2).toMatchObject({ kind: 'wrap', step: 'seat', detail: WRAP_LABEL.seat })
+    at.agent_2 = 'work_2'
+    step(40_100, false)
+    expect(d.shown.agent_2).toMatchObject({ kind: 'wrap', step: 'write', detail: WRAP_LABEL.write })
+  })
+
+  it('a working agent away from its desk shows only the meeting text, then works again', () => {
+    const st = allIdle()
+    st.agent_3 = { state: 'working', since: 0 }
+    const { d, during, kinds, endedAt } = play(st, 1000)
+    expect(endedAt).toBeGreaterThan(0)
+    expect(during.agent_3.has('자리로 가는 중')).toBe(false)
+    expect(new Set(kinds.agent_3)).toEqual(new Set(['meet']))
+    expect(d.shown.agent_3).toMatchObject({ kind: 'work', status: { state: 'working' } })
+  })
+
+  it('an idle agent shows only the meeting text too, then rests', () => {
+    const { d, during, kinds, endedAt } = play(allIdle(), 1000)
+    expect(endedAt).toBeGreaterThan(0)
+    expect(new Set(kinds.agent_2)).toEqual(new Set(['meet']))
+    expect([...during.agent_2].every((w) => MEET.has(w))).toBe(true)
+    expect(d.shown.agent_2.kind).toBe('rest')
   })
 })

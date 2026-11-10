@@ -46,6 +46,8 @@ export function mismatch(a: string, sh: Shown | undefined, g: Goal, arrived: str
       return (g.pose === 'doze' || g.pose === 'idle') && g.spot === desk && s === 'off' ? null : 'off: not at the desk dozing / resting'
     case 'duty':
       return (g.pose === 'coffee' || g.pose === 'books') && s === 'idle' ? null : 'duty: not the night solo'
+    case 'meet':
+      return sh.detail ? null : 'meet: no meeting words'
     case 'talk':
       return ['idle', 'talk', 'listen'].includes(g.pose) ? null : 'talk: not talking'
   }

@@ -234,7 +234,7 @@ export interface Shown {
   detail?: string
   step?: WrapStep
   /** the kind of behaviour this display was decided with (tests compare it with the goal) */
-  kind: 'work' | 'wrap' | 'rest' | 'off' | 'duty' | 'talk'
+  kind: 'work' | 'wrap' | 'rest' | 'off' | 'duty' | 'talk' | 'meet'
 }
 
 export const WALKING_TO_DESK = '자리로 가는 중'
