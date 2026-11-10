@@ -8,6 +8,7 @@ import { GRIPS, fitContact, pointsAtJoints, solveContacts, tableJoints, type Con
 import { GRIP_OFFSETS } from './gripFit.data'
 import { PINCH_LET_GO, PINCH_LIFT, TURN_S, cornerOf, leafAngle } from './bookLeaf'
 import { bookBoxes, bookDimsOf, distToBook, halfAngle, readingContacts, readingGrip, type BookBox } from './bookGeom'
+import { resolvePaperSideTarget } from './paperSide'
 
 export interface Contact {
   finger: Exclude<Finger, 'palm'>
@@ -30,6 +31,8 @@ export interface GripTarget {
   solids?: BookBox[]
   /** the same for an object that moves while held (the turning leaf's corner frame): the solids as seen from several poses of the frame; a finger must be out of all */
   solidSets?: BookBox[][]
+  /** an extra cost of a hand frame in the object's frame (the paper's wrist bend at its viewing place, paperSide.ts); 0 when fine */
+  cost?: (handInObject: Matrix4, hand: Hand, fits: readonly { finger: Exclude<Finger, 'palm'>; joints: number[] }[]) => number
 }
 
 const AXES = new WeakMap<object, 'y' | 'z'>()
@@ -133,6 +136,7 @@ export function resolvePageTarget(scene: Object3D, bookName: string, pg: Matrix4
 /** the grip target of `objName` for a `kind` of grip, or null when the model has no grip empty for that hand */
 export function resolveTarget(scene: Object3D, objName: string, kind: string, side: 'l' | 'r'): GripTarget | null {
   if (kind === 'book') return resolveBookTarget(scene, objName, side)
+  if (kind === 'paper_side') return resolvePaperSideTarget(scene, side, contactAxis(scene))
   if (kind === 'leaf') return side === 'r' ? resolvePageTarget(scene, objName) : null
   const spec = GRIPS[kind]?.[side]
   const grip = scene.getObjectByName(`${objName}_grip_${side}`)
@@ -287,7 +291,7 @@ export function solveTarget(t: GripTarget, hand: Hand): Solved {
   for (const [w, margin, keep, scatter] of [[4000, 0.00015, 0.02, 0], [40000, 0.0001, 0.02, 0], [40000, 0.0001, 0.08, 0], [400000, 0.00006, 0.2, 0], [40000, 0.0001, 0.02, 20]] as const) {
     const sol = solveContacts(contacts, keep, (offset, fits) => {
       const pen = fingerPenetration(t, hand, offset, fits, 10, rest).min - margin
-      return pen < 0 ? w * pen * pen : 0
+      return (pen < 0 ? w * pen * pen : 0) + (t.cost ? t.cost(handInObject(t, hand, offset), hand, fits) : 0)
     }, scatter)
     const inside = Math.min(0, fingerPenetration(t, hand, sol.offset, sol.fits, 12, rest).min + 0.00005)
     const ok = inside === 0 && sol.worst <= 0.0029
