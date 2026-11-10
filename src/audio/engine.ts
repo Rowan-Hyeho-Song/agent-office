@@ -35,11 +35,12 @@ export const KEYS_GLUE = { threshold: -34, knee: 6, ratio: 8, attack: 0.002, rel
 export const KEYS_GLUE_MAKEUP_DB = 16.7
 
 /**
- * the default camera is 11–20 m from the room's corners (room.ts DEFAULT_CAMERA (8.5, 8, 9.5) → the far corner
- * (−4.5, 0, −3.5)), so anything in the room plays at full level from the default view and only pans left/right
+ * anything in the room plays at full level from the default view and only pans left/right: the reference is the
+ * default camera's distance to the room's far corner. The bigger room (#280, camera (9.56, 7.8, 10.54)) puts that corner
+ * at ~22.9 m (the old room: 11–20 m, ref 20), so 23; the far limit grows the same way (45 × 23 / 20 ≈ 52).
  */
-export const REF_DISTANCE = 20
-export const MAX_DISTANCE = 45
+export const REF_DISTANCE = 23
+export const MAX_DISTANCE = 52
 
 /** most one-shot sfx sounding at once (sound.md 6) */
 export const MAX_SFX = 6

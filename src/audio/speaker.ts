@@ -95,9 +95,9 @@ export function faderTargets(state: MusicState, layers: readonly Layer[], forMe:
 
 /** how a speaker sounds with distance (sound.md 6, to be judged on #194):
  *  - 'room': like every other cue, the whole room at full level from the default view, left/right only (the default)
- *  - 'near': quieter far away, louder close up; the same level at the default view (16 m), at most +4 dB nearer */
+ *  - 'near': quieter far away, louder close up; the same level at the default view (18.4 m), at most +4 dB nearer */
 export type MusicDist = 'room' | 'near'
-export const DEFAULT_VIEW_M = 16.1 // room.ts DEFAULT_CAMERA (8.5, 8, 9.5) → the speakers (−2.32, 0.82, ±0.4)
+export const DEFAULT_VIEW_M = 18.4 // #280 bigger room: DEFAULT_CAMERA (9.56, 7.8, 10.54) → the speakers (coder's number; was 16.1)
 export const NEAR_GAIN_DB = 4
 export function distParams(d: MusicDist): { ref: number; trim: number } {
   if (d === 'room') return { ref: REF_DISTANCE, trim: 1 }
