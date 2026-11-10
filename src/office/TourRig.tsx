@@ -302,7 +302,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
     }
 
     // ---- input -------------------------------------------------------------------------------------------------------
-    const onBar = (e: Event) => !!(e.target as Element | null)?.closest?.('.tour-bar, .agent-list')
+    const onBar = (e: Event) => !!(e.target as Element | null)?.closest?.('.tour-bar, .agent-list, .view-toggle')
     const setControls = (b: boolean) => {
       const ctl = live.current.controls
       if (ctl) ctl.enabled = b
