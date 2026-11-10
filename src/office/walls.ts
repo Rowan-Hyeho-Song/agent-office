@@ -29,6 +29,9 @@ const FADE_NODE = /^(?:desk|screen_work|neon_desk|screen_cal)_(\d)(?:_|$)/
 export const fadeGroupOfNode = (name: string) => {
   const m = FADE_NODE.exec(name)
   if (m) return `desk${m[1]}`
+  // the lounge's own shelf_records / shelf_wall* are other furniture, in other places (one of them 9 m away, outside the room): each its own box. Grouped with the bookshelf they made one
+  // box over most of the room that no camera could see through, so the tour skipped every ping-pong cut (#277)
+  if (/^shelf_(records|wall)/.test(name)) return name
   if (/^(shelf_|screen_shelf_|hit_library$)/.test(name)) return SHELF
   return name === 'hit_approval' ? 'desk0' : null
 }

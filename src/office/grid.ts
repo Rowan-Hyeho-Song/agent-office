@@ -200,8 +200,12 @@ export function nearestWalkable(g: Grid, x: number, z: number): number {
   return best
 }
 
+/** how many distance fields were built (a whole-floor Dijkstra each: the planner caches them, tests count that, #218) */
+export const FIELD_STATS = { builds: 0 }
+
 /** octile distance field from the goal over walkable cells, in metres (Infinity = unreachable) */
 export function distanceField(g: Grid, goal: number, extra?: Uint8Array): Float64Array {
+  FIELD_STATS.builds++
   const D = new Float64Array(g.w * g.h).fill(Infinity)
   if (goal < 0) return D
   const heap: [number, number][] = []
@@ -267,11 +271,12 @@ export function lineClear(g: Grid, a: { x: number; z: number }, b: { x: number; 
  * Shortest route between two points: A* over the cells (8 directions, ties broken by the fixed neighbour order),
  * then string-pulled into a few straight legs. null when the goal cannot be reached.
  */
-export function findPath(g: Grid, from: { x: number; z: number }, to: { x: number; z: number }, extra?: Uint8Array): { x: number; z: number }[] | null {
+/** `field`: the distance field of the cell `to` is in (same `extra`) when the caller has it already (the planner caches them), else it is built here */
+export function findPath(g: Grid, from: { x: number; z: number }, to: { x: number; z: number }, extra?: Uint8Array, field?: Float64Array): { x: number; z: number }[] | null {
   const s = cellAt(g, from.x, from.z)
   const e = cellAt(g, to.x, to.z)
   if (s < 0 || e < 0) return null
-  const D = distanceField(g, e, extra)
+  const D = field ?? distanceField(g, e, extra)
   if (!Number.isFinite(D[s])) return null
   const cells = [s]
   let c = s

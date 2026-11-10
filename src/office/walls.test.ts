@@ -19,6 +19,8 @@ describe('fade groups', () => {
   })
   it('desks and their screens fade with their desk', () => {
     expect(fadeGroupOfNode('desk_2_lamp')).toBe('desk2')
+    // the lounge's shelf_records / shelf_wall* are not the bookshelf (a box 9 m wide kept every camera out, #277)
+    for (const n of ['shelf_records', 'shelf_wall', 'shelf_wall_trophy_band']) expect(fadeGroupOfNode(n)).toBe(n)
     expect(fadeGroupOfNode('screen_work_1')).toBe('desk1')
   })
   it('lounge parts: floor-touching ones are furniture, only ones hanging by a wall plane go with it', () => {

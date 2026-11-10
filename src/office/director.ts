@@ -1,6 +1,7 @@
 // Decides where each agent should be and what it does there, from the status source, the play schedule and
 // the messages in flight. Pure: no three.js; the rigs report arrivals back through `arrivedAt`.
 
+import { dutyOf, dutyStatus } from './duty'
 import { DESK_SIDES } from './nav'
 import { blockOf, playAt, PLAYS, soloAt, type PlayKind } from './play'
 import { activityLabel, type AgentStatus, type OfficeMessage, type StatusMap } from './status'
@@ -58,6 +59,8 @@ export const requestOf = (goal: Goal, pace: number, notBefore?: number): Request
 /** the poses that hold a prop in the hand until the play ends, and how long the agent stays to put it back before it walks off */
 const PROP_POSES = new Set<Pose>(['coffee', 'books', 'pingpong', 'boardgame'])
 const PUT_AWAY_MS = 800
+/** an errand / act starts only if the agent's duty (rest, sleep, night shift) stays the same this long (ms) */
+const START_LEAD_MS = 20_000
 
 /** the needle has been down at least this long (ms) before the end of the break sends somebody to lift the arm (speaker.ts holds a state 8 s; this is well past it) */
 const LIFT_AFTER_MS = 25_000
@@ -301,6 +304,15 @@ export class Director {
       const s = rawOf(a)
       return !this.inTalk(a) && !this.runs[a] && ((s.state === 'idle' && s.night !== 'duty') || s.state === 'wrapping')
     }
+    // an errand or act is not started when the agent's night is about to change under it (bedtime, the night shift): it would be called away a few seconds in
+    // (the day sim: five errands abandoned 1-5 s into the fetch walk, all by this). Only a start waits; one under way is never held back
+    const steady = (a: string) => {
+      const base: AgentStatus = { state: 'idle', since: rawOf(a).since }
+      const here = dutyOf(dutyStatus(base, a, this.agents, now))
+      // wrapping at night: when the wrap-up ends it is asleep (or on the night shift), which calls an errand away; so none starts
+      if (rawOf(a).state === 'wrapping' && here !== 'rest') return false
+      return here === dutyOf(dutyStatus(base, a, this.agents, now + START_LEAD_MS))
+    }
     for (const a of this.agents) {
       const run = this.waters[a]
       if (!run) continue
@@ -316,7 +328,7 @@ export class Director {
       } else this.waters[a] = r.run
     }
     if (!Object.keys(this.waters).length) {
-      const a = this.agents.find((x) => resting(x) && !this.acts[x] && play[x]?.kind === 'water' && this.waterDone[x] !== block)
+      const a = this.agents.find((x) => resting(x) && steady(x) && !this.acts[x] && play[x]?.kind === 'water' && this.waterDone[x] !== block)
       if (a) {
         // the scheduled plant, or the next one whose stand is not taken by somebody resting beside it (water.ts STAND_BLOCKERS)
         const names = WATER_PLANTS.map((p) => p.name)
@@ -355,7 +367,7 @@ export class Director {
     // the break music is due and nobody has put the record on: whoever rests, agent_4 (echo) first; the break is over and the needle is still down: somebody lifts it
     const wishes = opts.wantsBreak === undefined ? null : opts.wantsBreak ? !this.deck.needle : this.deck.needle && now - this.needleAt >= LIFT_AFTER_MS
     if (wishes && !Object.values(this.acts).some((r) => r.kind === 'record')) {
-      const free = this.agents.filter((x) => resting(x) && !this.acts[x] && !this.waters[x])
+      const free = this.agents.filter((x) => resting(x) && steady(x) && !this.acts[x] && !this.waters[x])
       const a = free.includes('agent_4') ? 'agent_4' : free[0]
       if (a) beginAct(a, 'record')
     }
@@ -363,7 +375,7 @@ export class Director {
       const k = play[a]?.kind
       // the break music is on and the needle is down: the schedule does not send anybody to lift the arm (that is for the end of the break, above)
       if (k === 'record' && opts.wantsBreak && this.deck.needle) continue
-      if (k && isAct(k) && resting(a) && !this.acts[a] && !this.waters[a] && this.actDone[a] !== block) beginAct(a, k)
+      if (k && isAct(k) && resting(a) && steady(a) && !this.acts[a] && !this.waters[a] && this.actDone[a] !== block) beginAct(a, k)
     }
     // whoever is on an errand is not free for the schedule's other plays (a game partner left alone goes to a solo)
     const away = [...Object.keys(this.waters), ...Object.keys(this.acts)]

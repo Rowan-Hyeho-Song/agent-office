@@ -12,23 +12,27 @@ function play(kind: DemoKind) {
   const ids = TRAFFIC_DEMOS[kind].map((l) => l.id)
   ids.forEach((id, i) => p.place(id, demoRequest(d, id, 0)!.req, 0, i))
   const cues = new Set<string>()
+  let yieldGesture = false
   let min = Infinity
   for (let t = 0; t <= 40; t += 0.05) {
     ids.forEach((id) => p.request(id, demoRequest(d, id, t)!.req, t))
     p.update(t)
     const s = ids.map((id) => p.sample(id, t))
-    for (const x of s) if (x.cue) cues.add(x.cue.kind)
+    for (const x of s) {
+      if (x.cue) cues.add(x.cue.kind)
+      if (x.cue?.kind === 'yield' && x.cue.gesture) yieldGesture = true
+    }
     min = Math.min(min, Math.hypot(s[0].x - s[1].x, s[0].z - s[1].z))
   }
-  return { cues, min, end: ids.map((id) => p.sample(id, 40).arrived) }
+  return { cues, yieldGesture, min, end: ids.map((id) => p.sample(id, 40).arrived) }
 }
 
 describe('traffic demos (?debug=1 trafficDemo)', () => {
   it('narrow: the two meet in the lane, one yields, both reach the far end, never closer than 2R', () => {
     const r = play('narrow')
-    // #280 moved the west wall out: this lane now fits two bodies at 2R, so at the #329 cruise they may pass instead of one yielding
-    // (at 0.75 m/s one happened to yield). Either way they never come closer than 2R; a truly one-body lane is a follow-up
-    expect(r.cues.has('yield') || r.cues.has('wide') || r.cues.has('pass')).toBe(true)
+    // #272: one steps aside and the cue is a yield, with its gesture (it used to be classed 'wide' because the one aside is already setting off again at the closest approach)
+    expect(r.cues.has('yield')).toBe(true)
+    expect(r.yieldGesture).toBe(true)
     expect(r.min).toBeGreaterThanOrEqual(2 * TRAFFIC.bodyR)
     expect(r.end).toEqual(['demo_narrow_agent_0_to', 'demo_narrow_agent_1_to'])
   })
