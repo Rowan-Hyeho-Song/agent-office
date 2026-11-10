@@ -23,8 +23,11 @@ Node contract (the app reads glTF extras):
                                    (screen slots for the posters; 0 = this site, 1 = agent office, 2 = desk room),
                                    hit_frame_<k>; props prop_pillow_0|1 (two-hand grips), prop_record (hidden at rest).
                                    Empties table_low_slot_0..3 (extras for), fridge_door_grip, water_tap_0|1,
-                                   soil_plant_hang_0|1; nav_sofa_0..3 (3 = the chaise, lie) and nav_beanbag
-  desk_<i>                         (work) the desk body (#187 kit: oak top, graphite band, legs, cable tray); i 0..4,
+                                   soil_plant_hang_0|1; nav_sofa_0..3 (3 = the chaise, lie) and nav_beanbag (seat_y
+                                   0.40); nav_sofa_in_w|e (seats, on the knee row's line just outside each end) and
+                                   zone_sofa_row (#341: the knee row between the low table and the long side, extras
+                                   zone, ry, size_x along it, size_z across; the planner side-steps only inside it)
+  desk_<i>                        (work) the desk body (#187 kit: oak top, graphite band, legs, cable tray); i 0..4,
                                    the five desks stand as one island (#195 plan 2, slot_pod)
   desk_<i>_props                   (desk_props, #187) the common kit (keyboard case, monitor, mouse body + pad, cables)
                                    and the owner's things (seat_*), extras desk
@@ -170,9 +173,9 @@ DOOR_Z = _c(0, 2.6)[1]
 PINGPONG = _c(1.9, 0.9)
 # #280 PR 1: the old 1.9 m sofa along the south wall, its east end at the L sofa's (PR 2 makes it the L), 0.12 off the wall
 SOFA = _c(4.03, 3.7375)  # #280 PR 1 only (the old sofa); PR 2 builds SOFA_L / CHAISE (build_lounge2)
-LAMP = _c(2.25, 4.0)  # the floor lamp, behind the book table
+LAMP = _c(2.25, 4.05)  # the floor lamp, behind the book table  (#341: 0.05 south with the book table)
 GAME_TABLE = _c(-1.6, 2.6)
-SIDE_TABLE, SIDE_R = _c(2.25, 3.48), 0.21  # #280: the book table at the long sofa's west end, 2 cm north of 3.5 (the lamp)
+SIDE_TABLE, SIDE_R = _c(2.15, 3.535), 0.21  # #280: the book table at the long sofa's west end (#341: 0.10 west, 0.055 south: the west way in, clear of nav_sofa_in_w)
 COUNTER = (HX - 0.32, _c(0, 0.3)[1], math.pi)  # against the right wall, its front (local +x) facing the room
 COFFEE_BUTTON = (0.146, 1.2, -0.02)  # #164: the brew button face, counter frame (front = local +x)
 SHELF_X = _c(3.75, 0)[0]
@@ -4038,9 +4041,10 @@ L2 = "lounge2"
 L2_NODES = []  # (baked object, texel density)
 SOFA_L = _c(3.78, 3.745)  # the long side's centre: 2.4 x 0.87
 CHAISE = _c(4.545, 2.66)  # the chaise's centre: 0.87 x 1.3
-TABLE_LOW = _c(3.16, 2.59)
+TABLE_LOW = _c(2.91, 2.615)  # #341 (designer, lounge-props.md 3): 0.25 west of 3.16 (the east way in >= 0.75), 0.42 off the long side
+TABLE_W, TABLE_D = 0.9, 0.55  # was 1.0 x 0.6
 SHELF_REC = _c(0.93, 4.05)  # 0.12 west of the table's 1.05: the monstera (moved 0.1 north in PR 1) took 2 cm of it
-BEANBAG = _c(1.95, 2.35)
+BEANBAG = _c(1.95, 2.025)  # #341: 0.325 north (the west way in >= 0.90 to the book table; 0.10 off the ping-pong slot)
 FRIDGE_Z, DISP_Z = -0.73, -1.15  # centred room, on the east wall north of the counter, 0.2 off it (the open door clears the coffee spot)
 
 
@@ -4132,8 +4136,22 @@ def build_sofa_l():
     n_["lie"] = True  # the chaise: lying down, a nap (lounge-props.md 1)
     # the two ways into the seats (designer: the last 0.6 m is a side step between the table and the sofa): the west
     # end of the table-sofa gap for seats 0 and 1, the gap between the table and the chaise for seat 2 and the chaise
-    for nm, (ax, az), ry, seats in (("sofa_in_w", (2.2, 2.9), -math.pi / 2, [0, 1]), ("sofa_in_e", (3.58, 1.9), math.pi, [2, 3])):
-        n_ = nav(nm, ax, az, ry, "sofa_in")
+    # #341 (designer, lounge-props.md 3 / coder): zone_sofa_row = the knee row between the table and the long side,
+    # where the planner side-steps (0.4 speed, facing the sofa); the two ways in sit on its line just outside each end:
+    # the west one 4 cm past the table's west edge, the east one in the middle of the table-chaise gap (>= 0.75)
+    tx, tz = TABLE_LOW
+    rx0, rx1, rz0 = tx - TABLE_W / 2, tx + TABLE_W / 2, tz + TABLE_D / 2
+    rzc = round((rz0 + zf) / 2, 4)
+    z_ = bpy.data.objects.new("zone_sofa_row", None)
+    coll("export").objects.link(z_)
+    z_.matrix_world = Mx(((rx0 + rx1) / 2, 0, rzc))
+    z_["zone"] = "sofa_row"
+    z_["ry"] = 0.0  # along the long side (web x)
+    z_["size_x"], z_["size_z"] = round(rx1 - rx0, 4), round(zf - rz0, 4)
+    NODES.append({"obj": z_})
+    for nm, (ax, az), ry, seats in (("sofa_in_w", (rx0 - 0.04, rzc), -math.pi / 2, [0, 1]),
+                                    ("sofa_in_e", ((rx1 + cx0) / 2, rzc), math.pi, [2, 3])):
+        n_ = nav(nm, round(ax, 4), az, ry, "sofa_in")
         n_["seats"] = seats
     return l2("sofa_l", p)
 
@@ -4161,11 +4179,12 @@ def build_table_low():
     tx, tz = TABLE_LOW
     oak = lounge_oak()
     gra = plastic("#3a3f48", 0.5, 0.3, 0.1, "table_leg")
-    p = [box("table_low_top", (1.0, 0.03, 0.6), (tx, 0.385, tz), oak, L2, bev=0.005, seg=1),
-         box("table_low_shelf", (0.92, 0.02, 0.52), (tx, 0.15, tz), oak, L2, bev=0.003, seg=1)]
+    tw, td = TABLE_W, TABLE_D
+    p = [box("table_low_top", (tw, 0.03, td), (tx, 0.385, tz), oak, L2, bev=0.005, seg=1),
+         box("table_low_shelf", (tw - 0.08, 0.02, td - 0.08), (tx, 0.15, tz), oak, L2, bev=0.003, seg=1)]
     for sx in (-1, 1):
         for sz in (-1, 1):
-            p.append(box("table_low_leg", (0.04, 0.37, 0.04), (tx + sx * 0.47, 0.185, tz + sz * 0.27), gra, L2, bev=0.003, seg=1))
+            p.append(box("table_low_leg", (0.04, 0.37, 0.04), (tx + sx * (tw / 2 - 0.03), 0.185, tz + sz * (td / 2 - 0.03)), gra, L2, bev=0.003, seg=1))
     for k, (c, rot) in enumerate((("#c9b28a", 0.05), ("#7f95a8", -0.12), ("#efe8d8", 0.2))):  # magazines
         p.append(box("magazine", (0.21, 0.006, 0.28), (tx - 0.2 + k * 0.01, 0.163 + k * 0.0065, tz + 0.02), plastic(c, 0.7, 0, 0.2, f"magazine_{k}"), L2, rot_y=rot))
     fp("table_low", p, "floor")
@@ -4426,7 +4445,8 @@ def build_beanbag():
         p.append(c)
     p.append(torus("beanbag_handle", 0.035, 0.006, (bx, 0.3, bz - 0.392), seam, L2, axis="z", half=True, seg=12, rseg=4))
     fp("beanbag", p, "decor")
-    nav("beanbag", bx, bz, math.pi, "sofa")
+    nb = nav("beanbag", bx, bz, math.pi, "sofa")
+    nb["seat_y"] = 0.40  # the sunk middle of its top (coder: sitting at the sofa's 0.44 floated)
     return l2("beanbag", p)
 
 
