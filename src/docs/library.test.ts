@@ -1,22 +1,30 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
+  binderState,
   conversations,
   coverOf,
+  darken,
   decisionView,
+  DONE_DARKEN,
   formatRef,
   groupLibrary,
+  LABEL_GRID,
   labelCell,
   landOn,
   mainSeat,
+  NO_TOPIC_SPINE,
   ownerMeta,
   paperText,
   parseRef,
   sections,
   shelfLayout,
+  spineColor,
   PRIVATE_LABEL,
   type CoverSource,
   type DocMeta,
 } from './library'
+import { TOPIC_COLORS } from './topics'
 
 const docsSql = (import.meta.glob('../../supabase/docs.sql', { query: '?raw', import: 'default', eager: true }) as Record<string, string>)['../../supabase/docs.sql']
 
@@ -167,10 +175,10 @@ describe('groupLibrary', () => {
   })
 })
 
-describe('bookshelf layout', () => {
+describe('bookshelf layout (one row of 21: three zones of seven)', () => {
   const day = (d: number) => `2026-11-${String(d).padStart(2, '0')}T00:00:00Z`
-  const file = (n: number, d: number) => meta({ id: n, folder: n, created_at: day(d), agents: [1] })
-  it('one binder per file, oldest left, the newest last and leaning; stamp only on SECRET', () => {
+  const file = (n: number, d: number, o: Partial<CoverSource> = {}) => meta({ id: n, folder: n, created_at: day(d), agents: [1], ...o })
+  it('one binder per file, oldest left in its zone; stamp only on SECRET; a short zone leans its last binder toward the empty side', () => {
     const folders = groupLibrary([file(1, 1), file(2, 2), meta({ id: 3, folder: 3, grade: 'review', approved: false, created_at: day(3), agents: [3, 3] })])
     const l = shelfLayout(folders)
     expect(l.binders.map((b) => [b.node, b.fileKey, b.secret, b.lean])).toEqual([
@@ -178,12 +186,14 @@ describe('bookshelf layout', () => {
       ['shelf_r0_b1', 'o/agent-office#2', false, false],
       ['shelf_r0_b2', 'o/agent-office#3', true, true],
     ])
+    expect(l.binders.map((b) => [b.group, b.i, b.k])).toEqual([[0, 0, 0], [0, 1, 1], [0, 2, 2]])
     expect(l.binders.map((b) => b.label)).toEqual(['#1', '#2', '#3'])
     expect(l.binders[0].seat).toBe(1)
     expect(l.plates).toEqual(['agent-office', '', ''])
+    expect(l.more).toEqual([0, 0, 0])
     expect(l.note).toBeNull()
   })
-  it('three newest public folders on r0..r2, newest lowest; private is never on the shelf', () => {
+  it('three newest public folders in zones 0..2, newest on the left, seven slots each (zone g starts at slot 7g); private is never on the shelf', () => {
     const l = shelfLayout(
       groupLibrary([
         meta({ id: 1, repo: 'o/a', folder: 1, created_at: day(1) }),
@@ -194,7 +204,7 @@ describe('bookshelf layout', () => {
       ]),
     )
     expect(l.plates).toEqual(['c', 'b', 'a'])
-    expect(l.binders).toHaveLength(3)
+    expect(l.binders.map((b) => b.node)).toEqual(['shelf_r0_b0', 'shelf_r0_b7', 'shelf_r0_b14'])
     expect(l.binders.every((b) => b.repo !== null && b.secret === false)).toBe(true)
     expect(l.plates).not.toContain(PRIVATE_LABEL)
     expect(l.note).toBeNull()
@@ -204,29 +214,78 @@ describe('bookshelf layout', () => {
     expect(l.binders).toEqual([])
     expect(l.plates).toEqual(['', '', ''])
   })
-  it('more than ten files in a folder: the latest ten, with a note', () => {
+  it('more than seven files in a zone: the latest seven fill it (no lean), the rest is counted as +N, with a note', () => {
     const l = shelfLayout(groupLibrary(Array.from({ length: 12 }, (_, i) => meta({ id: i + 1, folder: i + 1, created_at: day(i + 1) }))))
-    expect(l.binders).toHaveLength(10)
-    expect(l.binders[0].n).toBe(3)
-    expect(l.binders[9]).toMatchObject({ n: 12, lean: true, node: 'shelf_r0_b9' })
+    expect(l.binders).toHaveLength(7)
+    expect(l.binders[0].n).toBe(6)
+    expect(l.binders[6]).toMatchObject({ n: 12, lean: false, node: 'shelf_r0_b6' })
+    expect(l.more).toEqual([5, 0, 0])
     expect(l.note).not.toBeNull()
-    expect(l.binders.filter((b) => b.lean)).toHaveLength(1)
+    expect(l.binders.some((b) => b.lean)).toBe(false)
+  })
+  it('21 slots in all: a full shelf fills slot 0..20 and shows no overflow', () => {
+    const l = shelfLayout(
+      groupLibrary(['a', 'b', 'c'].flatMap((r, g) => Array.from({ length: 7 }, (_, i) => meta({ id: g * 10 + i + 1, repo: `o/${r}`, folder: i + 1, created_at: day(g * 7 + i + 1) })))),
+    )
+    expect(l.binders.map((b) => b.k).sort((a, b) => a - b)).toEqual(Array.from({ length: 21 }, (_, k) => k))
+    expect(l.binders.map((b) => b.group)).toEqual(Array.from({ length: 21 }, (_, k) => Math.floor(k / 7)))
+    expect(l.more).toEqual([0, 0, 0])
+    expect(l.note).toBeNull()
+  })
+  it('the zone size is the model size: a glb with fewer places gets a smaller zone', () => {
+    const l = shelfLayout(groupLibrary(Array.from({ length: 5 }, (_, i) => meta({ id: i + 1, folder: i + 1, created_at: day(i + 1) }))), 3)
+    expect(l.binders).toHaveLength(3)
+    expect(l.more[0]).toBe(2)
+  })
+  it('state: in progress is pulled, a pending request is tagged, done is darker, waiting and review are plain', () => {
+    expect(binderState({ stage: 'doing', pending: 0 })).toEqual({ pulled: true, tagged: false, done: false })
+    expect(binderState({ stage: 'review', pending: 2 })).toEqual({ pulled: false, tagged: true, done: false })
+    expect(binderState({ stage: 'done', pending: 0 })).toEqual({ pulled: false, tagged: false, done: true })
+    expect(binderState({ stage: 'waiting', pending: 0 })).toEqual({ pulled: false, tagged: false, done: false })
+    expect(binderState({ stage: 'doing', pending: 1 })).toEqual({ pulled: true, tagged: true, done: false })
+  })
+  it('the layout carries the state: pulled / tag / dim colour per binder', () => {
+    const progress = (stage: string, pending = 0) => ({ stage, checks: null, pending })
+    const l = shelfLayout(
+      groupLibrary([
+        file(1, 1, { progress: progress('doing'), labels: ['feature'] }),
+        file(2, 2, { progress: progress('review', 1), labels: ['bug'] }),
+        file(3, 3, { progress: progress('done'), labels: ['feature'] }),
+        file(4, 4, { progress: progress('waiting') }),
+      ]),
+    )
+    const by = Object.fromEntries(l.binders.map((b) => [b.n, b]))
+    expect([by[1].pulled, by[1].tagged, by[1].done]).toEqual([true, false, false])
+    expect([by[2].pulled, by[2].tagged, by[2].done]).toEqual([false, true, false])
+    expect([by[3].pulled, by[3].tagged, by[3].done]).toEqual([false, false, true])
+    expect([by[4].pulled, by[4].tagged, by[4].done]).toEqual([false, false, false])
+    expect(by[3].color).toBe(darken(TOPIC_COLORS.feature, DONE_DARKEN))
+  })
+  it('spine colour = the first topic badge colour, ivory with none', () => {
+    expect(spineColor({ topics: ['design', 'asset'] })).toBe(TOPIC_COLORS.design)
+    expect(spineColor({ topics: [] })).toBe(NO_TOPIC_SPINE)
+    const l = shelfLayout(groupLibrary([file(1, 1, { labels: ['bug', 'feature'] }), file(2, 2), file(3, 3, { labels: ['question'] })]))
+    expect(l.binders.map((b) => b.color)).toEqual([TOPIC_COLORS.bug, NO_TOPIC_SPINE, NO_TOPIC_SPINE])
+  })
+  it('the topic colours are the badge tokens of the stylesheet', () => {
+    const css = readFileSync(new URL('../styles/tokens.css', import.meta.url), 'utf8')
+    for (const [id, c] of Object.entries(TOPIC_COLORS)) expect(css).toContain(`--topic-${id}: ${c};`)
+  })
+  it('darken: 15% darker per channel', () => {
+    expect(darken('#ffffff', 0.15)).toBe('#d9d9d9')
+    expect(darken('#000000', 0.15)).toBe('#000000')
   })
   it('main agent: most frequent seat, ties to the lower seat', () => {
     expect(mainSeat({ docs: [meta({ id: 1, agents: [3, 1] }), meta({ id: 2, agents: [3] })] })).toBe(3)
     expect(mainSeat({ docs: [meta({ id: 1, agents: [2, 1] })] })).toBe(1)
     expect(mainSeat({ docs: [meta({ id: 1 })] })).toBeNull()
   })
-  it('label cell: column k, row r, row 0 = top of the canvas, UV in tenths and thirds', () => {
-    expect(labelCell(0, 0)).toMatchObject({ x: 0, y: 0, w: 64, h: 128, u0: 0, u1: 0.1, v0: 0 })
-    const c = labelCell(5, 1)
-    expect(c).toMatchObject({ x: 320, y: 128, u0: 0.5, u1: 0.6 })
-    expect(c.v0).toBeCloseTo(1 / 3)
-    expect(c.v1).toBeCloseTo(2 / 3)
-    const d = labelCell(9, 2)
-    expect(d).toMatchObject({ x: 576, y: 256 })
-    expect(d.u1).toBeCloseTo(1)
-    expect(d.v1).toBeCloseTo(1)
+  it('label cell: one row of 21 (grid [21, 1], 1344 x 128 px, cells 64 x 128)', () => {
+    expect(LABEL_GRID).toMatchObject({ cols: 21, rows: 1, w: 1344, h: 128 })
+    expect(labelCell(0, 0)).toMatchObject({ x: 0, y: 0, w: 64, h: 128, u0: 0, v0: 0, v1: 1 })
+    expect(labelCell(20)).toMatchObject({ x: 1280, y: 0 })
+    expect(labelCell(20).u1).toBeCloseTo(1)
+    expect(labelCell(3, 0, { cols: 4, rows: 2, w: 400, h: 200 })).toMatchObject({ x: 300, w: 100, h: 100 })
   })
 })
 
