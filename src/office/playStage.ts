@@ -58,6 +58,9 @@ const LIFT_S = 0.35
 const REACH_KINDS = new Set(['book', 'marker', 'paddle'])
 /** carrying a prop back to where it rests, s */
 const PUT_S = 0.4
+/** a go stone is carried within this far of the player's spot (m); farther, the body leans in, by at most LEAN_MAX_M */
+const STONE_COMFORT_M = 0.7
+const LEAN_MAX_M = 0.08
 
 export interface StageIn {
   /** office time, ms */
@@ -785,6 +788,9 @@ export class PlayStage {
     const zs = new Vector3().crossVectors(xs, ys)
     const rollQ = new Quaternion().setFromAxisAngle(xs, p.roll)
     const centre = bottom.clone().addScaledVector(UP, STONE_H / 2)
+    // a cell farther than an arm from the player's spot (the far corners of the board): the body leans over it by the difference, up to LEAN_MAX_M (water.ts REACH is 0.75)
+    const over = Math.min(LEAN_MAX_M, Math.max(0, Math.hypot(centre.x - rig.x, centre.z - rig.z) - STONE_COMFORT_M))
+    if (over > 0) rig.leanOver(fwd.x * over, fwd.z * over)
     // 휴 rolls the stone about the finger axis through its centre
     const stoneWorld = frame(xs, ys, zs, centre)
     if (p.roll) stoneWorld.premultiply(new Matrix4().makeTranslation(-centre.x, -centre.y, -centre.z)).premultiply(new Matrix4().makeRotationFromQuaternion(rollQ)).premultiply(new Matrix4().makeTranslation(centre.x, centre.y, centre.z))

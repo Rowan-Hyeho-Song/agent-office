@@ -1,7 +1,7 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import { Vector3, type BoxGeometry, type Mesh, type Object3D } from 'three'
-import { DESK_URL, leaveOffice } from '../room/link'
+import { leaveOffice } from '../room/link'
 import { AGENT_OFFICE_REPO_URL, FRAME_LINKS, linkOf } from './framePosters'
 import { hitBox, useCanvasPick } from './pick'
 
@@ -15,7 +15,7 @@ export function openFrame(k: number) {
   const link = linkOf(k)
   if (!link) return
   if (link.go === 'desk') leaveOffice('door')
-  else window.open(link.go === 'site' ? DESK_URL : AGENT_OFFICE_REPO_URL, '_blank', 'noopener,noreferrer')
+  else window.open(AGENT_OFFICE_REPO_URL, '_blank', 'noopener,noreferrer')
 }
 
 /** the frames' press boxes (the wall's own fade rule applies: a frame on a faded wall cannot be pressed) */

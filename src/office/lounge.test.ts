@@ -167,6 +167,6 @@ describe('the wall frames', () => {
       expect(frameOfNode(`frame_${k}_art`, scene.getObjectByName(`frame_${k}_art`)!.userData)).toBe(k)
     })
     expect(linkOf(3)).toBeNull()
-    expect(FRAME_LINKS.map((l) => l.go)).toEqual(['site', 'repo', 'desk'])
+    expect(FRAME_LINKS.map((l) => l.go)).toEqual(['desk', 'repo', 'desk'])
   })
 })

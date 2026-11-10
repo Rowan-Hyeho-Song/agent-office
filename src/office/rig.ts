@@ -713,6 +713,8 @@ export class AgentRig {
   private floorY: { pool: number; ring: number } | null = null
   /** 0 → 1 while dozing (#110): lowers the head, dims the beam */
   private dozing = 0
+  /** the body leaning over something it reaches for (the farthest go-board cells): drawn this far off its plan position, the plan never sees it; eases back */
+  private lean = new Vector3()
   /** lying on the chaise (nav extras lie + head, lounge-props.md 1): how far it has gone (0 … 1), and where the head goes in the root's frame */
   private lying = 0
   private lieOff = new Vector3()
@@ -892,6 +894,17 @@ export class AgentRig {
     return this.goal && this.arrived === this.goal.spot ? this.goal.pose : null
   }
   /** it is free and at play: its goal is a play (pingpong, a board game, coffee, the sofa, watering, a book), also while it walks there; talks, meetings, dozing and work are not */
+  /**
+   * Lean the body over by (x, z) m (horizontal, at least this much): the farthest cells of the go board are beyond an arm from the player's spot, so the body leans in
+   * the few cm it takes instead of the stone going beyond its reach. At once when it grows (the stone is in the hand this very frame), eased back when it ends.
+   */
+  leanOver(x: number, z: number) {
+    if (Math.hypot(x, z) <= this.lean.length()) return
+    this.lean.set(x, 0, z)
+    this.parts.root.position.set((this.drawAt?.x ?? this.x) + x, 0, (this.drawAt?.z ?? this.z) + z)
+    this.parts.root.updateMatrixWorld(true)
+  }
+
   /** how far down it has lain on the chaise (0 … 1) */
   get lyingK(): number {
     return this.lying
@@ -1099,7 +1112,8 @@ export class AgentRig {
     if (this.aim && gz?.calm) this.aim = { ...this.aim, mood: null }
     const { root, head, beam } = this.parts
     root.visible = !this.hidden
-    root.position.set(this.drawAt?.x ?? this.x, 0, this.drawAt?.z ?? this.z)
+    this.lean.multiplyScalar(Math.exp(-6 * dt))
+    root.position.set((this.drawAt?.x ?? this.x) + this.lean.x, 0, (this.drawAt?.z ?? this.z) + this.lean.z)
     root.rotation.set(0, this.heading + (this.aim?.body ?? 0), 0)
     root.updateMatrixWorld(true)
 

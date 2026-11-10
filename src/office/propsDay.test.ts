@@ -10,10 +10,10 @@ import { appendFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { stubCanvas } from './glbLoad'
 import { Guard, IDS, Walk, expectClean, expectCleanAll, runErrand, world, type World } from './errandWorld.fixture'
-import { SPOTS } from './navSpots.fixture'
+import { GRAPH, SPOTS } from './navSpots.fixture'
 import { BLOCK_MINUTES, PAUSED, PLAYS, playAt, soloAt } from './play'
 import type { Goal } from './director'
-import { sessionsAt, type PlaySession } from '../play/session'
+import { SETTLE_MS, sessionsAt, type PlaySession } from '../play/session'
 import { WATER_PLANTS } from './water'
 
 stubCanvas()
@@ -177,9 +177,7 @@ describe('one can for the whole office: a second agent sent for it while the fir
     for (let m = MIN0 - (MIN0 % BLOCK_MINUTES); m < MIN0 + 24 * 60 && m0 < 0; m += BLOCK_MINUTES) {
       const a = Object.entries(playAt(m, IDS)).find(([, x]) => x.kind === 'water')
       const b = Object.entries(playAt(m + BLOCK_MINUTES, IDS)).find(([, x]) => x.kind === 'water')
-      // the stretch is about the one can: the second block holds no omok game, whose stone's own reach (the pairs test above covers every pair of the day) is not what is looked at here
-      const game = Object.values(playAt(m + BLOCK_MINUTES, IDS)).some((y) => y.kind === 'boardgame')
-      if (a && b && a[0] !== b[0] && !game) m0 = m
+      if (a && b && a[0] !== b[0]) m0 = m
     }
     expect(m0, 'a block where two agents water in a row').toBeGreaterThanOrEqual(0)
     const [first] = Object.entries(playAt(m0, IDS)).find(([, x]) => x.kind === 'water')!
@@ -210,4 +208,47 @@ describe('one can for the whole office: a second agent sent for it while the fir
     expect(guard.stats.byProp.prop_watering_can, 'the can was taken once by each').toBe(2)
     if (LOG) appendFileSync(LOG, `props stretch: ${guard.stats.frames} frames, ${Object.keys(guard.stats.byProp).length} props taken (${JSON.stringify(guard.stats.byProp)}), loose frames ${guard.stats.loose}, worst held reach ${guard.stats.heldReach.toFixed(3)} m\n`)
   }, 120000)
+})
+
+// #280 regression: the pairs test above plays 9 s of each session, at one fixed moment. A go stone placed on a far corner of the board (the stretch of the one-can test found one: agent_1 at game_a,
+// 35 s into its game, the stone 0.761 m from its body) is farther than an arm from the player's spot. Nobody walks off with it: the body leans over the board the few cm it takes (rig.leanOver).
+describe('omok through a whole game: the stone is always within an arm of the body', () => {
+  /** one session of a pair game played from its first move for `s` seconds, both players standing at the game spots */
+  function whole(w: World, session: PlaySession, guard: Guard, seconds: number) {
+    const spots = ['game_a', 'game_b']
+    session.players.forEach((id, i) => {
+      const sp = SPOTS.find((x) => x.id === spots[i])!
+      stand(w, id, spots[i], { x: sp.x, z: sp.z, ry: sp.ry })
+    })
+    const dt = 0.05
+    let lean = 0
+    for (let k = 0; k < seconds / dt; k++) {
+      const t = k * dt
+      const goals = Object.fromEntries(IDS.map((id) => [id, session.players.includes(id) ? { spot: spots[session.players.indexOf(id)], pose: 'boardgame', label: '' } : IDLE(id)])) as Record<string, Goal>
+      for (const id of session.players) w.rigs[id].update(dt, t, GRAPH, w.rigs, false, undefined)
+      w.stage.update({ now: session.startMs + SETTLE_MS + t * 1000, t, dt, reduced: false, replaying: false, rigs: w.rigs, goals, status: {}, tablet: false, stamp: false, colors: {} })
+      w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
+      w.props.update(dt)
+      w.scene.updateMatrixWorld(true)
+      guard.frame(t)
+      for (const id of session.players) lean = Math.max(lean, Math.hypot(w.rigs[id].parts.root.position.x - w.rigs[id].x, w.rigs[id].parts.root.position.z - w.rigs[id].z))
+    }
+    return lean
+  }
+
+  it('the exact pair of the one-can stretch (agent_1 at game_a, agent_3 at game_b) for 120 s of its game, and every omok pair of the day', async () => {
+    const day = dayCombos()
+    const exact = [...day.pairs.values()].find((s) => s.kind === 'boardgame' && s.players.includes('agent_1') && s.players.includes('agent_3'))!
+    expect(exact, 'the pair is in the day').toBeTruthy()
+    let worstLean = 0
+    for (const s of [exact, ...[...day.pairs.values()].filter((p) => p.kind === 'boardgame' && p !== exact)]) {
+      const w = await world()
+      const guard = new Guard(w)
+      worstLean = Math.max(worstLean, whole(w, s, guard, 120))
+      expectClean(`omok ${s.players.join('/')} whole game`, guard.stats, 'piece')
+    }
+    // the lean is a few cm at most, and it did happen (else this checks nothing)
+    expect(worstLean).toBeLessThanOrEqual(0.08 + 1e-6)
+    expect(worstLean).toBeGreaterThan(0.001)
+  }, 300000)
 })
