@@ -12,7 +12,22 @@ import {
   meterStep,
   rawCells,
   wantedState,
+  deckState,
+  DECK_IDLE,
 } from './speaker'
+
+describe('the turntable (#280, sound.md 4.4)', () => {
+  it('nobody at it: break at once, as before', () => expect(deckState('break', DECK_IDLE)).toBe('break'))
+  it('someone on the way: the break music waits (work) until the needle is down', () => {
+    expect(deckState('break', { ...DECK_IDLE, coming: true })).toBe('work')
+    expect(deckState('break', { ...DECK_IDLE, down: true })).toBe('break')
+  })
+  it('arm lifted during the break: back to work music', () => expect(deckState('break', { ...DECK_IDLE, lifted: true })).toBe('work'))
+  it('outside a break the agents rule (work, night off) whatever the record does', () => {
+    expect(deckState('work', { ...DECK_IDLE, down: true })).toBe('work')
+    expect(deckState('off', { ...DECK_IDLE, down: true })).toBe('off')
+  })
+})
 
 // ③ ECHO's speakers (sound.md 5, #194): the rules that turn the agents and the music into values echoLive draws
 
