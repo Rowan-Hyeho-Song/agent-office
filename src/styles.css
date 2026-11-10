@@ -393,6 +393,13 @@ html[data-motion='reduce'] .corner-dock { transition: none; }
 .doc-nav > .doc-head { position: sticky; top: calc(-1 * var(--space-3)); z-index: 1; margin: calc(-1 * var(--space-3)) calc(-1 * var(--space-4)) var(--space-2); padding: var(--space-3) var(--space-4) 0; background: var(--color-surface); border-bottom: 1px solid var(--color-line); }
 .doc-head > .doc-path { padding: 0 0 var(--space-2); }
 .doc-nav .doc-head h4 { margin-top: var(--space-1); }
+/* phone: once the list is scrolled, the '파일철' heading folds away (0.15 s) and gives the files its row back (designer, #322) */
+@media (max-width: 640px) {
+  .doc-nav .doc-head h4 { max-height: 2em; overflow: hidden; transition: max-height 0.15s ease, opacity 0.15s ease, margin 0.15s ease; }
+  .doc-nav[data-scrolled='true'] .doc-head h4 { max-height: 0; opacity: 0; margin-top: 0; margin-bottom: 0; }
+}
+html[data-motion='reduce'] .doc-nav .doc-head h4 { transition: none; }
+@media (prefers-reduced-motion: reduce) { .doc-nav .doc-head h4 { transition: none; } }
 .doc-main > .doc-path { border-bottom: 1px solid var(--color-line); padding-bottom: var(--space-2); }
 /* scrolled: a short shadow under the header, so a half-hidden title does not read as stuck to it (designer, #321) */
 .doc-nav[data-scrolled='true'] > .doc-head { box-shadow: 0 6px 8px -6px rgb(0 0 0 / 0.7); }
