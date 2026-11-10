@@ -219,9 +219,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
       const door = graph.spots.door
       const replayPlanner = new TrafficPlanner(planner.grid, graph)
       const st = new Stage({ store: replay, planner: replayPlanner, meeting: world.meeting, ids: Object.keys(rigs), door: door ? { x: door.x, z: door.z } : undefined, reduced: () => reducedRef.current, spot: (id) => graph.spots[id] ?? null })
-      const from: Record<string, Request> = {}
-      for (const id in rigs) if (rigs[id].visible) from[id] = standingAt(rigs[id], graph)
-      st.begin(from)
+      st.begin()
       stage.current = st
       rigTau.current = st.now
       drawn.reset()

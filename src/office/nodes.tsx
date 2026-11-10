@@ -1,5 +1,5 @@
 import { useLoader } from '@react-three/fiber'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import {
   BufferAttribute,
   Matrix4,
@@ -17,6 +17,7 @@ import {
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { assetUrl } from '../room/base'
+import { ATLASES, DEFERRED_ATLASES, FIRST_URLS, afterFirstScreen, upgradeAtlases } from './atlases'
 import type { NavKind, NavSpot } from './nav'
 import { rigMouseBodies } from './mouseBody'
 import { setRoomFromExtras } from './room'
@@ -30,8 +31,7 @@ import { prepareView } from './walls'
 //   nav:   "<kind>"  empties: where agents go and which way they face (navigation graph: nav.ts)
 
 export const MODEL_URL = assetUrl('models/office.glb')
-export const ATLASES = ['room', 'floor', 'walls_nw', 'walls_se', 'work', 'wall_items', 'lounge', 'lounge2', 'desk_props'] as const
-const ATLAS_URLS = ATLASES.map((a) => assetUrl(`models/${a}.webp`))
+export { ATLASES }
 
 /**
  * Seats of the model that have no agent in the app yet: the glb carries agent_<i>_* for them, but no rig is built, so a loose beam / glow / floor
@@ -177,19 +177,35 @@ function navSpots(scene: Object3D): NavSpot[] {
 /** the loaded office: the glb scene with baked / live materials applied, its meshes by name, its nav spots */
 export function useOffice() {
   const { scene } = useLoader(GLTFLoader, MODEL_URL, withMeshopt)
-  const atlases = useLoader(TextureLoader, ATLAS_URLS)
-  return useMemo(() => {
-    for (const t of atlases) {
-      t.flipY = false // glTF UV convention
-      t.colorSpace = SRGBColorSpace
-      t.anisotropy = 8
-    }
+  const atlases = useLoader(TextureLoader, FIRST_URLS) // the deferred ones are their 512 px stand-ins (atlases.ts)
+  const office = useMemo(() => {
+    for (const t of atlases) prepareAtlas(t)
     setRoomFromExtras(scene.getObjectByName('room')?.userData.room) // the room's size comes from the model (room.ts)
     const nodes = prepare(scene, atlases)
     // wall tags, per-wall mesh split and fade groups (#111); before any rig grabs materials
     const fades = prepareView(scene)
     return { scene, nodes, spots: navSpots(scene), fades }
   }, [scene, atlases])
+  // after the first screen: the full close-up atlases come in and replace the stand-ins in place (same UVs)
+  // (useOffice runs in several components: the scene's flag makes the fetch happen once)
+  useEffect(
+    () =>
+      afterFirstScreen(() => {
+        if (scene.userData.atlasUpgrade) return
+        scene.userData.atlasUpgrade = true
+        const stands = Object.fromEntries(DEFERRED_ATLASES.map((a) => [a, atlases[ATLASES.indexOf(a)]]))
+        const loader = new TextureLoader()
+        void upgradeAtlases(scene, stands, (url) => loader.loadAsync(url), prepareAtlas)
+      }),
+    [scene, atlases],
+  )
+  return office
+}
+
+function prepareAtlas(t: Texture) {
+  t.flipY = false // glTF UV convention
+  t.colorSpace = SRGBColorSpace
+  t.anisotropy = 8
 }
 
 useLoader.preload(GLTFLoader, MODEL_URL, withMeshopt)

@@ -12,7 +12,7 @@ import type { MeetingRunner } from '../office/meetingRun'
 import type { DocMeta } from '../docs/library'
 import { requestOf } from '../office/director'
 import type { StatusMap } from '../office/status'
-import { TrafficPlanner, type Request, type Sample } from '../office/traffic'
+import { TrafficPlanner, type Sample } from '../office/traffic'
 import type { Point } from '../timeline/types'
 import { replayGoals, scriptFor } from './scene'
 import type { ReplayStore } from './store'
@@ -71,17 +71,13 @@ export class Stage {
   }
 
   /**
-   * Open the stage. Playing: everyone starts from `from` (where they stood in the office) and walks to the scene; paused
-   * (a shared link): everyone is at the scene spot at once, since nothing would move them.
+   * Open the stage (#362, timelapse.md 10.4): everyone is put at their spot of the first scene at once, playing or not
+   * (the screen is dimmed meanwhile). Nobody walks in from where they stood in the live office.
    */
-  begin(from: Record<string, Request> = {}) {
-    const { store, planner } = this.env
-    this.seen = store.landings
+  begin() {
+    this.seen = this.env.store.landings
     this.ready = true
-    if (store.getSnapshot().playing) {
-      for (const id of this.env.ids) if (from[id]) planner.place(id, from[id], store.clock / 1000, seatOf(id))
-      this.evaluate(false)
-    } else this.evaluate(true)
+    this.evaluate(true)
   }
 
   /** the planner's sample of an agent at the shown replay time */
