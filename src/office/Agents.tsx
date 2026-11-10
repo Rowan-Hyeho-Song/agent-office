@@ -30,6 +30,7 @@ import { replayDoorLine } from '../replay/scene'
 import { DrawnTrack, lineMode, Stage } from '../replay/stage'
 import { setLineSub, type LineSub } from '../replay/lineSub'
 import { STAMP_MS } from './props'
+import { ANXIOUS_AFTER_MS } from './faceMind'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
 import type { RootState } from '@react-three/fiber'
 
@@ -128,6 +129,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
     }
   }, [])
   world.rigs = rigs
+  // the scene clock of the last frame: the faces' events (messages, decisions) start on it
+  const sceneT = useRef(0)
   for (const id in rigs) {
     const seat = Number(id.split('_')[1])
     const path = graph.spots.whiteboard ? shortestPath(graph, `work_${seat}`, 'whiteboard') : null
@@ -141,15 +144,28 @@ export function Agents({ world }: { world: OfficeWorld }) {
       world.source.onMessage((m) => {
         world.director.receive(m)
         planes.receive(m)
+        // a talk asked of someone who is busy at work: the one who asked stands there puzzled (robots.md 4, 의문)
+        if (m.kind === 'talk' && world.source.getSnapshot()[m.to]?.state === 'working') rigs[m.from]?.faceEvent('question', sceneT.current)
       }),
-    [world, planes],
+    [world, planes, rigs],
   )
+  // a decision pinned on the board: the meeting's agents are glad (기쁨)
+  useEffect(
+    () =>
+      world.meeting.onDecisionPinned(({ script }) => {
+        for (const seat of script.seats) rigs[`agent_${seat}`]?.faceEvent('joy', sceneT.current)
+      }),
+    [world, rigs],
+  )
+  // the owner decided an approval: its requester is proud (뿌듯); the seats that stopped waiting
+  const waitingBefore = useRef<number[]>([])
 
   useFrame((state, dt) => {
     sim.current += Math.min(dt, 0.1)
     world.simTime = sim.current
     const now = officeNow(world)
     const t = state.clock.elapsedTime
+    sceneT.current = t
     // the timelapse (#82, #158): the record's statuses and desk goals stand in for the live ones (and the director's play).
     // Everything of it runs on the replay clock (stage.ts): the speed only sets how fast that clock advances.
     const wantReplay = replay.getSnapshot().mode === 'office' && replay.scene() !== null
@@ -228,6 +244,16 @@ export function Agents({ world }: { world: OfficeWorld }) {
         if (fresh) planner.place(id, r.req, sim.current, Number(id.split('_')[1]))
       }
     world.goals = goals
+    // approvals (#64): a request waiting over 30 minutes worries its agent; one that is gone makes the requester proud
+    if (!st) {
+      const extra = world.props.getSnapshot()
+      for (const id in rigs) {
+        const since = extra.waitingSince?.[Number(id.split('_')[1])]
+        rigs[id].anxious = since !== undefined && now - since > ANXIOUS_AFTER_MS
+      }
+      for (const seat of waitingBefore.current) if (!extra.waitingSeats.includes(seat)) rigs[`agent_${seat}`]?.faceEvent('proud', t)
+      waitingBefore.current = extra.waitingSeats
+    } else for (const id in rigs) rigs[id].anxious = false
     const desk = scene
       ? deskProps({
           ...world.props.getSnapshot(),
@@ -366,6 +392,16 @@ export function Agents({ world }: { world: OfficeWorld }) {
           who: seatName(b.seat),
         })
       }
+    }
+    // the faces: who is typing a line (the mouth moves), who listens to one (the nod while the speaker is typing)
+    for (const id in rigs) {
+      const b = byId.get(id)
+      rigs[id].faceTalk.speaking = !!b && b.kind === 'talk' && b.typed < [...b.text].length
+    }
+    for (const id in rigs) {
+      const g = world.goals[id]
+      const who = g && (g.pose === 'talk' || g.pose === 'listen') ? (g.gaze ?? g.lookAt) : undefined
+      rigs[id].faceTalk.listening = !!who && !rigs[id].faceTalk.speaking && !!rigs[who]?.faceTalk.speaking
     }
     const d = meet?.frame.door
     const chars = d ? [...d.text] : []

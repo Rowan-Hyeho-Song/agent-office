@@ -9,7 +9,7 @@ export const DOZE = {
   bobM: 0.01,
   bobPeriodS: 4,
   /** the face screen's "– –" brightness (0..1) */
-  faceBrightness: 0.4,
+  faceBrightness: 0.45,
   /** the hover light beam while dozing, as a share of its normal opacity */
   beamShare: 0.4,
   /** hands rest on the desk beside the keyboard: root-frame x offset (±), z, and height above the desk top (m) */

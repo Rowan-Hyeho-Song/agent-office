@@ -11,6 +11,8 @@ export interface PropsInput {
   pending: number
   /** seats with a request still waiting (approvals_cover.requester_seat) */
   waitingSeats: number[]
+  /** the oldest waiting request of each seat, ms (a request over 30 minutes old worries its agent, #193) */
+  waitingSince?: Record<number, number>
   /** when the owner last decided something (the pending count went down), ms */
   decidedAt: number | null
   /** work the planner handed out today (its handoff events: paper planes, #51) */
