@@ -199,14 +199,16 @@ describe('the sofa', () => {
     let sat: Awaited<ReturnType<typeof sit>> | null = null
     for (let k = 0; k < 8 && !hug; k++) {
       const w = await world()
-      const r = await sit(w, 'agent_0', 'sofa_0', 40, Date.UTC(2026, 10, 9, 5, k * 7, 0))
+      // whether a sitting hugs is a 60 % draw on (agent, arrival time), and the same walk arrives at the same time in every attempt: the attempts send different agents
+      const who = IDS[k % IDS.length]
+      const r = await sit(w, who, 'sofa_0', 40, Date.UTC(2026, 10, 9, 5, k * 7, 0))
       sat ??= r
       if (r.fired.includes('pillow.hug')) {
         hug = r
         // up again: the pillow goes home, the guard sees no prop away from it
         const walk = r.walk
         const goals = walk.director.goals
-        walk.director.goals = ((...a: Parameters<typeof goals>) => ({ ...goals(...a), agent_0: { spot: 'work_0', pose: 'idle', label: '' } as Goal })) as typeof goals
+        walk.director.goals = ((...a: Parameters<typeof goals>) => ({ ...goals(...a), [who]: { spot: `work_${IDS.indexOf(who)}`, pose: 'idle', label: '' } as Goal })) as typeof goals
         for (let i = 0; i < 25 / DT; i++) walk.step(DT, r.guard)
         expectCleanAll('pillow', w, r.guard)
         expect(w.nodes.prop_pillow_0.position.distanceTo(new Vector3(2.57, 0.64, 3.43))).toBeLessThan(0.01)
