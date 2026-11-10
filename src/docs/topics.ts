@@ -27,6 +27,20 @@ export const TOPICS: readonly Topic[] = [
   { id: 'sound', name: '소리', labels: [], prefixes: ['소리', '사운드'] },
 ]
 
+/** the badge colours (docs-ui.md 3.6, src/styles/tokens.css --topic-*): the shelf's spines use them too */
+export const TOPIC_COLORS: Record<TopicId, string> = {
+  feature: '#8fd19e',
+  bug: '#ff9a8a',
+  design: '#e9b8d8',
+  asset: '#b9c0e8',
+  plan: '#e8cf8f',
+  docs: '#c9c2b2',
+  perf: '#9fd8d0',
+  ui: '#c8b6f0',
+  a11y: '#f0c49a',
+  sound: '#dfe8b0',
+}
+
 export const MAX_TOPICS = 2
 
 const byId = new Map(TOPICS.map((t) => [t.id, t]))
