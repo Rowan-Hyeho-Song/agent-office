@@ -434,6 +434,21 @@ describe('the leaf-tip drips', () => {
     expect(d.drips[1].phase).toBe('done')
   })
 
+  it('#185 sound: `landed` names a falling drop in the one step it reaches the soil; a drop staying on its leaf never lands', () => {
+    const d = new Drips()
+    d.trigger(2, [true, false])
+    const landings: number[][] = []
+    let t = 0
+    while (d.active && t < 5) {
+      d.step(0.005, height)
+      t += 0.005
+      if (d.landed.length) landings.push([...d.landed])
+    }
+    expect(landings, 'one landing, the falling drop (k 1)').toEqual([[1]])
+    d.trigger(1)
+    expect(d.landed, 'a new watering starts clean').toEqual([])
+  })
+
   it('a new watering starts them again', () => {
     const d = new Drips()
     d.trigger(2)

@@ -5,6 +5,7 @@
 
 import { CircleGeometry, Mesh, MeshBasicMaterial, Matrix4, Quaternion, Vector3, type InstancedMesh, type Object3D } from 'three'
 import { landing as streamLanding, type Plant } from './water'
+import { cue } from '../audio/cues'
 import { Drips, PARTICLE_CAP, dripTips, Stream, Sway, Wetness, lastDropTimes, type FxLevel } from './waterFx'
 
 /** how many leaf tips the model gives each plant (office_bake.py: <plant>_tip_0..2) */
@@ -45,6 +46,8 @@ export class WaterScene {
   readonly drips = new Drips()
   private dripPlant: string | null = null
   private dripTriggers = 0
+  /** which watering's drips are falling now (dripTriggers when they started): keys their sound for the replay */
+  private dripRun = 0
   private swing = new Map<string, Swaying>()
   private discs = new Map<string, Mesh>()
   private last: Plant | null = null
@@ -157,6 +160,7 @@ export class WaterScene {
         this.dripIdx = [0, 1, 2].filter((k) => tips[k]).slice(0, 2 + (this.dripTriggers++ % 2))
         if (this.dripIdx.length) {
           this.dripPlant = plant.name
+          this.dripRun = this.dripTriggers
           this.drips.trigger(this.dripIdx.length, this.dripIdx.map((k) => !inside.has(k)))
         }
       }
@@ -214,6 +218,12 @@ export class WaterScene {
       const t = this.tipOf(name, this.dripIdx[k], p)
       return t ? Math.max(0.05, t.y - (this.landY(name, t.x, t.z))) : 0.3
     })
+    // a falling drop that reached the soil: the small "톡" (#185, sound.md 4.2 water.drip); one staying on its leaf is silent
+    for (const k of this.drips.landed) {
+      const t = this.tipOf(name, this.dripIdx[k], p)
+      if (!t) continue
+      cue('water.drip', { pos: { x: t.x, y: this.landY(name, t.x, t.z), z: t.z }, key: `drip:${name}:${this.dripRun}:${k}` })
+    }
   }
   private landY(name: string, x: number, z: number) {
     const p = this.plantList.find((q) => q.name === name)

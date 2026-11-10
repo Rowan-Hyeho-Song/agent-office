@@ -125,6 +125,11 @@ describe('cues', () => {
     }
     expect(CUES['handoff.toss'].length).toBeLessThan(CUES['plane.throw'].length)
   })
+  it('#185 water.drip: a tiny repeat cue in the room', () => {
+    expect(CUES['water.drip'].spatial).toBe(true)
+    expect(CUES['water.drip'].kind).toBe('repeat')
+    expect(CUES['water.drip'].length).toBeLessThan(CUES.water.length)
+  })
   it('has the lounge props (#280): small events in the room, effects bus', () => {
     const lounge = ['record.out', 'record.place', 'record.needle', 'record.lift', 'fridge.open', 'fridge.close', 'dispenser.pour', 'sofa.sit', 'pillow.hug', 'mat.step', 'lever.down', 'lever.up'] as const
     for (const n of lounge) {
