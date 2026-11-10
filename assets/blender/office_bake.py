@@ -50,6 +50,10 @@ Node contract (the app reads glTF extras):
   <book>_page                      live "bot" (#231): a page to turn per book (prop_book, prop_shelfbook_<k>): two
                                    sheets back to back, 16 x 4, attributes _PAGE_U (spine 0 -> fore-edge 1), _PAGE_V
                                    (bottom 0 -> top 1); pivot = the spine axis; extras page_w, page_h, turn_axis, turn_dir
+  <book>_l|r_grip, _l|r_contact_thumb|index|middle|ring|little
+                                   empties (#231 1, grips.md 2): the open book in both hands, children of each half
+                                   (grip_for l|r, pose open_book): palm on the cover behind the lower third, fingers
+                                   flat on it toward the spine, the thumb on the paper 1.5 cm in from the fore-edge
   nav_meet_center                  (#195) the one meeting circle: extras ry (0 deg = toward the board), ring 0.9, r 1.16
   nav_chat_0|_1                    (#195) the second conversation's two spots by the window, facing each other
   <plant>_tip_0..2                 empties (#185 watering.md): leaf tips where a drop forms, extras tip_of
@@ -3555,6 +3559,23 @@ def build_hands():
         contact(o, "index", (0.01, 0, H_ / 2 - 0.005), (0, 0, 1))  # the page block's head (5 mm under the boards)
         contact(o, "thumb", (0.012, T / 2, 0), (0, 1, 0))
         contact(o, "palm", (-0.003, 0, 0), (-1, 0, 0))
+    # #231 1 (grips.md 2, the open book held in both hands): per half, children of the half (they open with it; the
+    # bake is flat, the app raises each half 15 deg). In the half's own (closed) frame: spine on z, the page block
+    # to +x, the foot at +z (the ribbon's end), the cover's outer face at y = sgn T/2, the inner page at y = 0.
+    # _l = the left page (left hand), _r = the right page (right hand). The palm lies on the cover behind the
+    # book's lower third, the fingers flat on it toward the spine, the thumb over the fore-edge onto the paper
+    for book in ["prop_book"] + [f"prop_shelfbook_{k}" for k in range(5)]:
+        W_, H_, T = O[book]["size"] if "size" in O[book].keys() else (0.15, 0.22, 0.025)
+        zl = H_ / 3  # the middle of the lower third
+        for hs, sgn in (("l", 1), ("r", -1)):
+            o = O[f"{book}_{hs}"]
+            yc = sgn * T / 2
+            child_empty(o, f"{book}_{hs}_grip", o.matrix_world @ grip_frame((W_ - 0.035, yc, zl), (-1, 0, 0), (0, -sgn, 0), hs),
+                        {"grip_for": hs, "pose": "open_book"})
+            # the thumb on the paper (_r: just over the turning page, 0.3-0.4 mm up; _l: on its text lines' level)
+            contact(o, "thumb", (W_ - 0.015, 0.0005 if sgn < 0 else -0.0003, zl), (0, -sgn, 0))
+            for part, dz in zip(("index", "middle", "ring", "little"), (-0.027, -0.009, 0.009, 0.027)):
+                contact(o, part, (W_ * 0.55, yc, min(zl + dz, H_ / 2 - 0.01)), (0, sgn, 0))  # flat on the cover
     # stamp: grip over the knob's head, fingers level, palm down
     grip_at(O["prop_stamp"], R, (0, 0.0574, 0), (0, 0, -1), (0, -1, 0))  # #187: the turned knob's top is at 0.0474
     contact(O["prop_stamp"], "palm", (0, 0.0474, 0), (0, 1, 0))
