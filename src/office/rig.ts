@@ -174,6 +174,8 @@ export interface RigParts {
   face: Mesh | undefined
   beam: Object3D | undefined
   floor: Mesh | undefined
+  /** the ring round the pool of light (agent_i_floor_ring); both follow the floor's top under the agent (#316) */
+  floorRing: Object3D | undefined
   hands: { l: Hand; r: Hand }
   /** role parts: 3D orbit (agent_1), coder's ring (agent_3_tip), coder's ear-cup glow, planner's sticky notes */
   orbit: Object3D | undefined
@@ -393,6 +395,7 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
     face: n('_face') as Mesh | undefined,
     beam,
     floor,
+    floorRing: n('_floor_ring'),
     hands: { l: hand('l'), r: hand('r') },
     orbit: n('_orbit'),
     ring: i === 3 ? n('_tip') : undefined,
@@ -741,6 +744,13 @@ export class AgentRig {
   private lift = 0
   private seat = 0
   private surface = 0
+  /**
+   * The floor's height under the agent (#316: a rug's top over a rug, see ground.ts); the pool of light and its ring sit
+   * this much higher than their baked height, so a rug never hides them. Set by the scene (Agents.tsx); 0 without one.
+   */
+  ground: (x: number, z: number) => number = () => 0
+  /** the pool's and the ring's baked heights in the root's frame (the light's own few mm above the floor) */
+  private floorY: { pool: number; ring: number } | null = null
   /** 0 → 1 while dozing (#110): lowers the head, dims the beam */
   private dozing = 0
   private look = { pitch: 0, yaw: 0, roll: 0 }
@@ -1138,6 +1148,11 @@ export class AgentRig {
     }
     // the pool of light on the floor: fainter and wider the higher the head floats (#54)
     const pool = this.parts.floor
+    const ringN = this.parts.floorRing
+    this.floorY ??= { pool: pool?.position.y ?? 0, ring: ringN?.position.y ?? 0 }
+    const lift = this.ground(this.parts.root.position.x, this.parts.root.position.z)
+    if (pool) pool.position.y = this.floorY.pool + lift
+    if (ringN) ringN.position.y = this.floorY.ring + lift
     if (pool) {
       const up = MathUtils.clamp(dy, 0, 0.3) / 0.3
       pool.scale.setScalar(1 + up * 0.35)

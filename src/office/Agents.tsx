@@ -31,6 +31,7 @@ import { DrawnTrack, lineMode, Stage } from '../replay/stage'
 import { setLineSub, type LineSub } from '../replay/lineSub'
 import { STAMP_MS } from './props'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
+import { groundAt, readRugs, type Rug } from './ground'
 import type { RootState } from '@react-three/fiber'
 
 /**
@@ -85,6 +86,11 @@ export function Agents({ world }: { world: OfficeWorld }) {
       ),
     [world, scene, nodes],
   )
+  // the hover light follows the floor's top under each agent: a rug's top over a rug (#316); once per loaded scene
+  useMemo(() => {
+    const rugs = (scene.userData.rugs ??= readRugs(scene)) as Rug[]
+    for (const r of Object.values(rigs)) r.ground = (x, z) => groundAt(rugs, x, z)
+  }, [scene, rigs])
   // the props agents pick up while playing (#20, #27); once per loaded scene
   const props = useMemo(() => (scene.userData.props ??= new PropBank(scene, nodes)) as PropBank, [scene, nodes])
   // what the hands do with things: play in 3D, grips (#135, #164); once per loaded scene
