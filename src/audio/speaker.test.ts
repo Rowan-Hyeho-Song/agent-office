@@ -106,8 +106,8 @@ describe('cones, glow and faders', () => {
 })
 
 describe('distance and ducking', () => {
-  it("'room' keeps the shared 20 m law; 'near' is the same at the default view and at most +4 dB closer", () => {
-    expect(distParams('room')).toEqual({ ref: 20, trim: 1 })
+  it("'room' keeps the shared law (23 m, #280 bigger room); 'near' is the same at the default view and at most +4 dB closer", () => {
+    expect(distParams('room')).toEqual({ ref: 23, trim: 1 })
     const { ref, trim } = distParams('near')
     expect((ref / DEFAULT_VIEW_M) * trim).toBeCloseTo(1)
     expect(20 * Math.log10(trim)).toBeCloseTo(4)
