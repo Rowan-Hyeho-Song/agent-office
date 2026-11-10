@@ -81,27 +81,41 @@ export const POUR_TILT = (30 * Math.PI) / 180
 /** the can carried at the side, the hand hanging 0.55 m high (watering.md 2: arm straight down) */
 export const CARRY_HOLD: Hold = { fwd: 0.06, lat: 0.22, y: 0.55 }
 
-/** how long the stages of one watering last, s: settle the can up to the pour hold, tip, hold (per plant: watering.md 1), tip back, lower it to the carrying hold */
-export const POUR_S = { settle: 0.5, up: 0.6, down: 0.6, back: 0.4 }
+/**
+ * How long the stages of one watering last, s (watering.md 2): settle up to the pour hold (turn, lean in, the other hand under the belly), tip
+ * (0 → 15° in `UP_A`, a short rest, 15 → 30° with the water starting at about 2/3 of the way), hold (per plant: watering.md 1), tip back to
+ * half, stand it up and shake the spout (`shake`: upright 0.25 s, two wrist turns), the plant-side habit if the agent has one (`habitS`),
+ * then lower it to the carrying hold
+ */
+export const POUR_S = { settle: 0.5, up: 0.7, down: 0.3, shake: 0.6, back: 0.4 }
+/** the first stretch of the tip: 0 → half of the tip in this long, then a short rest before the second stretch up to full */
+export const UP_A = 0.4
+/** the can stands upright again this long after the tip back (inside `shake`) */
+export const UPRIGHT_S = 0.25
 export const POUR_HOLD_S: Record<string, number> = { plant_corner: 1.6, plant_sofa: 1.4, plant_desk: 0.8, plant_hang_0: 0.8, plant_hang_1: 0.8 }
 export const pourHoldOf = (plant: string) => POUR_HOLD_S[plant] ?? 1.2
-export const pourTotal = (plant: string) => POUR_S.settle + POUR_S.up + pourHoldOf(plant) + POUR_S.down + POUR_S.back
+export const pourTotal = (plant: string, habitS = 0) => POUR_S.settle + POUR_S.up + pourHoldOf(plant) + POUR_S.down + POUR_S.shake + habitS + POUR_S.back
 
 /**
  * The pour at `u` s after arriving at the plant's stand: how far the can is from the carrying hold to the pour hold (0 … 1) and how far
- * it is tipped (0 … 1). Settle up to the hold, tip, pour, tip back, then lower it again: continuous everywhere, so the can never jumps.
+ * it is tipped (0 … 1 of POUR_TILT). Settle up to the hold, tip, pour, tip back, stand up, then lower it again: continuous everywhere, so the can never jumps.
  */
-export function pourAt(plant: string, u: number): { hold: number; tilt: number } {
+export function pourAt(plant: string, u: number, habitS = 0): { hold: number; tilt: number } {
   const e = (k: number) => {
     const c = Math.min(1, Math.max(0, k))
     return c * c * (3 - 2 * c)
   }
-  const { settle, up, down, back } = POUR_S
+  const { settle, up, down, shake, back } = POUR_S
   const t1 = settle
   const t2 = t1 + up
   const t3 = t2 + pourHoldOf(plant)
   const t4 = t3 + down
-  return { hold: e(u / settle) * (1 - e((u - t4) / back)), tilt: e((u - t1) / up) * (1 - e((u - t3) / down)) }
+  const t5 = t4 + shake + habitS
+  let tilt: number
+  if (u < t3) tilt = u - t1 < UP_A ? 0.5 * e((u - t1) / UP_A) : 0.5 + 0.5 * e((u - t1 - UP_A) / (up - UP_A))
+  else if (u < t4) tilt = 1 - 0.5 * e((u - t3) / down)
+  else tilt = 0.5 * (1 - e((u - t4) / UPRIGHT_S))
+  return { hold: e(u / settle) * (1 - e((u - t5) / back)), tilt }
 }
 
 /** a hold part of the way from `a` to `b` */

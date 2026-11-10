@@ -387,6 +387,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
       dt: Math.min(dt, 0.1),
       reduced,
       replaying: !!st,
+      speed: st ? replay.getSnapshot().speed : 1,
       rigs,
       goals,
       status,

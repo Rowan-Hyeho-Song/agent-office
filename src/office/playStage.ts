@@ -36,8 +36,10 @@ import { meshesOf } from './nodes'
 import type { StatusMap } from './status'
 import { gameAt, N, type OmokView } from '../play/omok'
 import { rallyAt, type Dims, type Rally } from '../play/pingpong'
-import { CARRY_HOLD, HOLD_DEFAULT, PLANTS, canPose, dropAt, landing, lerpHold, plantsFrom, pourAt, solvePour, spoutOf, type Plant } from './water'
+import { CARRY_HOLD, HOLD_DEFAULT, PLANTS, POUR_TILT, canPose, dropAt, landing, lerpHold, plantsFrom, pourAt, solvePour, spoutOf, type Plant } from './water'
 import { WATER_S } from './waterRun'
+import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFor, shakeAt, type HabitKind } from './waterFx'
+import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
 import { type Place, SEQ, ease, followWeight, habitOf, placeSequence, swingTilt, swingTravel } from '../play/choreo'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
@@ -67,6 +69,10 @@ const PUT_S = 0.4
 /** a go stone is carried within this far of the player's spot (m); farther, the body leans in, by at most LEAN_MAX_M */
 const STONE_COMFORT_M = 0.7
 const LEAN_MAX_M = 0.08
+/** watering (watering.md 2): the body dips this far as the hand takes the can, the wrist sags this much (of POUR_TILT: 5°), the body leans this far toward the pot while it pours */
+const WEIGHT_DIP_M = 0.03
+const WRIST_SAG = (5 * Math.PI) / 180 / ((30 * Math.PI) / 180)
+const LEAN_IN_M = 0.05
 
 export interface StageIn {
   /** office time, ms */
@@ -76,6 +82,8 @@ export interface StageIn {
   dt: number
   reduced: boolean
   replaying: boolean
+  /** the replay's speed (#158): 1 live; the water's details thin out at 16 (waterFx.levelFor) */
+  speed?: number
   rigs: Record<string, AgentRig>
   goals: Record<string, Goal>
   status: StatusMap
@@ -172,6 +180,9 @@ export class PlayStage {
 
   // water and the book
   private drops: InstancedMesh | null = null
+  /** the water's effects (waterScene.ts): the stream, the wet soil, the leaves' sway and drips */
+  private fx: WaterScene | null = null
+  private fxT = -1
   private spout: Object3D | undefined
   private bookHalves: { l: Object3D; r: Object3D } | null = null
   /** the one leaf that turns (#231): bent about the spine, hidden while the book is read without a turn */
@@ -266,11 +277,14 @@ export class PlayStage {
       canNode.updateWorldMatrix(true, true)
       this.spoutLocal = new Matrix4().copy(canNode.matrixWorld).invert().multiply(this.spout.matrixWorld)
     }
-    const drops = new InstancedMesh(new SphereGeometry(0.003, 6, 5), new MeshBasicMaterial({ color: '#9bd8ff' }), 28)
+    // one InstancedMesh for every drop of water, never more than the cap (watering.md 3: 40, 20 on a phone): the can's stream and the leaf drips, and the dispenser's tap
+    const mobile = isMobileish()
+    const drops = new InstancedMesh(new SphereGeometry(0.003, 6, 5), new MeshBasicMaterial({ color: '#dff3ff', transparent: true, opacity: 0.75, depthWrite: false }), mobile ? PARTICLE_CAP.mobile : PARTICLE_CAP.desktop)
     drops.count = 0
     drops.frustumCulled = false
     scene.add(drops)
     this.drops = drops
+    this.fx = new WaterScene(scene, drops, this.plants, mobile)
     const book = nodes.prop_book
     const l = nodes.prop_book_l
     const r = nodes.prop_book_r
@@ -1043,26 +1057,45 @@ export class PlayStage {
     const w = goal.water
     const can = this.props.info(rig, 'watering_can')
     if (!w || !can) return
+    const lv = levelFor(inp.speed ?? 1, inp.reduced)
     const root = rig.parts.root
     const x = root.position.x
     const z = root.position.z
     const heading = rig.heading
     const home = this.props.homeWorld(can.node)
-    const carrying = canPose(x, z, heading, CARRY_HOLD, 0)
     const plant = this.plants.find((p) => p.name === w.plant) ?? this.plants[0]
+    const habitS = habitSeconds(w.habit)
+    // the weight of it (watering.md 2): the body dips 3 cm as the hand takes the can and comes up with it, the wrist sags 5° and recovers, and while it is carried it swings a little with each step
+    let sag = 0
+    if (lv.body) {
+      if (w.stage === 'lift') {
+        rig.bodyDip = WEIGHT_DIP_M * Math.sin(Math.PI * Math.min(1, w.u / WATER_S.lift))
+        sag = WRIST_SAG * ease((w.u - 0.35) / 0.4)
+      } else if (w.stage === 'carry') sag = WRIST_SAG * (1 - ease(w.u / 0.5))
+      if (w.stage === 'carry' || w.stage === 'return') sag += this.carrySway(rig, inp)
+    }
+    const carrying = canPose(x, z, heading, CARRY_HOLD, sag)
     let want = true
     let held: Matrix4 = carrying
     let hands = 0
-    let tilt = 0
+    let flow = 0
     // walking to the can, or (reduced motion) to the plant: the hands are free
     if (w.stage === 'fetch' || (w.stage === 'carry' && inp.reduced)) return
     if (w.stage === 'lift') rig.headExtra.pitch = -0.2
     else if (w.stage === 'pour') {
-      const pr = pourAt(plant.name, w.u)
+      const pr = pourAt(plant.name, w.u, habitS)
       const pour = this.spoutLocal ? solvePour(plant, x, z, heading, this.spoutLocal) : null
-      held = canPose(x, z, heading, lerpHold(CARRY_HOLD, pour?.hold ?? HOLD_DEFAULT, pr.hold), pr.tilt)
+      // the spout circles the stem while it pours (4 cm, less over a small pot), the wrist turns twice to shake off the last drops
+      const circ = lv.body ? circleAt(plant.name, plant.r, w.u) : { fwd: 0, lat: 0 }
+      const ph = pour?.hold ?? HOLD_DEFAULT
+      held = canPose(x, z, heading, lerpHold(CARRY_HOLD, { fwd: ph.fwd + circ.fwd, lat: ph.lat + circ.lat, y: ph.y }, pr.hold), pr.tilt + (inp.reduced ? 0 : shakeAt(plant.name, w.u, lv.shakes) / POUR_TILT))
       hands = pr.hold
-      tilt = pr.tilt
+      flow = flowAt(plant.name, w.u, habitS)
+      // it steps in to the pot: the body leans toward it (10°, about 5 cm) and the head bows 15°
+      if (lv.body) {
+        rig.leanOver(-Math.sin(heading) * LEAN_IN_M * pr.hold, -Math.cos(heading) * LEAN_IN_M * pr.hold)
+        rig.headExtra.pitch = -0.26 * pr.hold
+      }
     } else if (w.stage === 'put') {
       const dur = Math.max(WATER_S.lower, rig.gestureMin)
       rig.headExtra.pitch = -0.2
@@ -1077,7 +1110,22 @@ export class PlayStage {
     // the left hand supports the can's belly while it pours, following it (grip_l), fading in and out with the settle
     const tl = this.target(can.node.name, 'watering_can', 'l')
     if (tl && hands > 0) this.partner(rig, 'watering_can', 'l', tl, this.lastObjPose, 'r', hands)
-    this.pouring = { on: attached && tilt > 0.5 && !inp.reduced, rig, held, soilY: plant.soilY }
+    // the plant-side habit (watering.md 4), once the can is upright and shaken: the other hand or the head, over the habit's own 0.7 s
+    const hu = w.stage === 'pour' && lv.body ? habitU(plant.name, w.habit, w.u) : null
+    if (hu !== null && w.habit) this.habit(rig, plant, w.habit, hu, habitEnv(hu, habitS), inp)
+    this.pouring = attached && w.stage === 'pour' ? { rig, held, plant, flow, u: w.u, shakes: lv.shakes } : null
+  }
+
+  /** the can swings a little with each step while it is carried (watering.md 2: ±3° per step); how much follows how fast the body moves */
+  private carrySway(rig: AgentRig, inp: StageIn) {
+    const root = rig.parts.root
+    const m = this.carryAmp.get(rig.id) ?? { x: root.position.x, z: root.position.z, amp: 0 }
+    const v = Math.hypot(root.position.x - m.x, root.position.z - m.z) / Math.max(inp.dt, 1e-3)
+    m.x = root.position.x
+    m.z = root.position.z
+    m.amp += (Math.min(1, v / 0.4) - m.amp) * (1 - Math.exp(-inp.dt / 0.15))
+    this.carryAmp.set(rig.id, m)
+    return ((3 * DEG) / POUR_TILT) * m.amp * Math.sin(inp.t * Math.PI * 2 * 1.8)
   }
 
   /**
@@ -1139,7 +1187,8 @@ export class PlayStage {
     if (e) e.extra = fn
   }
 
-  private pouring: { on: boolean; rig: AgentRig; held: Matrix4; soilY: number } | null = null
+  private pouring: { rig: AgentRig; held: Matrix4; plant: Plant; flow: number; u: number; shakes: number } | null = null
+  private carryAmp = new Map<string, { x: number; z: number; amp: number }>()
   /** the spout node in the can's frame (water.ts: +z = the water's direction) */
   private spoutLocal: Matrix4 | null = null
   private plants: Plant[] = PLANTS
@@ -1187,6 +1236,76 @@ export class PlayStage {
     const target = basis.clone().setPosition(origin)
     const curl = [0, 1, 2, 3, 4, 5].map((k) => spec.pre[k] * out.mix[0] + (k === 0 ? c1 : spec.hold[k]) * out.mix[1] + spec.after[k] * out.mix[2])
     rig.drive.r = { target, w: out.wHand, curl, wc: out.wCurl, spread: null }
+  }
+
+  /**
+   * The other hand's habit at the plant (watering.md 4), over its own 0.7 – 0.8 s: 메모 pokes the soil with a finger and nods, 메시 tips the head and looks the plant
+   * over, 휴 strokes a leaf with a fingertip, 루프 taps the pot twice, 에코 tips the head to listen. `env` fades it in and out (the can stays in the right hand).
+   */
+  private habit(rig: AgentRig, plant: Plant, kind: HabitKind, s: number, env: number, inp: StageIn) {
+    const len = habitSeconds(kind)
+    const k = s / len
+    const fwd = new Vector3(-Math.sin(rig.heading), 0, -Math.cos(rig.heading))
+    const right = new Vector3(Math.cos(rig.heading), 0, -Math.sin(rig.heading))
+    const centre = new Vector3(plant.x, plant.soilY, plant.z)
+    if (kind === 'listen') rig.headExtra.roll += 10 * DEG * env
+    else if (kind === 'look') {
+      rig.headExtra.roll += 8 * DEG * env
+      rig.headExtra.pitch += 0.3 * Math.sin(k * Math.PI * 2) * env
+    } else if (kind === 'poke') {
+      rig.headExtra.pitch += -2 * DEG * Math.sin(k * Math.PI) * env
+      // the fingertip comes down on the soil's near side, left of the stem, and presses
+      const down = Math.sin(Math.PI * Math.min(1, Math.max(0, (k - 0.25) / 0.4)))
+      this.fingerTouch(rig, centre.clone().addScaledVector(fwd, -0.45 * plant.r).addScaledVector(right, -0.4 * plant.r).add(new Vector3(0, 0.045 * (1 - down), 0)), fwd, down > 0.8, env)
+    } else if (kind === 'tap') {
+      // twice on the pot's side, 0.15 s each
+      const ph = Math.min(1, Math.max(0, (k - 0.15) / 0.7))
+      const lift = 0.025 * (1 - Math.abs(Math.sin(ph * Math.PI * 2)))
+      const rim = plant.r + 0.035
+      this.fingerTouch(rig, centre.clone().addScaledVector(fwd, -rim).addScaledVector(right, -0.03).add(new Vector3(0, -0.035 + lift, 0)), fwd, lift < 0.004, env)
+    } else if (kind === 'leaf' && this.fx) {
+      // the leaf tip nearest the body, brushed a little sideways; the hand stays within an arm of the chest
+      const root = rig.parts.root.position
+      let best: Vector3 | null = null
+      for (let i = 0; i < 3; i++) {
+        const t = this.fx.tipOf(plant.name, i)
+        if (t && (!best || Math.hypot(t.x - root.x, t.z - root.z) < Math.hypot(best.x - root.x, best.z - root.z))) best = t
+      }
+      if (!best) return
+      const chest = new Vector3(root.x, 1.0, root.z)
+      const rel = best.sub(chest)
+      if (rel.length() > 0.55) rel.setLength(0.55)
+      this.fingerTouch(rig, chest.add(rel).addScaledVector(right, 0.015 * Math.sin(k * Math.PI * 3)).add(new Vector3(0, -0.02, 0)), fwd, false, env)
+    }
+    void inp
+  }
+
+  /** the left index fingertip on a point, the hand pointing along `dir` (and a little down), palm down; blended with whatever the hand does now by `env` */
+  private fingerTouch(rig: AgentRig, point: Vector3, dir: Vector3, press: boolean, env: number) {
+    const hand = rig.parts.hands.l
+    const idx = fingerModelOf(hand, 0, 'l')
+    if (!idx) return
+    const spec = GRIPS.button.r!
+    const y = dir.clone().multiplyScalar(0.8).addScaledVector(UP, -0.6).normalize()
+    const z = UP.clone().negate()
+    const x = new Vector3().crossVectors(y, z).normalize()
+    z.crossVectors(x, y)
+    const c1 = spec.hold[0] + (press ? 0.07 : 0)
+    const tip = tipAt(idx, c1, 0)
+    const basis = new Matrix4().makeBasis(x, y, z)
+    const origin = point.clone().sub(tip.clone().applyMatrix4(new Matrix4().extractRotation(basis)))
+    const target = basis.clone().setPosition(origin)
+    const prev = rig.drive.l
+    const curl = [0, 1, 2, 3, 4, 5].map((k) => (k === 0 ? c1 : spec.hold[k]))
+    const touch = env > 0.5
+    rig.drive.l = {
+      target: prev?.target ? blend(prev.target, target, env) : target,
+      w: prev ? prev.w * (1 - env) + env : env,
+      curl: touch ? curl : null,
+      angles: touch ? undefined : prev?.angles,
+      wc: prev ? prev.wc * (1 - env) + env : env,
+      spread: null,
+    }
   }
 
   // ------------------------------------------------------------------------------------------- the book and the water
@@ -1267,21 +1386,26 @@ export class PlayStage {
 
   private water(inp: StageIn) {
     const dr = this.drops
+    const fx = this.fx
     const p = this.pouring
     this.pouring = null
-    if (!dr) return
-    // the water dispenser's tap pours the same way (loungeActs.ts; its own sound is the cue dispenser.pour)
+    if (!dr || !fx) return
+    // the office clock's step: the stream, the soil and the leaves run on it, so the speed only covers more clock per frame
+    const dt = this.fxT < 0 ? 0 : Math.min(0.5, Math.max(0, inp.t - this.fxT))
+    this.fxT = inp.t
+    const lv = levelFor(inp.speed ?? 1, inp.reduced)
+    let tipNow: Vector3 | null = null
+    if (p && this.spoutLocal) {
+      const { tip, dir } = spoutOf(p.held, this.spoutLocal)
+      tipNow = tip
+      fx.frame(dt, { plant: p.plant, tip, dir, flow: p.flow, u: p.u, shakes: p.shakes }, lv)
+    } else fx.frame(dt, null, lv)
+    // the can's own sound while water runs (the cue water, 3 s renewed)
+    const running = !!tipNow && !!p && p.flow > 0.05 && !inp.reduced
+    this.sounds.water(running, inp.t, running ? tipNow : null)
+    // the water dispenser's tap pours the same way (loungeActs.ts; its own sound is the cue dispenser.pour), when the can is not using the drops
     const tap = this.lounge.stream()
-    if (!p?.on && tap) return this.drops_(dr, tap.tip, tap.dir, tap.soilY, inp)
-    if (!p?.on || !this.spoutLocal) {
-      dr.count = 0
-      this.sounds.water(false, inp.t, null)
-      return
-    }
-    // drops leave the spout (placed from the can's pose of this frame) and are gone where they reach the soil
-    const { tip, dir } = spoutOf(p.held, this.spoutLocal!)
-    this.sounds.water(true, inp.t, tip)
-    this.drops_(dr, tip, dir, p.soilY, inp)
+    if (tap && !fx.busy && !running) this.drops_(dr, tap.tip, tap.dir, tap.soilY, inp)
   }
 
   private drops_(dr: InstancedMesh, tip: Vector3, dir: Vector3, soilY: number, inp: StageIn) {
@@ -1290,8 +1414,9 @@ export class PlayStage {
     const pos = new Vector3()
     const life = hit ? hit.tau : 0.4
     let n = 0
-    for (let i = 0; i < 28; i++) {
-      const tau = (((inp.t + (i / 28) * life) % life) + life) % life
+    const cap = Math.min(28, dr.instanceMatrix.count)
+    for (let i = 0; i < cap; i++) {
+      const tau = (((inp.t + (i / cap) * life) % life) + life) % life
       dropAt(tip, dir, tau, pos)
       m.makeTranslation(pos.x, pos.y, pos.z)
       dr.setMatrixAt(n++, m)
