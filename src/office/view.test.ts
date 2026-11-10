@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   NONE_HIDDEN, NO_KEYS, VIEW, boxDistance, clampDistance, clampPolar, clampTarget, cutAt, easeVelocity, focusAllowsCameraKeys,
-  keepClear, keySpeed, nextHidden, occlusionSegment, segmentHitsBox, stepOpacity, wallTop, wantDir, wantOpacity, type Hidden,
+  keepClear, keySpeed, nextHidden, occlusionSegment, segmentHitsBox, wallTop, wantDir, type Hidden,
 } from './view'
 
 const at = (deg: number, r = 9) => [Math.sin((deg * Math.PI) / 180) * r, Math.cos((deg * Math.PI) / 180) * r] as const // 0 deg = +z (south)
@@ -67,7 +67,7 @@ describe('view limits', () => {
   })
   it('clamps polar and distance', () => {
     expect([clampPolar(0), clampPolar(1), clampPolar(3)]).toEqual([0.15, 1, 1.35])
-    expect([clampDistance(1), clampDistance(8), clampDistance(40)]).toEqual([2.5, 8, 18])
+    expect([clampDistance(1), clampDistance(8), clampDistance(40)]).toEqual([2.5, 8, 21])
   })
 })
 
@@ -103,7 +103,7 @@ describe('WASD', () => {
   })
 })
 
-describe('near-object fade', () => {
+describe('sight segment', () => {
   const box = { min: [0, 0, 0], max: [1, 1, 1] } as const
   it('measures to the box surface', () => {
     expect(boxDistance([0.5, 0.5, 0.5], box)).toBe(0)
@@ -120,19 +120,6 @@ describe('near-object fade', () => {
     const [a, b] = occlusionSegment([0, 0, 0], [0, 0, -10])
     expect(a).toEqual([0, 0, 0])
     expect(b[2]).toBeCloseTo(-10 + VIEW.near.targetSkip)
-  })
-  it('opacity: 1 beyond 1.4 m, 25% at 0.6 m, 0 at 0.4 m, linear between; occluders at 25%', () => {
-    expect(wantOpacity(2, false)).toBe(1)
-    expect(wantOpacity(1.4, false)).toBe(1)
-    expect(wantOpacity(1.0, false)).toBeCloseTo(0.625)
-    expect(wantOpacity(0.6, false)).toBe(VIEW.near.minOpacity)
-    expect(wantOpacity(0.4, false)).toBe(0)
-    expect(wantOpacity(5, true)).toBe(VIEW.near.minOpacity)
-  })
-  it('fades out in 160 ms, back in 240 ms, instantly when reduced', () => {
-    expect(stepOpacity(1, 0.25, 0.16, false)).toBeCloseTo(0.25)
-    expect(stepOpacity(0.25, 1, 0.12, false)).toBeCloseTo(0.625)
-    expect(stepOpacity(1, 0.25, 0.001, true)).toBe(0.25)
   })
 })
 
@@ -178,16 +165,8 @@ describe('camera clearance (#208)', () => {
     expect(Math.hypot(p[0] - 18.8, p[1] - 0.5, p[2])).toBeLessThanOrEqual(VIEW.distance[1] + 1e-6 + 2)
     expect(boxDistance(p, box)).toBeGreaterThanOrEqual(m - 1e-3)
   })
-  it('the near plane stays inside the margin, and anything inside near.hide is fully hidden', () => {
+  it('the near plane stays inside the margin and the closest zoom stays outside it', () => {
     expect(VIEW.cameraNear * 2).toBeLessThan(VIEW.clear.margin)
-    expect(VIEW.near.hide).toBeGreaterThan(VIEW.clear.margin)
-    expect(wantOpacity(VIEW.near.hide, false)).toBe(0)
-    expect(wantOpacity(0, true)).toBe(0)
-    expect(wantOpacity(0.5, false)).toBeCloseTo(0.125)
-    // the debug close-up / top view (camera not kept clear): never hidden, as before #208 (#164 hand and monitor close-ups)
-    expect(wantOpacity(0.1, false, false)).toBe(VIEW.near.minOpacity)
-    expect(wantOpacity(0, true, false)).toBe(VIEW.near.minOpacity)
-    expect(wantOpacity(1.0, false, false)).toBeCloseTo(0.625)
     expect(VIEW.distance[0]).toBeGreaterThan(VIEW.clear.margin)
   })
 })

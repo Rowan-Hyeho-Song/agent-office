@@ -7,9 +7,9 @@ import { createPortal } from 'react-dom'
 // the Tab order are the slots' DOM order whatever renders first. The dock hides (CSS) while a panel or the replay
 // covers the right side.
 
-export type DockSlotName = 'approval' | 'docs' | 'replay' | 'sound'
-/** bottom up; the sound button sits on top (docs/design/sound.md 2.5) */
-const SLOTS: DockSlotName[] = ['approval', 'docs', 'replay', 'sound']
+export type DockSlotName = 'approval' | 'docs' | 'replay' | 'sound' | 'camera'
+/** bottom up; the view toggle sits on top, the sound button just under it (sound.md 2.5, office-ui.md 10.6) */
+const SLOTS: DockSlotName[] = ['approval', 'docs', 'replay', 'sound', 'camera']
 const slotId = (s: DockSlotName) => `dock-${s}`
 
 export function CornerDock() {

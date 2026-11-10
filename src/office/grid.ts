@@ -4,6 +4,7 @@
 // cells in time (traffic.ts). The nav_* spots stay as destinations only. Pure: no three.js.
 
 import { dist, type NavGraph } from './nav'
+import { inSofaRow, SOFA_ROW, type SofaRow } from './sofaRow'
 
 export interface Footprint {
   cell: number
@@ -13,6 +14,8 @@ export interface Footprint {
   h: number
   /** 1 = furniture */
   bits: Uint8Array
+  /** the sofa's knee row (zone_sofa_row of the glb, #341): travels with the footprint so every grid built from it has it */
+  zone?: SofaRow
 }
 
 export const GRID = {
@@ -37,13 +40,15 @@ export interface Grid {
   raw: Uint8Array
   /** 1 = carved dock cell */
   dock: Uint8Array
+  /** the sofa's knee row (#341): furniture clearance is relaxed inside it, and the planner's side-step rule applies there */
+  zone?: SofaRow
 }
 
-export function decodeFootprint(d: { cell: number; minX: number; minZ: number; w: number; h: number; b64: string }): Footprint {
+export function decodeFootprint(d: { cell: number; minX: number; minZ: number; w: number; h: number; b64: string; zone?: SofaRow }): Footprint {
   const bin = atob(d.b64)
   const bits = new Uint8Array(d.w * d.h)
   for (let k = 0; k < bits.length; k++) bits[k] = (bin.charCodeAt(k >> 3) >> (k & 7)) & 1
-  return { cell: d.cell, minX: d.minX, minZ: d.minZ, w: d.w, h: d.h, bits }
+  return { cell: d.cell, minX: d.minX, minZ: d.minZ, w: d.w, h: d.h, bits, zone: d.zone }
 }
 
 /** a footprint from rectangles (x0, z0, x1, z1), for tests and tiny rooms */
@@ -63,7 +68,8 @@ export function footprintFromRects(hx: number, hz: number, rects: [number, numbe
   return { cell, minX: -hx, minZ: -hz, w, h, bits }
 }
 
-export function buildGrid(fp: Footprint, g?: NavGraph, opts: Partial<typeof GRID> = {}): Grid {
+/** the row comes from the footprint unless one is passed */
+export function buildGrid(fp: Footprint, g?: NavGraph, opts: Partial<typeof GRID> = {}, zone: SofaRow | undefined = fp.zone): Grid {
   const o = { ...GRID, ...opts }
   const cell = o.cell
   const w = Math.floor((fp.w * fp.cell) / cell + 1e-9)
@@ -79,7 +85,8 @@ export function buildGrid(fp: Footprint, g?: NavGraph, opts: Partial<typeof GRID
       raw[j * w + i] = hit
     }
   }
-  const r2 = o.inflate * o.inflate
+  // inside the sofa's knee row the furniture is kept less than a body radius away so a body fits the 0.75 m row (walls keep o.inflate)
+  const rowInflate = Math.min(o.inflate, SOFA_ROW.clearance)
   const reach = Math.ceil(o.inflate / fp.cell)
   const maxX = fp.minX + fp.w * fp.cell
   const maxZ = fp.minZ + fp.h * fp.cell
@@ -90,6 +97,7 @@ export function buildGrid(fp: Footprint, g?: NavGraph, opts: Partial<typeof GRID
       // walls: keep R from the room's rim
       let bad = x - fp.minX < o.inflate || maxX - x < o.inflate || z - fp.minZ < o.inflate || maxZ - z < o.inflate
       if (!bad) {
+        const r2 = (zone && inSofaRow(zone, x, z) ? rowInflate : o.inflate) ** 2
         const ci = Math.floor((x - fp.minX) / fp.cell)
         const cj = Math.floor((z - fp.minZ) / fp.cell)
         for (let b = -reach; b <= reach && !bad; b++) {
@@ -109,7 +117,7 @@ export function buildGrid(fp: Footprint, g?: NavGraph, opts: Partial<typeof GRID
       blocked[j * w + i] = bad ? 1 : 0
     }
   }
-  const grid: Grid = { cell, minX: fp.minX, minZ: fp.minZ, w, h, blocked, raw, dock }
+  const grid: Grid = { cell, minX: fp.minX, minZ: fp.minZ, w, h, blocked, raw, dock, zone }
   if (g) carveDocks(grid, g, o)
   return grid
 }
@@ -192,8 +200,12 @@ export function nearestWalkable(g: Grid, x: number, z: number): number {
   return best
 }
 
+/** how many distance fields were built (a whole-floor Dijkstra each: the planner caches them, tests count that, #218) */
+export const FIELD_STATS = { builds: 0 }
+
 /** octile distance field from the goal over walkable cells, in metres (Infinity = unreachable) */
 export function distanceField(g: Grid, goal: number, extra?: Uint8Array): Float64Array {
+  FIELD_STATS.builds++
   const D = new Float64Array(g.w * g.h).fill(Infinity)
   if (goal < 0) return D
   const heap: [number, number][] = []
@@ -259,11 +271,12 @@ export function lineClear(g: Grid, a: { x: number; z: number }, b: { x: number; 
  * Shortest route between two points: A* over the cells (8 directions, ties broken by the fixed neighbour order),
  * then string-pulled into a few straight legs. null when the goal cannot be reached.
  */
-export function findPath(g: Grid, from: { x: number; z: number }, to: { x: number; z: number }, extra?: Uint8Array): { x: number; z: number }[] | null {
+/** `field`: the distance field of the cell `to` is in (same `extra`) when the caller has it already (the planner caches them), else it is built here */
+export function findPath(g: Grid, from: { x: number; z: number }, to: { x: number; z: number }, extra?: Uint8Array, field?: Float64Array): { x: number; z: number }[] | null {
   const s = cellAt(g, from.x, from.z)
   const e = cellAt(g, to.x, to.z)
   if (s < 0 || e < 0) return null
-  const D = distanceField(g, e, extra)
+  const D = field ?? distanceField(g, e, extra)
   if (!Number.isFinite(D[s])) return null
   const cells = [s]
   let c = s

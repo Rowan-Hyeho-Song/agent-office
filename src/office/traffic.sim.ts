@@ -5,6 +5,7 @@ import { deskOf, Director, requestOf, type Goal } from './director'
 import { applyDuty } from './duty'
 import { FOOTPRINT_DATA } from './footprint.data'
 import { buildGrid, decodeFootprint } from './grid'
+import { actTotal, inSwept, syncFridgeHold } from './lounge'
 import { GRAPH } from './navSpots.fixture'
 import type { OfficeMessage, StatusMap } from './status'
 import { TRAFFIC, TrafficPlanner } from './traffic'
@@ -23,6 +24,8 @@ export function mismatch(a: string, sh: Shown | undefined, g: Goal, arrived: str
   const s = sh.status.state
   // #228: called to work (or off) while carrying the watering can, the agent first brings it back: it shows the errand's words, whatever it is
   if (g.pose === 'water' && sh.kind !== 'rest') return sh.detail && g.water ? null : 'water errand without its words'
+  // the same for the book (#280): called away on the sofa, it first brings the book back and says so
+  if (g.pose === 'books' && g.read && sh.kind !== 'rest') return sh.detail ? null : 'reading errand without its words'
   switch (sh.kind) {
     case 'work':
       if (s !== 'working' || (g.pose !== 'type' && g.pose !== 'listen') || g.spot !== desk) return 'work: not typing at the desk'
@@ -46,6 +49,8 @@ export function mismatch(a: string, sh: Shown | undefined, g: Goal, arrived: str
       return (g.pose === 'doze' || g.pose === 'idle') && g.spot === desk && s === 'off' ? null : 'off: not at the desk dozing / resting'
     case 'duty':
       return (g.pose === 'coffee' || g.pose === 'books') && s === 'idle' ? null : 'duty: not the night solo'
+    case 'meet':
+      return sh.detail ? null : 'meet: no meeting words'
     case 'talk':
       return ['idle', 'talk', 'listen'].includes(g.pose) ? null : 'talk: not talking'
   }
@@ -80,12 +85,19 @@ function rawStatus(minute: number, ms: number): StatusMap {
   return out
 }
 
-export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t: number, planner: TrafficPlanner, goals: Record<string, Goal>) => void }) {
+export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t: number, planner: TrafficPlanner, goals: Record<string, Goal>) => void; onReplan?: (t: number, ms: number, planner: TrafficPlanner) => void }) {
   const planner = new TrafficPlanner(buildGrid(decodeFootprint(FOOTPRINT_DATA), GRAPH), GRAPH)
   const director = new Director(AGENTS)
   const rand = rng(7)
   let min = Infinity
   let minExempt = Infinity
+  // a body resting on a seat of the sofa row and one in the row's approach area (#341): the seat pitch apart is allowed
+  let minSeated = Infinity
+  // every pair of which one rests on a seat of the row, whoever the other is and wherever: never closer than the seat pitch (#280)
+  let minSeatRest = Infinity
+  // how far a body that has arrived on a sofa seat is ever from it while that is still its goal: nobody is moved off a seat for someone else (#280)
+  let maxSeatDrift = 0
+  const seatHeld: Record<string, string | undefined> = {}
   let replans = 0
   let t = opts.fromMin * 60
   const end = opts.toMin * 60
@@ -99,17 +111,33 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
     exempt.some(([s1, s2]) => ((near(a, s1) && near(b, s2)) || (near(a, s2) && near(b, s1))) && Math.hypot(a.x - b.x, a.z - b.z) >= Math.hypot(GRAPH.spots[s1].x - GRAPH.spots[s2].x, GRAPH.spots[s1].z - GRAPH.spots[s2].z) - 0.06)
   const worst: { t: number; d: number; who: string; goals: string; at: string }[] = []
   const planMs: number[] = []
+  // the fastest any body moves (#339): every 50 ms sample's speed, and where the walk goes over the cap
+  let maxSpeed = 0
+  const fast: { t: number; who: string; v: number }[] = []
   const departs = new Map<string, number>()
   // the watering errands (#228): how many entered each stage, and whether two agents ever had one at once
   const errands: Record<string, number> = { fetch: 0, lift: 0, carry: 0, pour: 0, return: 0, put: 0, done: 0 }
   const stageOf: Record<string, string | undefined> = {}
   let errandsAtOnce = 0
+  // the reading errands (#280): how many entered each stage, on which seat, and whether two agents ever read at once (one book)
+  const reads: Record<string, number> = { fetch: 0, pick: 0, carry: 0, read: 0, return: 0, put: 0, done: 0, seat0: 0, seat1: 0 }
+  const readStage: Record<string, string | undefined> = {}
+  const readCancels: Record<string, number> = {}
+  let readsAtOnce = 0
+  // the lounge acts (#280, lounge.ts): how many were sent, how many got as far as their stand, how many ran to their end; who was at the bar / turntable at once
+  const acts: Record<string, { sent: number; reached: number; done: number }> = { fridge: { sent: 0, reached: 0, done: 0 }, dispenser: { sent: 0, reached: 0, done: 0 }, record: { sent: 0, reached: 0, done: 0 } }
+  const actSeen: Record<string, { kind: string; reached: boolean; total: number } | undefined> = {}
+  let actsAtOnce = 0
   // frames where what is shown and what the body does disagree; the longest an agent went without reaching its goal (the #188 leftover)
   const mism: { t: number; who: string; why: string }[] = []
   let frames = 0
   const goalSince: Record<string, { key: string; t: number }> = {}
   const maxWait = { s: 0, who: '', spot: '', t: 0 }
   const longWaits: { who: string; spot: string; t: number; s: number }[] = []
+  const lastU: Record<string, number> = {}
+  const hold = { user: null as string | null, from: 0 }
+  // the fridge door's swing (#280): nobody but its user is ever inside the area it sweeps while it is held
+  let sweptBreaches = 0
   let first = true
   let samples = 0
   while (t < end) {
@@ -125,6 +153,7 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
         director.receive(m)
       }
     }
+    syncFridgeHold(planner, hold, director.fridgeUser(), t)
     const arrived = (a: string) => (planner.has(a) ? planner.sample(a, t).arrived : null)
     const goals: Record<string, Goal> = director.goals(now, minute, status, arrived)
     // as Agents.tsx does: forget the departures no goal holds any more, keep the held ones
@@ -154,6 +183,45 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
       }
     }
     errandsAtOnce = Math.max(errandsAtOnce, onErrand)
+    let onRead = 0
+    for (const a of AGENTS) {
+      const st = goals[a].read?.stage
+      if (st) onRead++
+      if (st !== readStage[a]) {
+        if (st) {
+          reads[st]++
+          if (st === 'fetch') reads[`seat${goals[a].read!.seat}`]++
+        } else if (readStage[a] === 'put') reads.done++
+        else if (readStage[a] === 'fetch') {
+          // forgotten before the book was taken: why (the status it was called away by)
+          const why = `${status[a]?.state ?? '?'}${status[a]?.night ? '/' + status[a]!.night : ''}`
+          readCancels[why] = (readCancels[why] ?? 0) + 1
+        }
+        readStage[a] = st
+      }
+    }
+    readsAtOnce = Math.max(readsAtOnce, onRead)
+    let onAct = 0
+    for (const a of AGENTS) {
+      const ac = goals[a].act
+      const prev = actSeen[a]
+      if (ac) onAct++
+      if (ac && !prev) {
+        acts[ac.kind].sent++
+        actSeen[a] = { kind: ac.kind, reached: false, total: actTotal(ac.kind, ac.mode, ac.recordOn) }
+      }
+      const cur = actSeen[a]
+      if (cur && ac && ac.u >= 0 && !cur.reached) {
+        cur.reached = true
+        acts[cur.kind].reached++
+      }
+      if (cur && !ac) {
+        if (cur.reached && lastU[a] >= cur.total - 2.1) acts[cur.kind].done++
+        actSeen[a] = undefined
+      }
+      lastU[a] = ac ? ac.u : 0
+    }
+    actsAtOnce = Math.max(actsAtOnce, onAct)
     for (const a of AGENTS) {
       const g = goals[a]
       const at = planner.has(a) ? planner.sample(a, t).arrived : null
@@ -176,6 +244,7 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
     if (planner.update(t)) {
       replans++
       planMs.push(performance.now() - t0)
+      opts.onReplan?.(t, planMs[planMs.length - 1], planner)
     }
     // is anyone still on the way? then step finely, otherwise coarsely
     const busy = AGENTS.some((a) => planner.settledAt(a) > t || planner.sample(a, t).moving)
@@ -184,10 +253,24 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
       const tt = t + k * 0.05
       const s = AGENTS.map((a) => planner.sample(a, tt))
       samples++
+      s.forEach((q, i) => {
+        if (q.speed > maxSpeed) maxSpeed = q.speed
+        if (q.speed > TRAFFIC.cruise * 1.1) fast.push({ t: tt, who: AGENTS[i], v: q.speed })
+      })
+      AGENTS.forEach((a, i) => {
+        const spot = GRAPH.spots[goals[a].spot]
+        if (!spot || spot.kind !== 'sofa') seatHeld[a] = undefined
+        else if (s[i].arrived === spot.id) seatHeld[a] = spot.id
+        else if (seatHeld[a] !== spot.id) seatHeld[a] = undefined
+        if (seatHeld[a]) maxSeatDrift = Math.max(maxSeatDrift, Math.hypot(s[i].x - spot.x, s[i].z - spot.z))
+      })
+      if (hold.user) AGENTS.forEach((a, i) => { if (a !== hold.user && tt >= hold.from && inSwept(s[i].x, s[i].z)) sweptBreaches++ })
       for (let i = 0; i < AGENTS.length; i++) {
         for (let j = i + 1; j < AGENTS.length; j++) {
           const d = Math.hypot(s[i].x - s[j].x, s[i].z - s[j].z)
+          if (planner.restsOnRowSeat(s[i].x, s[i].z) || planner.restsOnRowSeat(s[j].x, s[j].z)) minSeatRest = Math.min(minSeatRest, d)
           if (isExempt(s[i], s[j])) minExempt = Math.min(minExempt, d)
+          else if (planner.isSeatedPair(s[i].x, s[i].z, s[j].x, s[j].z) && d >= planner.seatPassM - 0.005) minSeated = Math.min(minSeated, d)
           else {
             if (d < min) min = d
             if (d < 2 * TRAFFIC.bodyR) worst.push({ t: tt, d, who: `${AGENTS[i]}/${AGENTS[j]}`, goals: `${goals[AGENTS[i]].spot}/${goals[AGENTS[j]].spot}`, at: `${s[i].x.toFixed(2)},${s[i].z.toFixed(2)}/${s[j].x.toFixed(2)},${s[j].z.toFixed(2)}` })
@@ -198,5 +281,5 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
     t += step
   }
   planMs.sort((a, b) => a - b)
-  return { min, minExempt, replans, worst, samples, planMs, stats: planner.stats, mismatch: mism, frames, maxWait, longWaits, errands, errandsAtOnce }
+  return { min, minExempt, minSeated, minSeatRest, maxSeatDrift, seatPassM: planner.seatPassM, replans, worst, samples, planMs, maxSpeed, fast, stats: planner.stats, mismatch: mism, frames, maxWait, longWaits, errands, errandsAtOnce, reads, readCancels, readsAtOnce, acts, actsAtOnce, sweptBreaches }
 }

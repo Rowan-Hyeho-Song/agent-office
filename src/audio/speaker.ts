@@ -36,6 +36,24 @@ export function holdState(h: Hold | null, want: MusicState, t: number, hold = HO
   return t - h.since >= hold ? { state: want, want, since: t } : h
 }
 
+/**
+ * #280 the turntable (sound.md 4.4, planning 2026-11-10): when the music should go to break and an agent is on the way
+ * to the turntable, the break music waits for the needle; lifting the arm takes it back down to work music for the rest
+ * of that break. Nobody at the turntable = break at once, as before.
+ *  - `coming`  an agent is going to put a record on (needle not down yet)
+ *  - `down`    the needle is in the groove
+ *  - `lifted`  the arm came up during this break (cleared when the break ends)
+ */
+export type Deck = { coming: boolean; down: boolean; lifted: boolean }
+export const DECK_IDLE: Deck = { coming: false, down: false, lifted: false }
+/** what the speakers play, from the held agent state and the turntable (pure, tested) */
+export function deckState(held: MusicState, d: Deck): MusicState {
+  if (held !== 'break') return held
+  if (d.down) return 'break'
+  if (d.lifted || d.coming) return 'work'
+  return 'break'
+}
+
 /** the 8-cell meter: RMS −48 → −12 dBFS in 4.5 dB steps */
 export const METER_FLOOR_DB = -48
 export const METER_STEP_DB = 4.5
@@ -77,9 +95,15 @@ export function faderTargets(state: MusicState, layers: readonly Layer[], forMe:
 
 /** how a speaker sounds with distance (sound.md 6, to be judged on #194):
  *  - 'room': like every other cue, the whole room at full level from the default view, left/right only (the default)
- *  - 'near': quieter far away, louder close up; the same level at the default view (16 m), at most +4 dB nearer */
+ *  - 'near': quieter far away, louder close up; the same level at the default view (17.7 m), at most +4 dB nearer */
 export type MusicDist = 'room' | 'near'
-export const DEFAULT_VIEW_M = 16.1 // room.ts DEFAULT_CAMERA (8.5, 8, 9.5) → the speakers (−2.32, 0.82, ±0.4)
+/** DEFAULT_CAMERA (9.56, 7.8, 10.54) → the speakers' middle (#367 bake: L 17.44 m, R 17.93 m; was 18.4 by estimate, 16.1 in the old room) */
+export const DEFAULT_VIEW_M = 17.7
+/** desk_4_spk_l / _r in office.glb (#367 bake), used until the coder hands the live nodes over */
+export const SPEAKER_FALLBACK: readonly [number, number, number][] = [
+  [-2.622, 0.819, 0.189],
+  [-2.622, 0.819, -0.609],
+]
 export const NEAR_GAIN_DB = 4
 export function distParams(d: MusicDist): { ref: number; trim: number } {
   if (d === 'room') return { ref: REF_DISTANCE, trim: 1 }
@@ -131,12 +155,12 @@ function build(g: NonNullable<ReturnType<typeof audioGraph>>): AudioNode {
     p.refDistance = ref
     p.maxDistance = MAX_DISTANCE
     p.rolloffFactor = 1
-    // until the nodes are known: where #249 puts them
-    const z = i === 0 ? 0.389 : -0.409
+    // until the nodes are known: where the bake puts them
+    const [fx, fy, fz] = SPEAKER_FALLBACK[i]
     if (p.positionX) {
-      p.positionX.value = -2.322
-      p.positionY.value = 0.819
-      p.positionZ.value = z
+      p.positionX.value = fx
+      p.positionY.value = fy
+      p.positionZ.value = fz
     }
     forMeG.connect(half).connect(p).connect(trim)
     split.push(half)
@@ -162,6 +186,29 @@ export function setMusicDist(d: MusicDist) {
 }
 export const getMusicDist = () => dist
 
+// ─── #280 turntable: the coder's record routine calls these (sound.md 4.4) ───
+let deck: Deck = DECK_IDLE
+/** the agents' rule says break (after its 8 s hold): the coder sends someone to the turntable then (ECHO first if resting) */
+export const musicWantsBreak = () => hold?.state === 'break'
+/** an agent is going to put a record on (true), or gave up (false): the break music waits for the needle meanwhile */
+export function recordComing(on: boolean) {
+  deck = { ...deck, coming: on }
+}
+/** the needle meets the groove (with cue 'record.needle'): break music starts */
+export function needleDown() {
+  deck = { coming: false, down: true, lifted: false }
+}
+/** the arm comes up (with cue 'record.lift'): back to work music for the rest of this break */
+export function needleUp() {
+  deck = { coming: false, down: false, lifted: musicWantsBreak() }
+}
+/** the turntable as the speakers see it (debug panel, tests) */
+export const deckNow = (): Readonly<Deck> => deck
+/** a seek / a fresh scene: forget the turntable */
+export function resetDeck() {
+  deck = DECK_IDLE
+}
+
 /** debug: play this state whatever the agents do (null = follow them again) */
 export function forceMusic(s: MusicState | null) {
   force = s
@@ -183,7 +230,8 @@ const silent = () => {
 export function speakerFrame(resting: number, playing: boolean, isNight: boolean, sceneS: number) {
   night = isNight
   hold = holdState(hold, wantedState(resting, isNight), sceneS)
-  const want = force ?? hold.state
+  if (hold.state !== 'break' && deck.lifted) deck = { ...deck, lifted: false }
+  const want = force ?? deckState(hold.state, deck)
   if (want !== getMusicState()) setMusicState(want)
   holdDuck('music', playing ? PINGPONG_DUCK_DB : 0)
 

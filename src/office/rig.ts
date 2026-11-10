@@ -16,31 +16,66 @@ import {
   MeshBasicMaterial,
   Object3D,
   Quaternion,
-  SRGBColorSpace,
+  Vector2,
   Vector3,
 } from 'three'
 import type { Goal } from './director'
 import { aimPose, planGesture, type AimPose, type Plan } from './aim'
 import { DOZE } from './doze'
+import { FaceScreen } from './faceScreen'
+import { baseExpression, CallTracker, FaceMind, newInput, type FaceInput } from './faceMind'
+import { WRITE_ASIDE, wrapBack, wrapHand, wrapHead, writePlace, type HandSpec, type WritePlace } from './wrapPose'
+import { WRAP } from './wrap'
+import type { Expression } from './faceModel'
 import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
 import { GLOW } from './nodes'
-import { KNUCKLE_DEG, THUMB_DEG, type FingerModel } from './grip'
-import { TRAFFIC, type Sample } from './traffic'
+import type { FingerModel } from './grip'
+import { reachFrame, reachTurn } from './reach'
+import {
+  ALL_POSES,
+  DEFAULT_FAN,
+  POSES,
+  VARIANTS,
+  clampAngles,
+  fingerRootQuat,
+  fromCurl,
+  fromVec,
+  readJoint,
+  segmentQuat,
+  thumbRootQuat,
+  toVec,
+  type AnyPoseId,
+  type HandAngles,
+  type JointSpec,
+  type Range,
+} from './handPose'
+import { CRUISE, CRUISE_TUNED, TRAFFIC, type Sample } from './traffic'
 import type { AgentStatus } from './status'
 import { musicGlow, speakerCone, speakerOn } from '../audio/speaker'
 
 /** the poses of the play schedule (play.ts PlayKind): what "resting" means (sound.md 5) */
-const RESTING_POSES: ReadonlySet<string> = new Set(['pingpong', 'boardgame', 'coffee', 'sofa', 'water', 'books'])
-const SPEED = 0.75 // m/s cruising
-const ACCEL = 1.4 // m/s²
-const CORNER_SPEED = 0.32 // through a sharp turn
-const TURN_RATE = 4.5 // rad/s
+const RESTING_POSES: ReadonlySet<string> = new Set(['pingpong', 'boardgame', 'coffee', 'sofa', 'water', 'books', 'fridge', 'dispenser', 'record'])
+/** the walk (#329): cruising from traffic.ts CRUISE; acceleration, the corner speed and the turn rate keep their proportions to it (tuned at 0.75) */
+const PACE = CRUISE / CRUISE_TUNED
+const SPEED = CRUISE // m/s cruising
+const ACCEL = 1.4 * PACE // m/s²
+const CORNER_SPEED = 0.32 * PACE // through a sharp turn
+const TURN_RATE = 4.5 * PACE // rad/s
+/** squaring up on a spot it has just stopped on: any way in (up to 180°) turns to the spot's facing in 0.35 s, inside the designer's 0.4 s (#333).
+ * The walking rate (with its frame damping) took 0.8 s for a half turn: a body that came in from behind stood across the table for most of a second */
+const ARRIVE_TURN_RATE = Math.PI / 0.35 // rad/s
 // a meeting listener's nod (#141): how long it takes, how far the head dips, how long the addressee's hand stays up
 const NOD_S = 0.5
+/** where a caught paper / plane is held to be looked at, from the head (paper-pass.md 5, #273) */
+export const LOOK_AT = { ahead: 0.22, down: 0.1, side: 0.06 }
+/** a received plane / toss: how long the eyes stay wide before the nod (paper-pass.md 4) */
+const PAPER_SURPRISE_S = 1.2
 const NOD_DEG = 5
 const NOD_HAND_S = 0.8
 const LIFT = 0.06 // extra hover height while moving
 /** seated spots: the head floats lower over the cushion / stool */
+/** lying on the chaise: the head's height above the floor (the cushion's top 0.44 + the head's own half height) and how far it tips back (face up, rad) */
+const LIE = { headY: 0.62, faceUpRad: (80 * Math.PI) / 180 }
 const SEAT: Record<string, number> = { sofa: -0.3, stool: -0.2 }
 /** where the beam of light ends when the agent hovers over furniture (else the floor) */
 const SURFACE: Record<string, number> = { work: 0.76, stool: 0.525, sofa: 0.44 }
@@ -49,10 +84,49 @@ const EXIT_DEPTH = 0.9
 const EXIT = '__exit'
 /** hand spring (#28: critically damped, ω ≈ 12 → about 0.12 s behind the head) */
 const HAND_OMEGA = 12
+/**
+ * The walking hands (#257, agents.md 2.5): while walking a hand is attached to its body-relative place (no spring lag) and swings with the step, the other hand in
+ * the opposite phase. hz: one swing back and forth, scaled by sqrt(v / cruise) within hzMin .. hzMax; amp: +- metres forward / back x v / cruise, never over ampMax;
+ * arc / inward: the pendulum's rise at the ends and the inward step at the front; wristDeg: the wrist's swing; startS: the swing grows over this; stillV / stillBand: no
+ * swing below stillV (turning on the spot); settleS: on a stop the swing sinks to nothing, without overshoot, then bobS blends the standing bob in; attachS: the
+ * hand's spring state (when it is farther than attachNear from the place) blends into the attached place (a hand that was elsewhere does not jump); carryShare: the free hand beside a carrying one swings this much.
+ */
+const WALK = { hz: 0.8, hzMin: 0.5, hzMax: 1.0, cruise: CRUISE_TUNED, amp: 0.05, ampMax: 0.07, arc: 0.012, inward: 0.01, wristDeg: 10, startS: 0.4, stillV: 0.1, stillBand: 0.1, settleS: 0.5, bobS: 0.3, attachS: 0.25, attachNear: 0.15, carryShare: 0.6, heldBob: 0.006, canBob: 0.01 } as const
+// #329 (designer): the swing keeps its 0.75 m/s reference, so the faster 1.0 m/s cruise swings faster and wider: 0.8 x sqrt(1 / 0.75) = 0.92 Hz, +-6.7 cm (agents.md 2.5)
+/**
+ * The hand tuck (lounge-props.md 3, rule 3: "자는 몸 쪽 손은 몸 쪽으로 당긴다", #280): within rangeM of a body resting on a sofa seat (or dozing on the chaise) the free
+ * hand on the sitter's side is pulled inM toward its own body (a smaller lateral offset), fully inside nearM and fading out to rangeM, blended at rate (1/s) so
+ * it never jumps; the other hand is untouched. A hand that holds something is not tucked.
+ */
+const TUCK = { rangeM: 0.7, nearM: 0.5, inM: 0.05, rate: 8 } as const
+
+interface Swing {
+  dx: number
+  dy: number
+  dz: number
+  /** about the agent's x axis, rad: + tips the fingers forward */
+  wrist: number
+}
+const smooth01 = (u: number) => u * u * (3 - 2 * u)
 /** finger bends ease at this rate (1/s): ~95 % of a change in 120 ms (agents.md 2.7) */
 const FINGER_RATE = 25
-const X_AXIS = new Vector3(1, 0, 0)
-const Z_AXIS = new Vector3(0, 0, 1)
+/** a closing hand: each finger starts this much after the one before it (index first); opening is the reverse (hand-poses.md 2) */
+const FINGER_LAG_S = 0.015
+/** a resting hand's fingers start to drift after this long (s), fading in over a second; ±3°, 4–7 s periods */
+const IDLE_AFTER_S = 3
+const IDLE_DRIFT_DEG = 3
+const NO_DRIFT = [0, 0, 0, 0]
+/** a string → 0 … 1, always the same (the idle drift's seed) */
+function hash01(str: string) {
+  let h = 2166136261
+  for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619)
+  return ((h >>> 0) % 10000) / 10000
+}
+/** a drive's curl (six numbers) and per-finger swing (rad, on top of the baked fan) as angles */
+function fromCurlWithSwing(curl: readonly number[], fan: readonly number[], swing: readonly number[] | null): HandAngles {
+  const a = fromCurl(curl, undefined, fan.map((x, f) => x + ((swing?.[f] ?? 0) * 180) / Math.PI))
+  return a
+}
 const PROP_OMEGA = 14
 /** the planner's sticky notes shown (#28: = open issues, fixed until the count is wired, #44) */
 const POSTITS = 3
@@ -69,6 +143,10 @@ const UP = new Vector3(0, 1, 0)
 export interface Joint {
   node: Object3D
   rest: Quaternion
+  /** the node's `joint` extras (axis and sign per joint), see handPose.ts */
+  spec?: JointSpec
+  /** a finger root's baked fan angle, degrees (extras rest_abduct) */
+  restAbd?: number
 }
 
 export interface Hand {
@@ -76,7 +154,7 @@ export interface Hand {
   grip: Object3D | undefined
   /** f[finger][knuckle]: index … little, root … tip (agent_i_hand_*_f{1..4}_{1,2,3}); missing nodes are null */
   fingers: (Joint | null)[][]
-  /** the thumb's two segments (agent_i_hand_*_t_{1,2}) */
+  /** the thumb's three joints (agent_i_hand_*_t_{0,1,2}): the root (CMC), MCP, IP */
   thumb: (Joint | null)[]
   /** the index and thumb tips in their own part's frame (the vertex farthest from the pivot), for the pinch */
   indexTip: Vector3 | null
@@ -98,8 +176,14 @@ export interface HandDrive {
   target: Matrix4 | null
   w: number
   curl: readonly number[] | null
+  /** the fingers as 20 joint angles (handPose.toVec), already mixed by the caller: used instead of `curl` + `spread` when given (the contact fit carries full per-joint angles) */
+  angles?: readonly number[] | null
+  /** a grip's own abduction range per finger (index … little; grip.ts STONE_ABD), degrees: the rig clamps with these instead of the general ones while this drive shows */
+  abdLimits?: readonly (Range | undefined)[] | null
   wc: number
   spread: readonly number[] | null
+  /** #255 (grips.md 1.1): while the hand reaches for this (0 < w < 1) its fingers follow the reach direction and its palm faces the object; the grip's own pose wins at w = 1 */
+  reach?: boolean
 }
 
 export interface RigParts {
@@ -110,6 +194,8 @@ export interface RigParts {
   face: Mesh | undefined
   beam: Object3D | undefined
   floor: Mesh | undefined
+  /** the ring round the pool of light (agent_i_floor_ring); both follow the floor's top under the agent (#316) */
+  floorRing: Object3D | undefined
   hands: { l: Hand; r: Hand }
   /** role parts: 3D orbit (agent_1), coder's ring (agent_3_tip), coder's ear-cup glow, planner's sticky notes */
   orbit: Object3D | undefined
@@ -205,7 +291,16 @@ export function fingerModelOf(hand: Hand, finger: number | 'thumb', side: 'l' | 
   const chain = finger === 'thumb' ? hand.thumb : hand.fingers[finger]
   const tip = finger === 'thumb' ? hand.thumbTip : hand.tips[finger]
   if (!tip || chain.some((j) => !j)) return null
-  return { p: chain.map((j) => j!.node.position.clone()), rest: chain.map((j) => j!.rest.clone()), tip: tip.clone(), thumb: finger === 'thumb', sx: side === 'l' ? -1 : 1 }
+  return {
+    p: chain.map((j) => j!.node.position.clone()),
+    rest: chain.map((j) => j!.rest.clone()),
+    tip: tip.clone(),
+    thumb: finger === 'thumb',
+    sx: side === 'l' ? -1 : 1,
+    finger: finger === 'thumb' ? undefined : finger,
+    joint: chain.map((j) => j!.spec),
+    restAbd: chain[0]!.restAbd,
+  }
 }
 
 /** two vertices this close to the farthest distance count as equally far (the glb's quantization noise is far below it) */
@@ -277,18 +372,19 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
         if (!part) return null
         parent.attach(part)
         parent = part
-        return { node: part, rest: part.quaternion.clone() }
+        const fan = part.userData.rest_abduct
+        return { node: part, rest: part.quaternion.clone(), spec: readJoint(part.userData), restAbd: typeof fan === 'number' ? fan : undefined }
       })
     }
     const fingers = [1, 2, 3, 4].map((f) => chain([1, 2, 3].map((k) => `f${f}_${k}`)))
-    const thumb = chain(['t_1', 't_2'])
+    const thumb = chain(['t_0', 't_1', 't_2'])
     return {
       node,
       grip: n(`_hand_${side}_grip`),
       fingers,
       thumb,
       indexTip: tipOf(fingers[0][2]?.node),
-      thumbTip: tipOf(thumb[1]?.node),
+      thumbTip: tipOf(thumb[2]?.node),
       tips: fingers.map((c) => tipOf(c[2]?.node)),
       restPos: root.worldToLocal(node.getWorldPosition(new Vector3())),
       restQuat: rootQuatInv.clone().multiply(node.getWorldQuaternion(new Quaternion())),
@@ -319,6 +415,7 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
     face: n('_face') as Mesh | undefined,
     beam,
     floor,
+    floorRing: n('_floor_ring'),
     hands: { l: hand('l'), r: hand('r') },
     orbit: n('_orbit'),
     ring: i === 3 ? n('_tip') : undefined,
@@ -330,60 +427,6 @@ export function buildRig(scene: Object3D, nodes: Record<string, Object3D>, i: nu
   rig.postits.forEach((p, k) => (p.visible = k < POSTITS))
   scene.userData[key] = rig
   return rig
-}
-
-// ------------------------------------------------------------------ the face screen (#28, simple first)
-
-type FaceMood = 'open' | 'blink' | 'happy' | 'sleep' | 'fail' | 'doze' | 'focus' | 'wide'
-/** the eyes' look is drawn in steps of this many px (up to 3 steps each way) */
-const EYE_STEP = 4
-
-/** the head's screen: two eyes in the agent's color on a dark glass; drawn only when the mood changes */
-class FaceScreen {
-  private ctx: CanvasRenderingContext2D
-  readonly texture: CanvasTexture
-  private mood: string | null = null
-  private color: string
-
-  constructor(color: string) {
-    const c = document.createElement('canvas')
-    c.width = 300
-    c.height = 180
-    this.ctx = c.getContext('2d')!
-    this.color = color
-    this.texture = new CanvasTexture(c)
-    this.texture.flipY = false // glTF UVs (v = 0 at the top of the image)
-    this.texture.colorSpace = SRGBColorSpace
-  }
-
-  /** `gx`, `gy`: where the eyes look, in steps (−3 … 3; +x = the viewer's right = the agent's left, +y = down) */
-  draw(mood: FaceMood, gx = 0, gy = 0) {
-    const key = `${mood}|${gx}|${gy}`
-    if (key === this.mood) return
-    this.mood = key
-    const dx = gx * EYE_STEP
-    const dy = gy * EYE_STEP
-    const g = this.ctx
-    g.fillStyle = '#05080b'
-    g.fillRect(0, 0, 300, 180)
-    g.strokeStyle = g.fillStyle = mood === 'fail' ? '#ff5a5f' : this.color
-    g.globalAlpha = mood === 'doze' ? DOZE.faceBrightness : 1
-    g.lineWidth = 14
-    g.lineCap = 'round'
-    for (const x of [100, 200]) {
-      g.beginPath()
-      // aiming: narrowed eyes; a plane coming: wide ones
-      if (mood === 'open') g.roundRect(x - 16 + dx, 60 + dy, 32, 60, 12)
-      else if (mood === 'focus') g.roundRect(x - 18 + dx, 78 + dy, 36, 26, 10)
-      else if (mood === 'wide') g.roundRect(x - 19 + dx, 50 + dy, 38, 80, 14)
-      if (mood === 'open' || mood === 'focus' || mood === 'wide') g.fill()
-      else if (mood === 'blink' || mood === 'sleep' || mood === 'doze') (g.moveTo(x - 20, 95), g.lineTo(x + 20, 95), g.stroke())
-      else if (mood === 'happy') (g.moveTo(x - 22, 102), g.lineTo(x, 80), g.lineTo(x + 22, 102), g.stroke())
-      else (g.moveTo(x - 18, 72), g.lineTo(x + 18, 108), g.moveTo(x + 18, 72), g.lineTo(x - 18, 108), g.stroke())
-    }
-    g.globalAlpha = 1
-    this.texture.needsUpdate = true
-  }
 }
 
 // ------------------------------------------------------------------ props in hand (#20 nodes, #27 grips)
@@ -534,7 +577,8 @@ export class PropBank {
       }
       p.node.position.lerp(this.pos, k)
       p.node.quaternion.slerp(this.quat, k)
-      p.node.visible = !p.holder || !p.holder.attached || p.holder.rig.visible
+      // a prop the model hides at rest (extras hidden_at_rest: the record's jacket, which also leans baked in its shelf) shows only in a hand
+      p.node.visible = p.node.userData.hidden_at_rest ? !!p.holder?.attached && p.holder.rig.visible : !p.holder || !p.holder.attached || p.holder.rig.visible
     }
   }
 }
@@ -545,33 +589,24 @@ interface HandPose {
   pos: Vector3
   /** extra rotation in the root's frame, applied before the rest rotation */
   turn: Quaternion
-  /** how the fingers bend */
-  curl: HandShape
+  /** how the fingers bend: joint angles (a named pose of handPose.ts) or an old curl */
+  curl: PoseSpec
+  /** the walking place (#257): the hand is attached to it and swings with the step */
+  walk?: boolean
+  /** the standing rest place: the walking swing sinks into it when the agent stops */
+  rest?: boolean
 }
 
 /**
- * A hand shape (agents.md 2.7, #134): one bend value c per finger, index … little (0 = straight, 1 = fully bent; the
- * knuckles turn root 75°·c, middle 90°·c, tip 60°·c toward the palm), and the thumb's bend and opposition (its root
- * turns toward the palm by 60°·opposition; a negative one opens it outward, 메시's frame).
+ * An old hand shape (agents.md 2.7, #134): one bend value c per finger, index … little (0 = straight, 1 = fully bent), and the thumb's
+ * bend and opposition. Callers that still hold one are converted with fromCurl (hand-poses.md 3) at the rig's edge.
  */
 export interface HandShape {
   f: readonly [number, number, number, number]
   thumb: readonly [bend: number, oppose: number]
 }
-
-const DEG = Math.PI / 180
-export { KNUCKLE_DEG, THUMB_DEG }
-
-/** the knuckle angles of a shape (radians): f[finger][knuckle] about local x; the thumb's root x / z and tip x */
-export function jointAngles(shape: HandShape, side: 'l' | 'r') {
-  const sx = side === 'l' ? -1 : 1
-  return {
-    f: shape.f.map((c) => KNUCKLE_DEG.map((d) => d * DEG * c)),
-    t1x: THUMB_DEG.bend1 * DEG * shape.thumb[0],
-    t1z: sx * THUMB_DEG.oppose * DEG * shape.thumb[1],
-    t2x: THUMB_DEG.bend2 * DEG * shape.thumb[0],
-  }
-}
+export type PoseSpec = HandShape | HandAngles
+const isAngles = (p: PoseSpec): p is HandAngles => !Array.isArray((p as HandAngles).thumb)
 
 type Four = [number, number, number, number]
 const shape = (f: Four, thumb: [number, number]): HandShape => ({ f, thumb })
@@ -579,6 +614,7 @@ const shape = (f: Four, thumb: [number, number]): HandShape => ({ f, thumb })
 const v = (x: number, y: number, z: number) => new Vector3(x, y, z)
 const qz = (a: number) => new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), a)
 const qy = (a: number) => new Quaternion().setFromAxisAngle(UP, a)
+const AXIS_X = new Vector3(1, 0, 0)
 const NONE = new Quaternion()
 /**
  * The hand's frame (#148, measured in Blender and in the app): at rest the palms face each other, the right palm toward
@@ -588,48 +624,39 @@ const NONE = new Quaternion()
  */
 export const REST_PALM: Record<'l' | 'r', readonly [number, number, number]> = { r: [-1, 0, 0], l: [1, 0, 0] }
 export const palmDown = (side: 'l' | 'r') => qz(((side === 'l' ? -1 : 1) * Math.PI) / 2)
-/** the nine shapes of agents.md 2.7 (#134) */
-const REST_CURL = shape([0.25, 0.25, 0.3, 0.35], [0.2, 0])
-const TYPE_CURL = shape([0.35, 0.35, 0.35, 0.4], [0.3, 0.2])
-const HOLD_CURL = shape([0.85, 0.88, 0.9, 0.92], [0.7, 1])
-/**
- * the index and thumb tips meet (#62). Measured on the #148 hand: the table's values (index 0.55, thumb 0.6 / 0.9)
- * leave the tips 5.9 cm apart; a fully bent index onto a straight, opposed thumb closes them to 5 mm (a search over
- * index 0.2–1 × thumb bend 0–1.5 × opposition 0–1.5). The other three stay loose as at rest: an "OK" hand, not a fist
- * (designer, #154), and they keep clear of the paper plane's wings.
- */
-const PINCH_CURL = shape([0.9, 0.25, 0.3, 0.35], [0, 0.7])
-const POINT_CURL = shape([0, 0.9, 0.92, 0.95], [0.6, 0.6])
-const WAVE_CURL = shape([0, 0, 0.02, 0.05], [0.1, 0])
-const FRAME_CURL = shape([0, 0.92, 0.94, 0.96], [0, -0.85])
-const STAMP_CURL = shape([0.1, 0.1, 0.1, 0.1], [0.1, 0])
-const YIELD_CURL = shape([0.05, 0.08, 0.1, 0.12], [0.15, 0])
-/** a loose hand (sofa, reading, the board-game hand at rest): between rest and hold */
+/** the shapes of agents.md 2.7 as the named poses of hand-poses.md 2 (#282) */
+const REST_POSE = POSES.rest
+const TYPE_POSE = POSES.type
+const HOLD_POSE = POSES.wrap
+/** the index and thumb tips meet (#62): the 끝 집기 (OK) pose, the other three fingers stretched and fanned (designer, #154) */
+const PINCH_POSE = POSES.ok
+const POINT_POSE = POSES.point
+const WAVE_POSE = POSES.spread
+const FRAME_POSE = VARIANTS.frame
+const STAMP_POSE = VARIANTS.stamp
+const YIELD_POSE = POSES.sweep
+/** a hand holding a pen to write: the three pen fingers closed, the other two loose (wrap-up, #186): 세 손가락 집기 */
+const PEN_POSE = POSES.tripod
 /** seated, a gesturing hand stays at or above the desk top + 5 cm (root frame, same as the desk poses ~0.82; #226 ④) */
 const DESK_HAND_MIN = 0.79
-const LOOSE_CURL = shape([0.45, 0.5, 0.55, 0.6], [0.3, 0.2])
-/** a hand holding a pen to write: the three pen fingers closed, the other two loose (wrap-up, #186) */
-const PEN_CURL = shape([0.55, 0.6, 0.8, 0.85], [0.55, 0.6])
-/** typing (agents.md 2.7): each finger alternates 0.35 ↔ 0.5 four times a second, out of step with its neighbours */
-function typing(t: number, side: 'l' | 'r', phase: number): HandShape {
-  const o = side === 'l' ? 0 : Math.PI / 4
-  const f = TYPE_CURL.f.map((c, k) => c + 0.15 * (0.5 + 0.5 * Math.sin(t * Math.PI * 8 + phase + o + k * Math.PI * 0.5))) as Four
-  return shape(f, [TYPE_CURL.thumb[0], TYPE_CURL.thumb[1]])
-}
+/** a loose hand (sofa, reading, the board-game hand at rest): between rest and hold, still an old curl converted by hand-poses.md 3 */
+const LOOSE_POSE = shape([0.45, 0.5, 0.55, 0.6], [0.3, 0.2])
 /** how far the hand holding a caught plane moves out from the head's centre line, m (designer, #62) */
 const CAUGHT_OUT = 0.055
-/** named hand shapes, for anything that holds something (the plane's catch; later 휴's dropper, 메시's vertex pick) */
-export const HAND_SHAPES = {
-  rest: REST_CURL,
-  type: TYPE_CURL,
-  hold: HOLD_CURL,
-  pinch: PINCH_CURL,
-  point: POINT_CURL,
-  wave: WAVE_CURL,
-  frame: FRAME_CURL,
-  stamp: STAMP_CURL,
-  yield: YIELD_CURL,
-} as const satisfies Record<string, HandShape>
+/** named hand poses, for anything that holds something (the plane's catch; later 휴's dropper, 메시's vertex pick) */
+export const HAND_POSES = {
+  rest: REST_POSE,
+  type: TYPE_POSE,
+  hold: HOLD_POSE,
+  pinch: PINCH_POSE,
+  point: POINT_POSE,
+  wave: WAVE_POSE,
+  frame: FRAME_POSE,
+  stamp: STAMP_POSE,
+  yield: YIELD_POSE,
+} as const satisfies Record<string, HandAngles>
+/** the old curls still in this file (for the clip audit, hand-poses.md 3) */
+export const RIG_CURLS = { LOOSE: LOOSE_POSE } as const satisfies Record<string, HandShape>
 /** how long the paper plane's gestures last, seconds (#51) */
 export const GESTURE_S = { throw: 0.7, catch: 1.6 }
 
@@ -640,6 +667,13 @@ const PROP_FOR: Record<string, { kind: string; side: 'l' | 'r' }> = {
   water: { kind: 'watering_can', side: 'r' },
   boardgame: { kind: 'piece', side: 'r' },
 }
+
+/**
+ * 메시's orbiting cube must not cover the face screen (#193, designer): the orbit's axis leans so the front of the circle rises, and the whole
+ * orbit sits a little higher, so the cube passes above the screen in front and beside the head's sides, then dips behind the head.
+ */
+export const ORBIT_TILT = (30 * Math.PI) / 180
+export const ORBIT_LIFT = 0.08
 
 export class AgentRig {
   readonly id: string
@@ -673,27 +707,112 @@ export class AgentRig {
   private lift = 0
   private seat = 0
   private surface = 0
+  /**
+   * The floor's height under the agent (#316: a rug's top over a rug, see ground.ts); the pool of light and its ring sit
+   * this much higher than their baked height, so a rug never hides them. Set by the scene (Agents.tsx); 0 without one.
+   */
+  ground: (x: number, z: number) => number = () => 0
+  /** the pool's and the ring's baked heights in the root's frame (the light's own few mm above the floor) */
+  private floorY: { pool: number; ring: number } | null = null
   /** 0 → 1 while dozing (#110): lowers the head, dims the beam */
   private dozing = 0
+  /** the body leaning over something it reaches for (the farthest go-board cells): drawn this far off its plan position, the plan never sees it; eases back */
+  private lean = new Vector3()
+  /** how far back from the board the body is drawn, 0..1, and the direction (x, z) of back (wrap-up, #229) */
+  private wrapKind: string | undefined
+  private stepBack = { k: 0, dir: new Vector2(0, 1) }
+  /** lying on the chaise (nav extras lie + head, lounge-props.md 1): how far it has gone (0 … 1), and where the head goes in the root's frame */
+  private lying = 0
+  private lieOff = new Vector3()
+  private headRest: { x: number; z: number } | null = null
   private look = { pitch: 0, yaw: 0, roll: 0 }
   /** the current bends per hand (eased toward the pose's shape): four fingers, then the thumb's bend and opposition */
-  private curls: Record<'l' | 'r', number[]> = { l: [...REST_CURL.f, ...REST_CURL.thumb], r: [...REST_CURL.f, ...REST_CURL.thumb] }
+  private curls: Record<'l' | 'r', number[]> = { l: toVec(REST_POSE), r: toVec(REST_POSE) }
+  /** a pose forced from outside (the ?debug=1 hook __office.hand.pose), per hand */
+  private forced: Record<'l' | 'r', HandAngles | null> = { l: null, r: null }
+  /** how long each hand has been at rest (no drive, nothing to do), s: the idle finger drift starts after a while */
+  private restFor: Record<'l' | 'r', number> = { l: 0, r: 0 }
+  /** idle drift of each finger, degrees on MCP and PIP (index … little) */
+  private drift: Record<'l' | 'r', number[]> = { l: [0, 0, 0, 0], r: [0, 0, 0, 0] }
+  /** the grip weight of each hand over the last moments (the fingers close one after another) */
+  private wcHist: Record<'l' | 'r', { t: number; w: number }[]> = { l: [], r: [] }
+  private wcClosing: Record<'l' | 'r', boolean> = { l: true, r: true }
+  private clockT = 0
+  private reducedNow = false
   private spin = { orbit: 0, ring: 0 }
   /** echo's fork: how hard it rings now (0..1), decays over ~0.4 s after the sound stops */
   private forkAmp = 0
-  private blinkAt = 0
+  private mind: FaceMind
+  private faceIn: FaceInput = newInput()
+  private seenResult = 0
+  private wasOnline: boolean | null = null
+  private called = new CallTracker()
+  private yieldAt = -99
+  /** set by the scene each frame: this agent's own bubble is being typed, and the one it listens to is speaking (meetings, desk talks) */
+  faceTalk = { speaking: false, listening: false }
+  /** an approval of this agent has waited over 30 minutes (#64): the worried face one second in four */
+  anxious = false
+  /** the late hour before it dozes (#193): set by the scene from the office's KST clock */
+  lateHour = false
+  /** the giver's face (#262): 'yield' or 'happy' until `until` (scene time); side = +1 when the receiver is on the viewer's right */
+  private giveFace: { mood: 'yield' | 'happy'; until: number; side: number; fired: boolean } | null = null
+  giverFace(mood: 'yield' | 'happy', until: number, side: number) {
+    this.giveFace = { mood, until, side, fired: false }
+  }
+  giverFaceAt(t: number): 'yield' | 'happy' | null {
+    return this.giveFace && t < this.giveFace.until ? this.giveFace.mood : null
+  }
   /** what it is holding this frame (read by the PropBank) */
   want: { kind: string; side: 'l' | 'r'; prefer?: string; attached?: boolean } | null = null
   /** the meeting reaction in progress (#141): when it started on the scene clock, whether a hand lifts with it; the key it answered last */
   private nod: { t0: number; hand: boolean } | null = null
   private nodKey = ''
+  /** a received paper / plane (#267, paper-pass.md 4): the wide eyes of surprise until `until`, then a nod at `nodAt` */
+  private paperFace: { until: number; nodAt: number | null } | null = null
+
+  /**
+   * What the receiver's face does when a paper or a plane reaches its hand (#267, paper-pass.md 4): 'surprise' (a plane, a
+   * toss) = wide eyes for 1.2 s, then a nod while it looks; 'nod' (handed over, pushed) = a nod at once. Then the status face.
+   */
+  paperReaction(kind: 'surprise' | 'nod', t: number, reduced = false) {
+    const surpriseS = Math.max(PAPER_SURPRISE_S, this.gestureMin)
+    if (kind === 'surprise') {
+      this.paperFace = { until: t + surpriseS, nodAt: t + surpriseS }
+      this.mind.fire('surprised', t, surpriseS)
+      this.mind.nod(t + surpriseS, 1)
+    } else {
+      this.paperFace = { until: t, nodAt: t }
+      this.mind.nod(t, 1)
+    }
+    if (reduced) this.paperFace.nodAt = null // the nod is motion; the surprise face is information and stays
+  }
+
+  /** the hands' height lift of the seat (m) and whether it sits at a desk / seat now (a paper pass reads them) */
+  get seatLift() {
+    return this.seat
+  }
+  get seated() {
+    return this.stance.seated
+  }
+  /** tests: whether the face shows the received-paper surprise now */
+  surprisedAt(t: number): boolean {
+    return !!this.paperFace && t < this.paperFace.until
+  }
   /** a point to turn the head to while resting (the coder's rubber duck when a test fails, #44) */
   watch: Vector3 | null = null
   /** grips and play (PlayStage): what each hand is made to do this frame (null = just its pose) */
   drive: Record<'l' | 'r', HandDrive | null> = { l: null, r: null }
   private spring: Record<'l' | 'r', { pos: Vector3; quat: Quaternion } | null> = { l: null, r: null }
+  /** the walking swing (#257): phase of the left hand (the right is PI behind), time since the start / the stop, the offsets now and at the stop */
+  private walkSt = { held: 0, mode: 'none' as 'none' | 'walk' | 'settle', phase: 0, ramp: 0, since: 0, bob: 1, off: { l: { dx: 0, dy: 0, dz: 0, wrist: 0 }, r: { dx: 0, dy: 0, dz: 0, wrist: 0 } } as Record<'l' | 'r', Swing>, from: { l: { dx: 0, dy: 0, dz: 0, wrist: 0 }, r: { dx: 0, dy: 0, dz: 0, wrist: 0 } } as Record<'l' | 'r', Swing> }
+  /** 0 -> 1 while a hand blends into its attached place */
+  private attachT: Record<'l' | 'r', number> = { l: 0, r: 0 }
+  /** where the hand was from its walking place (the agent's frame) when the blend began; it shrinks to 0 over WALK.attachS */
+  private attachOff: Record<'l' | 'r', Vector3> = { l: new Vector3(), r: new Vector3() }
   /** a small extra head turn while playing (the omok thinker's 5° tilt, 10° toward the last stone); rad */
   headExtra = { pitch: 0, yaw: 0, roll: 0 }
+  /** the body sinks this far (m) under a weight it takes up (the watering can, watering.md 2): set by the stage each frame, used by the next update and let go of */
+  bodyDip = 0
   /** a point the head glances at, up to `glanceMax` rad of yaw (the opponent's last stone) */
   glance: { at: Vector3; max: number } | null = null
   /** a short reaction on top of the hand pose: the winner's fist, the loser's three claps (play.md 2.5) */
@@ -709,7 +828,7 @@ export class AgentRig {
   private cueMem: { kind: NonNullable<Sample['cue']>['kind']; dur: number; gesture: boolean; toward: { x: number; z: number } | null; startT: number } | null = null
   private cueT = 0
   /** a short gesture set by the paper plane (#51): until = the scene clock time it ends */
-  gesture: { kind: 'throw' | 'catch'; until: number; oneHand?: boolean; caught?: boolean; t0?: number; at?: Vector3; plan?: Plan } | null = null
+  gesture: { kind: 'throw' | 'catch'; until: number; oneHand?: boolean; caught?: boolean; t0?: number; at?: Vector3; plan?: Plan; calm?: boolean; handsOff?: boolean } | null = null
   /** this frame's look-and-turn of a gesture (aim.ts); null without one */
   aim: AimPose | null = null
   private stance = { seated: false, still: true }
@@ -719,7 +838,7 @@ export class AgentRig {
    * Begin a throw or a catch (#224): look at `at` (a point the caller keeps moving, e.g. the plane), turn as aim.ts says.
    * Returns the gesture; `until` is when everything is back at the desk.
    */
-  startGesture(kind: 'throw' | 'catch', t: number, at: Vector3, o: { reduced?: boolean; flyFor?: number; holdS?: number; oneHand?: boolean } = {}) {
+  startGesture(kind: 'throw' | 'catch', t: number, at: Vector3, o: { reduced?: boolean; flyFor?: number; holdS?: number; oneHand?: boolean; calm?: boolean } = {}) {
     const theta = Math.hypot(at.x - this.x, at.z - this.z) > 0.05 ? wrap(Math.atan2(-(at.x - this.x), -(at.z - this.z)) - this.heading) : 0
     const plan = planGesture(kind, theta, {
       seated: this.stance.seated,
@@ -730,7 +849,7 @@ export class AgentRig {
       flyFor: o.flyFor,
       holdS: o.holdS,
     })
-    return (this.gesture = { kind, until: t + plan.times.end, oneHand: o.oneHand, t0: t, at, plan })
+    return (this.gesture = { kind, until: t + plan.times.end, oneHand: o.oneHand, t0: t, at, plan, calm: o.calm })
   }
 
   constructor(id: string, index: number, parts: RigParts, color: string) {
@@ -739,7 +858,15 @@ export class AgentRig {
     this.phase = index * 1.7
     // one screen per face node: StrictMode builds the rigs twice, and both must draw on the texture that's shown
     const face = parts.face
-    this.face = face ? (face.userData.faceScreen ??= new FaceScreen(color)) : null
+    const orbit = parts.orbit
+    if (orbit && !orbit.userData.orbitTilted) {
+      // once per node: StrictMode builds the rigs twice
+      orbit.userData.orbitTilted = true
+      orbit.rotation.x = ORBIT_TILT
+      orbit.position.y += ORBIT_LIFT
+    }
+    this.mind = new FaceMind(index)
+    this.face = face ? (face.userData.faceScreen ??= new FaceScreen(color, index)) : null
     if (face && this.face && (face.material as MeshBasicMaterial).map !== this.face.texture) {
       const old = face.material as MeshBasicMaterial
       // the screen sits exactly on the head's front glass on some heads (메시, 루프: same plane): pull it forward
@@ -775,6 +902,22 @@ export class AgentRig {
     return this.goal && this.arrived === this.goal.spot ? this.goal.pose : null
   }
   /** it is free and at play: its goal is a play (pingpong, a board game, coffee, the sofa, watering, a book), also while it walks there; talks, meetings, dozing and work are not */
+  /**
+   * Lean the body over by (x, z) m (horizontal, at least this much): the farthest cells of the go board are beyond an arm from the player's spot, so the body leans in
+   * the few cm it takes instead of the stone going beyond its reach. At once when it grows (the stone is in the hand this very frame), eased back when it ends.
+   */
+  leanOver(x: number, z: number) {
+    if (Math.hypot(x, z) <= this.lean.length()) return
+    this.lean.set(x, 0, z)
+    this.parts.root.position.set((this.drawAt?.x ?? this.x) + x, 0, (this.drawAt?.z ?? this.z) + z)
+    this.parts.root.updateMatrixWorld(true)
+  }
+
+  /** how far down it has lain on the chaise (0 … 1) */
+  get lyingK(): number {
+    return this.lying
+  }
+
   get resting(): boolean {
     return !!this.goal && RESTING_POSES.has(this.goal.pose)
   }
@@ -823,6 +966,8 @@ export class AgentRig {
   setGoal(goal: Goal, g: NavGraph) {
     const prev = this.goal
     this.goal = goal
+    // writing at a desk that faces the default camera: the card lies beside the monitor (wrapPose.ts writePlace)
+    this.place = goal.pose === 'write' ? writePlace(g.spots, goal.spot) : null
     if (this.traffic) {
       this.placed = true
       return
@@ -927,7 +1072,9 @@ export class AgentRig {
 
     // heading with a capped turn rate; the turn rate drives the lean
     const diff = wrap(wantHeading - this.heading)
-    const turn = MathUtils.clamp(diff, -TURN_RATE * dt, TURN_RATE * dt) * Math.min(1, dt * 12 + 0.4)
+    const squaring = !moving && !!this.arrived && this.arrived === this.goal.spot
+    const rate = squaring ? ARRIVE_TURN_RATE : TURN_RATE
+    const turn = MathUtils.clamp(diff, -rate * dt, rate * dt) * (squaring ? 1 : Math.min(1, dt * 12 + 0.4))
     this.heading = wrap(this.heading + turn)
     this.turnVel = damp(this.turnVel, turn / Math.max(dt, 1e-3), 8, dt)
 
@@ -971,10 +1118,22 @@ export class AgentRig {
       gazeFrom = aim.phase === 'done' ? 0 : 1
     }
     this.aim = gazeFrom ? aim : null
+    // a paper handed over (#262): the look and the turn are the same, the narrowed / wide eyes of a throw and a catch are not (the faces are paper-pass.md 4's)
+    if (this.aim && gz?.calm) this.aim = { ...this.aim, mood: null }
     const { root, head, beam } = this.parts
     root.visible = !this.hidden
-    root.position.set(this.drawAt?.x ?? this.x, 0, this.drawAt?.z ?? this.z)
-    root.rotation.set(0, this.heading + (this.aim?.body ?? 0), 0)
+    this.lean.multiplyScalar(Math.exp(-6 * dt))
+    // the wrap-up's step back from the board (#229): drawn only, 0.45 m, at walking pace, in the direction behind the body when it set off
+    const stepBack = this.stepBack
+    const wantBack = resting && !reduced && goal.pose === 'cardpost' ? wrapBack(goal.beat) : 0
+    if (wantBack > 0 && stepBack.k === 0) stepBack.dir.set(Math.sin(this.heading), Math.cos(this.heading))
+    stepBack.k = MathUtils.clamp(wantBack > stepBack.k ? Math.min(wantBack, stepBack.k + dt / 0.6) : Math.max(wantBack, stepBack.k - dt / 0.6), 0, 1)
+    root.position.set((this.drawAt?.x ?? this.x) + this.lean.x + stepBack.dir.x * stepBack.k * WRAP.backM, -this.bodyDip, (this.drawAt?.z ?? this.z) + this.lean.z + stepBack.dir.y * stepBack.k * WRAP.backM)
+    // writing beside the monitor: the body turns 15 degrees toward the card (slowly, not a snap)
+    const turnTo = resting && !reduced && goal.pose === 'write' && this.place ? -this.place.side * WRITE_ASIDE.turnDeg * (Math.PI / 180) : 0
+    this.writeTurn += MathUtils.clamp(turnTo - this.writeTurn, -dt / 0.5 * 0.27, dt / 0.5 * 0.27)
+    root.rotation.set(0, this.heading + (this.aim?.body ?? 0) + this.writeTurn, 0)
+    this.bodyDip = 0
     root.updateMatrixWorld(true)
 
     // the head: lifts while moving, sits lower on seats, bobs, leans into turns and forward with speed
@@ -1002,12 +1161,27 @@ export class AgentRig {
     const lean = MathUtils.clamp(this.turnVel * 0.09, -0.22, 0.22) * motion
     const forward = Math.min(this.speed / (SPEED * this.pace), 1) * 0.12 * motion
     const dy = this.lift + this.seat + bob
-    head.position.y = this.parts.headRestY + dy
-    head.rotation.set(this.look.pitch - forward, this.look.yaw, this.look.roll + lean, 'YXZ')
+    // lying down (a nav spot with `lie`: the east seat, `head` = the floor point the head goes to, the north armrest's inside face): the head glides there, low, face up; the beam and the pool of light are off
+    const lieSpot = resting && goal.pose === 'sofa' ? g.spots[goal.spot]?.head : undefined
+    this.lying = damp(this.lying, lieSpot ? 1 : 0, 3, dt)
+    const lieK = this.lying
+    this.headRest ??= { x: head.position.x, z: head.position.z }
+    if (lieK > 0.001) {
+      if (lieSpot) {
+        const wx = lieSpot.x - this.x
+        const wz = lieSpot.z - this.z
+        const c = Math.cos(this.heading)
+        const sn = Math.sin(this.heading)
+        this.lieOff.set(wx * c - wz * sn, LIE.headY - this.parts.headRestY, wx * sn + wz * c)
+      }
+      head.position.set(this.headRest.x + this.lieOff.x * lieK, this.parts.headRestY + MathUtils.lerp(dy, this.lieOff.y, lieK), this.headRest.z + this.lieOff.z * lieK)
+    } else head.position.set(this.headRest.x, this.parts.headRestY + dy, this.headRest.z)
+    head.rotation.set(this.look.pitch - forward + lieK * LIE.faceUpRad, this.look.yaw, this.look.roll + lean, 'YXZ')
 
     // the beam reaches from the head's underside down to the floor, or to the furniture it hovers over
     if (beam) {
       const top = BEAM_H + dy
+      beam.visible = lieK < 0.3
       beam.position.y = top
       beam.scale.y = Math.max(0.02, (top - this.surface) / BEAM_H)
       beam.traverse((o) => {
@@ -1017,16 +1191,24 @@ export class AgentRig {
     }
     // the pool of light on the floor: fainter and wider the higher the head floats (#54)
     const pool = this.parts.floor
+    const ringN = this.parts.floorRing
+    this.floorY ??= { pool: pool?.position.y ?? 0, ring: ringN?.position.y ?? 0 }
+    const lift = this.ground(this.parts.root.position.x, this.parts.root.position.z)
+    if (pool) pool.position.y = this.floorY.pool + lift
+    if (ringN) ringN.position.y = this.floorY.ring + lift
+    if (pool) pool.visible = lieK < 0.3
+    if (ringN) ringN.visible = lieK < 0.3
     if (pool) {
       const up = MathUtils.clamp(dy, 0, 0.3) / 0.3
       pool.scale.setScalar(1 + up * 0.35)
       ;(pool.material as MeshBasicMaterial).opacity = FLOOR_POOL.opacity * (1 - up * 0.45)
     }
 
+    this.stepTuck(dt, g, others)
     this.updateHands(dt, t, pose, reduced, others)
     this.updateCards(goal.carry ?? 0, goal.pose === 'write')
     this.updateRole(dt, t, status, reduced)
-    this.updateFace(t, pose, status, reduced)
+    this.updateFace(t, pose, status, reduced, others)
 
     // the prop for this activity (the planner takes the pen from its ear to the whiteboard)
     const prop = resting ? PROP_FOR[goal.pose] : undefined
@@ -1143,16 +1325,13 @@ export class AgentRig {
         return { pitch: 0.2, yaw: 0, roll: 0 }
       // the wrap-up (#186, wrap.ts): writing nods 2° every 0.6 s, re-reading turns the head ±3° (2 s loop), carrying looks at
       // the board and then at the poster while it waits, posting looks at the card after the last one, tidying leans back 3°
-      case 'write': {
-        const nod = this.goal?.reread ? 0 : Math.max(0, Math.sin((t / 0.6) * Math.PI * 2)) * 0.035
-        return { pitch: -0.14 + nod, yaw: this.goal?.reread ? Math.sin(t * Math.PI) * 0.052 : 0, roll: 0 }
-      }
+      case 'write':
+        // beside the monitor: the head turns a little toward the card as well as the body
+        return (({ pitch, yaw, roll }) => ({ pitch, yaw: yaw - (this.place?.side ?? 0) * 0.12, roll }))(wrapHead('write', this.goal?.beat, t, reduced))
       case 'carry':
         return { pitch: 0.04, yaw: this.goal?.waiting ? (Math.floor(t / 2) % 2 === 0 ? 0 : 0.5) : 0, roll: 0 }
-      case 'cardpost': {
-        const b = this.goal?.beat
-        return { pitch: b?.kind === 'look' ? 0.12 + Math.sin(b.u * Math.PI) * 0.035 : 0.06, yaw: 0, roll: 0 }
-      }
+      case 'cardpost':
+        return wrapHead('cardpost', this.goal?.beat, t, reduced)
       case 'tidy': {
         const b = this.goal?.beat
         return { pitch: b?.kind === 'lean' ? -0.03 - Math.sin(b.u * Math.PI) * 0.05 : -0.1, yaw: 0, roll: 0 }
@@ -1166,7 +1345,7 @@ export class AgentRig {
       case 'water':
         return { pitch: -0.3, yaw: 0, roll: 0 }
       case 'books':
-        return { pitch: 0.2, yaw: 0, roll: 0 }
+        return { pitch: this.goal?.read ? (this.goal.read.stage === 'read' ? -0.3 : -0.1) : 0.2, yaw: 0, roll: 0 }
       case 'pingpong':
         return { pitch: -0.05, yaw: s(5.5) * 0.12, roll: 0 }
       default:
@@ -1174,14 +1353,29 @@ export class AgentRig {
     }
   }
 
+  /** a wrap-up hand spec (wrapPose.ts) as the rig's hand pose */
+  private wrapSpec(side: 'l' | 'r', s: HandSpec, down: Quaternion): HandPose {
+    const curl = { pen: PEN_POSE, support: STAMP_POSE, pinch: PINCH_POSE, point: POINT_POSE, fist: POSES.fist, rest: REST_POSE, loose: LOOSE_POSE, stamp: STAMP_POSE }[s.curl]
+    const pos = v(...s.pos)
+    const turn = s.palm === 'down' ? down : s.palm === 'up' ? down.clone().invert() : s.palm === 'reach' ? this.reachAt(side, pos, v(0, 0, -1)) : NONE
+    return { pos, turn, curl }
+  }
+
   /** the wrap-up's stack of cards (#186): a thin card box on the left palm, one card thicker per card; hidden without a stack */
-  private cards: Mesh | null = null
+  private cards: Record<'l' | 'r', Mesh | null> = { l: null, r: null }
+  /** where the card is written (wrapPose.ts writePlace): beside the monitor on a desk facing the camera, else null; the body's turn toward it (rad) */
+  private place: WritePlace = null
+  private writeTurn = 0
   private updateCards(count: number, flat: boolean) {
-    const hand = this.parts.hands.l
-    if (!this.cards) {
+    // the stack is on the hand that presses the card: the left, or on the aisle-side desks the one opposite the pen
+    const side: 'l' | 'r' = this.place && this.goal?.pose === 'write' && this.place.side < 0 ? 'r' : 'l'
+    const other = this.cards[side === 'l' ? 'r' : 'l']
+    if (other) other.visible = false
+    const hand = this.parts.hands[side]
+    if (!this.cards[side]) {
       if (count <= 0) return
       // the palm's normal and the finger direction in the hand's own frame (the palm faces +x of the agent at rest)
-      const n = new Vector3(...REST_PALM.l).applyQuaternion(hand.restQuat.clone().invert()).normalize()
+      const n = new Vector3(...REST_PALM[side]).applyQuaternion(hand.restQuat.clone().invert()).normalize()
       const knuckle = hand.fingers[1][0]?.node.position ?? new Vector3(0, 0.08, 0)
       const f = knuckle.clone().addScaledVector(n, -knuckle.dot(n)).normalize()
       const x = new Vector3().crossVectors(n, f)
@@ -1190,9 +1384,9 @@ export class AgentRig {
       m.userData.base = f.clone().multiplyScalar(Math.max(0.045, knuckle.length() * 0.8))
       m.userData.n = n
       hand.node.add(m)
-      this.cards = m
+      this.cards[side] = m
     }
-    const m = this.cards
+    const m = this.cards[side]!
     m.visible = count > 0 && this.parts.root.visible
     if (!m.visible) return
     const n = m.userData.n as Vector3
@@ -1208,39 +1402,68 @@ export class AgentRig {
   private handPose(side: 'l' | 'r', pose: string, t: number, reduced: boolean): HandPose {
     const g = this.gesture
     const a = this.aim
-    if (!g?.plan || !a || reduced) return this.basePose(side, pose, t, reduced)
+    if (!g?.plan || !a || reduced || g.handsOff) return this.basePose(side, pose, t, reduced)
     const sx = side === 'l' ? -1 : 1
     const sit = this.seat
     const rest = this.parts.hands[side].restPos
-    const gesturing = g.kind === 'throw' ? side === 'r' : side === 'r' || !g.oneHand
+    // once caught only the pinching (right) hand holds it; the other one rests (paper-pass.md 5, #273)
+    const gesturing = g.kind === 'throw' ? side === 'r' : g.caught ? side === 'r' : side === 'r' || !g.oneHand
     // seated at a desk the hands never go below the desk top + 5 cm (designer, #226 ④): the throw's follow-through stops there
     const floor = this.stance.seated ? DESK_HAND_MIN : -Infinity
     const lift = (p: Vector3) => ((p.y = Math.max(p.y, floor)), p)
-    if (!gesturing) return { pos: lift(v(rest.x, rest.y, rest.z)), turn: NONE, curl: REST_CURL }
+    if (!gesturing) return { pos: lift(v(rest.x, rest.y, rest.z)), turn: NONE, curl: REST_POSE }
     const base = a.arm < 1 ? this.basePose(side, pose, t, reduced) : null
     const sin = Math.sin(a.handAngle)
     const cos = Math.cos(a.handAngle)
     let target: Vector3
-    let curl = REST_CURL
+    let curl: PoseSpec = REST_POSE
     if (g.kind === 'throw') {
       // from the shoulder, along the way to the receiver; the stroke carries it forward
       const R = 0.38 + 0.28 * a.stroke
       target = v(-sin * R + sx * 0.12 * cos, 1.0 + sit + 0.06 * a.stroke, -cos * R - sx * 0.12 * sin)
-      curl = a.phase === 'follow' || a.phase === 'back' ? REST_CURL : HOLD_CURL
+      curl = a.phase === 'follow' || a.phase === 'back' ? REST_POSE : HOLD_POSE
     } else {
       // the usual catching place in front, drifting to the plane's side as the angle grows
       const caught = side === 'r' && g.caught
-      // (the pinching hand a little further out so it doesn't cover the face screen; designer #226 ③: 6 cm more)
-      const outCaught = caught ? CAUGHT_OUT + 0.06 : 0
-      const front = v(sx * (0.16 + outCaught), 1.32 + sit, -0.32)
-      // (the hands flank the line to the plane)
-      const off = sx * (0.12 + outCaught)
-      const out = v(-sin * 0.42 + off * cos, 1.3 + sit, -cos * 0.42 - off * sin)
-      target = front.lerp(out, MathUtils.clamp(Math.abs(a.handAngle) / 0.5, 0, 1))
-      curl = caught ? PINCH_CURL : WAVE_CURL
+      if (caught) {
+        // looking at what was caught (paper-pass.md 5, #273): in front of the face screen and below it, so neither the hand
+        // nor the plane covers the screen: 0.22 ahead, 0.10 down, 0.06 to the holding hand's side, in the head's frame
+        target = this.readingPlace(side)
+        curl = PINCH_POSE
+      } else {
+        // the usual catching place in front, drifting to the plane's side as the angle grows
+        const front = v(sx * 0.16, 1.32 + sit, -0.32)
+        // (the hands flank the line to the plane)
+        const off = sx * 0.12
+        const out = v(-sin * 0.42 + off * cos, 1.3 + sit, -cos * 0.42 - off * sin)
+        target = front.lerp(out, MathUtils.clamp(Math.abs(a.handAngle) / 0.5, 0, 1))
+        curl = WAVE_POSE
+      }
     }
-    if (!base) return { pos: lift(target), turn: NONE, curl }
-    return { pos: lift(base.pos.clone().lerp(target, a.arm)), turn: a.arm > 0.3 ? NONE : base.turn, curl: a.arm > 0.3 ? curl : base.curl }
+    // #255: the hand points along the reach (shoulder -> target); a catching hand's palm faces the plane (toward it from the hand), a throwing one has no object
+    let palm: Vector3 | null = null
+    if (g.kind === 'catch' && !g.caught && g.at) {
+      palm = this.parts.root.worldToLocal(this.tmpAt.copy(g.at)).sub(target)
+      if (palm.lengthSq() < 1e-6) palm = null
+    }
+    const reach = reachTurn(side, target, sit, palm, this.parts.hands[side].restQuat)
+    if (!base) return { pos: lift(target), turn: reach, curl }
+    return { pos: lift(base.pos.clone().lerp(target, a.arm)), turn: base.turn.clone().slerp(reach, a.arm), curl: a.arm > 0.3 ? curl : base.curl }
+  }
+  private tmpAt = new Vector3()
+
+  /** where a held paper / plane is looked at (paper-pass.md 5, #273): 0.22 ahead of the face screen, 0.10 below it, 0.06 to the holding hand's side, in the head's frame (the agent's frame; `out`) */
+  readingPlace(side: 'l' | 'r', out = new Vector3()) {
+    const head = this.parts.head.position
+    const yaw = this.aim?.head ?? 0
+    const ox = (side === 'l' ? -1 : 1) * LOOK_AT.side
+    const oz = -LOOK_AT.ahead
+    return out.set(head.x + ox * Math.cos(yaw) + oz * Math.sin(yaw), head.y - LOOK_AT.down, head.z - ox * Math.sin(yaw) + oz * Math.cos(yaw))
+  }
+
+  /** #255: the hand turn (a pose's `turn`) for a hand at `pos` whose palm faces `palm` (agent frame; null: no object) */
+  private reachAt(side: 'l' | 'r', pos: Vector3, palm: Vector3 | null): Quaternion {
+    return reachTurn(side, pos, this.seat, palm, this.parts.hands[side].restQuat)
   }
 
   /** each hand's target in the root's frame for this pose */
@@ -1250,18 +1473,18 @@ export class AgentRig {
     const sx = side === 'l' ? -1 : 1
     const rest = this.parts.hands[side].restPos
     const down = palmDown(side)
-    const at = (x: number, y: number, z: number, turn = NONE, curl = REST_CURL): HandPose => ({ pos: v(x, y, z), turn, curl })
+    const at = (x: number, y: number, z: number, turn = NONE, curl: PoseSpec = REST_POSE): HandPose => ({ pos: v(x, y, z), turn, curl })
     const sit = this.seat
     // a moment's gesture on top of whatever the agent does (#51): throw the plane, raise a hand to catch it
     const g = this.gesture && !this.gesture.plan && t < this.gesture.until ? this.gesture : null
     if (g?.kind === 'throw' && side === 'r') {
       const k = MathUtils.clamp(1 - (g.until - t) / GESTURE_S.throw, 0, 1) // 0 → 1 over the gesture
-      return at(0.2, 1.05 + sit + Math.sin(k * Math.PI) * 0.2, -0.15 - k * 0.35, NONE, HOLD_CURL)
+      return at(0.2, 1.05 + sit + Math.sin(k * Math.PI) * 0.2, -0.15 - k * 0.35, NONE, HOLD_POSE)
     }
     if (g?.kind === 'catch' && (side === 'r' || !g.oneHand)) {
       // once caught, the pinching hand moves out a little so it doesn't cover the face screen (its reaction shows)
       const caught = side === 'r' && g.caught
-      return at(sx * (0.16 + (caught ? CAUGHT_OUT : 0)), 1.32 + sit, -0.32, NONE, caught ? PINCH_CURL : WAVE_CURL)
+      return at(sx * (0.16 + (caught ? CAUGHT_OUT : 0)), 1.32 + sit, -0.32, this.reachAt(side, v(sx * (0.16 + (caught ? CAUGHT_OUT : 0)), 1.32 + sit, -0.32), v(0, 0.2, -1)), caught ? PINCH_POSE : WAVE_POSE)
     }
     // the yield gesture: the hand on the passer's side opens palm up in front and sweeps toward them ("after you")
     const cue = this.cue()
@@ -1270,13 +1493,16 @@ export class AgentRig {
       if (cue.kind === 'yield' && cue.gesture && cue.age >= C.nodFromS && cue.age < C.followFromS && side === (this.cueRel() > 0 ? 'l' : 'r')) {
         const k = (cue.age - C.nodFromS) / (C.followFromS - C.nodFromS)
         const sweep = Math.sin(k * Math.PI * 0.5 + 0.0) * C.handSweepM * (k < 0.7 ? k / 0.7 : 1)
-        return at(sx * (0.2 + sweep), 1.0 + sit, -0.15 - C.handForwardM, NONE, YIELD_CURL)
+        return at(sx * (0.2 + sweep), 1.0 + sit, -0.15 - C.handForwardM, NONE, YIELD_POSE)
       }
       if (cue.kind === 'dest' && side === 'r') {
         // a small impatient tap every 1.5 s: the fingers in turn, index to little, 0.1 s each (agents.md 2.8)
         const ph = (cue.age % C.destTapEveryS) / 0.1
-        const f = REST_CURL.f.map((c, k) => c + (ph >= k && ph < k + 1 ? Math.sin((ph - k) * Math.PI) * C.destTapCurl : 0)) as Four
-        return at(rest.x, rest.y + 0.02, rest.z + 0.1, NONE, shape(f, [REST_CURL.thumb[0], REST_CURL.thumb[1]]))
+        const f = REST_POSE.f.map((a, k) => {
+          const c = ph >= k && ph < k + 1 ? Math.sin((ph - k) * Math.PI) * C.destTapCurl : 0
+          return { ...a, mcp: a.mcp + 85 * c, pip: a.pip + 100 * c }
+        }) as unknown as HandAngles['f']
+        return at(rest.x, rest.y + 0.02, rest.z + 0.1, NONE, { f, thumb: REST_POSE.thumb })
       }
     }
     // the addressee's small reaction: the left hand lifts a few cm, its curl as at rest (#141)
@@ -1285,10 +1511,10 @@ export class AgentRig {
     if (rx && !reduced && t - rx.t0 >= 0 && t - rx.t0 < rx.dur) {
       const u = (t - rx.t0) / rx.dur
       // the winner's small fist, raised a little and let go; the loser's three claps, the hands meeting in front (play.md 2.5)
-      if (rx.kind === 'fist' && side === 'r') return at(0.16, 1.0 + sit + Math.sin(u * Math.PI) * 0.05, -0.3, NONE, shape([1, 1, 1, 1], [0.8, 1]))
+      if (rx.kind === 'fist' && side === 'r') return at(0.16, 1.0 + sit + Math.sin(u * Math.PI) * 0.05, -0.3, NONE, POSES.fist)
       if (rx.kind === 'clap') {
         const k = 0.5 + 0.5 * Math.cos(u * 3 * Math.PI * 2)
-        return at(sx * (0.012 + 0.07 * k), 1.0 + sit, -0.3, NONE, WAVE_CURL)
+        return at(sx * (0.012 + 0.07 * k), 1.0 + sit, -0.3, NONE, WAVE_POSE)
       }
     }
     if (this.chin && side === 'l' && pose === 'boardgame') {
@@ -1298,15 +1524,12 @@ export class AgentRig {
     }
     // the wrap-up (#186): the stack of cards in the left hand, palm up at chest height (rest of the pose below is for the other hand)
     const wg = this.goal
-    if (side === 'l' && wg?.carry && pose !== 'write' && pose !== 'tidy') return at(-0.13, 1.0 + sit, -0.3, down.clone().invert(), STAMP_CURL)
+    if (side === 'l' && wg?.carry && pose !== 'write' && pose !== 'tidy') return at(-0.13, 1.0 + sit, -0.3, down.clone().invert(), STAMP_POSE)
     const wb = wg?.beat
-    const stroke = m * (wg?.reread ? 0.35 : 1)
     switch (pose) {
       case 'write':
-        // the right hand writes (small strokes, the wrist moves within 2 cm), the left presses the card flat and pushes it to the stack
-        return side === 'l'
-          ? at(-0.13 - (wb?.kind === 'push' ? Math.sin(wb.u * Math.PI) * 0.1 : 0), 0.82, -0.42, down, STAMP_CURL)
-          : at(0.14 + 0.012 * Math.sin(t * 9) * stroke, 0.83, -0.41 + 0.01 * Math.sin(t * 6.5 + 1) * stroke, down, PEN_CURL)
+        // the pieces of writing (wrap.ts, wrapPose.ts): the right hand writes, the left presses the card flat, lifts it to read, pushes it to the stack
+        return this.wrapSpec(side, wrapHand(side, 'write', wb, t, { rest: [rest.x, rest.y, rest.z], read: this.readingPlace(this.place && this.place.side < 0 ? 'r' : 'l').toArray() as [number, number, number], sit, m, reduced, place: this.place }), down)
       case 'carry': {
         // the free hand (designer, #217): at the resting height 0.86 m, not hanging below the desk; it swings ±8 cm back and
         // forth with the walk (a stride a second), still when standing by the board
@@ -1314,79 +1537,164 @@ export class AgentRig {
         const walk = reduced ? 0 : MathUtils.clamp(this.speed / 0.5, 0, 1) * m
         return at(rest.x, 0.86 + sit, rest.z - 0.08 * walk * Math.sin(t * Math.PI * 2 + this.phase))
       }
-      case 'cardpost': {
-        if (side === 'l') return at(rest.x, rest.y, rest.z)
-        const u = wb?.u ?? 0
-        const stack = v(-0.06, 1.04 + sit, -0.3)
-        const cell = v(0.1, 1.34 + sit, -0.6)
-        const lerp3 = (a: Vector3, b: Vector3, k: number) => a.clone().lerp(b, k)
-        const from = v(rest.x, rest.y, rest.z)
-        switch (wb?.kind) {
-          case 'pick':
-            return { pos: lerp3(from, stack, u), turn: NONE, curl: PINCH_CURL }
-          case 'place':
-            return { pos: lerp3(stack, cell, u), turn: NONE, curl: PINCH_CURL }
-          case 'press':
-            return { pos: cell.clone().add(v(0, 0, -0.02 * Math.sin(u * Math.PI))), turn: NONE, curl: STAMP_CURL }
-          case 'release':
-            return { pos: lerp3(cell, stack, u), turn: NONE, curl: REST_CURL }
-          case 'gap':
-            return { pos: stack, turn: NONE, curl: REST_CURL }
-          default:
-            return at(rest.x, rest.y, rest.z)
-        }
-      }
+      case 'cardpost':
+        // posting, then the pieces that touch the cards (stepping back to think, moving, swapping, straightening, pointing, the last look)
+        return this.wrapSpec(side, wrapHand(side, 'cardpost', wb, t, { rest: [rest.x, rest.y, rest.z], read: [0, 0, 0], sit, m, reduced }), down)
       case 'tidy': {
         // gather the papers, tap them twice (palms facing each other), push the keyboard in with the right hand, lean back
         const u = wb?.u ?? 0
-        if (wb?.kind === 'tap') return at(sx * 0.06, 0.84 + Math.sin(u * Math.PI) * 0.05, -0.42, NONE, STAMP_CURL)
-        if (wb?.kind === 'keys') return side === 'r' ? at(0.1, 0.81, -0.42 - Math.sin(u * Math.PI) * 0.05, down, STAMP_CURL) : at(-0.13, 0.81, -0.42, down, STAMP_CURL)
-        if (wb?.kind === 'lean') return at(sx * 0.13, 0.81, -0.42, down, STAMP_CURL)
-        return at(sx * 0.1, 0.82, -0.42, down, STAMP_CURL)
+        if (wb?.kind === 'tap') return at(sx * 0.06, 0.84 + Math.sin(u * Math.PI) * 0.05, -0.42, NONE, STAMP_POSE)
+        if (wb?.kind === 'keys') return side === 'r' ? at(0.1, 0.81, -0.42 - Math.sin(u * Math.PI) * 0.05, down, STAMP_POSE) : at(-0.13, 0.81, -0.42, down, STAMP_POSE)
+        if (wb?.kind === 'lean') return at(sx * 0.13, 0.81, -0.42, down, STAMP_POSE)
+        return at(sx * 0.1, 0.82, -0.42, down, STAMP_POSE)
       }
       case 'move':
-        return at(rest.x, rest.y - 0.03, rest.z + 0.08)
+        // #257: the body-relative place; the walking swing (stepWalk) and the attachment (updateHands) are added on top
+        return { ...at(rest.x, rest.y, rest.z), walk: true }
       case 'type':
       case 'listen':
-        // the fingers type now (#134), not the whole hand: it rests on the keys
-        return at(sx * 0.13, 0.81, -0.42, down, pose === 'type' && !reduced && this.ambient > 0 ? typing(t, side, this.phase) : TYPE_CURL)
+        // the hand rests over the keys; the fingers' real key presses (#225) are the typist's drive (typist.ts), on top of this
+        return at(sx * 0.13, 0.81, -0.42, down, TYPE_POSE)
       case 'talk':
-        return at(sx * 0.24, 0.98 + sit + s(3, sx) * 0.05, -0.28, qy(-sx * 0.3), side === 'r' ? POINT_CURL : REST_CURL)
+        return at(sx * 0.24, 0.98 + sit + s(3, sx) * 0.05, -0.28, qy(-sx * 0.3), side === 'r' ? POINT_POSE : REST_POSE)
       case 'post':
-        return side === 'r' ? at(0.12, 1.42 + s(2.5) * 0.03, -0.32, qz(0.4), HOLD_CURL) : at(rest.x, rest.y, rest.z)
+        return side === 'r' ? at(0.12, 1.42 + s(2.5) * 0.03, -0.32, this.reachAt(side, v(0.12, 1.42, -0.32), v(0, 0, -1)), HOLD_POSE) : at(rest.x, rest.y, rest.z)
       case 'pingpong':
         return side === 'r'
-          ? at(0.26 + s(5.5) * 0.12, 0.92, -0.3 - Math.cos(t * 5.5 + this.phase) * 0.1 * m, qy(s(5.5) * 0.6), HOLD_CURL)
+          ? at(0.26 + s(5.5) * 0.12, 0.92, -0.3 - Math.cos(t * 5.5 + this.phase) * 0.1 * m, qy(s(5.5) * 0.6), HOLD_POSE)
           : at(-0.24, 0.88, -0.12)
       case 'boardgame': {
         const reach = Math.max(0, s(1.4)) ** 4
         return side === 'r'
-          ? at(0.1 - reach * 0.06, 0.84 + reach * 0.04, -0.34 - reach * 0.12, down, HOLD_CURL)
-          : at(-0.16, 0.8, -0.3, down, LOOSE_CURL)
+          ? at(0.1 - reach * 0.06, 0.84 + reach * 0.04, -0.34 - reach * 0.12, down, HOLD_POSE)
+          : at(-0.16, 0.8, -0.3, down, LOOSE_POSE)
       }
       case 'coffee':
         return side === 'l'
-          ? at(-0.1, 1.02 + sit + Math.max(0, s(0.8)) * 0.08, -0.22 - Math.max(0, s(0.8)) * 0.06, NONE, HOLD_CURL)
+          ? at(-0.1, 1.02 + sit + Math.max(0, s(0.8)) * 0.08, -0.22 - Math.max(0, s(0.8)) * 0.06, NONE, HOLD_POSE)
           : at(rest.x, rest.y, rest.z)
       case 'doze':
         // both palms flat on the desk either side of the keyboard
-        return at(sx * DOZE.hands.x, SURFACE.work + DOZE.hands.aboveDeskM, DOZE.hands.z, down, STAMP_CURL)
+        return at(sx * DOZE.hands.x, SURFACE.work + DOZE.hands.aboveDeskM, DOZE.hands.z, down, STAMP_POSE)
       case 'sofa':
-        return at(sx * 0.22, 0.62, -0.08, down, LOOSE_CURL)
+        return at(sx * 0.22, 0.62, -0.08, down, LOOSE_POSE)
       case 'water':
-        return side === 'r' ? at(0.16, 0.86 + s(1.2) * 0.02, -0.42, NONE, HOLD_CURL) : at(rest.x, rest.y, rest.z)
+        return side === 'r' ? at(0.16, 0.86 + s(1.2) * 0.02, -0.42, NONE, HOLD_POSE) : at(rest.x, rest.y, rest.z)
       case 'books':
-        return side === 'r' ? at(0.14, 1.3 + Math.max(0, s(0.6)) * 0.12, -0.4, qz(0.3), LOOSE_CURL) : at(rest.x, rest.y, rest.z)
+        // the reading errand (#280): the hand that is not on the book hangs at the side, lowered as far as the body sits (the shelf reach below would lift it over the
+        // head whenever it lets go of the book: as the book opens and closes, #395)
+        if (this.goal?.read) return at(rest.x, rest.y + sit, rest.z)
+        return side === 'r' ? at(0.14, 1.3 + Math.max(0, s(0.6)) * 0.12, -0.4, this.reachAt(side, v(0.14, 1.3 + Math.max(0, s(0.6)) * 0.12, -0.4), v(0, 0, -1)), LOOSE_POSE) : at(rest.x, rest.y, rest.z)
       default:
-        return at(rest.x, rest.y + s(1.1, sx) * 0.01, rest.z)
+        return { ...at(rest.x, rest.y + s(1.1, sx) * 0.01 * this.walkSt.bob, rest.z), rest: true }
     }
+  }
+
+  /**
+   * The walking swing of this frame (#257, agents.md 2.5), once per update: while the agent walks (pose 'move') each hand swings forward and back, the two in
+   * opposite phase, WALK.hz * sqrt(v / cruise) times a second, +- WALK.amp * v / cruise metres (the pendulum rises 1.2 cm at the ends, steps 1 cm inward at the front,
+   * and the wrist tips +-10 deg). It grows over WALK.startS from phase 0, is 0 while turning on the spot (v < 0.1) and under reduced motion. On a stop it sinks to 0 in
+   * WALK.settleS (a smoothstep from where it was: no overshoot, no oscillation); the standing bob (basePose default) blends in over the next WALK.bobS.
+   */
+  private stepWalk(dt: number, walking: boolean, reduced: boolean) {
+    const W = this.walkSt
+    const sides = ['l', 'r'] as const
+    if (this.snapHands) {
+      W.mode = 'none'
+      W.bob = 1
+      for (const side of sides) W.off[side] = { dx: 0, dy: 0, dz: 0, wrist: 0 }
+      return
+    }
+    if (walking) {
+      if (W.mode !== 'walk') {
+        W.mode = 'walk'
+        W.phase = 0
+        W.ramp = 0
+        for (const side of sides) W.from[side] = { ...W.off[side] }
+      }
+      const v = this.speed
+      const band = MathUtils.clamp((v - WALK.stillV) / WALK.stillBand, 0, 1)
+      if (band > 0 && !reduced) {
+        W.ramp = Math.min(1, W.ramp + dt / WALK.startS)
+        W.phase += Math.PI * 2 * MathUtils.clamp(WALK.hz * Math.sqrt(v / WALK.cruise), WALK.hzMin, WALK.hzMax) * dt
+      }
+      const amp = reduced ? 0 : Math.min((WALK.amp * v) / WALK.cruise, WALK.ampMax) * band * W.ramp
+      const ratio = amp / WALK.amp
+      const carry = 1 - smooth01(W.ramp) // what a swing from before (a stop that was interrupted) still has
+      for (const side of sides) {
+        const sx = side === 'l' ? -1 : 1
+        const f = Math.sin(W.phase + (side === 'l' ? Math.PI : 0)) // + = forward
+        const o = W.from[side]
+        W.off[side] = {
+          dx: -sx * WALK.inward * ratio * Math.max(0, f) + o.dx * carry,
+          dy: WALK.arc * ratio * f * f + o.dy * carry,
+          dz: -amp * f + o.dz * carry,
+          wrist: WALK.wristDeg * MathUtils.DEG2RAD * Math.min(1, ratio) * f + o.wrist * carry,
+        }
+      }
+      W.bob = 1
+      // a hand that holds something bobs up and down at twice the step rate instead (heldBob, applyDrive); 0 under reduced motion (ratio is 0)
+      W.held = Math.sin(2 * W.phase) * Math.min(1, ratio)
+      return
+    }
+    W.held = 0
+    if (W.mode === 'walk') {
+      if (reduced) W.mode = 'none'
+      else {
+        W.mode = 'settle'
+        W.since = 0
+        for (const side of sides) W.from[side] = { ...W.off[side] }
+      }
+    }
+    if (W.mode === 'settle') {
+      W.since += dt
+      const k = 1 - smooth01(MathUtils.clamp(W.since / WALK.settleS, 0, 1))
+      for (const side of sides) {
+        const o = W.from[side]
+        W.off[side] = { dx: o.dx * k, dy: o.dy * k, dz: o.dz * k, wrist: o.wrist * k }
+      }
+      W.bob = smooth01(MathUtils.clamp((W.since - WALK.settleS) / WALK.bobS, 0, 1))
+      if (W.since >= WALK.settleS + WALK.bobS) {
+        W.mode = 'none'
+        W.bob = 1
+      }
+      return
+    }
+    W.bob = 1
+    for (const side of sides) W.off[side] = { dx: 0, dy: 0, dz: 0, wrist: 0 }
+  }
+
+  /** how much a hand holds something now (0 .. 1): the grip's place weight of the last frame, or the object attached to it */
+  private heldAmount(side: 'l' | 'r') {
+    return Math.max(this.drive[side]?.w ?? 0, this.want?.attached && this.want.side === side ? 1 : 0)
+  }
+
+  /** this hand's swing for the frame, or null when it is not on the walking place / the standing rest place (a gesture, typing, a grip own it) */
+  private swingFor(side: 'l' | 'r', p: HandPose): Swing | null {
+    const W = this.walkSt
+    if (!((p.walk && W.mode === 'walk') || (p.rest && W.mode === 'settle'))) return null
+    // a hand that holds something does not swing (the carry pose is the grip's); the free hand beside it swings less
+    const share = (1 - this.heldAmount(side)) * (1 - (1 - WALK.carryShare) * this.heldAmount(side === 'l' ? 'r' : 'l'))
+    const o = W.off[side]
+    return { dx: o.dx * share, dy: o.dy * share, dz: o.dz * share, wrist: o.wrist * share }
+  }
+
+  /** put these joint angles on a hand right now, through the rig's own finger path (limits, then the joint math): the measuring tool (pnpm hand:measure) */
+  poseNow(side: 'l' | 'r', angles: HandAngles) {
+    this.setFingers(side, toVec(angles))
+    this.parts.hands[side].node.updateWorldMatrix(true, true)
+  }
+
+  /** force a named pose on one hand (null = let go): the debug hook __office.hand.pose */
+  forcePose(side: 'l' | 'r', pose: AnyPoseId | null) {
+    this.forced[side] = pose ? ALL_POSES[pose] : null
   }
 
   /** where a hand's index and thumb tips meet, in world space (the hand itself if it has no tips) */
   pinchPoint(side: 'l' | 'r', out = new Vector3()) {
     const h = this.parts.hands[side]
     const index = h.fingers[0][2]?.node
-    const thumb = h.thumb[1]?.node
+    const thumb = h.thumb[2]?.node
     if (!index || !thumb || !h.indexTip || !h.thumbTip) return h.node.getWorldPosition(out)
     h.node.updateWorldMatrix(true, true)
     out.copy(h.indexTip).applyMatrix4(index.matrixWorld)
@@ -1402,9 +1710,33 @@ export class AgentRig {
     return out.normalize()
   }
 
+  /** how much each hand is tucked now (0 .. 1) */
+  private tuck = { l: 0, r: 0 }
+
+  /** the tuck amount of a hand (0 .. 1); the pull toward the body is TUCK.inM times this */
+  tuckAmount(side: 'l' | 'r') {
+    return this.tuck[side]
+  }
+
+  /** the hand on the side of a nearby sitter (a body resting on a seat of the sofa, kind 'sofa' in the nav graph) is wanted tucked */
+  private stepTuck(dt: number, g: NavGraph, others: Record<string, AgentRig>) {
+    const want = { l: 0, r: 0 }
+    const h = this.heading
+    for (const id in others) {
+      const o = others[id]
+      if (o === this || !o.visible || !o.at || o.speed > 0.05 || g.spots[o.at]?.kind !== 'sofa') continue
+      const dx = o.x - this.x
+      const dz = o.z - this.z
+      const d = Math.hypot(dx, dz)
+      if (d >= TUCK.rangeM) continue
+      // the sitter's side: right of the heading is (cos h, -sin h)
+      const side = dx * Math.cos(h) - dz * Math.sin(h) > 0 ? 'r' : 'l'
+      want[side] = Math.max(want[side], 1 - smooth01(MathUtils.clamp((d - TUCK.nearM) / (TUCK.rangeM - TUCK.nearM), 0, 1)))
+    }
+    for (const side of ['l', 'r'] as const) this.tuck[side] = damp(this.tuck[side], want[side], TUCK.rate, dt)
+  }
+
   private tmpTip = new Vector3()
-  private tmpBend = new Quaternion()
-  private tmpBend2 = new Quaternion()
   private tmpQuat2 = new Quaternion()
   private tmpPos = new Vector3()
   private tmpScl = new Vector3()
@@ -1415,9 +1747,23 @@ export class AgentRig {
     const { root } = this.parts
     root.getWorldQuaternion(this.rootQuat)
     const k = 1 - Math.exp(-HAND_OMEGA * dt)
+    this.stepWalk(dt, pose === 'move', reduced)
     for (const side of ['l', 'r'] as const) {
       const hand = this.parts.hands[side]
       const p = this.handPose(side, pose, t, reduced)
+      const swing = this.swingFor(side, p)
+      if (swing) {
+        p.pos.x += swing.dx
+        p.pos.y += swing.dy
+        p.pos.z += swing.dz
+        p.turn = new Quaternion().setFromAxisAngle(AXIS_X, swing.wrist).multiply(p.turn)
+      }
+      // the tuck: the free hand on a sitter's side comes in toward the body (the walking place and the standing rest place only)
+      // lying: the hands come with the head (the free ones rest beside it)
+      if (this.lying > 0.001) p.pos.add(new Vector3(this.lieOff.x, this.lieOff.y * 0.6, this.lieOff.z).multiplyScalar(this.lying))
+      const tk = this.tuck[side] * (1 - this.heldAmount(side))
+      if (tk > 0.001 && (p.walk || p.rest)) p.pos.x -= (side === 'l' ? -1 : 1) * TUCK.inM * tk
+      if (this.forced[side]) p.curl = this.forced[side]!
       const sp = this.spring[side]
       if (sp) {
         // the spring state under last frame's drive
@@ -1449,34 +1795,122 @@ export class AgentRig {
           hand.node.position.addScaledVector(hand.vel, h)
         }
         hand.node.quaternion.slerp(this.tmpQuat, k)
+        if (swing) {
+          // walking (#257): attached to the body-relative place, no lag (also while the body turns on the spot). A hand that was far from it (at the keys,
+          // say) blends in over WALK.attachS, so it does not jump
+          if (this.attachT[side] === 0) {
+            if (hand.node.position.distanceTo(this.tmpPos) < WALK.attachNear) this.attachT[side] = 1
+            else this.attachOff[side].copy(root.worldToLocal(this.tmpAt.copy(hand.node.position))).sub(p.pos)
+          }
+          const a = (this.attachT[side] = Math.min(1, this.attachT[side] + dt / WALK.attachS))
+          if (a >= 1) {
+            hand.node.position.copy(this.tmpPos)
+            hand.node.quaternion.copy(this.tmpQuat)
+          } else {
+            // the distance to the place shrinks by a smoothstep (never grows, never jumps), the place carried by the body
+            hand.node.position.copy(root.localToWorld(this.tmpAt.copy(p.pos).addScaledVector(this.attachOff[side], 1 - smooth01(a))))
+            hand.node.quaternion.slerp(this.tmpQuat, smooth01(a))
+          }
+          hand.vel.set(0, 0, 0)
+        } else this.attachT[side] = 0
       }
-      // blend the bends over ~120 ms (agents.md 2.7); at once with reduced motion
+      // blend the joint angles over ~120 ms (agents.md 2.7); at once with reduced motion
       const c = this.curls[side]
-      const want = [...p.curl.f, ...p.curl.thumb]
+      const want = toVec(this.anglesOf(side, p.curl))
       for (let k = 0; k < c.length; k++) c[k] = reduced || this.snapHands ? want[k] : damp(c[k], want[k], FINGER_RATE, dt)
-      this.setFingers(side, c, null)
+      this.clockT = t
+      this.reducedNow = reduced
+      this.idleDrift(side, p.curl === REST_POSE && !this.forced[side], t, dt, reduced)
+      this.setFingers(side, c, this.drift[side])
     }
     this.snapHands = false
   }
   private snapHands = true
 
-  /** the finger joints for six curls (and each finger's sideways swing, rad) */
-  private setFingers(side: 'l' | 'r', c: readonly number[], spread: readonly number[] | null, wSpread = 0) {
+  /** a pose as angles for this hand: angles as they are, an old curl converted by hand-poses.md 3 (keeping the fan this hand's mesh bakes in) */
+  private anglesOf(side: 'l' | 'r', pose: PoseSpec): HandAngles {
+    return isAngles(pose) ? pose : fromCurl([...pose.f, ...pose.thumb], undefined, this.fanOf(side))
+  }
+  /** an old curl (six numbers) as this hand's 20 joint angles (handPose.toVec), keeping the fan its mesh bakes in */
+  curlVec(side: 'l' | 'r', curl: readonly number[]): number[] {
+    return toVec(fromCurl(curl, undefined, this.fanOf(side)))
+  }
+  fanOf(side: 'l' | 'r'): number[] {
+    return this.parts.hands[side].fingers.map((c, f) => c[0]?.restAbd ?? DEFAULT_FAN[f])
+  }
+
+  /**
+   * At rest for a while each finger drifts on its own, ±3° with a 4–7 s period, seeded by agent and finger (deterministic); off under
+   * reduced motion, and while the hand does anything else (hand-poses.md 2).
+   */
+  private idleDrift(side: 'l' | 'r', idle: boolean, t: number, dt: number, reduced: boolean) {
     const hand = this.parts.hands[side]
-    const a = jointAngles(shape([c[0], c[1], c[2], c[3]], [c[4], c[5]]), side)
-    const sx = side === 'l' ? -1 : 1
-    hand.fingers.forEach((chain, f) =>
-      chain.forEach((j, k) => {
-        if (!j) return
-        j.node.quaternion.copy(j.rest).multiply(this.tmpBend.setFromAxisAngle(X_AXIS, a.f[f][k]))
-        // the sideways swing of a finger that touches something (grip.ts), about the hand's palm normal
-        if (k === 0 && spread && wSpread > 0) j.node.quaternion.premultiply(this.tmpBend2.setFromAxisAngle(Z_AXIS, sx * spread[f] * wSpread))
-      }),
-    )
-    const [t1, t2] = hand.thumb
-    // the thumb's root: opposition (local z), then the bend (local x): Rz · Rx
-    t1?.node.quaternion.copy(t1.rest).multiply(this.tmpBend.setFromAxisAngle(Z_AXIS, a.t1z)).multiply(this.tmpBend2.setFromAxisAngle(X_AXIS, a.t1x))
-    t2?.node.quaternion.copy(t2.rest).multiply(this.tmpBend.setFromAxisAngle(X_AXIS, a.t2x))
+    this.restFor[side] = idle && !this.drive[side] ? this.restFor[side] + dt : 0
+    const w = reduced ? 0 : MathUtils.clamp(this.restFor[side] - IDLE_AFTER_S, 0, 1)
+    for (let f = 0; f < 4; f++) {
+      if (w === 0 || !hand.fingers[f][0]) {
+        this.drift[side][f] = 0
+        continue
+      }
+      const h1 = hash01(this.id + side + f)
+      const h2 = hash01(this.id + side + f + 'p')
+      this.drift[side][f] = w * IDLE_DRIFT_DEG * Math.sin((t / (4 + 3 * h1)) * Math.PI * 2 + h2 * Math.PI * 2)
+    }
+  }
+
+  /** the finger joints for a vector of 20 angles (handPose.toVec) plus each finger's idle drift (°): clamped to the limits, then the joint math of handPose.ts */
+  private setFingers(side: 'l' | 'r', vec: readonly number[], drift: readonly number[] = NO_DRIFT, abdLimits?: readonly (Range | undefined)[] | null) {
+    const hand = this.parts.hands[side]
+    const v = vec.slice()
+    for (let f = 0; f < 4; f++) {
+      v[f * 4] += drift[f]
+      v[f * 4 + 1] += drift[f]
+    }
+    const { angles } = clampAngles(fromVec(v), abdLimits ?? undefined)
+    hand.fingers.forEach((chain, f) => {
+      const a = angles.f[f]
+      const [j1, j2, j3] = chain
+      if (j1) fingerRootQuat(j1.rest, j1.spec, j1.restAbd ?? DEFAULT_FAN[f], a.abd, a.mcp, j1.node.quaternion)
+      if (j2) segmentQuat(j2.rest, j2.spec, a.pip, j2.node.quaternion)
+      if (j3) segmentQuat(j3.rest, j3.spec, a.dip!, j3.node.quaternion)
+    })
+    const [t0, t1, t2] = hand.thumb
+    const t = angles.thumb
+    if (t0) thumbRootQuat(t0.rest, t0.spec, t, t0.node.quaternion)
+    if (t1) segmentQuat(t1.rest, t1.spec, t.mcp, t1.node.quaternion)
+    if (t2) segmentQuat(t2.rest, t2.spec, t.ip, t2.node.quaternion)
+  }
+
+  /**
+   * The grip weight of finger f this frame: the fingers close index → little, each 15 ms after the one before, and open in the
+   * reverse order (hand-poses.md 2). The weight's last 0.1 s are kept; a finger reads it that much later. None under reduced motion.
+   */
+  private fingerWeights(side: 'l' | 'r', wc: number): number[] {
+    const hist = this.wcHist[side]
+    const now = this.clockT
+    if (hist.length && now < hist[hist.length - 1].t) hist.length = 0
+    if (!hist.length) hist.push({ t: now - 0.1, w: 0 })
+    const last = hist[hist.length - 1]
+    if (wc !== last.w) this.wcClosing[side] = wc > last.w
+    if (last.t !== now) hist.push({ t: now, w: wc })
+    else last.w = wc
+    while (hist.length > 2 && hist[1].t < now - 0.1) hist.shift()
+    if (this.reducedNow) return [wc, wc, wc, wc, wc]
+    const at = (tt: number) => {
+      if (tt >= now) return wc
+      if (tt <= hist[0].t) return hist[0].w
+      for (let i = hist.length - 1; i > 0; i--) {
+        if (hist[i - 1].t <= tt) {
+          const k = (tt - hist[i - 1].t) / Math.max(1e-6, hist[i].t - hist[i - 1].t)
+          return hist[i - 1].w + (hist[i].w - hist[i - 1].w) * k
+        }
+      }
+      return hist[0].w
+    }
+    const closing = this.wcClosing[side]
+    const res = [0, 1, 2, 3].map((f) => at(now - (closing ? f : 3 - f) * FINGER_LAG_S))
+    res.push(wc)
+    return res
   }
 
   /**
@@ -1484,18 +1918,42 @@ export class AgentRig {
    * from the same pose): the place blended over the pose's by w, the fingers over the pose's curls by wc. The spring keeps its
    * own state (restored at the start of the next update), so letting go fades back with no jump.
    */
-  applyDrive(side: 'l' | 'r') {
+  applyDrive(side: 'l' | 'r', t?: number, reduced?: boolean) {
     const dv = this.drive[side]
     const hand = this.parts.hands[side]
-    if (dv?.curl && dv.wc > 0) {
-      const c = this.curls[side]
-      this.setFingers(side, c.map((x, k) => x + (dv.curl![k] - x) * dv.wc), dv.spread, dv.wc)
+    // the scene clock of this frame: the stage passes it, so the fingers' staggered closing does not depend on update() having run
+    if (t !== undefined) this.clockT = t
+    if (reduced !== undefined) this.reducedNow = reduced
+    if ((dv?.angles || dv?.curl) && dv.wc > 0) {
+      const base = this.curls[side]
+      const fan = this.fanOf(side)
+      // the drive's fingers as angles: given as they are, or from the curl (the fan the mesh bakes in plus each finger's swing, rad → deg)
+      const drv = dv.angles ? [...dv.angles] : toVec(fromCurlWithSwing(dv.curl!, fan, dv.spread))
+      const w = this.fingerWeights(side, dv.wc)
+      const vec = base.map((x, k) => x + (drv[k] - x) * w[k < 16 ? k >> 2 : 4])
+      this.setFingers(side, vec, this.drift[side].map((d) => d * (1 - dv.wc)), dv.abdLimits)
+    } else {
+      this.wcHist[side].length = 0
+      this.wcClosing[side] = true
     }
     if (dv?.target && dv.w > 0) {
       if (!this.spring[side]) this.spring[side] = { pos: hand.node.position.clone(), quat: hand.node.quaternion.clone() }
       dv.target.decompose(this.tmpPos, this.tmpQuat, this.tmpScl)
+      // walking with it in the hand (#257): +-0.6 cm up and down at twice the step rate (the watering can +-1 cm); no swing, no bob under reduced motion
+      if (this.walkSt.mode === 'walk') this.tmpPos.y += this.walkSt.held * (this.want?.kind === 'watering_can' ? WALK.canBob : WALK.heldBob)
       hand.node.position.lerp(this.tmpPos, dv.w)
-      hand.node.quaternion.slerp(this.tmpQuat, dv.w)
+      if (dv.reach && dv.w < 1) {
+        // #255: on the way to it the fingers follow the reach direction (shoulder -> the hand's place) and the palm faces the object the grip takes (the grip's own
+        // palm direction); the pose's rotation first turns into that (w 0 -> 0.5), then the grip's own pose takes over (0.6 -> 1) and wins
+        const root = this.parts.root
+        root.getWorldQuaternion(this.rootQuat)
+        const palm = this.tmpAt.set(0, 0, 1).applyQuaternion(this.tmpQuat).applyQuaternion(this.tmpQuat2.copy(this.rootQuat).invert())
+        const at = root.worldToLocal(hand.node.position.clone())
+        const r = reachFrame(side, at, this.seat, palm)
+        const reachQ = this.tmpQuat2.copy(this.rootQuat).multiply(r.quat)
+        const q = hand.node.quaternion.clone().slerp(reachQ, smooth01(MathUtils.clamp(dv.w * 2, 0, 1)))
+        hand.node.quaternion.copy(q.slerp(this.tmpQuat, smooth01(MathUtils.clamp((dv.w - 0.6) / 0.4, 0, 1))))
+      } else hand.node.quaternion.slerp(this.tmpQuat, dv.w)
     }
     hand.node.updateMatrixWorld(true)
   }
@@ -1543,29 +2001,109 @@ export class AgentRig {
     tint(this.parts.grille, (base) => this.tmpColor.copy(base).multiplyScalar(k))
   }
 
-  private updateFace(t: number, pose: string, status: AgentStatus | undefined, reduced: boolean) {
+  /** a face event (robots.md 4, #193): the expression lasts its table duration, or `dur` s, from the scene time t */
+  faceEvent(expr: Expression, t: number, dur?: number) {
+    this.mind.fire(expr, t, dur)
+  }
+  /** a failed test / build: embarrassed for 3 s, red for the first 1.5 s */
+  faceFail(t: number) {
+    this.mind.fail(t)
+  }
+  /** ?debug=1: force an expression (null = the real ones) */
+  forceFace(e: Expression | null) {
+    this.mind.force(e)
+  }
+  /** the expression on the screen now, and how often the canvas was redrawn (tests, debug) */
+  faceState() {
+    return { expr: this.mind.shown, draws: this.face?.draws ?? 0, lastMs: this.face?.lastMs ?? 0, totalMs: this.face?.totalMs ?? 0 }
+  }
+  get faceScreen() {
+    return this.face
+  }
+
+  private updateFace(t: number, pose: string, status: AgentStatus | undefined, reduced: boolean, others: Record<string, AgentRig>) {
+    // a received paper / plane: the nod once its surprise is over (#267); the faces are the mind's (faceEvent)
+    const pf = this.paperFace
+    if (pf) {
+      if (pf.nodAt !== null && t >= pf.nodAt) {
+        this.nod = reduced ? null : { t0: t, hand: false }
+        pf.nodAt = null
+      }
+      if (pf.nodAt === null && t >= pf.until) this.paperFace = null
+    }
+    // the giver's face (#262, paper-pass.md 4): 'yield' = the 양보 expression, 'happy' = the 기쁨 expression, until its own time
+    const gf = this.giveFace
+    if (gf && !gf.fired) {
+      gf.fired = true
+      this.mind.fire(gf.mood === 'yield' ? 'yielding' : 'joy', t, Math.max(0, gf.until - t))
+    }
     if (!this.face) return
-    // looking at the plane / the one it throws to (#224): the eyes go first, the mood narrows to aim and widens to catch.
-    // Eye direction is information, not motion: it stays with reduced motion
+    const i = this.faceIn
+    const mind = this.mind
+    // events from what the statuses say
+    const lr = status?.lastResult
+    if (lr && lr.at !== this.seenResult) {
+      this.seenResult = lr.at
+      if (Date.now() - lr.at < 8_000) {
+        if (lr.ok) mind.fire('proud', t)
+        else mind.fail(t)
+      }
+    }
+    const online = !!status && status.state !== 'off'
+    if (this.wasOnline === false && online) mind.fire('greeting', t) // coming to work
+    this.wasOnline = online
+    // called out of the blue (#314): a prompt after over two minutes without work: surprised, then a nod
+    if (status && this.called.step(status.state === 'working' || status.state === 'wrapping', status.activity, status.since, Date.now())) {
+      const s = Math.max(1.2, this.gestureMin)
+      mind.fire('surprised', t, s)
+      mind.nod(t + s, 1)
+    }
+    // a yield on the road (#138): a smile and the arrow, once per cue
+    const cue = this.track?.cue
+    if (cue && cue.kind === 'yield' && cue.gesture) {
+      const start = t - cue.age
+      if (Math.abs(start - this.yieldAt) > 0.5) mind.fire('yielding', t, cue.dur)
+      this.yieldAt = start
+    }
+    i.t = t
+    i.reduced = reduced
+    i.fast = this.gestureMin > 0 && this.ambient === 0
+    // the wrap-up's faces (wrapup.md 5, #229): writing is focused, tapping the pen and thinking at the board are thinking; striking out is a 0.6 s question, the last look a 1 s pride
+    const wb = status?.state === 'wrapping' && (pose === 'write' || pose === 'cardpost') ? this.goal?.beat : undefined
+    const wrapFace = !wb ? undefined : wb.kind === 'tapPen' || wb.kind === 'think' || wb.kind === 'back' ? 'thinking' : pose === 'write' ? 'focused' : undefined
+    if (wb?.kind !== this.wrapKind) {
+      this.wrapKind = wb?.kind
+      if (!reduced && wb?.kind === 'strike') mind.fire('question', t, 0.6)
+      if (!reduced && wb?.kind === 'final') mind.fire('proud', t, 1)
+    }
+    i.base = baseExpression({ pose, state: status?.state, activity: status?.activity, night: status?.night, idleMs: status ? Date.now() - status.since : 0, chin: this.chin, late: this.lateHour, wrap: wrapFace })
+    i.talk = this.faceTalk.listening ? 'nodding' : null
+    i.speaking = this.faceTalk.speaking
+    i.anxious = this.anxious
+    i.voice = this.id === 'agent_4' && speakerOn() ? speakerCone() : 0
+    // looking at the plane / the one it throws to (#224): the eyes go first, the mood narrows to aim and widens to catch
     const aim = this.aim
+    i.aim = aim?.mood === 'focus' ? 'focused' : aim?.mood === 'wide' ? 'surprised' : null
+    let gx = 0
+    let gy = 0
     if (aim) {
-      const gx = Math.round(MathUtils.clamp(aim.eyes, -1, 1) * 3)
-      const gy = -Math.round(MathUtils.clamp(this.aimPitch / 0.4, -1, 1) * 2) // up = negative y on the screen
-      return this.face.draw(aim.mood ?? 'open', gx, gy)
+      gx = aim.eyes
+      gy = -this.aimPitch / 0.4 // up = negative y on the screen
+    } else {
+      const who = this.goal?.gaze ?? this.goal?.lookAt
+      const o = who ? others[who] : undefined
+      if (o) {
+        const a = wrap(Math.atan2(-(o.x - this.x), -(o.z - this.z)) - this.heading)
+        gx = Math.abs(a) > 0.15 ? Math.sign(a) : 0
+      }
     }
-    if (pose === 'sofa') return this.face.draw('sleep')
-    if (pose === 'doze') return this.face.draw('doze')
-    if (this.id === 'agent_3' && status?.lastResult && !(status.state === 'working' && (status.activity === 'test' || status.activity === 'build'))) {
-      const fresh = Date.now() - status.lastResult.at < 8_000
-      if (!status.lastResult.ok) return this.face.draw('fail')
-      if (fresh) return this.face.draw('happy')
+    i.gaze.x = gx
+    i.gaze.y = gy
+    mind.update(i)
+    if (mind.dirty(t)) {
+      mind.fill(this.face.params)
+      this.face.draw()
+      mind.drawnAt(t)
     }
-    if (pose === 'talk' || pose === 'pingpong') return this.face.draw('happy')
-    // a blink every few seconds (never with reduced motion)
-    if (!reduced && t > this.blinkAt) {
-      if (t > this.blinkAt + 0.14) this.blinkAt = t + 2.5 + ((this.phase * 7.3 + t) % 3)
-      else return this.face.draw('blink')
-    }
-    this.face.draw('open')
   }
 }

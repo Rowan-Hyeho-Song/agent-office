@@ -191,20 +191,13 @@ def kit_mouse(G, at=(0.3, 0.07), split=False):
     for v in dome.data.vertices:  # Blender: x, y = web -z (back +), z = up
         fwd = v.co.y  # +1 at the nose (Blender +y = web -z: toward the monitor)
         v.co = Vector((v.co.x * W2 * (1 - 0.18 * max(0.0, fwd)), v.co.y * L2, v.co.z * H2 * (1 - 0.3 * max(0.0, fwd) ** 2)))
-    # the black base follows the body's outline (a 3.5 mm band down from its rim, closed underneath), and the rubber
-    # side grips are the flank faces in a darker material, not boards stuck on
+    # the black base follows the body's outline (a 3.5 mm band down from its rim, closed underneath); the rubber side
+    # grips are separate lens-shaped patches (below)
     dome.data.materials.append(rubber)
     dome.data.materials.append(dark)
     bm = bmesh.new()
     bm.from_mesh(dome.data)
     rim = [e for e in bm.edges if e.is_boundary]
-    for f in bm.faces:
-        c = f.calc_center_median()
-        hz = H2 * (1 - 0.3 * max(0.0, c.y / L2) ** 2)  # the local height: pick one ring row by angle, no staircase
-        if 55 < math.degrees(math.atan2(abs(c.x), c.y)) < 125 and 0.1 < c.z / hz < 0.5:
-            f.material_index = 1
-    grips = [f for f in bm.faces if f.material_index == 1]  # set 0.5 mm into the curved flank (designer)
-    bmesh.ops.inset_region(bm, faces=grips, thickness=0.0008, depth=-0.0005, use_even_offset=True)
     ext = bmesh.ops.extrude_edge_only(bm, edges=rim)
     down = [g for g in ext["geom"] if isinstance(g, bmesh.types.BMVert)]
     for v in down:
@@ -220,6 +213,39 @@ def kit_mouse(G, at=(0.3, 0.07), split=False):
     bm.free()
     dome.location = W(x0, h + 0.004, z0)
     smooth(dome)
+    # #187 (designer): the rubber side grips as lenses on the flanks - rounded ends narrowing along the curve. A 12 x 4
+    # grid laid on the dome's own surface (the unit sphere mapped like the dome's vertices) 0.3 mm out: t = -1..1 along
+    # the flank (55..125 deg from the nose), the height band |s - 0.3| < 0.24 sqrt(1 - t^2) (s = height / local height)
+    def on_dome(a, s, out=0.0003):
+        r = math.sqrt(max(0.0, 1 - s * s))
+        ux, uy, uz = r * math.sin(a), r * math.cos(a), s
+        p = Vector((ux * W2 * (1 - 0.18 * max(0.0, uy)), uy * L2, uz * H2 * (1 - 0.3 * max(0.0, uy) ** 2)))
+        return p + p.normalized() * out
+
+    grips_objs = []
+    for side in (-1, 1):
+        bm = bmesh.new()
+        NU, NV = 12, 4
+        g = []
+        for a_ in range(NU + 1):
+            t = -1 + 2 * a_ / NU
+            half = 0.24 * math.sqrt(max(0.0, 1 - t * t)) + 0.004  # a sliver at the very ends, not a point
+            ang = math.radians(90 + 35 * t)
+            g.append([bm.verts.new(on_dome(ang, 0.3 - half + 2 * half * b_ / NV)) for b_ in range(NV + 1)])
+        for a_ in range(NU):
+            for b_ in range(NV):
+                f = bm.faces.new((g[a_][b_], g[a_ + 1][b_], g[a_ + 1][b_ + 1], g[a_][b_ + 1]))
+                f.normal_update()
+                if f.normal.dot(f.calc_center_median()) < 0:
+                    f.normal_flip()
+        for v in bm.verts:
+            v.co.x *= side
+        if side < 0:
+            for f in bm.faces:
+                f.normal_flip()
+        grip = mesh_obj(f"mouse_grip", bm, rubber, G)
+        grip.location = dome.location
+        grips_objs.append(smooth(grip))
     # #225: split=True cuts the two button shells out of the dome (front of the hinge line 5 mm ahead of the middle,
     # above the nose seam at 45% of the height); they and the wheel go out as live parts: (parts, lives)
     y_hinge = 0.005
@@ -247,7 +273,7 @@ def kit_mouse(G, at=(0.3, 0.07), split=False):
         return h + 0.004 + H2 * (1 - 0.3 * fwd ** 2) * math.sqrt(max(q, 0.0))
 
     groove = plastic("#0b0c0f", 1.0, 0, 0.0, "mouse_groove")  # fully rough: a groove, not a wire
-    parts = [dome]
+    parts = [dome] + grips_objs
     # the buttons' front ends (designer: a 1 mm step): a seam round the nose at 45% of the height, where the button
     # shells overhang the body; the split between the buttons runs from it back to 40% of the length. Thin, sunk
     # half into the shell, dense points on the surface (a few points arced off it like wires)
@@ -278,7 +304,12 @@ def kit_mouse(G, at=(0.3, 0.07), split=False):
     # its middle), press = turn about local x by -2 deg; wheel: pivot on its axle, rolls about local x
     lives = [(f"mouse_{s_}", [btns[s_]], Mx((x0 + sx_ * 0.012, top_y(sx_ * 0.012, -y_hinge), z0 - y_hinge))) for s_, sx_ in (("l", -1), ("r", 1))]
     lives.append(("mouse_wheel", wheel, Mx((x0, wy, z0 + zw))))
-    return parts, lives
+    # #305 (coder): the body moves too (dragged on the pad): its own live node, pivot = the middle of its underside on
+    # the pad. A contact shadow (a dark card the app fades at the edge) rides with it, 0.4 mm over the pad cloth
+    shadow = quad("mouse_shadow", 0.075, 0.13, plastic("#000000", 1.0, 0, 0, "mouse_shadow"), G)
+    shadow.matrix_world = Mx((x0, DESK_H + 0.0036, z0), rx=-math.pi / 2)  # the quad faces web +z: turned to face up
+    lives += [("mouse", parts, Mx((x0, h, z0))), ("mouse_shadow", [shadow], Mx((x0, h, z0)))]
+    return [], lives
 
 
 def kit_pad(G, at=(0.3, 0.1)):  # z 0.10: clear of MEMO's tray (its front edge at z -0.01)
@@ -311,7 +342,9 @@ def kit_monitor(G, screen_at=(0.0, 0.36, -0.178)):
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z > 1e-6], context="VERTS")  # web local +y = Blender +z
     bm.to_mesh(back.data)
     bm.free()
-    parts.append(box("mon_screen_bed", (0.574, 0.334, 0.001), (sx, yc, sz - 0.0005), plastic("#050607", 0.25, 0, 0, "mon_glass"), G))
+    # #260: the bed front sat on the screen slot plane (sz) and z-fought the canvas by camera angle. Bezel front -1.0 mm,
+    # bed front -0.5 mm, the slot +0.5 mm (office_bake build_desk): 0.5 mm apart each (#263 check)
+    parts.append(box("mon_screen_bed", (0.574, 0.334, 0.001), (sx, yc, sz - 0.001), plastic("#050607", 0.25, 0, 0, "mon_glass"), G))
     bz = sz - 0.007 - 0.006 - 0.026  # the back's deepest point
     parts.append(box("mon_vesa", (0.1, 0.1, 0.006), (sx, yc, bz - 0.002), body, G, bev=0.002, seg=1))
     led = emitter("#7dd3fc", 2.0, "mon_power_led")
@@ -368,8 +401,9 @@ def kit_desk(G):
                 sxk, szk = (-1, 1)[k % 2] * 0.012, lz + (-1, 1)[k // 2] * 0.03
                 p.append(cyl("desk_screw", 0.0035, 0.001, (lx + sxk, 0.0305, szk), steel, G, 6))
         p += [box("desk_foot", (0.05, 0.03, d - 0.05), (lx, 0.015, 0), steel, G),
-              box("desk_cap", (0.05, 0.008, 0.01), (lx, 0.004, -(d - 0.05) / 2 - 0.004), rubber, G),
-              box("desk_cap", (0.05, 0.008, 0.01), (lx, 0.004, (d - 0.05) / 2 + 0.004), rubber, G)]
+              # #263: the caps 1 mm wider than the foot bar and butting its ends (they shared its side faces)
+              box("desk_cap", (0.052, 0.008, 0.01), (lx, 0.004, -(d - 0.05) / 2 - 0.005), rubber, G),
+              box("desk_cap", (0.052, 0.008, 0.01), (lx, 0.004, (d - 0.05) / 2 + 0.005), rubber, G)]
     ty, tz = h - TOP_T - 0.05, -d / 2 + 0.022  # the tray: a U channel hung under the back edge, behind the modesty panel
     p += [box("desk_tray", (0.8, 0.003, 0.036), (0, ty - 0.03, tz), steel, G),
           box("desk_tray", (0.8, 0.06, 0.003), (0, ty, tz - 0.018), steel, G),

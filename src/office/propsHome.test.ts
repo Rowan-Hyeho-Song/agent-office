@@ -13,6 +13,7 @@ import { SPOTS } from './navSpots.fixture'
 import { BOARD_STAND } from './meetingRun'
 import { PLAYS } from './play'
 import { GRIPS } from './grip'
+import { resolveTarget } from './gripTargets'
 import type { Goal } from './director'
 
 stubCanvas()
@@ -98,21 +99,25 @@ describe('props stay home unless a hand has them', () => {
           jump = prev ? prop.position.distanceTo(prev) : 0
           // 2: the grips (palm props)
           const pg = w.scene.getObjectByName(prop.name + '_grip_' + side)
+          // the open book's grip frame is the baked <book>_l|r_grip (turned by the half's open angle), not the glb's closed-book grip empty
+          const bookTarget = sc.kind === 'book' ? resolveTarget(w.scene, prop.name, 'book', side) : null
           const hg = rig.parts.hands[side].grip
           if (pg && hg) {
-            grasp = hg.getWorldPosition(new Vector3()).distanceTo(pg.getWorldPosition(new Vector3()))
+            grasp = hg.getWorldPosition(new Vector3()).distanceTo(bookTarget ? prop.localToWorld(new Vector3().setFromMatrixPosition(bookTarget.pg)) : pg.getWorldPosition(new Vector3()))
             graspAt = t
           }
           // 1: every contact finger's pad point against its contact (fingertip props), both hands of a two-handed hold
           for (const hs of ['l', 'r'] as const) {
             for (const [fi, finger] of FINGER_NAMES.entries()) {
-              const cn = w.scene.getObjectByName(prop.name + '_contact_' + finger + (hs === 'l' ? '_l' : '')) ?? (hs === 'r' ? null : null)
-              if (!cn || !GRIPS[sc.kind]?.[hs]?.contacts.includes(finger)) continue
+              // the open book's contacts are the bake's <book>_l|r_contact_* empties turned by the half's open angle (gripTargets.ts resolveBookTarget, #231); the other props' are the glb's empties
+              const bc = sc.kind === 'book' ? resolveTarget(w.scene, prop.name, 'book', hs)?.contacts.find((c) => c.finger === finger) : undefined
+              const cn = bc ? null : w.scene.getObjectByName(prop.name + '_contact_' + finger + (hs === 'l' ? '_l' : '')) ?? (hs === 'r' ? null : null)
+              if (!(bc || cn) || !GRIPS[sc.kind]?.[hs]?.contacts.includes(finger)) continue
               const h = rig.parts.hands[hs]
-              const j = finger === 'thumb' ? h.thumb[1]!.node : h.fingers[fi][2]!.node
+              const j = finger === 'thumb' ? h.thumb[2]!.node : h.fingers[fi][2]!.node
               const tipv = finger === 'thumb' ? h.thumbTip! : h.tips[fi]!
               j.updateWorldMatrix(true, false)
-              const d = tipv.clone().applyMatrix4(j.matrixWorld).distanceTo(cn.getWorldPosition(new Vector3()))
+              const d = tipv.clone().applyMatrix4(j.matrixWorld).distanceTo(bc ? prop.localToWorld(bc.p.clone()) : cn!.getWorldPosition(new Vector3()))
               worstTip = Math.max(worstTip, d)
               tips.push(hs + '.' + finger + ' ' + (d * 1000).toFixed(2))
             }

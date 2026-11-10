@@ -1,4 +1,5 @@
 # Issues, minutes / decision comments and merged PRs → the office's documents (#24, docs/plan.md 6.2).
+# Pull requests (any state) and branches only move the stage of an existing issue's plan (진행 중 / 검토 / 완료, #241).
 # The original stays on GitHub; /api/docs keeps a filtered copy. Needs the repository secrets OFFICE_DOCS_URL and
 # OFFICE_DOCS_TOKEN (docs/deploy.md); without them the job does nothing and succeeds.
 name: office docs
@@ -9,7 +10,10 @@ on:
   issue_comment:
     types: [created, edited]
   pull_request:
-    types: [closed]
+    types: [opened, reopened, edited, closed, ready_for_review, converted_to_draft]
+  # a branch `<type>/<n>-…` appearing or going away moves issue n between 대기 and 진행 중
+  create:
+  delete:
 
 permissions:
   contents: read
@@ -17,26 +21,30 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: office-docs-${{ github.event.issue.number || github.event.pull_request.number }}
+  group: office-docs-${{ github.event.issue.number || github.event.pull_request.number || github.event.ref }}
   cancel-in-progress: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    # comments on PRs, unmerged PRs and anything written by someone other than the owner / collaborators are
-    # not documents (#38: this repo is public); skip them before starting a runner. event.mjs and /api/docs
-    # check the author again (approvals: owner only).
+    # comments on PRs and anything written by someone other than the owner / collaborators are not documents
+    # (#38: this repo is public); skip them before starting a runner. A PR by a stranger is not even a progress
+    # signal: only a trusted author's PR gets in. A create / delete only for branches (write access is needed to
+    # make one; tags and forks do nothing). event.mjs and /api/docs check the author again (approvals: owner only).
     if: >-
       (github.event_name == 'issues' &&
         contains(fromJSON('["OWNER","COLLABORATOR"]'), github.event.issue.author_association)) ||
       (github.event_name == 'issue_comment' && !github.event.issue.pull_request &&
         contains(fromJSON('["OWNER","COLLABORATOR"]'), github.event.comment.author_association)) ||
-      (github.event_name == 'pull_request' && github.event.pull_request.merged &&
-        contains(fromJSON('["OWNER","COLLABORATOR"]'), github.event.pull_request.author_association))
+      (github.event_name == 'pull_request' &&
+        contains(fromJSON('["OWNER","COLLABORATOR"]'), github.event.pull_request.author_association)) ||
+      ((github.event_name == 'create' || github.event_name == 'delete') && github.event.ref_type == 'branch')
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
         with:
+          # always the default branch's scripts: an open PR must not run its own edited copy with the secrets
+          ref: ${{ github.event.repository.default_branch }}
           sparse-checkout: scripts/docs
       - uses: actions/setup-node@v4
         with:

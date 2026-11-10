@@ -302,7 +302,7 @@ def text(name, body, size, center, material, group, facing="+z", extrude=0.0004,
     elif facing == "-x":
         o.rotation_euler = (math.pi / 2, rot, -math.pi / 2)
     elif facing == "up":
-        o.rotation_euler = (0, 0, 0)
+        o.rotation_euler = (0, 0, rot)  # lying on the floor: rot turns it about the vertical (it was ignored: the door mat, #280)
     cu.materials.append(material)
     return o
 

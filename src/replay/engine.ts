@@ -5,7 +5,7 @@
 // depends on how the playhead got there.
 
 import { foldBoard, type BoardState } from '../board/state'
-import { shelfLayout, type DocFile, type DocFolder, type ShelfLayout } from '../docs/library'
+import { guessProgress, shelfLayout, type DocFile, type DocFolder, type ShelfLayout } from '../docs/library'
 import type { AgentStatus, StatusMap } from '../office/status'
 import type { Point, PointKind, Seat } from '../timeline/types'
 
@@ -140,7 +140,9 @@ export const daybreakMs = (speed: Speed = 1) => DAYBREAK_MS / speed
 export const isDaybreak = (a: Point, b: Point) => dayKey(a) !== dayKey(b) && atMs(b) - atMs(a) >= DAYBREAK_GAP_MS
 
 /** the time left from point `i` at this speed, ms; `wait` adds the expected holds per point (replay ms, they run faster too) */
-export function remainingMs(points: readonly Point[], i: number, speed: Speed, wait?: (k: number, first: boolean) => number): number {
+export function remainingMs(points: readonly Point[], i: number, speed: Speed, wait?: (k: number, first: boolean) => number, ended = false): number {
+  // the last point has played (the end card is up): nothing is left, not the 3 s the last point itself lasts
+  if (ended) return 0
   let ms = 0
   for (let k = Math.max(0, i); k < points.length; k++) {
     ms += stepMs(points[k], speed) + (wait ? wait(k, k === Math.max(0, i)) / speed : 0)
@@ -228,7 +230,7 @@ export function shelfAt(points: readonly Point[], i: number): ShelfLayout {
     const docFiles: DocFile[] = [...files].map(([n, f]) => {
       const key = `${repo}#${n}`
       seats.set(key, f.seat)
-      return { key, repo, n, docs: [], title: f.title, secret: null, seats: f.seat === null ? [] : [f.seat], date: f.at }
+      return { key, repo, n, docs: [], title: f.title, secret: null, seats: f.seat === null ? [] : [f.seat], topics: [], progress: guessProgress([]), date: f.at }
     })
     const latest = docFiles.reduce((m, f) => (f.date > m ? f.date : m), '')
     return { key: repo, repo, label: shortName(repo), files: docFiles, latest }

@@ -25,19 +25,27 @@ import {
 } from 'three'
 import type { Goal } from './director'
 import type { GripDemo } from './debugPlay'
-import { GRIPS, GripClock, STONE_H, STONE_PITCH, STONE_PITCH_FLAT, handFor, stoneGrip, stoneRoll, tipAt, type Curl, type StoneGrip } from './grip'
+import { GRIPS, GripClock, STONE_ABD, STONE_FALLBACK_M, STONE_H, STONE_PITCH, STONE_PITCH_FLAT, handFor, stoneGrip, stoneRoll, tipAt, type StoneGrip } from './grip'
+import { DIP_K, POSES, fingerFromC, toVec } from './handPose'
 import { contactNormal, fitFingers, handGripMatrix, offsetOf, resolveTarget, type GripTarget } from './gripTargets'
 import { fingerModelOf, type AgentRig, type PropBank } from './rig'
+import { LIFT, OPEN_ANGLE, halfAngle } from './bookGeom'
+import { LeafBend, PINCH_LET_GO, TURN_S, fingerWeight, leafAngle, pinchArc, poseWeight } from './bookLeaf'
 import { noteTourEvent } from './tourEvents'
 import { meshesOf } from './nodes'
 import type { StatusMap } from './status'
 import { gameAt, N, type OmokView } from '../play/omok'
 import { rallyAt, type Dims, type Rally } from '../play/pingpong'
-import { CARRY_HOLD, HOLD_DEFAULT, PLANTS, canPose, dropAt, landing, lerpHold, plantsFrom, pourAt, solvePour, spoutOf, type Plant } from './water'
+import { CARRY_HOLD, HOLD_DEFAULT, PLANTS, POUR_TILT, canPose, dropAt, landing, lerpHold, plantsFrom, pourAt, solvePour, spoutOf, type Plant } from './water'
 import { WATER_S } from './waterRun'
-import { type Place, ease, followWeight, habitOf, placeSequence, swingTilt, swingTravel } from '../play/choreo'
+import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFor, shakeAt, type HabitKind } from './waterFx'
+import { WaterScene, isMobileish } from './waterScene'
+import { READ_HOLD, READ_S } from './readRun'
+import { type Place, SEQ, ease, followWeight, habitOf, placeSequence, swingTilt, swingTravel } from '../play/choreo'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
+import { Typist } from './typist'
+import { LoungeActs } from './loungeActs'
 
 const UP = new Vector3(0, 1, 0)
 const DEG = Math.PI / 180
@@ -49,10 +57,22 @@ const dimsOf = (size: number[], netH: number): Dims => ({ L: size[0], W: size[1]
 const BLADE_Y = 0.175
 /** ball centre to the paddle face at contact: the ball radius and half the blade */
 const FACE_GAP = 0.023
+/** the hand goes to the leaf's corner in this long before the turn, and comes back in this long after it, s (grips.md: 0.2) */
+const LEAD_S = 0.2
+const BACK_S = 0.3
 /** the held object rises from where it rests to where it is held in this long, s */
 const LIFT_S = 0.35
+/** the grips whose approach turns the hand along the reach direction (#255, grips.md 1.1): the high-shelf book, the board marker, the ping-pong paddle */
+const REACH_KINDS = new Set(['book', 'marker', 'paddle'])
 /** carrying a prop back to where it rests, s */
 const PUT_S = 0.4
+/** a go stone is carried within this far of the player's spot (m); farther, the body leans in, by at most LEAN_MAX_M */
+const STONE_COMFORT_M = 0.7
+const LEAN_MAX_M = 0.08
+/** watering (watering.md 2): the body dips this far as the hand takes the can, the wrist sags this much (of POUR_TILT: 5°), the body leans this far toward the pot while it pours */
+const WEIGHT_DIP_M = 0.03
+const WRIST_SAG = (5 * Math.PI) / 180 / ((30 * Math.PI) / 180)
+const LEAN_IN_M = 0.05
 
 export interface StageIn {
   /** office time, ms */
@@ -62,6 +82,8 @@ export interface StageIn {
   dt: number
   reduced: boolean
   replaying: boolean
+  /** the replay's speed (#158): 1 live; the water's details thin out at 16 (waterFx.levelFor) */
+  speed?: number
   rigs: Record<string, AgentRig>
   goals: Record<string, Goal>
   status: StatusMap
@@ -94,14 +116,30 @@ const blend = (a: Matrix4, b: Matrix4, k: number, out = new Matrix4()) => {
 /** a frame from three axes (columns) and an origin */
 const frame = (x: Vector3, y: Vector3, z: Vector3, o: Vector3) => new Matrix4().makeBasis(x, y, z).setPosition(o)
 
+/** a finger's [MCP, PIP, total abduction] into a 20-angle vector (DIP follows the PIP, k · PIP) */
+function setFingerJoints(vec: number[], k: number, j: readonly number[]) {
+  vec[k * 4] = j[0]
+  vec[k * 4 + 1] = j[1]
+  vec[k * 4 + 2] = DIP_K[k] * j[1]
+  vec[k * 4 + 3] = j[2]
+}
+/** pre-grip / closed / after as 20-angle vectors, weighted by the grip stage's mix */
+function mixVec(pre: readonly number[], hold: readonly number[], after: readonly number[], mix: readonly number[]) {
+  return pre.map((x, i) => x * mix[0] + hold[i] * mix[1] + after[i] * mix[2])
+}
+
 export class PlayStage {
+  /** the hands at the keyboard and the mouse (#225) */
+  readonly typist: Typist
+  /** the agents that typed this frame (the others' typing drive fades out) */
+  private typed = new Set<string>()
   /** the play sounds (#194 ②): one line at each event below */
   private sounds = new PlaySounds()
   private clocks = new Map<string, GripClock>()
   /** when each hand was last driven by grip() (the scene clock, s) */
   private lastGripT = new Map<string, number>()
   private targets = new Map<string, GripTarget | null>()
-  private fits = new Map<string, { curl: number[]; spread: number[] } | null>()
+  private fits = new Map<string, { hold: number[] } | null>()
   private lastHand = new Map<string, Matrix4>()
   private forced = new Set<Object3D>()
   /** the object pose the last grip() call placed the hand from (the partner hand of a two-handed hold follows it) */
@@ -128,16 +166,38 @@ export class PlayStage {
   private rings: Mesh[] = []
   private line: Mesh | null = null
   private reactedGame = new Map<string, number>()
+  /** the faces of a result (#193): the games and points already answered, the coffee drinkers who had their first sip */
+  private faced = new Set<string>()
+  private lastPoint = new Map<string, string>()
+  private sipped = new Map<string, number>()
   /** each mover's place sequence of this frame (tests read it) */
   readonly lastPlace: Record<string, Place> = {}
+  /** per mover: whether the move's hand began from the pick (a move first seen after its pick, a seat taken mid-move, is left to the board: no hand ever took its stone) */
+  private handMove: Record<string, { key: string; ok: boolean }> = {}
   private stoneFrames = new Map<string, StoneGrip[]>()
+  /** per agent, decided once from the fits: the go grip, or (when its tips cannot land on the stone's discs within STONE_FALLBACK_M at some pitch) the tripod pinch */
+  private stoneModes = new Map<string, 'go' | 'pinch'>()
 
   // water and the book
   private drops: InstancedMesh | null = null
+  /** the water's effects (waterScene.ts): the stream, the wet soil, the leaves' sway and drips */
+  private fx: WaterScene | null = null
+  private fxT = -1
   private spout: Object3D | undefined
   private bookHalves: { l: Object3D; r: Object3D } | null = null
+  /** the one leaf that turns (#231): bent about the spine, hidden while the book is read without a turn */
+  private leaf: LeafBend | null = null
+  private leafTargets = new Map<string, GripTarget | null>()
+  private mCorner = new Matrix4()
+  private mCornerWorld = new Matrix4()
+  private vPos = new Vector3()
+  private vScale = new Vector3()
+  private vArc = new Vector3()
+  private qPose = new Quaternion()
 
   private sceneRef: Object3D
+  /** the lounge's acts, drawn (#280, loungeActs.ts): the fridge door, the dispenser, the turntable, the pillow, the lever, the mat */
+  readonly lounge: LoungeActs
 
   constructor(
     scene: Object3D,
@@ -146,6 +206,16 @@ export class PlayStage {
   ) {
     this.sceneRef = scene
     scene.updateMatrixWorld(true)
+    this.typist = new Typist(nodes)
+    this.lounge = new LoungeActs(scene, nodes, props, {
+      grip: (rig, side, kind, objName, want, held, inp, prefer) => this.grip(rig, side, kind, objName, want, held, inp, prefer),
+      partner: (rig, kind, side, objName, primary) => {
+        const tgt = this.target(objName, kind, side)
+        if (tgt) this.partner(rig, kind, side, tgt, this.lastObjPose, primary)
+      },
+      button: (rig, name, u, inp, holdS, depth) => this.button(rig, name, u, inp, holdS, depth),
+      arrivedAt: (id) => this.arrivedAt.get(id),
+    })
     this.tableNode = scene.getObjectByName('pp_table') ?? undefined
     const ex = this.tableNode?.userData as { size?: number[]; net_h?: number } | undefined
     if (ex?.size) this.dims = dimsOf(ex.size, ex.net_h ?? 0.15)
@@ -207,11 +277,14 @@ export class PlayStage {
       canNode.updateWorldMatrix(true, true)
       this.spoutLocal = new Matrix4().copy(canNode.matrixWorld).invert().multiply(this.spout.matrixWorld)
     }
-    const drops = new InstancedMesh(new SphereGeometry(0.003, 6, 5), new MeshBasicMaterial({ color: '#9bd8ff' }), 28)
+    // one InstancedMesh for every drop of water, never more than the cap (watering.md 3: 40, 20 on a phone): the can's stream and the leaf drips, and the dispenser's tap
+    const mobile = isMobileish()
+    const drops = new InstancedMesh(new SphereGeometry(0.003, 6, 5), new MeshBasicMaterial({ color: '#dff3ff', transparent: true, opacity: 0.75, depthWrite: false }), mobile ? PARTICLE_CAP.mobile : PARTICLE_CAP.desktop)
     drops.count = 0
     drops.frustumCulled = false
     scene.add(drops)
     this.drops = drops
+    this.fx = new WaterScene(scene, drops, this.plants, mobile)
     const book = nodes.prop_book
     const l = nodes.prop_book_l
     const r = nodes.prop_book_r
@@ -219,6 +292,12 @@ export class PlayStage {
       book.attach(l)
       book.attach(r)
       this.bookHalves = { l, r }
+      const page = nodes.prop_book_page
+      if (page) {
+        book.attach(page)
+        this.leaf = new LeafBend(page)
+        page.visible = false
+      }
     }
   }
 
@@ -231,31 +310,27 @@ export class PlayStage {
   }
 
   private target(objName: string, kind: string, side: 'l' | 'r') {
-    const key = `${objName}:${side}`
+    const key = `${objName}:${kind}:${side}`
     if (!this.targets.has(key)) this.targets.set(key, resolveTarget(this.sceneRef, objName, kind, side))
     return this.targets.get(key)!
   }
 
-  /** the finger values at the closed stage for this hand and object: the table's, each touching finger bent onto its contact */
+  /**
+   * The fingers at the closed stage for this hand and object, as 20 joint angles (handPose.toVec): the table's hold (hand-poses.md 3), each
+   * touching finger replaced by the joints that put its tip on its contact (grip.ts fitContact: a finger MCP / PIP / abduction, the thumb
+   * CMC flex / abduct / MCP / IP). What is fitted is exactly what the rig shows.
+   */
   private holdFit(rig: AgentRig, side: 'l' | 'r', t: GripTarget) {
     const seat = Number(rig.id.split('_')[1])
     const key = `${t.key}:${seat}`
     if (!this.fits.has(key)) {
       const spec = GRIPS[t.kind][side]!
-      const curl = [...spec.hold]
-      const spread = [0, 0, 0, 0]
-      const fits = fitFingers(t, rig.parts.hands[side], offsetOf(t.key, seat))
-      for (const f of fits) {
-        const k = ['index', 'middle', 'ring', 'little'].indexOf(f.finger)
-        if (f.finger === 'thumb') {
-          curl[4] = f.a
-          curl[5] = f.b
-        } else {
-          curl[k] = f.a
-          spread[k] = f.b
-        }
+      const hold = rig.curlVec(side, spec.hold)
+      for (const f of fitFingers(t, rig.parts.hands[side], offsetOf(t.key, seat))) {
+        if (f.finger === 'thumb') hold.splice(16, 4, ...f.joints)
+        else setFingerJoints(hold, ['index', 'middle', 'ring', 'little'].indexOf(f.finger), f.joints)
       }
-      this.fits.set(key, { curl, spread })
+      this.fits.set(key, { hold })
     }
     return this.fits.get(key)!
   }
@@ -282,11 +357,17 @@ export class PlayStage {
       return false
     }
     const hand = rig.parts.hands[side]
-    const info = tgt.obj ? this.props.info(rig, kind, prefer ?? objName) : null
-    const home = tgt.obj ? this.props.homeWorld(tgt.obj) : new Matrix4()
+    // the mouse body is live but not a prop (#305): the hand is placed on the body where it is now, wherever the typist has slid it
+    const body = kind === 'mouse' ? tgt.obj : null
+    if (body) body.updateWorldMatrix(true, false)
+    // the closed book's grip is the same prop as the open one (PropBank knows props by their own kind)
+    const propKind = kind === 'bookclosed' ? 'book' : kind
+    const info = tgt.obj && !body ? this.props.info(rig, propKind, prefer ?? objName) : null
+    const home = body ? body.matrixWorld.clone() : tgt.obj ? this.props.homeWorld(tgt.obj) : new Matrix4()
     let pose = home
     // reduced motion: the can is simply in the hand (watering.md 5); everything else is lifted from where it rests
-    if (out.attached && held) pose = inp.reduced && kind === 'watering_can' ? held : blend(home, held, ease((inp.t - (clock.attachedAt ?? inp.t)) / Math.max(LIFT_S, rig.gestureMin)))
+    if (body) pose = home
+    else if (out.attached && held) pose = inp.reduced && kind === 'watering_can' ? held : blend(home, held, ease((inp.t - (clock.attachedAt ?? inp.t)) / Math.max(LIFT_S, rig.gestureMin)))
     else if (out.attached && !tgt.obj) pose = held ?? home
     this.lastObjPose = pose
     const seat = Number(rig.id.split('_')[1])
@@ -298,11 +379,9 @@ export class PlayStage {
     } else if (out.stage !== 'rest') this.lastHand.set(lastKey, target.clone())
     if (out.stage === 'rest') return false
     const fit = this.holdFit(rig, side, tgt)
-    const hold = fit.curl as unknown as Curl
-    const curl = [0, 1, 2, 3, 4, 5].map((k) => spec.pre[k] * out.mix[0] + hold[k] * out.mix[1] + spec.after[k] * out.mix[2])
-    rig.drive[side] = { target, w: out.wHand, curl, wc: out.wCurl, spread: fit.spread.map((s) => s * out.mix[1]) }
-    if (tgt.obj && info) {
-      rig.want = { kind, side: 'r' === side || kind !== 'book' ? side : side, prefer: prefer ?? objName, attached: out.attached }
+    rig.drive[side] = { target, w: out.wHand, curl: null, angles: mixVec(rig.curlVec(side, spec.pre), fit.hold, rig.curlVec(side, spec.after), out.mix), wc: out.wCurl, spread: null, reach: REACH_KINDS.has(kind) }
+    if (tgt.obj && info && !body) {
+      rig.want = { kind: propKind, side, prefer: prefer ?? objName, attached: out.attached }
       if (out.attached) {
         this.props.force(tgt.obj, pose)
         this.forced.add(tgt.obj)
@@ -362,7 +441,9 @@ export class PlayStage {
   update(inp: StageIn) {
     for (const node of this.forced) this.props.force(node, null)
     this.forced.clear()
+    this.typed.clear()
     this.tag = null
+    this.lounge.begin()
     for (const id in inp.rigs) {
       const r = inp.rigs[id]
       r.drive = { l: null, r: null }
@@ -396,10 +477,12 @@ export class PlayStage {
     for (const id of ids) if (inp.gripDemo?.agent !== id) this.solo(inp.rigs[id], inp.goals[id], inp, pp, og)
     this.demo(inp)
     this.putBack(inp)
+    for (const id of ids) if (!this.typed.has(id)) this.typist.fade(inp.rigs[id], inp.dt)
     for (const id of ids) {
-      inp.rigs[id].applyDrive('l')
-      inp.rigs[id].applyDrive('r')
+      inp.rigs[id].applyDrive('l', inp.t, inp.reduced)
+      inp.rigs[id].applyDrive('r', inp.t, inp.reduced)
     }
+    this.lounge.update(inp)
     this.book(inp)
     this.water(inp)
   }
@@ -487,6 +570,12 @@ export class PlayStage {
     const before = playing ? rallyAt(s.seed, s.players, tMs - 2000, d, true) : null
     if (playing && before && (before.score[0] !== rally.score[0] || before.score[1] !== rally.score[1]) && before.game === rally.game) {
       this.tag = { text: `${rally.score[0]} : ${rally.score[1]}`, at: this.tableWorld([0, d.netH! + 0.35, 0]) }
+      // the one who lost the point is startled (놀람); once per point
+      const pk = `${rally.game}|${rally.score[0]}:${rally.score[1]}`
+      if (this.lastPoint.get(s.spot) !== pk) {
+        this.lastPoint.set(s.spot, pk)
+        inp.rigs[s.players[rally.score[0] > before.score[0] ? 1 : 0]]?.faceEvent('surprised', inp.t)
+      }
       for (const p of s.players) noteTourEvent(p, 2500) // the tour (#207): a point is an event at both players
     }
   }
@@ -520,6 +609,7 @@ export class PlayStage {
         return stoneGrip(models, top, { index: hold[0], middle: hold[1] }, pitch, stoneRoll(models, top, { index: hold[0], middle: hold[1] }, pitch))
       })
       this.stoneFrames.set(rig.id, f)
+      this.stoneModes.set(rig.id, f.every((g) => g.err[top] <= STONE_FALLBACK_M) ? 'go' : 'pinch')
     }
     return f
   }
@@ -606,6 +696,16 @@ export class PlayStage {
         this.line.rotation.set(0, Math.atan2(-dir.z, dir.x), 0)
         this.line.scale.set(dir.length() * k, 1, 1)
         ;(this.line.material as MeshBasicMaterial).color.set(col)
+      }
+    }
+    // the faces of the result: the winner is glad (기쁨), the loser embarrassed (당황); an expression is information, reduced motion keeps it
+    if (view.phase === 'won' && view.winner && view.wonMs > 500) {
+      const fk = `${key}:${view.game}`
+      if (!this.faced.has(fk)) {
+        this.faced.add(fk)
+        const w = (view.winner === 1 ? view.black : (1 - view.black)) as 0 | 1
+        inp.rigs[s.players[w]]?.faceEvent('joy', inp.t)
+        inp.rigs[s.players[1 - w]]?.faceEvent('embarrassed', inp.t)
       }
     }
     if (inp.reduced) return
@@ -695,6 +795,9 @@ export class PlayStage {
     const habit = habitOf(id)
     const p = placeSequence(mv.sinceMs, mv.thinkMs, habit)
     this.lastPlace[id] = p
+    const mk = `${s.seed}:${view.game}:${mv.cell}`
+    if (this.handMove[id]?.key !== mk) this.handMove[id] = { key: mk, ok: mv.sinceMs < SEQ.pick }
+    if (!this.handMove[id].ok) return
     if (p.stage === 'rest' && !p.landed) return
     const stone = this.props.info(rig, 'piece', `prop_piece_${wantColor === 1 ? 'a' : 'b'}`)
     // the opponent's last stone: a 10° glance while thinking; the chin hand and the 5° tilt of the defensive one
@@ -722,6 +825,9 @@ export class PlayStage {
     const zs = new Vector3().crossVectors(xs, ys)
     const rollQ = new Quaternion().setFromAxisAngle(xs, p.roll)
     const centre = bottom.clone().addScaledVector(UP, STONE_H / 2)
+    // a cell farther than an arm from the player's spot (the far corners of the board): the body leans over it by the difference, up to LEAN_MAX_M (water.ts REACH is 0.75)
+    const over = Math.min(LEAN_MAX_M, Math.max(0, Math.hypot(centre.x - rig.x, centre.z - rig.z) - STONE_COMFORT_M))
+    if (over > 0) rig.leanOver(fwd.x * over, fwd.z * over)
     // 휴 rolls the stone about the finger axis through its centre
     const stoneWorld = frame(xs, ys, zs, centre)
     if (p.roll) stoneWorld.premultiply(new Matrix4().makeTranslation(-centre.x, -centre.y, -centre.z)).premultiply(new Matrix4().makeRotationFromQuaternion(rollQ)).premultiply(new Matrix4().makeTranslation(centre.x, centre.y, centre.z))
@@ -740,15 +846,49 @@ export class PlayStage {
     const spec = GRIPS.piece.r!
     // the fingers: pre-grip → the 바둑식 grip as the stone is picked, each letting go when it should
     const free = (k: number) => (k === 0 ? p.freeIndex : k === 1 ? p.freeMiddle : p.freeRest)
+    const fan = rig.fanOf(side)
+    const curlJ = (k: number, c: number) => {
+      const f = fingerFromC(k, c, fan[k])
+      return [f.mcp, f.pip, f.abd]
+    }
     const curl = [0, 1, 2, 3, 4, 5].map((k) => {
-      const held = k === 0 ? mix(sf[f0].index.a, sf[f0 + 1].index.a) : k === 1 ? mix(sf[f0].middle.a, sf[f0 + 1].middle.a) + 0.02 * p.press : spec.hold[k]
+      const held = k === 5 || k === 4 ? spec.hold[k] : k < 2 ? spec.hold[k] : spec.hold[k]
       // the pick is a thumb + index pinch; the arc re-grips it into the go grip
       const pinch = [0.6, 0.25, 0.3, 0.35, 0.15, 0.7][k]
       const grip = pinch + (held - pinch) * p.regrip
       const closed = spec.pre[k] + (grip - spec.pre[k]) * p.close
       return closed + (spec.after[k] - closed) * free(k === 5 || k === 4 ? 2 : k)
     })
-    rig.drive[side] = { target: hand, w: p.w, curl, wc: p.w, spread: [mix(sf[f0].index.b, sf[f0 + 1].index.b) * p.close * (1 - p.freeRest), mix(sf[f0].middle.b, sf[f0 + 1].middle.b) * p.close * (1 - p.freeMiddle), 0, 0] }
+    const angles = rig.curlVec(side, curl)
+    // the index and the middle finger: full joints (MCP, PIP, abduction) from the stone fits, blended pre-grip → pinch → go grip → after like the curls above
+    for (const k of [0, 1]) {
+      const held = [0, 1, 2].map((i) => mix(sf[f0][k === 0 ? 'index' : 'middle'].j[i], sf[f0 + 1][k === 0 ? 'index' : 'middle'].j[i]))
+      if (k === 1) {
+        held[0] += 1.7 * p.press
+        held[1] += 2 * p.press
+      }
+      const pinch = curlJ(k, [0.6, 0.25][k])
+      const pre = curlJ(k, spec.pre[k])
+      const after = curlJ(k, spec.after[k])
+      const j = [0, 1, 2].map((i) => {
+        const grip = pinch[i] + (held[i] - pinch[i]) * p.regrip
+        const closed = pre[i] + (grip - pre[i]) * p.close
+        return closed + (after[i] - closed) * free(k)
+      })
+      setFingerJoints(angles, k, j)
+    }
+    // an agent whose fingers cannot reach the stone's discs holds it with the tripod pinch instead (decided once per agent from the fits, deterministic)
+    const pinch = this.stoneModes.get(rig.id) === 'pinch'
+    if (pinch) {
+      const tri = toVec(POSES.tripod)
+      const pre = rig.curlVec(side, spec.pre)
+      const after = rig.curlVec(side, spec.after)
+      angles.forEach((_, i) => {
+        const closed = pre[i] + (tri[i] - pre[i]) * p.close
+        angles[i] = closed + (after[i] - closed) * free(0)
+      })
+    }
+    rig.drive[side] = { target: hand, w: p.w, curl: null, angles, abdLimits: pinch ? null : [STONE_ABD.index, STONE_ABD.middle, undefined, undefined], wc: p.w, spread: null }
     // the stone: the prop piece, in the hand until it lands; the board's own instance shows from the landing
     if (stone) {
       rig.want = { kind: 'piece', side, prefer: `prop_piece_${wantColor === 1 ? 'a' : 'b'}`, attached: p.attached }
@@ -788,6 +928,8 @@ export class PlayStage {
     void og
     // the watering errand: first, so nothing else (the stamp) takes the right hand while it carries the can
     if (goal.pose === 'water') return this.errand(rig, goal, inp)
+    // the lounge acts (fridge, dispenser, turntable), the pillow on the sofa, the door lever (loungeActs.ts)
+    if (this.lounge.solo(rig, goal, inp)) return
     // the planner's stamp (the owner decided something)
     if (inp.stamp && seat === 0) {
       const home = this.props.info(rig, 'stamp')
@@ -809,6 +951,11 @@ export class PlayStage {
       if (pressing) this.button(rig, 'coffee_button', u, inp)
       else if (cup) {
         const k = ((u - 1.8) % 12) / 12
+        // the first sip of the cup (기쁨)
+        if (u - 1.8 > 0.7 && this.sipped.get(rig.id) !== this.arrivedAt.get(rig.id)) {
+          this.sipped.set(rig.id, this.arrivedAt.get(rig.id) ?? 0)
+          rig.faceEvent('joy', inp.t)
+        }
         const sipping = k < 0.12 ? Math.sin((k / 0.12) * Math.PI) : 0
         const tilt = 30 * DEG * sipping
         // in front of the chest, the handle to the right; the sip tips it toward the face and lifts it 8 cm
@@ -818,6 +965,8 @@ export class PlayStage {
       }
       return
     }
+    // the reading errand (readRun.ts): the book from the low table to the sofa seat and back
+    if (goal.pose === 'books' && goal.read) return this.readErrand(rig, goal.read, inp)
     if (goal.pose === 'books' && resting) {
       const book = this.props.info(rig, 'book')
       if (book) {
@@ -833,7 +982,9 @@ export class PlayStage {
           this.rightHand(rig, 'book', tr, this.lastObjPose)
           if (attached) this.setExtra(rig, 'l', book.node.name, (m) => this.rightHand(rig, 'book', tr, m))
         }
-        this.reading = { rig, openAt: (this.clocks.get(`${rig.id}:l`)?.attachedAt ?? t), turnAt: u }
+        const openAt = this.clocks.get(`${rig.id}:l`)?.attachedAt ?? t
+        this.reading = { rig, openAt, turnAt: u }
+        if (attached && tr) this.turnLeaf(rig, book.node.name, u, openAt, this.lastObjPose, inp)
       }
       return
     }
@@ -859,13 +1010,42 @@ export class PlayStage {
         const nib = new Vector3(c.x + 0.05 * Math.sin(sc * 1.1) + 0.02 * Math.sin(sc * 4), c.y + 0.005, c.z + 0.04 * Math.cos(sc * 0.8) + 0.02 * Math.cos(sc * 5))
         const held = this.writing(nib, fwd.clone().negate(), 0.071, 45 * DEG, 8 * DEG * Math.sin(sc * 5))
         this.grip(rig, 'r', 'tablet_pen', pen.node.name, true, held, inp)
-        // the other hand keeps typing (the pose); nothing more here
+        // the other hand keeps typing: the left types, the right holds the pen
+        if (goal.pose === 'type') this.typeAtDesk(rig, inp, seat, true)
       }
       return
     }
     if (goal.pose === 'idle' && resting && goal.spot === `work_${seat}` && (seat === 0 || seat === 1 || seat === 3 || seat === 4)) {
       this.grip(rig, 'r', 'mouse', `desk_${seat}_mouse`, true, null, inp)
     }
+    if (goal.pose === 'type' && resting) this.typeAtDesk(rig, inp, seat, false)
+  }
+
+  /**
+   * Working at the desk (#225): the hands type what the schedule says, the right hand now and then goes to the mouse (the grip stage of the
+   * mouse, blended with the keyboard hand), clicks and scrolls. `leftOnly`: the right hand holds the tablet pen.
+   */
+  private typeAtDesk(rig: AgentRig, inp: StageIn, seat: number, leftOnly: boolean) {
+    // a plane gesture owns the hands while it lasts
+    if (rig.gesture && inp.t < rig.gesture.until) return
+    const ty = this.typist
+    const t = ty.frozen[rig.id] ?? inp.t
+    const frame = ty.step(rig, seat, {
+      t,
+      dt: inp.dt,
+      reduced: inp.reduced,
+      activity: inp.status[rig.id]?.activity,
+      dilation: rig.gestureMin > 0 ? rig.gestureMin / 0.15 : 1,
+      still: rig.ambient === 0,
+      leftOnly,
+      hasMouse: seat !== 2,
+    })
+    if (!frame) return
+    this.typed.add(rig.id)
+    ty.warm(rig, seat, 1.5, inp.reduced)
+    if (leftOnly || seat === 2) return
+    this.grip(rig, 'r', 'mouse', `desk_${seat}_mouse`, frame.mouseWant, null, inp)
+    ty.mouseBlend(rig, seat, frame, rig.drive.r !== frame.kb ? rig.drive.r : null, t, inp.reduced)
   }
 
   /**
@@ -877,26 +1057,45 @@ export class PlayStage {
     const w = goal.water
     const can = this.props.info(rig, 'watering_can')
     if (!w || !can) return
+    const lv = levelFor(inp.speed ?? 1, inp.reduced)
     const root = rig.parts.root
     const x = root.position.x
     const z = root.position.z
     const heading = rig.heading
     const home = this.props.homeWorld(can.node)
-    const carrying = canPose(x, z, heading, CARRY_HOLD, 0)
     const plant = this.plants.find((p) => p.name === w.plant) ?? this.plants[0]
+    const habitS = habitSeconds(w.habit)
+    // the weight of it (watering.md 2): the body dips 3 cm as the hand takes the can and comes up with it, the wrist sags 5° and recovers, and while it is carried it swings a little with each step
+    let sag = 0
+    if (lv.body) {
+      if (w.stage === 'lift') {
+        rig.bodyDip = WEIGHT_DIP_M * Math.sin(Math.PI * Math.min(1, w.u / WATER_S.lift))
+        sag = WRIST_SAG * ease((w.u - 0.35) / 0.4)
+      } else if (w.stage === 'carry') sag = WRIST_SAG * (1 - ease(w.u / 0.5))
+      if (w.stage === 'carry' || w.stage === 'return') sag += this.carrySway(rig, inp)
+    }
+    const carrying = canPose(x, z, heading, CARRY_HOLD, sag)
     let want = true
     let held: Matrix4 = carrying
     let hands = 0
-    let tilt = 0
+    let flow = 0
     // walking to the can, or (reduced motion) to the plant: the hands are free
     if (w.stage === 'fetch' || (w.stage === 'carry' && inp.reduced)) return
     if (w.stage === 'lift') rig.headExtra.pitch = -0.2
     else if (w.stage === 'pour') {
-      const pr = pourAt(plant.name, w.u)
+      const pr = pourAt(plant.name, w.u, habitS)
       const pour = this.spoutLocal ? solvePour(plant, x, z, heading, this.spoutLocal) : null
-      held = canPose(x, z, heading, lerpHold(CARRY_HOLD, pour?.hold ?? HOLD_DEFAULT, pr.hold), pr.tilt)
+      // the spout circles the stem while it pours (4 cm, less over a small pot), the wrist turns twice to shake off the last drops
+      const circ = lv.body ? circleAt(plant.name, plant.r, w.u) : { fwd: 0, lat: 0 }
+      const ph = pour?.hold ?? HOLD_DEFAULT
+      held = canPose(x, z, heading, lerpHold(CARRY_HOLD, { fwd: ph.fwd + circ.fwd, lat: ph.lat + circ.lat, y: ph.y }, pr.hold), pr.tilt + (inp.reduced ? 0 : shakeAt(plant.name, w.u, lv.shakes) / POUR_TILT))
       hands = pr.hold
-      tilt = pr.tilt
+      flow = flowAt(plant.name, w.u, habitS)
+      // it steps in to the pot: the body leans toward it (10°, about 5 cm) and the head bows 15°
+      if (lv.body) {
+        rig.leanOver(-Math.sin(heading) * LEAN_IN_M * pr.hold, -Math.cos(heading) * LEAN_IN_M * pr.hold)
+        rig.headExtra.pitch = -0.26 * pr.hold
+      }
     } else if (w.stage === 'put') {
       const dur = Math.max(WATER_S.lower, rig.gestureMin)
       rig.headExtra.pitch = -0.2
@@ -911,7 +1110,75 @@ export class PlayStage {
     // the left hand supports the can's belly while it pours, following it (grip_l), fading in and out with the settle
     const tl = this.target(can.node.name, 'watering_can', 'l')
     if (tl && hands > 0) this.partner(rig, 'watering_can', 'l', tl, this.lastObjPose, 'r', hands)
-    this.pouring = { on: attached && tilt > 0.5 && !inp.reduced, rig, held, soilY: plant.soilY }
+    // the plant-side habit (watering.md 4), once the can is upright and shaken: the other hand or the head, over the habit's own 0.7 s
+    const hu = w.stage === 'pour' && lv.body ? habitU(plant.name, w.habit, w.u) : null
+    if (hu !== null && w.habit) this.habit(rig, plant, w.habit, hu, habitEnv(hu, habitS), inp)
+    this.pouring = attached && w.stage === 'pour' ? { rig, held, plant, flow, u: w.u, shakes: lv.shakes } : null
+  }
+
+  /** the can swings a little with each step while it is carried (watering.md 2: ±3° per step); how much follows how fast the body moves */
+  private carrySway(rig: AgentRig, inp: StageIn) {
+    const root = rig.parts.root
+    const m = this.carryAmp.get(rig.id) ?? { x: root.position.x, z: root.position.z, amp: 0 }
+    const v = Math.hypot(root.position.x - m.x, root.position.z - m.z) / Math.max(inp.dt, 1e-3)
+    m.x = root.position.x
+    m.z = root.position.z
+    m.amp += (Math.min(1, v / 0.4) - m.amp) * (1 - Math.exp(-inp.dt / 0.15))
+    this.carryAmp.set(rig.id, m)
+    return ((3 * DEG) / POUR_TILT) * m.amp * Math.sin(inp.t * Math.PI * 2 * 1.8)
+  }
+
+  /**
+   * The reading errand (#280, readRun.ts decides the stage and how long it has lasted; this only draws it). The left hand takes the CLOSED book where it rests on the low
+   * table (pick: the bake's prop_book_grip_l, thumb on the edge, grip kind bookclosed) and carries it closed at the chest (carry, return: the body's own height, so
+   * seated it is lower). Once seated it opens to 150° (READ_S.open) while the hand moves from the closed grip to the reading grip and the right hand comes
+   * to the other cover (both blended, nothing jumps), and a leaf turns every 6 s; READ_S.close before the end it closes again and the hands go back to the closed grip.
+   * Put: lowered closed to exactly where it rests before the hand lets go. The book is never moved by anything but the hand.
+   */
+  private readErrand(rig: AgentRig, r: NonNullable<Goal['read']>, inp: StageIn) {
+    if (r.stage === 'fetch') return
+    const book = this.props.info(rig, 'book')
+    if (!book) return
+    const t = inp.t
+    const name = book.node.name
+    const seat = Number(rig.id.split('_')[1])
+    const root = rig.parts.root
+    const yaw = new Quaternion().setFromAxisAngle(UP, rig.heading)
+    const right = new Vector3(Math.cos(rig.heading), 0, -Math.sin(rig.heading))
+    // the cover faces the reader (tipped up 30°), the spine runs down; at the chest of the body as it is now (sitting lowers it)
+    const face = new Vector3(0, 0.5, 0.87).applyQuaternion(yaw).normalize()
+    const q = new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(right, face, new Vector3().crossVectors(right, face)))
+    const drop = rig.parts.head.position.y - rig.parts.headRestY
+    const bob = inp.reduced ? 0 : Math.sin(t * 1.3 + seat) * 0.004
+    // seated it comes down into the lap and a little out (READ_HOLD, #395), as far as the body has sat
+    const sat = Math.min(1, Math.max(0, -drop / READ_HOLD.sitM))
+    const carrying = new Matrix4().compose(root.localToWorld(new Vector3(-0.02, 1.0 + drop + bob - READ_HOLD.down * sat, -0.32 - READ_HOLD.forward * sat)), q, ONE)
+    let held = carrying
+    let want = true
+    if (r.stage === 'put') {
+      const dur = Math.max(READ_S.lower, rig.gestureMin)
+      const k = inp.reduced ? 1 : ease(Math.min(1, r.u / dur))
+      held = blend(carrying, this.props.homeWorld(book.node), k)
+      // exactly at rest for the last frames in the hand
+      if (r.u >= dur + 0.06) want = false
+    }
+    // how far the book is open: 0 closed (every stage but reading), 1 open (the middle of the reading)
+    const closeFrom = READ_S.read - READ_S.close
+    const w = r.stage !== 'read' ? 0 : r.u < READ_S.open ? ease(r.u / READ_S.open) : r.u > closeFrom ? 1 - ease((r.u - closeFrom) / READ_S.close) : 1
+    // the left hand: the closed grip, and (while the book is open at all) the reading grip mixed in by w
+    const attached = this.grip(rig, 'l', 'bookclosed', name, want, held, inp)
+    const shut = rig.drive.l
+    if (w > 0 && shut?.target && shut.angles) {
+      const a = { target: shut.target.clone(), angles: [...shut.angles], w: shut.w, wc: shut.wc }
+      this.grip(rig, 'l', 'book', name, want, held, inp)
+      const op = rig.drive.l
+      if (op?.target && op.angles) rig.drive.l = { ...op, target: blend(a.target, op.target, w), angles: op.angles.map((x, i) => a.angles[i] * (1 - w) + x * w), w: a.w * (1 - w) + op.w * w, wc: a.wc * (1 - w) + op.wc * w }
+    }
+    const tr = this.target(name, 'book', 'r')
+    if (tr && w > 0) this.partner(rig, 'book', 'r', tr, this.lastObjPose, 'l', w)
+    this.reading = r.stage === 'read' ? { rig, openAt: t - r.u, turnAt: r.u, closeAt: t - (r.u - closeFrom) } : null
+    if (attached && tr && w >= 1) this.turnLeaf(rig, name, r.u, t - r.u, this.lastObjPose, inp)
+    else this.hideLeaf()
   }
 
   private setExtra(rig: AgentRig, side: 'l' | 'r', objName: string, fn: (pose: Matrix4) => void) {
@@ -920,11 +1187,12 @@ export class PlayStage {
     if (e) e.extra = fn
   }
 
-  private pouring: { on: boolean; rig: AgentRig; held: Matrix4; soilY: number } | null = null
+  private pouring: { rig: AgentRig; held: Matrix4; plant: Plant; flow: number; u: number; shakes: number } | null = null
+  private carryAmp = new Map<string, { x: number; z: number; amp: number }>()
   /** the spout node in the can's frame (water.ts: +z = the water's direction) */
   private spoutLocal: Matrix4 | null = null
   private plants: Plant[] = PLANTS
-  private reading: { rig: AgentRig; openAt: number; turnAt: number } | null = null
+  private reading: { rig: AgentRig; openAt: number; turnAt: number; closeAt?: number } | null = null
 
   /** the other hand of a two-handed hold: it goes to the object with the first hand's stages (reach, pre-grip, close, hold, let go) */
   private partner(rig: AgentRig, kind: string, side: 'l' | 'r', tgt: GripTarget, objPose: Matrix4, primary: 'l' | 'r', scale = 1) {
@@ -934,16 +1202,15 @@ export class PlayStage {
     const hand = rig.parts.hands[side]
     const seat = Number(rig.id.split('_')[1])
     const target = handFor(objPose, tgt.pg, handGripMatrix(hand)).multiply(offsetOf(tgt.key, seat))
-    const fit = tgt.contacts.length ? this.holdFit(rig, side, tgt) : { curl: [...spec.hold], spread: [0, 0, 0, 0] }
-    const curl = [0, 1, 2, 3, 4, 5].map((k) => spec.pre[k] * out.mix[0] + fit.curl[k] * out.mix[1] + spec.after[k] * out.mix[2])
-    rig.drive[side] = { target, w: out.wHand * scale, curl, wc: out.wCurl * scale, spread: fit.spread.map((x) => x * out.mix[1]) }
+    const hold = tgt.contacts.length ? this.holdFit(rig, side, tgt).hold : rig.curlVec(side, spec.hold)
+    rig.drive[side] = { target, w: out.wHand * scale, curl: null, angles: mixVec(rig.curlVec(side, spec.pre), hold, rig.curlVec(side, spec.after), out.mix), wc: out.wCurl * scale, spread: null }
   }
   private rightHand(rig: AgentRig, kind: string, tgt: GripTarget, objPose: Matrix4) {
     this.partner(rig, kind, 'r', tgt, objPose, 'l')
   }
 
   /** the coffee machine's button: the index fingertip on its contact point, pressed 0.1 s */
-  private button(rig: AgentRig, name: string, u: number, inp: StageIn) {
+  private button(rig: AgentRig, name: string, u: number, inp: StageIn, holdS = 0.1, depth = 0.012) {
     const contact = this.sceneRef.getObjectByName(`${name}_contact_index`)
     if (!contact) return
     const clock = this.clock(`${rig.id}:r:button`)
@@ -955,19 +1222,90 @@ export class PlayStage {
     const m = contact.matrixWorld
     const P = new Vector3().setFromMatrixPosition(m)
     const n = contactNormal(this.sceneRef, contact) // out of the button, toward the hand
-    const press = u > 0.5 && u < 0.6 ? 0.012 : 0
+    const pressed = u > 0.5 && u < 0.5 + holdS
+    const press = pressed ? depth : 0
     // the hand points in along −n, palm down
     const y = n.clone().negate()
     const z = UP.clone().negate()
     const x = new Vector3().crossVectors(y, z).normalize()
     z.crossVectors(x, y)
-    const c1 = spec.hold[0] + (u > 0.5 && u < 0.6 ? 0.07 : 0)
+    const c1 = spec.hold[0] + (pressed ? 0.07 : 0)
     const tip = tipAt(idx, c1, 0)
     const basis = new Matrix4().makeBasis(x, y, z)
     const origin = P.clone().addScaledVector(n, press).sub(tip.clone().applyMatrix4(new Matrix4().extractRotation(basis)))
     const target = basis.clone().setPosition(origin)
     const curl = [0, 1, 2, 3, 4, 5].map((k) => spec.pre[k] * out.mix[0] + (k === 0 ? c1 : spec.hold[k]) * out.mix[1] + spec.after[k] * out.mix[2])
     rig.drive.r = { target, w: out.wHand, curl, wc: out.wCurl, spread: null }
+  }
+
+  /**
+   * The other hand's habit at the plant (watering.md 4), over its own 0.7 – 0.8 s: 메모 pokes the soil with a finger and nods, 메시 tips the head and looks the plant
+   * over, 휴 strokes a leaf with a fingertip, 루프 taps the pot twice, 에코 tips the head to listen. `env` fades it in and out (the can stays in the right hand).
+   */
+  private habit(rig: AgentRig, plant: Plant, kind: HabitKind, s: number, env: number, inp: StageIn) {
+    const len = habitSeconds(kind)
+    const k = s / len
+    const fwd = new Vector3(-Math.sin(rig.heading), 0, -Math.cos(rig.heading))
+    const right = new Vector3(Math.cos(rig.heading), 0, -Math.sin(rig.heading))
+    const centre = new Vector3(plant.x, plant.soilY, plant.z)
+    if (kind === 'listen') rig.headExtra.roll += 10 * DEG * env
+    else if (kind === 'look') {
+      rig.headExtra.roll += 8 * DEG * env
+      rig.headExtra.pitch += 0.3 * Math.sin(k * Math.PI * 2) * env
+    } else if (kind === 'poke') {
+      rig.headExtra.pitch += -2 * DEG * Math.sin(k * Math.PI) * env
+      // the fingertip comes down on the soil's near side, left of the stem, and presses
+      const down = Math.sin(Math.PI * Math.min(1, Math.max(0, (k - 0.25) / 0.4)))
+      this.fingerTouch(rig, centre.clone().addScaledVector(fwd, -0.45 * plant.r).addScaledVector(right, -0.4 * plant.r).add(new Vector3(0, 0.045 * (1 - down), 0)), fwd, down > 0.8, env)
+    } else if (kind === 'tap') {
+      // twice on the pot's side, 0.15 s each
+      const ph = Math.min(1, Math.max(0, (k - 0.15) / 0.7))
+      const lift = 0.025 * (1 - Math.abs(Math.sin(ph * Math.PI * 2)))
+      const rim = plant.r + 0.035
+      this.fingerTouch(rig, centre.clone().addScaledVector(fwd, -rim).addScaledVector(right, -0.03).add(new Vector3(0, -0.035 + lift, 0)), fwd, lift < 0.004, env)
+    } else if (kind === 'leaf' && this.fx) {
+      // the leaf tip nearest the body, brushed a little sideways; the hand stays within an arm of the chest
+      const root = rig.parts.root.position
+      let best: Vector3 | null = null
+      for (let i = 0; i < 3; i++) {
+        const t = this.fx.tipOf(plant.name, i)
+        if (t && (!best || Math.hypot(t.x - root.x, t.z - root.z) < Math.hypot(best.x - root.x, best.z - root.z))) best = t
+      }
+      if (!best) return
+      const chest = new Vector3(root.x, 1.0, root.z)
+      const rel = best.sub(chest)
+      if (rel.length() > 0.55) rel.setLength(0.55)
+      this.fingerTouch(rig, chest.add(rel).addScaledVector(right, 0.015 * Math.sin(k * Math.PI * 3)).add(new Vector3(0, -0.02, 0)), fwd, false, env)
+    }
+    void inp
+  }
+
+  /** the left index fingertip on a point, the hand pointing along `dir` (and a little down), palm down; blended with whatever the hand does now by `env` */
+  private fingerTouch(rig: AgentRig, point: Vector3, dir: Vector3, press: boolean, env: number) {
+    const hand = rig.parts.hands.l
+    const idx = fingerModelOf(hand, 0, 'l')
+    if (!idx) return
+    const spec = GRIPS.button.r!
+    const y = dir.clone().multiplyScalar(0.8).addScaledVector(UP, -0.6).normalize()
+    const z = UP.clone().negate()
+    const x = new Vector3().crossVectors(y, z).normalize()
+    z.crossVectors(x, y)
+    const c1 = spec.hold[0] + (press ? 0.07 : 0)
+    const tip = tipAt(idx, c1, 0)
+    const basis = new Matrix4().makeBasis(x, y, z)
+    const origin = point.clone().sub(tip.clone().applyMatrix4(new Matrix4().extractRotation(basis)))
+    const target = basis.clone().setPosition(origin)
+    const prev = rig.drive.l
+    const curl = [0, 1, 2, 3, 4, 5].map((k) => (k === 0 ? c1 : spec.hold[k]))
+    const touch = env > 0.5
+    rig.drive.l = {
+      target: prev?.target ? blend(prev.target, target, env) : target,
+      w: prev ? prev.w * (1 - env) + env : env,
+      curl: touch ? curl : null,
+      angles: touch ? undefined : prev?.angles,
+      wc: prev ? prev.wc * (1 - env) + env : env,
+      spread: null,
+    }
   }
 
   // ------------------------------------------------------------------------------------------- the book and the water
@@ -977,38 +1315,108 @@ export class PlayStage {
     if (!h) return
     const r = this.reading
     this.reading = null
+    // the halves do not turn on their own after the opening: a page is one leaf (turnLeaf). Open = 150°: the upper half lies at π − LIFT, the lower one is lifted by LIFT
+    if (!r) this.hideLeaf()
     if (!r || inp.reduced) {
       // closed on its shelf, or (reduced motion) open without the turning
-      h.l.rotation.z = r ? Math.PI : 0
-      h.r.rotation.z = 0
+      const shut = !r || (r.closeAt !== undefined && inp.t >= r.closeAt)
+      h.l.rotation.z = shut ? 0 : halfAngle('l')
+      h.r.rotation.z = shut ? 0 : halfAngle('r')
       return
     }
-    const open = ease((inp.t - r.openAt) / 0.5)
-    h.l.rotation.z = Math.PI * open
-    const c = (r.turnAt - 1) % 6
-    h.r.rotation.z = open >= 1 && c >= 0 && c < 0.4 ? Math.PI * 0.96 * ease(c / 0.4) : 0
+    // it closes in the hand before it is put down (readErrand: closeAt)
+    const open = ease((inp.t - r.openAt) / 0.5) * (r.closeAt === undefined ? 1 : 1 - ease((inp.t - r.closeAt) / READ_S.close))
+    h.l.rotation.z = halfAngle('l') * open
+    h.r.rotation.z = LIFT * open
+  }
+
+  private hideLeaf() {
+    const lf = this.leaf
+    if (!lf) return
+    lf.node.visible = false
+    if (lf.theta !== 0) lf.set(0)
+  }
+
+  /**
+   * One leaf turns every 6 s (grips.md "한 장 넘기기"; the timeline of bookLeaf.ts leafAngle). The right thumb and index go to the leaf's lower (baked)
+   * corner along an arc that keeps them out of the book (lead, 0.2 s) while the corner lifts, take it, and turn it 0 → 150° about the spine (on the lifted page) in
+   * 0.75 s with the outer third lagging (LeafBend); the hand follows the leaf's own corner frame, so what is fitted (thumb on its top face,
+   * index under it) is what is shown. Half way through the turn (PINCH_LET_GO: the index is under the leaf, which must not land on it) the hand lets go
+   * and goes home along the same arc (0.3 s after the turn's end) while the leaf finishes lying down on the left page. Reduced motion: nothing
+   * turns (the leaf stays hidden). A timelapse (rig.gestureMin) stretches each stage to at least that long, and the 6 s beat grows if the
+   * stages no longer fit in it.
+   */
+  private turnLeaf(rig: AgentRig, bookName: string, u: number, openAt: number, pose: Matrix4, inp: StageIn) {
+    const lf = this.leaf
+    if (!lf) return
+    const gm = inp.reduced ? 0 : rig.gestureMin
+    const lead = Math.max(LEAD_S, gm)
+    const dur = Math.max(TURN_S, gm)
+    const back = Math.max(BACK_S, gm)
+    const c = u - 1 + lead
+    if (inp.reduced || inp.t - openAt < 0.5 || c < 0) return this.hideLeaf()
+    const tau = (c % Math.max(6, lead + dur + back + 1)) - lead
+    if (tau >= dur + back) return this.hideLeaf()
+    const theta = leafAngle(tau, dur, lead)
+    lf.set(theta)
+    lf.node.visible = theta < OPEN_ANGLE - 1e-3
+    // the hand's weight: 0 = on the reading grip, 1 = pinching. It lets go at PINCH_LET_GO of the turn (the index is under the leaf, which must not land on it)
+    const go = PINCH_LET_GO * dur
+    const a = tau < 0 ? ease((tau + lead) / lead) : tau < go ? 1 : 1 - ease((tau - go) / (dur + back - go))
+    const drive = rig.drive.r
+    if (a <= 0 || !drive?.target || !drive.angles) return
+    if (!this.leafTargets.has(bookName)) this.leafTargets.set(bookName, resolveTarget(this.sceneRef, bookName, 'leaf', 'r'))
+    const pt = this.leafTargets.get(bookName)
+    if (!pt) return
+    const seat = Number(rig.id.split('_')[1])
+    lf.corner(this.mCorner, tau < go ? theta : leafAngle(go, dur, lead))
+    this.mCornerWorld.copy(pose).multiply(this.mCorner)
+    const target = handFor(this.mCornerWorld, pt.pg, handGripMatrix(rig.parts.hands.r)).multiply(offsetOf(pt.key, seat))
+    const pinch = this.holdFit(rig, 'r', pt).hold
+    drive.target = blend(drive.target, target, poseWeight(a))
+    // out along the arc (book frame → world), so the fingers never cross the book
+    pose.decompose(this.vPos, this.qPose, this.vScale)
+    pinchArc(a, this.vArc).applyQuaternion(this.qPose)
+    drive.target.elements[12] += this.vArc.x
+    drive.target.elements[13] += this.vArc.y
+    drive.target.elements[14] += this.vArc.z
+    const fw = fingerWeight(a)
+    drive.angles = drive.angles.map((x, i) => x * (1 - fw) + pinch[i] * fw)
   }
 
   private water(inp: StageIn) {
     const dr = this.drops
+    const fx = this.fx
     const p = this.pouring
     this.pouring = null
-    if (!dr) return
-    if (!p?.on || !this.spoutLocal) {
-      dr.count = 0
-      this.sounds.water(false, inp.t, null)
-      return
-    }
-    // drops leave the spout (placed from the can's pose of this frame) and are gone where they reach the soil
-    const { tip, dir } = spoutOf(p.held, this.spoutLocal!)
-    this.sounds.water(true, inp.t, tip)
-    const hit = landing(tip, dir, p.soilY)
+    if (!dr || !fx) return
+    // the office clock's step: the stream, the soil and the leaves run on it, so the speed only covers more clock per frame
+    const dt = this.fxT < 0 ? 0 : Math.min(0.5, Math.max(0, inp.t - this.fxT))
+    this.fxT = inp.t
+    const lv = levelFor(inp.speed ?? 1, inp.reduced)
+    let tipNow: Vector3 | null = null
+    if (p && this.spoutLocal) {
+      const { tip, dir } = spoutOf(p.held, this.spoutLocal)
+      tipNow = tip
+      fx.frame(dt, { plant: p.plant, tip, dir, flow: p.flow, u: p.u, shakes: p.shakes }, lv)
+    } else fx.frame(dt, null, lv)
+    // the can's own sound while water runs (the cue water, 3 s renewed)
+    const running = !!tipNow && !!p && p.flow > 0.05 && !inp.reduced
+    this.sounds.water(running, inp.t, running ? tipNow : null)
+    // the water dispenser's tap pours the same way (loungeActs.ts; its own sound is the cue dispenser.pour), when the can is not using the drops
+    const tap = this.lounge.stream()
+    if (tap && !fx.busy && !running) this.drops_(dr, tap.tip, tap.dir, tap.soilY, inp)
+  }
+
+  private drops_(dr: InstancedMesh, tip: Vector3, dir: Vector3, soilY: number, inp: StageIn) {
+    const hit = landing(tip, dir, soilY)
     const m = new Matrix4()
     const pos = new Vector3()
     const life = hit ? hit.tau : 0.4
     let n = 0
-    for (let i = 0; i < 28; i++) {
-      const tau = (((inp.t + (i / 28) * life) % life) + life) % life
+    const cap = Math.min(28, dr.instanceMatrix.count)
+    for (let i = 0; i < cap; i++) {
+      const tau = (((inp.t + (i / cap) * life) % life) + life) % life
       dropAt(tip, dir, tau, pos)
       m.makeTranslation(pos.x, pos.y, pos.z)
       dr.setMatrixAt(n++, m)

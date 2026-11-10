@@ -171,7 +171,7 @@ describe('facing', () => {
         expect(dist(g.spots[id], c)).toBeCloseTo(MEET_SEAT_R)
         expect(g.adj[id]).toContain(c.id)
       }
-    expect(Object.keys(g.spots).filter((id) => id.startsWith('meet_talk_'))).toHaveLength(3) // the fourth (board side) would stand 0.53 m from the whiteboard spot
+    expect(Object.keys(g.spots).filter((id) => id.startsWith('meet_talk_'))).toHaveLength(4) // the circle moved to (0.7, -1.97) (#280): the board-side seat now stands 0.73 m from the whiteboard spot, clear of 2R
   })
   it('the two chat spots face each other 1.0 m apart', () => {
     const g = buildGraph(SPOTS)
@@ -187,7 +187,8 @@ describe('facing', () => {
     const close: string[] = []
     for (let i = 0; i < dests.length; i++)
       for (let j = i + 1; j < dests.length; j++) if (dist(dests[i], dests[j]) < 0.6) close.push(`${dests[i].id}/${dests[j].id}`)
-    expect(close.sort()).toEqual(['board_tray/whiteboard', 'sofa_0/sofa_1', 'sofa_1/sofa_2'])
+    // the seats now sit a pitch of 0.665 m apart (>= two bodies); only the east entrance stands 0.56 m from seat 1 (the zone's east gap leaves it no further out, #280)
+    expect(close.sort()).toEqual(['board_tray/whiteboard', 'sofa_1/sofa_in_e'])
   })
 })
 

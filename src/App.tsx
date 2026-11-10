@@ -10,34 +10,37 @@ import { DocsViewer } from './office/DocsViewer'
 import { SidePanel } from './office/SidePanel'
 import { SideViewOffset } from './office/sidePanelRig'
 import { CameraHint, CameraRig } from './office/cameraRig'
+import { EdgeHintRig, EdgeHints } from './office/EdgeHints'
 import { TourBar } from './office/TourBar'
 import { TourRig } from './office/TourRig'
-import { CAMERA_FAR, DEFAULT_CAMERA, DEFAULT_TARGET, LAMP_POS } from './office/room'
+import { BoardCamera } from './office/boardView/BoardCamera'
+import { BoardView } from './office/boardView/BoardView'
+import { CAMERA_FAR, LAMP_POS } from './office/room'
 import { VIEW } from './office/view'
 import { Office } from './office/Office'
-import { useCameraBusy } from './room/Door'
+import { CAMERA_FOV, HOME_POS, HOME_TARGET, useCameraBusy } from './room/Door'
 import { RoomUi } from './room/RoomUi'
 import { createWorld } from './office/world'
 import { ReplayDriver } from './replay/ReplayDriver'
 import { ReplayHud } from './replay/ReplayHud'
 import { SoundButton } from './audio/SoundButton'
+import { ViewToggle } from './office/ViewToggle'
+import { SoundPanel } from './audio/SoundPanel'
 import { SoundDebug } from './audio/SoundDebug'
 import { SoundListener, SoundRoot } from './audio/SoundRoot'
 
-/** the default isometric-ish view from the front right (room.ts) */
-const TARGET = [...DEFAULT_TARGET] as [number, number, number]
-const CAMERA = [...DEFAULT_CAMERA] as [number, number, number]
 /** ?debug=1&view=top: straight down over the floor plan, to check routes against the furniture */
 const TOP: [number, number, number] = [0, 13, 0.01]
 
 export function App() {
-  const [{ world, top, close }] = useState(() => {
+  const [{ world, top, close, camera, target }] = useState(() => {
     const q = new URLSearchParams(location.search)
     const debug = q.has('debug')
     // ?debug=1&cam=x,y,z,tx,ty,tz: a close-up for screenshots (any angle, no orbit limits)
     const cam = debug ? (q.get('cam')?.split(',').map(Number) ?? null) : null
     const close = cam?.length === 6 && cam.every(Number.isFinite) ? cam : null
-    return { world: createWorld(debug, q), top: debug && q.get('view') === 'top', close }
+    // the default isometric-ish view from the front right (room.ts), or the portrait-phone one (portraitCamera.ts); only the start pose
+    return { world: createWorld(debug, q), top: debug && q.get('view') === 'top', close, camera: HOME_POS.toArray(), target: HOME_TARGET.toArray() }
   })
   useEffect(() => {
     // debug only: lets screenshot scripts read the nav check and drive the fake source
@@ -50,7 +53,7 @@ export function App() {
     <>
       <Canvas
         dpr={[1, 1.5]}
-        camera={{ fov: 32, near: VIEW.cameraNear, far: CAMERA_FAR, position: close ? (close.slice(0, 3) as [number, number, number]) : top ? TOP : CAMERA }}
+        camera={{ fov: CAMERA_FOV, near: VIEW.cameraNear, far: CAMERA_FAR, position: close ? (close.slice(0, 3) as [number, number, number]) : top ? TOP : (camera as [number, number, number]) }}
         gl={{ antialias: true, stencil: true }}
       >
         <Suspense fallback={null}>
@@ -62,7 +65,7 @@ export function App() {
           <hemisphereLight args={['#fffaf3', '#c2b6a6', 1.82]} />
           <directionalLight position={[-2, 4.5, 2]} intensity={1.3} color="#fff8ef" />
           <pointLight position={[...LAMP_POS]} intensity={3} distance={5} decay={1.6} color="#ffcf8a" />
-          <Office world={world} freeCam={limits} />
+          <Office world={world} />
           <EffectComposer multisampling={0} stencilBuffer>
             <Bloom mipmapBlur intensity={0.9} luminanceThreshold={1} luminanceSmoothing={0.3} />
             <Vignette offset={0.3} darkness={0.6} />
@@ -73,7 +76,7 @@ export function App() {
         {!busy && (
         <OrbitControls
           makeDefault
-          target={close ? (close.slice(3) as [number, number, number]) : top ? [0, 0, 0] : TARGET}
+          target={close ? (close.slice(3) as [number, number, number]) : top ? [0, 0, 0] : (target as [number, number, number])}
           enablePan={limits}
           screenSpacePanning={false}
           enableDamping
@@ -85,25 +88,31 @@ export function App() {
         )}
         <CameraRig limits={limits} world={world} />
         <TourRig limits={limits} world={world} />
+        <BoardCamera />
         <SideViewOffset />
+        <EdgeHintRig limits={limits} />
         <SoundListener world={world} />
       </Canvas>
       <p className="hud">
         <b>AGENT OFFICE</b> · 드래그해서 돌려 보기
       </p>
       <CameraHint enabled={limits && !busy} />
+      <EdgeHints />
       <TourBar world={world} />
       <AgentList world={world} />
       <CornerDock />
       <SidePanel world={world} />
       <ApprovalBox world={world} />
       <DocsViewer world={world} />
+      <BoardView world={world} />
       <RoomUi />
       <ReplayDriver world={world} />
       <ReplayHud world={world} />
       {world.debug && <DebugPanel world={world} />}
       <SoundRoot world={world} />
       <SoundButton />
+      <ViewToggle />
+      <SoundPanel />
       {world.debug && <SoundDebug />}
     </>
   )

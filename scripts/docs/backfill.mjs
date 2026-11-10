@@ -8,7 +8,7 @@
 // asks for: files = issues.
 
 import { execFileSync } from 'node:child_process'
-import { approvalForComment, commentKind, docForComment, docForIssue, docForPull, github, send, trusted } from './build.mjs'
+import { approvalForComment, commentKind, docForComment, docForIssue, docForPull, github, progressFor, send, trusted } from './build.mjs'
 
 const repo = process.argv[2]
 const dry = process.argv.includes('--dry-run')
@@ -21,7 +21,9 @@ const gh = github(ghToken)
 
 const issues = (await gh.all(`/repos/${repo}/issues?state=all`)).filter((i) => !i.pull_request)
 const comments = await gh.all(`/repos/${repo}/issues/comments`)
-const pulls = await gh.all(`/repos/${repo}/pulls?state=closed`)
+// every PR, open ones too: the stage of a plan needs them (#241); docForPull files only the merged
+const pulls = await gh.all(`/repos/${repo}/pulls?state=all`)
+const branches = await gh.all(`/repos/${repo}/branches`)
 
 const byIssue = new Map(issues.map((i) => [i.number, i]))
 const commentsOf = new Map()
@@ -32,7 +34,7 @@ for (const c of comments) {
 }
 
 const docs = [
-  ...issues.map((i) => docForIssue(i, repo)),
+  ...issues.map((i) => docForIssue(i, repo, progressFor(i, { prs: pulls, branches, comments: commentsOf.get(i.number) ?? [] }))),
   ...comments.map((c) => {
     const n = Number(c.issue_url.split('/').pop())
     return docForComment(c, byIssue.get(n), repo, commentsOf.get(n))
@@ -55,7 +57,9 @@ const strangers = [
   ...pulls.filter((p) => p.merged_at && !trusted(p)).map((p) => `PR #${p.number}`),
 ]
 const ownIssues = issues.filter((i) => trusted(i)).length
-console.log(`${repo}: ${issues.length} issues, ${comments.length} comments, ${pulls.length} closed PRs`)
+console.log(`${repo}: ${issues.length} issues, ${comments.length} comments, ${pulls.length} PRs, ${branches.length} branches`)
+const stages = (st) => docs.filter((d) => d.kind === 'plan' && d.meta?.progress?.stage === st).length
+console.log(`progress: waiting ${stages('waiting')}, doing ${stages('doing')}, review ${stages('review')}, done ${stages('done')}`)
 console.log(`documents: plan ${count('plan')}, minutes ${count('minutes')}, decision ${count('decision')}, report ${count('report')}`)
 console.log(`approvals: ${approvals.filter((a) => a.type === 'request').length} requests, ${approvals.filter((a) => a.type === 'result').length} results`)
 console.log(`written by strangers (skipped): ${strangers.length}${strangers.length ? ` → ${strangers.join(', ')}` : ''}`)

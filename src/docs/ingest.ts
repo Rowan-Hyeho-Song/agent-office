@@ -4,6 +4,7 @@
 
 import { ingestApprovals, type ApprovalStore } from '../approvals/ingest.js'
 import { gradeFor, redact } from './filter.js'
+import { sanitizeProgress } from './progress.js'
 import { agentsIn, parseApprovalRequest, parseApprovalResult, parseMinutes, section, summarize } from './parse.js'
 import { DOC_KINDS, type DocInput, type DocRow, type Speaker } from './types.js'
 
@@ -93,6 +94,8 @@ export function toRow(input: DocInput, cfg: Pick<IngestConfig, 'publicRepos' | '
   const grade = gradeFor(input.repo, cfg.publicRepos, [...title.hits, ...body.hits])
   const meta = (input.meta ?? {}) as Record<string, unknown>
   let data: Record<string, unknown> = { ...meta }
+  // progress (#241) is the pipeline's, for a plan only, and only in a shape the library can draw
+  delete data.progress
   let agents: number[] = []
   let summary: string
 
@@ -112,10 +115,13 @@ export function toRow(input: DocInput, cfg: Pick<IngestConfig, 'publicRepos' | '
       summary = summarize('decision', body.text)
       break
     }
-    case 'plan':
+    case 'plan': {
+      const progress = sanitizeProgress(meta.progress)
+      if (progress) data = { ...data, progress }
       agents = agentsIn(section(body.text, '누가 하나') ?? '')
       summary = summarize('plan', body.text)
       break
+    }
     default:
       agents = agentsIn(section(body.text, 'AI 작성') ?? '')
       summary = summarize('report', body.text)

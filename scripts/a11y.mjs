@@ -68,7 +68,83 @@ const STATES = [
     },
   },
   { name: '방문자 · 처리된 결재 표지', url: '/?debug=1&approvals=visitor', act: (p) => p.locator('.secret-done button').first().click() },
+  // the library (#236): file list and a file's head with the topic badges
+  { name: '서재 · 파일철 목록 + 주제 뱃지', url: '/?debug=1&approvals=owner', act: async (p) => {
+      await p.evaluate(() => window.__office.docs.open(28))
+      await p.locator('.doc-path button').nth(1).click()
+      await p.waitForSelector('.doc-file .topic')
+    } },
+  { name: '서재 · 파일철 머리 + 주제 뱃지 (390px)', url: '/?debug=1&approvals=visitor', viewport: { width: 390, height: 844 }, act: async (p) => {
+      await p.evaluate(() => window.__office.docs.open(28))
+      await p.waitForSelector('.doc-filehead .topic')
+    } },
+  // progress (#241): the status chips, the bars, the filter row and the sort; a filtered list; the file head and the path line
+  { name: '서재 · 진행 상황 칩 + 거르기 줄', url: '/?debug=1&approvals=owner', act: async (p) => {
+      await p.evaluate(() => window.__office.docs.open(28))
+      await p.locator('.doc-path button').nth(1).click()
+      await p.waitForSelector('.doc-file .stage')
+      await p.waitForSelector('.doc-chips')
+    } },
+  { name: '서재 · 거르기: 진행 중 + 결재 대기만', url: '/?debug=1&approvals=owner', act: async (p) => {
+      await p.evaluate(() => window.__office.docs.open(28))
+      await p.locator('.doc-path button').nth(1).click()
+      await p.getByRole('radio', { name: /진행 중/ }).click()
+      await p.getByRole('button', { name: '결재 대기만' }).click()
+      await p.waitForSelector('.doc-file .stage')
+    } },
+  { name: '서재 · 진행 상황 칩 + 거르기 줄 (390px, 방문자)', url: '/?debug=1&approvals=visitor', viewport: { width: 390, height: 844 }, act: async (p) => {
+      await p.evaluate(() => window.__office.docs.open(28))
+      await p.locator('.doc-path button').nth(1).click()
+      await p.waitForSelector('.doc-file .stage')
+    } },
+  { name: '서재 · 파일철 머리 + 진행 막대 + 경로 줄', url: '/?debug=1&approvals=owner', act: async (p) => {
+      await p.evaluate(() => window.__office.docs.open(32))
+      await p.waitForSelector('.doc-filehead .pbar')
+    } },
+  // new-item dots (#240): a request and a document arrive while the page is open; the dock buttons carry the words, then the tabs
+  {
+    name: '방문자 · 새 항목 점(도크)',
+    url: '/?debug=1&approvals=visitor',
+    act: async (p) => {
+      await p.getByRole('tab', { name: /결재함/ }).waitFor()
+      await p.locator('.side-close').click()
+      await p.evaluate(() => { window.__office.fakeApprovals.add('새 요청', 1); window.__office.docs.addMinutes(28) })
+      await p.locator('.new-dot.approval').waitFor()
+    },
+  },
+  {
+    name: '방문자 · 새 항목 점(탭)',
+    url: '/?debug=1',
+    act: async (p) => {
+      await p.evaluate(() => window.__office.docs.open(28))
+      await p.waitForSelector('.side-tabs')
+      await p.evaluate(() => window.__office.fakeApprovals.add('새 요청', 1))
+      await p.locator('.side-tabs .new-dot.approval').waitFor()
+    },
+  },
   { name: '주인 · 목록 (390px)', url: '/?debug=1&approvals=owner', viewport: { width: 390, height: 844 } },
+  // the whiteboard close view (#234): opened from the keyboard, with a card summary; the phone's full-screen board and its summary
+  { name: '화이트보드 크게 보기 · 데스크톱', url: '/?debug=1', act: async (p) => {
+      await p.locator('#board-opener').focus()
+      await p.keyboard.press('Enter')
+      await p.waitForSelector('#bv-cell-0-0')
+    } },
+  { name: '화이트보드 크게 보기 · 카드 요약', url: '/?debug=1', act: async (p) => {
+      await p.locator('#board-opener').focus()
+      await p.keyboard.press('Enter')
+      await p.waitForSelector('#bv-cell-0-0')
+      await p.keyboard.press('Enter')
+      await p.waitForSelector('.bv-pop')
+    } },
+  { name: '화이트보드 · 휴대폰 보드 화면 (390px)', url: '/?debug=1', viewport: { width: 390, height: 844 }, act: async (p) => {
+      await p.evaluate(() => document.getElementById('board-opener').click())
+      await p.waitForSelector('.bs-card')
+    } },
+  { name: '화이트보드 · 휴대폰 카드 요약 (390px)', url: '/?debug=1', viewport: { width: 390, height: 844 }, act: async (p) => {
+      await p.evaluate(() => document.getElementById('board-opener').click())
+      await p.locator('.bs-card').first().click()
+      await p.waitForSelector('.bs-summary')
+    } },
   // the timelapse (#82): the office replay with its bar, the 2D list, the phone's bar
   { name: '타임랩스 · 사무실', url: '/?debug=1&replay=all&t=2026-11-08T01:00:00Z', act: (p) => p.waitForSelector('.replay-slider') },
   { name: '타임랩스 · 목록', url: '/?debug=1&replay=all&t=2026-11-08T01:00:00Z', act: (p) => p.evaluate(() => window.__replay.setMode('list')) },

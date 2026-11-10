@@ -10,8 +10,8 @@ import { BoxGeometry, Mesh, MeshBasicMaterial, Raycaster, Vector2, Vector3, type
  * The model's `hit_<kind>` empty (extras {hit: kind, size: [w, h, d]}) as an invisible box of that size, placed where the
  * empty is (position = box centre, rotation = box axes). null when the model has none.
  */
-export function hitBox(scene: Object3D, kind: string): Mesh | null {
-  const hit = scene.getObjectByName(`hit_${kind}`)
+export function hitBox(scene: Object3D, kind: string, name = `hit_${kind}`): Mesh | null {
+  const hit = scene.getObjectByName(name)
   const size = hit?.userData.size as [number, number, number] | undefined
   if (!hit || hit.userData.hit !== kind || size?.length !== 3) return null
   const box = new Mesh(new BoxGeometry(...size), new MeshBasicMaterial({ visible: false }))
@@ -20,7 +20,6 @@ export function hitBox(scene: Object3D, kind: string): Mesh | null {
   box.updateMatrixWorld(true)
   // follows its wall / desk: gone with it (walls.ts hitAllowed)
   box.userData.wall = hit.userData.wall
-  box.userData.fadeGroup = hit.userData.fadeGroup
   return box
 }
 
@@ -28,7 +27,7 @@ export function hitBox(scene: Object3D, kind: string): Mesh | null {
  * Pointer cursor over the targets and a click (not a camera drag) on them. `targets` is read at every pointer event, so
  * it may change; `onPick` gets all hits nearest first; `onHover` fires when the pointer enters or leaves the targets.
  */
-export function useCanvasPick(targets: () => Object3D[], onPick: (hits: Intersection[]) => void, onHover?: (over: boolean) => void) {
+export function useCanvasPick(targets: () => Object3D[], onPick: (hits: Intersection[]) => void, onHover?: (over: boolean, hits?: Intersection[]) => void) {
   const { gl, camera } = useThree()
   const latest = useRef({ targets, onPick, onHover })
   latest.current = { targets, onPick, onHover }
@@ -45,12 +44,17 @@ export function useCanvasPick(targets: () => Object3D[], onPick: (hits: Intersec
     let down: [number, number] | null = null
     // the cursor is written only when this picker's own state changes, so two pickers don't undo each other
     let over = false
+    // which target is under the pointer (several targets, e.g. the three frames: moving from one onto the next reports it again)
+    let under: Object3D | null = null
     const onMove = (e: PointerEvent) => {
       if (e.buttons) return // dragging the camera
-      const now = hits(e).length > 0
-      if (now !== over) {
+      const h = hits(e)
+      const now = h.length > 0
+      const obj = h[0]?.object ?? null
+      if (now !== over || obj !== under) {
+        under = obj
         el.style.cursor = (over = now) ? 'pointer' : ''
-        latest.current.onHover?.(over)
+        latest.current.onHover?.(over, h)
       }
     }
     const onLeave = () => {

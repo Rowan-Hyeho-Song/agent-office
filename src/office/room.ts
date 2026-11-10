@@ -5,7 +5,7 @@
 export type WallId = 'n' | 'e' | 's' | 'w'
 
 /** the room: inner faces of the four walls. Mutated once by setRoomFromExtras when the glb is loaded. */
-export const ROOM = { hx: 4.5, hz: 3.5, wallH: 2.6 }
+export const ROOM = { hx: 4.8, hz: 4.1, wallH: 2.6 }
 
 /** read userData.room of the `room` node; ignores anything that is not three positive finite numbers */
 export function setRoomFromExtras(extras: unknown): boolean {
@@ -20,11 +20,11 @@ export function setRoomFromExtras(extras: unknown): boolean {
 
 export const floorRect = () => ({ minX: -ROOM.hx, maxX: ROOM.hx, minZ: -ROOM.hz, maxZ: ROOM.hz })
 
-/** default camera / target (the designer-approved framing) and the floor lamp's point light */
-export const DEFAULT_CAMERA = [8.5, 8.0, 9.5] as const
-export const DEFAULT_TARGET = [-0.3, 0.6, -0.3] as const
+/** default camera / target (#280: the 9.6 x 8.2 m room; the old view direction, 14.7 m from the target: measured on screen the robots are 95 % of the old robot size, and the whole room is inside the frame at 1280 x 800) and the floor lamp's point light */
+export const DEFAULT_CAMERA = [9.56, 7.8, 10.54] as const
+export const DEFAULT_TARGET = [1.0, 0.6, 1.0] as const
 export const CAMERA_FAR = 80
-export const LAMP_POS = [3.5, 1.55, 2.85] as const
+export const LAMP_POS = [1.95, 1.55, 3.8] as const
 
 export const WALL_THICKNESS = 0.14
 

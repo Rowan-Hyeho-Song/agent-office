@@ -1,9 +1,10 @@
+import { ACT_LABEL, ACT_PLACE, type ActKind } from './lounge'
 import { WATER_PLANTS, standOf } from './water'
 
 // Deterministic play: who does what during free time, from the clock alone. Every visitor computes the same
 // scene for the same minute, so the office looks shared without a server. Pure: no three.js, no Date.
 
-export type PlayKind = 'pingpong' | 'boardgame' | 'coffee' | 'sofa' | 'water' | 'books'
+export type PlayKind = 'pingpong' | 'boardgame' | 'coffee' | 'sofa' | 'water' | 'books' | ActKind
 
 interface PlayDef {
   kind: PlayKind
@@ -22,12 +23,21 @@ export const PLAYS: PlayDef[] = [
   { kind: 'pingpong', label: '탁구', spots: ['pingpong_a', 'pingpong_b'], pair: true, weight: 3 },
   { kind: 'boardgame', label: '보드게임', spots: ['game_a', 'game_b'], pair: true, weight: 3 },
   { kind: 'coffee', label: '커피', spots: ['coffee'], weight: 2 },
-  { kind: 'sofa', label: '소파에서 낮잠', spots: ['sofa_0', 'sofa_1', 'sofa_2'], weight: 2 },
+  // the seats in the order they are taken: the east seat (3, lying, head on the north armrest) before the corner (2, nav `last`: the one chosen last, lounge-props.md 1)
+  { kind: 'sofa', label: '소파에서 낮잠', spots: ['sofa_0', 'sofa_1', 'sofa_3', 'sofa_2'], weight: 2 },
   // one of the floor plants (water.ts), chosen per block, watered from its own stand beside the pot
   { kind: 'water', label: '화분 물 주기', spots: ['hall_lounge'], weight: 1 },
-  // the book on the side table by the sofa (the model's only book prop): read standing in front of that table, put back after (#184)
-  { kind: 'books', label: '책 고르기', spots: ['shelf'], weight: 1, face: { x: 0.065, z: 2.66 }, stand: { x: 0.07, z: 2.0 } },
+  // the lounge acts (#280, lounge.ts): a short errand each, started when the agent has reached its stand; the fridge and the dispenser share the bar's spot, so only one
+  // of them is on at a time. The Director runs them like the watering (an act, then back to the desk until the block ends)
+  ...(['fridge', 'dispenser', 'record'] as const).map((k): PlayDef => ({ kind: k, label: ACT_LABEL[k], spots: [ACT_PLACE[k].spot], weight: 1, face: ACT_PLACE[k].face, stand: ACT_PLACE[k].stand })),
+  // reading (#280, lounge-props.md 3): the book on the low table by the sofa (the model's only book prop) is taken from the stand north of sofa seat 0 (seat 1: the table's east
+  // end), read sitting on the sofa and put back; an errand like the watering (readRun.ts), started by the Director when the agent is free, so `stand` / `face` here are only
+  // the old standing pick (the grip tests and the debug close-up use them), not where the agent reads. One spot: one reader at a time (there is one book)
+  { kind: 'books', label: '책 읽기', spots: ['shelf'], weight: 1, face: { x: 2.85, z: 2.55 }, stand: { x: 2.81, z: 2.88 } },
 ]
+
+/** what the schedule hands out */
+const SCHEDULED = PLAYS
 
 /**
  * What each agent likes (#28 personalities): a multiplier on an activity's weight. The planner (메모) and the
@@ -93,7 +103,7 @@ export const blockOf = (minute: number) => Math.floor(minute / BLOCK_MINUTES)
  * @param agents  the roster (order does not matter)
  * @param busy    agents that are not free to play right now
  */
-export function playAt(minute: number, agents: string[], busy: ReadonlySet<string> = new Set(), depth = 1): Record<string, PlayAssignment> {
+export function playAt(minute: number, agents: string[], busy: ReadonlySet<string> = new Set()): Record<string, PlayAssignment> {
   const roster = [...agents].sort()
   const block = blockOf(minute)
   const rand = rng(hash(`${block}|${roster.join(',')}`))
@@ -105,23 +115,10 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
     ;[order[i], order[j]] = [order[j], order[i]]
   }
 
-  // the block before (the same draw, one level shallower): who stood where, so that two agents never have to change places along the aisle
-  const before = depth > 0 ? playAt(minute - BLOCK_MINUTES, agents, new Set(), depth - 1) : {}
-  const readerBefore = Object.values(before).some((o) => o.kind === 'books')
   const used = new Set<string>() // spots taken
   const taken = new Set<PlayKind>() // pair activities already running (one table each)
   const out: Record<string, PlayAssignment> = {}
   const freeSpot = (p: PlayDef) => p.spots.find((s) => !used.has(s))
-  /**
-   * Reading at the side table (the shelf stand, 0.07 m / 2.0 m) and a ping-pong game never share a block (#193, five agents): the reader closes the
-   * aisle south of the table and the east player the one round its end, so whoever naps on the sofa or comes back from the plants would be walled
-   * in for the whole block (the day simulation found waits of up to 3 minutes).
-   */
-  /**
-   * Nor does someone who napped on the sofa take up reading the block after somebody else read there: the reader would go to the sofa the way the
-   * sleeper comes, head on, in an aisle that is one body wide (the day simulation: 0.2 m apart).
-   */
-  const clashes = (p: PlayDef, agent?: string) => (p.kind === 'books' && agent !== undefined && readerBefore && before[agent]?.kind === 'sofa') || (p.kind === 'books' && [...taken].includes('pingpong')) || (p.kind === 'pingpong' && Object.values(out).some((o) => o.kind === 'books'))
 
   // a pair game is as likely as both players like it
   const weight = (p: PlayDef, agent: string, partner?: string) =>
@@ -147,13 +144,13 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
     out[agent] = { kind: p.kind, label: p.label, spot, ...(plantName ? { plant: plantName } : {}), ...(partner ? { partner } : {}), ...(p.face ? { face: p.face } : {}), ...(p.stand ? { stand: p.stand } : {}) }
   }
 
-  const solos = PLAYS.filter((p) => !p.pair)
+  const solos = SCHEDULED.filter((p) => !p.pair)
   for (let i = 0; i < order.length; i++) {
     const agent = order[i]
     if (out[agent]) continue
     const partner = order.slice(i + 1).find((a) => !out[a])
-    const open = PLAYS.filter((p) => !clashes(p, agent) && (p.pair ? partner && !taken.has(p.kind) : freeSpot(p)))
-    const p = pick(open.length ? open : solos.filter((q) => !clashes(q, agent)), agent, partner)
+    const open = SCHEDULED.filter((p) => (p.pair ? partner && !taken.has(p.kind) : freeSpot(p)))
+    const p = pick(open.length ? open : solos, agent, partner)
     if (p.pair && partner) {
       taken.add(p.kind)
       assign(agent, p, p.spots[0], partner)
@@ -174,19 +171,19 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
     if (!as.partner || out[as.partner]) continue
     used.delete(as.spot)
     delete out[a]
-    const solo = solos.slice(Math.floor(rand() * solos.length)).concat(solos).find((p) => freeSpot(p) && !clashes(p, a))
+    const solo = solos.slice(Math.floor(rand() * solos.length)).concat(solos).find((p) => freeSpot(p))
     if (solo) assign(a, solo, freeSpot(solo)!)
   }
   return out
 }
 
 /** what the night-duty agent may do: quiet and alone (no pair games, no sofa nap, no ping-pong) */
-export const NIGHT_PLAYS: PlayKind[] = ['coffee', 'books']
+export const NIGHT_PLAYS: PlayKind[] = ['coffee']
 
 /** the night-duty agent's solo activity at this minute: same block length as the day schedule, same for every visitor */
 export function soloAt(minute: number, agent: string): PlayAssignment {
   const rand = rng(hash(`${blockOf(minute)}|solo|${agent}`))
-  const choices = PLAYS.filter((p) => NIGHT_PLAYS.includes(p.kind))
+  const choices = SCHEDULED.filter((p) => NIGHT_PLAYS.includes(p.kind))
   const p = choices[Math.floor(rand() * choices.length)]
   return { kind: p.kind, label: p.label, spot: p.spots[0], ...(p.face ? { face: p.face } : {}), ...(p.stand ? { stand: p.stand } : {}) }
 }

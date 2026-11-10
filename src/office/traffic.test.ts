@@ -207,9 +207,9 @@ describe('traffic planner on the grid', () => {
     expect(p.sample('a', 6).moving).toBe(true)
   })
 
-  it('lists the designed neighbour spots, closer than the resting clearance 2R + planGap (sofa seats, coffee / shelf)', () => {
+  it('lists the designed neighbour spots, closer than the resting clearance 2R + planGap (the sofa seats; coffee and shelf are 3.3 m apart since #280)', () => {
     const pairs = office().exemptPairs
-    for (const p of [['sofa_0', 'sofa_1'], ['sofa_1', 'sofa_2'], ['coffee', 'shelf']]) expect(pairs).toContainEqual(p)
+    for (const p of [['sofa_0', 'sofa_1'], ['sofa_1', 'sofa_2']]) expect(pairs).toContainEqual(p)
     for (const [a, b] of pairs) expect(Math.hypot(GRAPH.spots[a].x - GRAPH.spots[b].x, GRAPH.spots[a].z - GRAPH.spots[b].z)).toBeLessThan(2 * TRAFFIC.bodyR + TRAFFIC.planGap)
   })
 
@@ -271,20 +271,21 @@ describe('a newcomer beside a resting agent (#193)', () => {
     const p = new TrafficPlanner(grid, GRAPH)
     p.place('sleeper', req('sofa_0'), 0, 1)
     p.place('walker', req('work_2'), 0, 2)
-    p.place('reader', { ...req('shelf'), slot: { x: 0.07, z: 2.0, ry: 3.14 } }, 0, 3)
+    p.place('reader', { ...req('shelf'), slot: { x: -0.23, z: 1.8, ry: 3.14 } }, 0, 3)
     p.update(0)
     p.request('walker', req('sofa_1'), 1, 2)
-    p.request('reader', { ...req('water_can'), slot: { x: 3.82, z: 2.64, ry: 0 } }, 1, 3)
+    p.request('reader', { ...req('water_can'), slot: { x: 3.52, z: 2.44, ry: 0 } }, 1, 3)
     let minPair = Infinity
     let sleeperMoved = 0
     for (let t = 1; t < 80; t += 0.1) {
       p.update(t)
       const s = ['sleeper', 'walker', 'reader'].map((i) => p.sample(i, t))
       for (const [a, b] of [[0, 1], [0, 2], [1, 2]]) minPair = Math.min(minPair, Math.hypot(s[a].x - s[b].x, s[a].z - s[b].z))
-      if (Math.hypot(s[0].x - 1.67, s[0].z - 2.73) > 0.05) sleeperMoved++
+      if (Math.hypot(s[0].x - GRAPH.spots.sofa_0.x, s[0].z - GRAPH.spots.sofa_0.z) > 0.05) sleeperMoved++
     }
     expect(p.sample('walker', 80).arrived).toBe('sofa_1')
     expect(sleeperMoved).toBe(0)
-    expect(minPair).toBeGreaterThanOrEqual(0.47) // the designed sofa pair is 0.53 m
+    // the designed sofa pair (the seat pitch of the #280 re-bake, 0.665 m, with a 0.06 m margin below it)
+    expect(minPair).toBeGreaterThanOrEqual(Math.hypot(GRAPH.spots.sofa_0.x - GRAPH.spots.sofa_1.x, GRAPH.spots.sofa_0.z - GRAPH.spots.sofa_1.z) - 0.06)
   })
 })

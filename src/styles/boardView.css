@@ -1,0 +1,81 @@
+/* The whiteboard close view (#234, docs/design/docs-ui.md 3.5). Values from tokens.css. */
+
+/* hover: 1 px cyan outline on the board's face + the tag every 3D object hover has */
+.board-hover { position: fixed; z-index: 24; pointer-events: none; box-sizing: border-box; border: 1px solid var(--color-cyan); }
+.board-hover-tag { position: absolute; left: 0; bottom: calc(100% + var(--space-1)); padding: var(--space-1) var(--space-2); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-line); font: 13px var(--font-pixel); white-space: nowrap; }
+
+/* the keyboard way in: seen only while it has focus */
+.board-opener { position: fixed; left: 50%; bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px) + 52px); translate: -50% 0; z-index: 22; opacity: 0; pointer-events: none; padding: var(--space-2) var(--space-3); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-line); font: 13px var(--font-pixel); }
+.board-opener:focus-visible { opacity: 1; outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+:root[data-room] .board-opener { display: none; }
+
+/* the page's own chrome steps aside while the board is up (it would sit on the board) */
+html[data-board-view='stage'] .hud, html[data-board-view='stage'] .agent-list, html[data-board-view='stage'] .corner-dock, html[data-board-view='stage'] .tour-bar,
+html[data-board-view='stage'] .cam-hint, html[data-board-view='stage'] .edge-hint, html[data-board-view='stage'] .owner-tag { visibility: hidden; }
+
+.board-view { position: fixed; inset: 0; z-index: 36; animation: bv-in var(--bv-fade, 200ms) ease-out both; }
+.board-view[data-leaving] { animation: bv-out var(--bv-fade, 200ms) ease-in both; pointer-events: none; }
+@keyframes bv-in { from { opacity: 0; } }
+@keyframes bv-out { to { opacity: 0; } }
+.bv-backdrop { position: absolute; inset: 0; cursor: zoom-out; }
+
+/* the board stays bright, the rest of the scene goes to 40% (the stage's shadow is the dim) */
+.bv-stage { position: absolute; overflow: hidden; touch-action: none; cursor: grab; box-shadow: 0 0 0 200vmax rgb(0 0 0 / 0.4); user-select: none; }
+.bv-stage:active { cursor: grabbing; }
+.bv-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.bv-grid, .bv-row { display: contents; }
+.bv-cell { position: absolute; box-sizing: border-box; pointer-events: none; }
+.bv-cell > button { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; pointer-events: auto; }
+.bv-cell > button:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 3px; }
+.bv-cell[data-picked] > button { outline: 2px solid var(--color-cyan); outline-offset: 3px; }
+.bv-cell > button:hover { background: rgb(77 243 255 / 0.1); }
+
+.bv-back { position: absolute; left: var(--space-4); top: var(--space-4); z-index: 2; min-height: 44px; padding: 0 var(--space-4); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-line); font: 14px var(--font-pixel); cursor: pointer; }
+.bv-back:focus-visible, .bs-close:focus-visible, .bs-tabs button:focus-visible, .bs-card:focus-visible, .bs-summary-close:focus-visible, .bv-pop-links a:focus-visible, .bv-pop-links button:focus-visible, .bv-pop:focus-visible, .bs-summary:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+.bv-back:hover { border-color: var(--color-cyan); }
+
+/* the card summary: a popover by the card (not the side panel: that would shrink the 3D and break the framing) */
+.bv-pop { position: absolute; z-index: 3; width: 300px; box-sizing: border-box; padding: var(--space-3) var(--space-4); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-line); box-shadow: 0 0 0 1px var(--color-halo); font-family: var(--font-text); }
+.bv-pop::before { content: ''; position: absolute; top: 50%; width: 10px; height: 10px; margin-top: -5px; background: var(--color-surface); border: 1px solid var(--color-line); transform: rotate(45deg); }
+.bv-pop[data-side='right']::before { left: -6px; border-right: 0; border-top: 0; }
+.bv-pop[data-side='left']::before { right: -6px; border-left: 0; border-bottom: 0; }
+.bv-pop-head { display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-2); font: 13px var(--font-pixel); color: var(--color-text-muted); }
+.bv-dot { flex: none; width: 10px; height: 10px; }
+.bv-pop-title { margin: 0 0 var(--space-2); font-size: 15px; line-height: 1.45; font-weight: 600; overflow-wrap: anywhere; }
+.bv-pop-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin: var(--space-2) 0; font-size: 12px; color: var(--color-text-muted); }
+.bv-chip { padding: 1px var(--space-2); background: var(--agent, var(--color-text-muted)); color: var(--color-ink); font: 12px var(--font-pixel); }
+.bv-chip[data-private] { background: transparent; color: var(--color-lock); border: 1px solid var(--color-lock); }
+.bv-pop-links { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: var(--space-3) 0 0; font-size: 13px; }
+.bv-pop-links a, .bv-pop-links button { color: var(--color-cyan); background: none; border: 0; padding: var(--space-1) 0; font: inherit; text-decoration: underline; cursor: pointer; min-height: 24px; }
+
+/* phone: the full-screen 2D board */
+.board-sheet { position: fixed; inset: 0; z-index: 36; display: flex; flex-direction: column; background: var(--color-surface); color: var(--color-text); animation: bs-in 240ms var(--ease-out, ease-out) both; padding-top: env(safe-area-inset-top, 0px); }
+@keyframes bs-in { from { transform: translateY(100%); } }
+.bs-head { display: flex; align-items: center; justify-content: space-between; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); border-bottom: 1px solid var(--color-line); touch-action: none; }
+.bs-head h2 { margin: 0; font: 16px var(--font-pixel); }
+.bs-close { width: 44px; height: 44px; background: none; border: 0; color: var(--color-text); font-size: 18px; cursor: pointer; }
+.bs-tabs { display: flex; border-bottom: 1px solid var(--color-line); }
+.bs-tabs button { flex: 1; min-height: 44px; background: none; border: 0; border-bottom: 3px solid transparent; color: var(--color-text-muted); font: 14px var(--font-pixel); cursor: pointer; }
+.bs-tabs button[aria-selected='true'] { color: var(--color-text); border-bottom-color: var(--color-cyan); }
+.bs-tabs b { font-weight: 400; color: var(--color-text); }
+.bs-list { flex: 1; overflow-y: auto; padding: var(--space-3) var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom, 0px)); touch-action: pan-y; }
+.bs-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.bs-card { position: relative; display: block; width: 100%; box-sizing: border-box; padding: var(--space-4) var(--space-4) var(--space-3); text-align: left; background: var(--board-card, #fbf8f1); color: var(--board-card-ink, #1f1b14); border: 0; border-top: 6px solid var(--agent, #a39d90); box-shadow: 2px 3px 0 rgb(0 0 0 / 0.35); cursor: pointer; min-height: 44px; }
+.bs-card-top { display: flex; align-items: center; gap: var(--space-2); font: 12px var(--font-pixel); }
+.bs-topic { margin-left: auto; width: 16px; height: 16px; color: #3a3f48; }
+.bs-topic svg { width: 16px; height: 16px; display: block; }
+.bs-card-title { display: block; margin-top: var(--space-2); font: 700 16px/1.45 var(--font-pixel); overflow-wrap: anywhere; }
+.bs-empty { margin: var(--space-6) 0; color: var(--color-text-muted); text-align: center; }
+.bs-notes { margin-top: var(--space-6); }
+.bs-notes h3 { margin: 0 0 var(--space-2); font: 14px var(--font-pixel); color: var(--color-text-muted); }
+.bs-note { margin: 0 0 var(--space-3); padding: var(--space-3) var(--space-4); background: var(--board-note, #ffe27a); color: var(--board-card-ink, #1f1b14); box-shadow: 2px 3px 0 rgb(0 0 0 / 0.35); display: grid; gap: var(--space-1); }
+.bs-note b { font: 700 15px/1.4 var(--font-pixel); }
+.bs-note span { font-size: 13px; }
+.bs-note i { font: normal 12px var(--font-pixel); }
+.bs-scrim { position: absolute; inset: 0; background: rgb(0 0 0 / 0.4); }
+.bs-summary { position: absolute; left: 0; right: 0; bottom: 0; max-height: 55%; overflow-y: auto; box-sizing: border-box; padding: var(--space-4) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom, 0px)); background: var(--color-surface); border-top: 1px solid var(--color-line); animation: bs-in 240ms var(--ease-out, ease-out) both; font-family: var(--font-text); }
+.bs-summary-close { margin-top: var(--space-3); min-height: 44px; width: 100%; background: none; border: 1px solid var(--color-line); color: var(--color-text); font: 14px var(--font-pixel); cursor: pointer; }
+.bs-summary .bv-pop-title { font-size: 16px; }
+
+@media (prefers-reduced-motion: reduce) { .board-view, .board-view[data-leaving], .board-sheet, .bs-summary { animation: none; } }
+html[data-motion='reduce'] .board-view, html[data-motion='reduce'] .board-view[data-leaving], html[data-motion='reduce'] .board-sheet, html[data-motion='reduce'] .bs-summary { animation: none; }

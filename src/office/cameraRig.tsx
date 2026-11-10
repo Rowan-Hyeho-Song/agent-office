@@ -1,9 +1,10 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Vector3 } from 'three'
-import { HOME_POS, HOME_TARGET, useCameraBusy } from '../room/Door'
+import { HOME_POS, HOME_TARGET, setHomeAspect, useCameraBusy } from '../room/Door'
 import { clearCamera, clearFurnitureForDev } from './clearance'
 import type { OfficeWorld } from './world'
+import { isBoardActive } from './boardView/store'
 import { isTouring } from './tourStore'
 import { KEY_DIR, NO_KEYS, VIEW, clampTarget, easeVelocity, focusAllowsCameraKeys, keySpeed, wantDir, type Keys } from './view'
 
@@ -28,7 +29,9 @@ const easeInOut = (k: number) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 
 export function CameraRig({ limits, world }: { limits: boolean; world: OfficeWorld }) {
   const camera = useThree((s) => s.camera)
   const gl = useThree((s) => s.gl)
+  const scene = useThree((s) => s.scene)
   const controls = useThree((s) => s.controls) as unknown as Orbit | null
+  const size = useThree((s) => s.size)
   const busy = useCameraBusy()
   const reduced = useMemo(reducedMotion, [])
   const keys = useRef<Keys>({ ...NO_KEYS })
@@ -66,13 +69,16 @@ export function CameraRig({ limits, world }: { limits: boolean; world: OfficeWor
           controls?.update()
         },
         __clearBoxes: clearFurnitureForDev,
+        __scene: scene,
+        __camera: camera,
       })
-  }, [camera, controls])
+  }, [camera, controls, scene])
 
   useEffect(() => {
     if (!controls || !limits) return
     const fix = () => {
       if (isTouring()) return // the tour owns the camera (#207)
+      if (isBoardActive()) return // so does the whiteboard close view (#234)
       clampNow(controls)
       clearNow(controls)
     }
@@ -81,18 +87,35 @@ export function CameraRig({ limits, world }: { limits: boolean; world: OfficeWor
     return () => controls.removeEventListener('change', fix)
   }, [controls, limits, clampNow, clearNow])
 
+  // the default view follows the viewport (portrait phone, portraitCamera.ts): when the aspect crosses the threshold the home
+  // pose changes; the camera follows only if it still sits on the old one (a visitor who has orbited is left alone)
+  useEffect(() => {
+    if (!size.width || !size.height) return
+    const oldPos = HOME_POS.clone()
+    const oldTarget = HOME_TARGET.clone()
+    if (!setHomeAspect(size.width / size.height)) return
+    const c = live.current.controls
+    if (!limits || !c || live.current.busy || isTouring() || anim.current) return
+    if (camera.position.distanceTo(oldPos) > 0.05 || c.target.distanceTo(oldTarget) > 0.05) return
+    if (reduced) {
+      camera.position.copy(HOME_POS)
+      c.target.copy(HOME_TARGET)
+      c.update()
+    } else anim.current = { fromP: camera.position.clone(), fromT: c.target.clone(), t0: performance.now() }
+  }, [size.width, size.height, limits, camera, reduced])
+
   useEffect(() => {
     if (!limits) return
     const reset = () => {
       const c = live.current.controls
-      if (!c || live.current.busy) return
+      if (!c || live.current.busy || isBoardActive()) return
       if (reduced) {
         camera.position.copy(HOME_POS)
         c.target.copy(HOME_TARGET)
         c.update()
       } else anim.current = { fromP: camera.position.clone(), fromT: c.target.clone(), t0: performance.now() }
     }
-    const usable = (e: KeyboardEvent) => !e.ctrlKey && !e.metaKey && !e.altKey && focusAllowsCameraKeys(document.activeElement, document.body, document.documentElement)
+    const usable = (e: KeyboardEvent) => !isBoardActive() && !e.ctrlKey && !e.metaKey && !e.altKey && focusAllowsCameraKeys(document.activeElement, document.body, document.documentElement)
     const down = (e: KeyboardEvent) => {
       keys.current.shift = e.shiftKey
       if (!usable(e) || e.isComposing) return
@@ -125,7 +148,7 @@ export function CameraRig({ limits, world }: { limits: boolean; world: OfficeWor
 
   useFrame((_, dt) => {
     const c = live.current.controls
-    if (!c || !limits || isTouring()) return // the tour owns the camera (#207)
+    if (!c || !limits || isTouring() || isBoardActive()) return // the tour (#207) and the whiteboard close view (#234) own the camera
     const a = anim.current
     if (a) {
       const k = Math.min(1, (performance.now() - a.t0) / VIEW.resetMs)

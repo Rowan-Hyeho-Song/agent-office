@@ -1,9 +1,10 @@
 // Check office.glb the way the app reads it (three's GLTFLoader + MeshoptDecoder), in plain Node — no browser.
 //
-//   node .claude/skills/office-bake/check-glb.mjs [file.glb] [--want a,b,c] [--show <regex>] [--overlap]
+//   node .claude/skills/office-bake/check-glb.mjs [file.glb] [--want a,b,c] [--show <regex>] [--overlap [--coplanar <regex>]]
 //
 // --overlap (#109): reads the slot_<name> empties (each object's footprint, extras slot = kind, size, wall) and checks
 // the layout rules in SKILL.md 10: the gap between every pair against its minimum, walls, the room's inside.
+// It also finds coplanar same-facing faces that overlap (z-fighting, #263); --coplanar <regex> lists where.
 //
 // Prints: file size, top-level nodes by kind (atlas / live / nav / hit / surface / screen / prop), triangles,
 // names that look like Blender duplicates ("x.001" → "x001"), live parts with neither pivot_at nor a reason to
@@ -20,7 +21,7 @@ const opt = (k) => {
   const i = args.indexOf(k)
   return i >= 0 ? args[i + 1] : undefined
 }
-const file = resolve(args.find((a, i) => !a.startsWith('--') && !['--want', '--show'].includes(args[i - 1])) ?? 'public/models/office.glb')
+const file = resolve(args.find((a, i) => !a.startsWith('--') && !['--want', '--show', '--coplanar'].includes(args[i - 1])) ?? 'public/models/office.glb')
 const want = (opt('--want') ?? '').split(',').filter(Boolean)
 const show = opt('--show') ? new RegExp(opt('--show')) : null
 const overlap = args.includes('--overlap')
@@ -116,8 +117,13 @@ if (overlap) {
   }
   const along = { n: 0, s: 0, e: 2, w: 2 } // the axis that runs along each wall
   // #195 (desks.md 2.1.4 / 2.1.6): named pairs with their own minimum (the main aisle: the pod with its chair room
-  // to the omok table)
-  const PAIR_NEED = { 'game|pod': 1.12 }
+  // to the omok table). #185: the can stand stands under the fig's canopy (that box is the canopy) and beside the lamp
+  // (that box is its shade, 1.6 m up); the designer's real-outline gaps (path 0.45, lamp pole 0.15) are measured apart
+  // #280: the L sofa is two boxes (sofa · sofa_chaise) of one thing; the low table stands 0.42 / 0.45 off it (room-280.md 2:
+  // 0.35-0.45); the fridge and the water dispenser stand against the counter and each other (one coffee bar)
+  const PAIR_NEED = { 'game|pod': 1.12, 'shelf|shelf_2': 0.03, 'floor_lamp|sofa': 0.02, 'can_stand|plant_corner': 0, 'can_stand|floor_lamp': 0.05, 'sofa|sofa_chaise': 0,
+    'sofa|table_low': 0.35, 'sofa_chaise|table_low': 0.35, 'counter|fridge': 0, 'fridge|water_dispenser': 0,
+    'counter|water_dispenser': 0, 'side_table|sofa': 0.1, 'side_table|table_low': 0.4 }
   const rows = []
   for (let i = 0; i < items.length; i++)
     for (let j = i + 1; j < items.length; j++) {
@@ -220,6 +226,107 @@ if (overlap) {
   for (const s of outside) console.log(`outside the room: ${s.name}`)
   console.log(`overlap: ${items.length} slots, ${bad.length} pairs under their minimum, ${outside.length} outside the room`)
   if (bad.length || outside.length) fail('--overlap: layout rules broken (table above)')
+}
+
+// 5a) #263 coplanar faces (with --overlap): two triangles facing the same way on the same plane (within TOL) whose
+// areas overlap z-fight in the app, flickering with the camera angle (#260 the screen on its bed, #263 the sofa's
+// arm on its base). Counted per node pair (a pair of one node = inside one joined mesh). Faces back to back (opposite
+// normals) are a contact, not a fight, and are not counted. --coplanar <regex> lists where each matching pair fights.
+// A pair under SMALL in all is 'small' and does not fail: slivers where touching parts meet after meshopt (a few
+// mm², under a pixel at the default camera). COPLANAR_KNOWN: faces never seen from outside, each with its issue and
+// why it is hidden; any other pair of SMALL or more fails the check
+const COPLANAR_KNOWN = [
+  [/^prop_(shelf)?book(_\d+)?_(l · prop_(shelf)?book(_\d+)?_(r|page)|page · prop_(shelf)?book(_\d+)?_r)$/, '#281', 'a closed book: its halves\' inner pages and the turning page (paper, ink lines) meet inside the book and part when it opens'],
+]
+if (overlap) {
+  const TOL = 0.00015 // 0.15 mm: meshopt moves a vertex by up to ~0.04 mm; deliberate decal offsets are >= 0.3 mm
+  const MIN_AREA = 1e-6 // 1 mm^2
+  const SMALL = 0.5e-4 // 0.5 cm²
+  const detail = opt('--coplanar') ? new RegExp(opt('--coplanar')) : null
+  const T = []
+  const a = new Vector3(), b = new Vector3(), c = new Vector3(), n = new Vector3(), e1 = new Vector3(), e2 = new Vector3()
+  scene.traverse((m) => {
+    if (!m.isMesh) return
+    let top = m
+    while (top.parent && top.parent !== scene) top = top.parent
+    const pos = m.geometry.getAttribute('position')
+    const idx = m.geometry.index
+    const cnt = idx ? idx.count : pos.count
+    for (let k = 0; k < cnt; k += 3) {
+      a.fromBufferAttribute(pos, idx ? idx.getX(k) : k).applyMatrix4(m.matrixWorld)
+      b.fromBufferAttribute(pos, idx ? idx.getX(k + 1) : k + 1).applyMatrix4(m.matrixWorld)
+      c.fromBufferAttribute(pos, idx ? idx.getX(k + 2) : k + 2).applyMatrix4(m.matrixWorld)
+      n.crossVectors(e1.subVectors(b, a), e2.subVectors(c, a))
+      if (n.length() / 2 < MIN_AREA) continue
+      n.normalize()
+      T.push({ node: top.name, mat: m.material?.name ?? '?', n: n.clone(), d: n.dot(a), p: [a.clone(), b.clone(), c.clone()] })
+    }
+  })
+  const groups = new Map() // by normal (2 mrad bins), then a sweep along the plane offset
+  for (const t of T) {
+    const key = `${Math.round(t.n.x * 500)},${Math.round(t.n.y * 500)},${Math.round(t.n.z * 500)}`
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(t)
+  }
+  const area2 = (P) => P.reduce((s, A, i) => s + A[0] * P[(i + 1) % P.length][1] - P[(i + 1) % P.length][0] * A[1], 0) / 2
+  const clip = (poly, A, B) => { // Sutherland–Hodgman: keep the left of A→B (the clip triangle is counter-clockwise)
+    const out = []
+    const side = (P) => (B[0] - A[0]) * (P[1] - A[1]) - (B[1] - A[1]) * (P[0] - A[0])
+    poly.forEach((P, i) => {
+      const Q = poly[(i + 1) % poly.length], sp = side(P), sq = side(Q)
+      if (sp >= 0) out.push(P)
+      if (sp >= 0 !== sq >= 0) out.push([P[0] + (sp / (sp - sq)) * (Q[0] - P[0]), P[1] + (sp / (sp - sq)) * (Q[1] - P[1])])
+    })
+    return out
+  }
+  const hits = new Map()
+  for (const g of groups.values()) {
+    if (g.length < 2) continue
+    g.sort((x, y) => x.d - y.d)
+    const n0 = g[0].n
+    const u = new Vector3(...(Math.abs(n0.y) < 0.9 ? [0, 1, 0] : [1, 0, 0])).cross(n0).normalize()
+    const v = new Vector3().crossVectors(n0, u)
+    for (const t of g) {
+      t.q = t.p.map((q) => [q.dot(u), q.dot(v)])
+      if (area2(t.q) < 0) t.q = [t.q[0], t.q[2], t.q[1]]
+      t.lo = [Math.min(...t.q.map((q) => q[0])), Math.min(...t.q.map((q) => q[1]))]
+      t.hi = [Math.max(...t.q.map((q) => q[0])), Math.max(...t.q.map((q) => q[1]))]
+    }
+    for (let i = 0; i < g.length; i++) {
+      // d = n·p is measured from the world origin, where a normal 1 mrad off moves it by mm: sweep wide on d, then
+      // test the real thing (normals within 2 mrad, t's corners on s's plane within TOL)
+      for (let j = i + 1; j < g.length && g[j].d - g[i].d <= 0.02; j++) {
+        const s = g[i], t = g[j]
+        if (s.lo[0] >= t.hi[0] || t.lo[0] >= s.hi[0] || s.lo[1] >= t.hi[1] || t.lo[1] >= s.hi[1]) continue
+        if (s.n.dot(t.n) < 1 - 2e-6 || t.p.some((q) => Math.abs(s.n.dot(e1.subVectors(q, s.p[0]))) > TOL)) continue
+        let P = s.q
+        for (let k = 0; k < 3 && P.length; k++) P = clip(P, t.q[k], t.q[(k + 1) % 3])
+        const ar = P.length > 2 ? Math.abs(area2(P)) : 0
+        if (ar < MIN_AREA) continue
+        const key = [s.node, t.node].sort().join(' · ')
+        const h = hits.get(key) ?? { area: 0, n: 0, at: [] }
+        h.area += ar
+        h.n++
+        h.at.push([ar, s.p.reduce((acc, q) => acc.add(q), new Vector3()).divideScalar(3), s.n, `${s.mat} / ${t.mat}, ${(Math.max(...t.p.map((q) => Math.abs(s.n.dot(e1.subVectors(q, s.p[0]))))) * 1000).toFixed(3)} mm apart`])
+        hits.set(key, h)
+      }
+    }
+  }
+  const rows = [...hits.entries()].sort((x, y) => y[1].area - x[1].area)
+  const known = (k) => COPLANAR_KNOWN.find(([re]) => re.test(k))
+  console.log(`\ncoplanar (#263): same-facing faces on one plane (±${TOL * 1000} mm) whose areas overlap, by node pair`)
+  console.log('| pair | area (cm²) | triangle pairs | e.g. at (web) | |')
+  console.log('|---|---|---|---|---|')
+  for (const [k, h] of rows) {
+    const [, e, nn] = h.at.reduce((x, y) => (y[0] > x[0] ? y : x))
+    const kn = known(k)
+    const verdict = kn ? `known ${kn[1]}: ${kn[2]}` : h.area < SMALL ? 'small' : 'FAIL'
+    console.log(`| ${k} | ${(h.area * 1e4).toFixed(2)} | ${h.n} | ${f3(e)} n ${f3(nn).map((x) => +x.toFixed(2))} | ${verdict} |`)
+    if (detail?.test(k)) for (const [ar, at, nn, mats] of h.at.sort((x, y) => y[0] - x[0])) console.log(`    ${(ar * 1e4).toFixed(2)} cm² at ${f3(at)} n ${f3(nn).map((x) => +x.toFixed(2))}  ${mats}`)
+  }
+  const newBad = rows.filter(([k, h]) => !known(k) && h.area >= SMALL)
+  console.log(`coplanar: ${rows.length} pairs, ${newBad.length} failing (not known, >= ${SMALL * 1e4} cm²)`)
+  if (newBad.length) fail('--overlap: coplanar faces (table above)')
 }
 
 // 5b) #164 hand fits: every prop with a <prop>_grip_r|l child has a contact point or more, and each

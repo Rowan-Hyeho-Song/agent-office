@@ -3,6 +3,7 @@
 // Ported from the design mock's Timeline(): same shapes, sizes and token names.
 
 import type { Point } from '../timeline/types'
+import { hourTicks } from './days'
 import { LANES, atMs, dayKey, dayLabel, laneOf, layoutX, sizeClass, type Lane } from './engine'
 
 export interface Tokens {
@@ -124,24 +125,10 @@ export function drawBar(ctx: CanvasRenderingContext2D, v: BarView): BarLayout {
   const scrolls = L.total > w
   const cur = v.i >= 0 && v.i < points.length ? L.xs[v.i] + (v.playing ? v.prog * L.step : 0) : 0
   const scroll = scrolls ? Math.max(0, Math.min(L.total - w, cur - w * 0.5)) : 0
-  const mmH = compact ? 6 : 8
   const lanesY = compact ? 11 : 12
   const lanesH = LANES.length * LH
   const bandY = lanesY + lanesH + 3
   const axisY = bandY + 8
-
-  // minimap: the whole history, a point = a bar, the visible stretch framed
-  points.forEach((p, k) => {
-    ctx.fillStyle = t.color[laneOf(p)]
-    ctx.globalAlpha = k <= v.i ? 0.9 : 0.3
-    ctx.fillRect(Math.round((k / points.length) * w), 1, Math.max(1, w / points.length - 0.5), mmH - 2)
-  })
-  ctx.globalAlpha = 1
-  if (scrolls) {
-    ctx.strokeStyle = t.text
-    ctx.lineWidth = 1
-    ctx.strokeRect((scroll / L.total) * w + 0.5, 0.5, (w / L.total) * w - 1, mmH - 1)
-  }
 
   ctx.save()
   ctx.translate(-scroll, 0)
@@ -153,13 +140,34 @@ export function drawBar(ctx: CanvasRenderingContext2D, v: BarView): BarLayout {
     ctx.lineTo(scroll + w, lanesY + l * LH + 0.5)
     ctx.stroke()
   }
-  // day ticks (dotted); the label is left out when ticks are closer than 60 px
+  // a day's bar has hour ticks (a short dotted line before the first point of an hour, `14시`); a span of several days
+  // (an issue's) has day ticks. Labels are left out when the ticks are closer than 48 / 60 px
   ctx.font = '11px Galmuri11, monospace'
   ctx.textBaseline = 'top'
+  const oneDay = new Set(points.map(dayKey)).size <= 1
+  if (oneDay) {
+    for (const tick of hourTicks(points, L.xs)) {
+      const x = L.xs[tick.k] - 5
+      if (tick.k > 0) {
+        ctx.strokeStyle = t.faint
+        ctx.setLineDash([2, 2])
+        ctx.beginPath()
+        ctx.moveTo(x + 0.5, bandY)
+        ctx.lineTo(x + 0.5, axisY + 2)
+        ctx.stroke()
+        ctx.setLineDash([])
+      }
+      if (tick.label) {
+        ctx.fillStyle = t.muted
+        ctx.fillText(tick.label, Math.max(scroll + 4, x + 3), axisY)
+      }
+    }
+  }
   let prev: string | null = null
   // the first day's label is drawn at the left edge below, so the next one needs room after it
   let lastLabel = 8
   points.forEach((p, k) => {
+    if (oneDay) return
     const key = dayKey(p)
     if (key === prev) return
     prev = key
@@ -179,7 +187,7 @@ export function drawBar(ctx: CanvasRenderingContext2D, v: BarView): BarLayout {
     }
   })
   // the first day's label at the left, and the visible day pinned at the left edge when scrolled
-  if (points.length) {
+  if (points.length && !oneDay) {
     const lbl = dayLabel(atMs(points[scroll > 0 ? Math.max(0, L.xs.findIndex((x) => x >= scroll + 4)) : 0]))
     ctx.fillStyle = t.void
     ctx.fillRect(scroll, axisY - 1, ctx.measureText(lbl).width + 8, 14)

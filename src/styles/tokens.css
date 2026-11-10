@@ -113,6 +113,23 @@
   --approval-accent: #ffb347; /* 탭·주 버튼·선택 표시. 판 위 10.9:1, 버튼 위 검정 글자 10.9:1 */
   --approval-panel-w: 440px;
   --surface-raised: #161a21; /* 판 안의 카드 */
+  /* 서재 주제 뱃지(#236, docs/design/docs-ui.md 3.6): 에이전트 다섯 색과 겹치지 않게 채도를 낮춤. 글자 대비는 판 #0b0e13 위 */
+  --topic-feature: #8fd19e; /* 10.8:1 */
+  --topic-bug: #ff9a8a; /* 9.4:1 */
+  --topic-design: #e9b8d8; /* 11.3:1 */
+  --topic-asset: #b9c0e8; /* 10.8:1 */
+  --topic-plan: #e8cf8f; /* 12.7:1 */
+  --topic-docs: #c9c2b2; /* 10.9:1 */
+  --topic-perf: #9fd8d0; /* 12.2:1 */
+  --topic-ui: #c8b6f0; /* 10.5:1 */
+  --topic-a11y: #f0c49a; /* 12.0:1 */
+  --topic-sound: #dfe8b0; /* 15.0:1 */
+  /* 서재 진행 상황(#241, docs/design/docs-ui.md 2.5): 상태는 색이 아니라 원의 채움 + 글자로 읽힌다. 완료만 옅은 초록 회색, 결재 대기는 결재의 호박 */
+  --stage-waiting: #a39d90; /* 7.2:1 */
+  --stage-doing: #f3ead8; /* 16.2:1 */
+  --stage-review: #f3ead8; /* 16.2:1 */
+  --stage-done: #c9d6c4; /* 12.8:1 */
+  --stage-pending: #ffb347; /* 10.9:1 */
   --stamp-red: #ff5a5f; /* 어두운 판 위 결재 도장 6.3:1 */
   --approval-stamp-ms: 400; /* 도장 쾅 */
   --approval-next-ms: 1200; /* 도장 뒤 다음 건으로 */
@@ -123,6 +140,7 @@
   --paper-muted: #6b6152; /* 4.9:1 */
   --paper-link: #2b5f9e; /* 5.2:1 */
   --paper-stamp: #b3261e; /* 종이 위 도장 5.3:1 */
+  --ivory-dot: #f3ead8; /* 서재의 새 문서 점(#240). */
   --manila: #d9b877; /* SECRET 표지(서류철) */
   --manila-ink: #1f1b14; /* 9.0:1 */
   --secret-ink: #1f1b14; /* 검게 지운 줄 */

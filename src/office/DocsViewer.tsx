@@ -1,6 +1,7 @@
 import { DockSlot } from './CornerDock'
 import { SideSlot, useSidePanelOpen } from './SidePanel'
-import { setSideBack, setSideRaise } from './sidePanel/store'
+import { setSideBack, setSideRaise, setSideUnseen } from './sidePanel/store'
+import { clearFile, loadDocsSeen, reconcileDocs, saveDocsSeen, unreadFile, unreadFolder, type DocsSeen } from '../docs/unread'
 import { IssueReplayButton } from '../replay/IssueReplayButton'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
 import { fmtDay as fmtShortDay } from '../approvals/view'
@@ -24,6 +25,11 @@ import { openApprovalBox } from './approval/panel'
 import { renderMarkdown } from './approval/markdown'
 import { useRole } from './ApprovalBox'
 import { Icon } from './ApprovalIcons'
+import { TopicBadges } from './TopicBadges'
+import { PendingChip, ProgressBar, StageChip } from './ProgressMarks'
+import { shownTitle } from '../docs/topics'
+import { SORTS, STAGE_FILTERS, loadView, saveView, stageCounts, viewFiles, type ListView, type SortKey, type StageFilter } from '../docs/progressList'
+import { STAGE_NAME } from '../docs/progress'
 import { closeDocs, openFromHash, toggleDocs, useDocsPanel } from './docs/panel'
 import { AGENT_INFO, type OfficeWorld } from './world'
 
@@ -38,6 +44,22 @@ import { AGENT_INFO, type OfficeWorld } from './world'
 export function DocsViewer({ world }: { world: OfficeWorld }) {
   return world.library && world.approvals ? <Viewer world={world} lib={world.library} /> : null
 }
+
+/** the 6 px ivory dot before a folder / file title that has new documents (read as words too) */
+/** the header above a scroll area gets a short shadow once the area is scrolled (designer, #321): on the scroll area itself (the list) or its column (the paper) */
+const markScrolled = (e: { currentTarget: HTMLElement }) => {
+  const el = e.currentTarget
+  const on = el.scrollTop > 0 ? 'true' : 'false'
+  const host = el.classList.contains('doc-stage') ? el.parentElement : el
+  if (host && host.dataset.scrolled !== on) host.dataset.scrolled = on
+}
+
+const NewMark = () => (
+  <>
+    <i className="doc-dot" aria-hidden="true" />
+    <span className="sr-only">새 문서, </span>
+  </>
+)
 
 /** a number from a design token (tokens.css, unitless ms) */
 const tokenMs = (name: string) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || 0
@@ -61,12 +83,33 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
   const [live, setLive] = useState('')
   const [peeling, setPeeling] = useState<ReadonlySet<number>>(new Set())
   const [stage, setStage] = useState<Stage>('files')
+  // the file list's filter and sort (#241), remembered in the browser
+  const [listView, setListView] = useState<ListView>(loadView)
+  const changeView = useCallback((patch: Partial<ListView>) => {
+    setListView((v) => {
+      const next = { ...v, ...patch }
+      saveView(next)
+      return next
+    })
+  }, [])
   const shown = useSidePanelOpen()
   const viewer = useRef<HTMLDivElement>(null)
   const selRef = useRef(sel)
   selRef.current = sel
   const landed = useRef(0)
   const open = panel.open
+
+  // #240 new documents since the library was last opened: the dock / tab dot, and the dots in the list
+  const [seen, setSeen] = useState<DocsSeen>(loadDocsSeen)
+  const folded = useMemo(() => (snap.metas ? reconcileDocs(seen, snap.metas, Date.now(), open) : null), [seen, snap.metas, open])
+  useEffect(() => {
+    if (!folded || folded.seen === seen) return
+    saveDocsSeen(folded.seen)
+    setSeen(folded.seen)
+  }, [folded, seen])
+  const dot = folded?.dot ?? false
+  const fresh = folded?.fresh ?? 0
+  useEffect(() => void setSideUnseen('docs', dot ? fresh : 0), [dot, fresh])
 
   // an address in the page opens the viewer there, on load and when it changes
   useEffect(() => {
@@ -115,6 +158,15 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
     setSideRaise('docs', open && view === 'paper')
     return () => void setSideRaise('docs', false)
   }, [open, view])
+
+  // opening a file clears its dot (and only its)
+  useEffect(() => {
+    if (!open || view !== 'paper' || !file) return
+    const next = clearFile(seen, file)
+    if (next === seen) return
+    saveDocsSeen(next)
+    setSeen(next)
+  }, [open, view, file, seen])
 
   // the bodies of the readable documents shown now
   useEffect(() => {
@@ -177,10 +229,11 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
       </div>
       {!shown && (
         <DockSlot slot="docs">
-          <button type="button" className="dock-btn docs-launcher" aria-label="서재" aria-expanded={false} aria-controls="docs-box" onClick={toggleDocs}>
+          <button type="button" className="dock-btn docs-launcher" aria-label={dot ? `서재, 새 문서 ${fresh}건` : '서재'} aria-expanded={false} aria-controls="docs-box" onClick={toggleDocs}>
             <Icon name="publish" />
             <span className="dock-label">서재</span>
           </button>
+          {dot && <i className="new-dot docs" aria-hidden="true" />}
         </DockSlot>
       )}
       <SideSlot tab="docs">
@@ -209,13 +262,20 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
                     ))}
                   </div>
                 )}
-                <div className="doc-stage" id="doc-stage" role="tabpanel" aria-labelledby={kind ? `doc-tab-${kind}` : undefined}>
+                <div className="doc-stage" id="doc-stage" onScroll={markScrolled} role="tabpanel" aria-labelledby={kind ? `doc-tab-${kind}` : undefined}>
                   <Stack file={file} folder={folder} docs={docs} bodies={snap.bodies} isOwner={isOwner} peeling={peeling} row={sel.row} nonce={panel.nonce} />
                 </div>
               </div>
             ) : (
-              <nav className="doc-nav" aria-label="서재 목록">
-                {view === 'files' && folder && <DocPath folder={folder} file={null} onRoot={() => setStage('folders')} onFolder={() => setStage('files')} />}
+              <nav className="doc-nav" aria-label="서재 목록" onScroll={markScrolled}>
+                {view === 'files' && folder && (
+                  // the path, the heading and the filter / sort rows stay on top as one block while the files scroll (#319)
+                  <div className="doc-head">
+                    <DocPath folder={folder} file={null} onRoot={() => setStage('folders')} onFolder={() => setStage('files')} />
+                    <h4>파일철</h4>
+                    <ListControls files={folder.files} value={listView} onChange={changeView} />
+                  </div>
+                )}
                 {snap.metas === null && !snap.error && <p className="doc-note">불러오는 중…</p>}
                 {snap.error && (
                   <p className="approval-error" role="alert">
@@ -230,25 +290,57 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
                   snap.folders.map((fo) => (
                     <button key={fo.key} type="button" className="doc-folder" aria-current={fo === folder} onClick={() => goFolder(fo)}>
                       <Icon name={fo.repo === null ? 'lock' : 'publish'} />
+                      {unreadFolder(fo, seen) && <NewMark />}
                       {fo.label}
                     </button>
                   ))}
-                {view === 'files' && <h4>파일철</h4>}
                 {view === 'files' &&
-                  folder?.files.map((f) => (
-                    <button key={f.key} type="button" className="doc-file" aria-current={f === file} onClick={() => goFile(f)}>
-                      <span className="n">{f.n ? `#${f.n}` : '—'}</span>
-                      <span>
-                        {f.title ?? (
-                          <>
-                            <span className="redact" style={{ width: 120 }} aria-hidden="true" />
-                            <span className="sr-only">가려진 제목</span>
-                          </>
-                        )}
+                  folder &&
+                  viewFiles(folder.files, listView).map((f) => (
+                    <button key={f.key} type="button" className="doc-file" data-stage={f.progress?.stage} aria-current={f === file} onClick={() => goFile(f)}>
+                      <span className="l1">
+                        <span className="n">{f.n ? `#${f.n}` : '—'}</span>
+                        {unreadFile(f, seen) && <NewMark />}
+                        <span className="ttl">
+                          {(f.title && shownTitle(f.title, f.topics)) ?? (
+                            <>
+                              <span className="redact" style={{ width: 120 }} aria-hidden="true" />
+                              <span className="sr-only">가려진 제목</span>
+                            </>
+                          )}
+                        </span>
+                        {f.secret && <span className="sec">{f.secret === 'review' ? `SECRET ${f.docs.filter((d) => !d.approved).length}` : 'SECRET'}</span>}
+                        {f.repo !== null && <span className="date">{fmtDocDay(f.date)}</span>}
                       </span>
-                      {f.secret && <span className="sec">{f.secret === 'review' ? `SECRET ${f.docs.filter((d) => !d.approved).length}` : 'SECRET'}</span>}
+                      {(f.progress || f.topics.length > 0 || f.seats.length > 0) && (
+                        <span className="l2">
+                          <span className="l2-main">
+                            {f.progress && <StageChip stage={f.progress.stage} />}
+                            <PendingChip progress={f.progress} />
+                            <TopicBadges topics={f.topics} fold />
+                            {f.seats.length > 0 && (
+                              <span className="who">
+                                {f.seats.map((s) => (
+                                  <i key={s} data-seat={s}>
+                                    {seatFirst(s)}
+                                  </i>
+                                ))}
+                              </span>
+                            )}
+                          </span>
+                          <ProgressBar progress={f.progress} />
+                        </span>
+                      )}
                     </button>
                   ))}
+                {view === 'files' && folder && folder.files.length > 0 && viewFiles(folder.files, listView).length === 0 && (
+                  <p className="doc-note">
+                    이 조건에 맞는 파일철이 없어요.{' '}
+                    <button type="button" className="btn-ghost" onClick={() => changeView({ stage: 'all', pendingOnly: false })}>
+                      모두 보기
+                    </button>
+                  </p>
+                )}
                 {snap.layout.note && <p className="doc-note">{snap.layout.note}</p>}
                 {snap.metas?.length === 0 && <p className="doc-note">아직 문서가 없어요.</p>}
               </nav>
@@ -289,13 +381,21 @@ function FileHead({ file }: { file: DocFile }) {
   return (
     <div className="doc-filehead">
       <h4>
-        {file.title ?? (
+        {(file.title && shownTitle(file.title, file.topics)) ?? (
           <>
             SECRET 문서
             <span className="sr-only">{priv ? ' (제목 지워짐)' : ' (결재 전이라 제목 가려짐)'}</span>
           </>
         )}
       </h4>
+      {(file.progress || file.topics.length > 0) && (
+        <div className="doc-status">
+          {file.progress && <StageChip stage={file.progress.stage} />}
+          <PendingChip progress={file.progress} />
+          <TopicBadges topics={file.topics} />
+        </div>
+      )}
+      <ProgressBar progress={file.progress} variant="wide" />
       {file.seats.length > 0 && (
         <div className="doc-who">
           참여{' '}
@@ -307,6 +407,46 @@ function FileHead({ file }: { file: DocFile }) {
         </div>
       )}
       {!priv && file.repo && file.n !== null && <IssueReplayButton repo={file.repo} n={file.n} />}
+    </div>
+  )
+}
+
+/** the filter chips, the 결재 대기만 toggle and the sort of the file list (#241): arrows move between the chips, Tab leaves the group */
+function ListControls({ files, value, onChange }: { files: readonly DocFile[]; value: ListView; onChange: (patch: Partial<ListView>) => void }) {
+  const counts = stageCounts(files, value)
+  const group = useRef<HTMLDivElement>(null)
+  const label = (f: StageFilter) => (f === 'all' ? '전체' : STAGE_NAME[f])
+  const onKey = (e: KeyboardEvent) => {
+    const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
+    if (!step) return
+    e.preventDefault()
+    const next = STAGE_FILTERS[(STAGE_FILTERS.indexOf(value.stage) + step + STAGE_FILTERS.length) % STAGE_FILTERS.length]
+    onChange({ stage: next })
+    requestAnimationFrame(() => group.current?.querySelector<HTMLElement>(`[data-filter="${next}"]`)?.focus())
+  }
+  return (
+    <div className="doc-filter">
+      <div className="doc-chips" role="radiogroup" aria-label="상태로 거르기" ref={group} onKeyDown={onKey}>
+        {STAGE_FILTERS.map((f) => (
+          <button key={f} type="button" role="radio" className="doc-chip" data-filter={f} aria-checked={value.stage === f} tabIndex={value.stage === f ? 0 : -1} onClick={() => onChange({ stage: f })}>
+            {label(f)}
+            <span className="cnt"> {counts[f]}</span>
+          </button>
+        ))}
+      </div>
+      <button type="button" className="doc-chip toggle" aria-pressed={value.pendingOnly} onClick={() => onChange({ pendingOnly: !value.pendingOnly })}>
+        결재 대기만
+      </button>
+      <label className="doc-sort">
+        <span>정렬</span>
+        <select value={value.sort} onChange={(e) => onChange({ sort: e.target.value as SortKey })}>
+          {SORTS.map((o) => (
+            <option key={o.key} value={o.key}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
     </div>
   )
 }
