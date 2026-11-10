@@ -494,3 +494,14 @@ describe('the re-baked lounge: passing a seated body keeps the seat pitch', () =
       })
   })
 })
+
+describe('the pass floor of the sofa row', () => {
+  const seats = (pitch: number) => [0, 1, 2].map((k) => ({ x: ZONE.cx - pitch + k * pitch, z: ZONE.cz + 0.545 }))
+  it('is the seat pitch, but never more than SOFA_ROW.passFloorM (a wide pitch would exceed the row centre line to a seat and jam the row)', () => {
+    expect(rowApproach(ZONE, [], seats(0.47)).passM).toBeCloseTo(0.47, 6)
+    expect(rowApproach(ZONE, [], seats(0.4)).passM).toBeCloseTo(0.4, 6)
+    expect(rowApproach(ZONE, [], seats(0.665)).passM).toBe(SOFA_ROW.passFloorM)
+    expect(rowApproach(ZONE, [], seats(1.2)).passM).toBe(SOFA_ROW.passFloorM)
+    expect(rowApproach(ZONE, [], []).passM).toBe(SOFA_ROW.passFloorM)
+  })
+})

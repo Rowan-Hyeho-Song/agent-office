@@ -41,8 +41,9 @@ export const SOFA_ROW = {
    * 0.545 m from the row's centre line and the east entrance 0.563 m from seat 2, so under the normal 2R + gap rule anyone seated shuts the row
    * and both entrances (#341: 178 s waiting for seat 1); the floor below that rule is the pitch, not less (#280: 0.438 m measured).
    * While searching the cell centres are kept passSearchM beyond it, the finished path is verified to passVerifyM short of it (float). */
-  /** the pitch when the row has fewer than two seats to measure one off (never in the baked room) */
-  pitchFallbackM: 0.47,
+  /** the most a floor may be: head width 0.42 + 0.05 (the designer's number). The floor is the seat pitch (so two seated bodies are never closer than a walker
+   * may come) but never more than this: a wider pitch (0.665) would exceed the row centre line's 0.545 to a seat and jam the row. Also the floor of a row with fewer than two seats */
+  passFloorM: 0.47,
   passSearchM: 0.03,
   passVerifyM: 0.004,
   /** a seat of the row is entered by a straight lane across the sofa's front, from the row (the seat's normal toward the row): the lane is this
@@ -102,7 +103,7 @@ export interface RowApproach {
   vMax: number
   /** the seats of the row that count as seated (not the chaise or a beanbag elsewhere) */
   seats: { x: number; z: number }[]
-  /** the seat pitch: the smallest distance between two seats of the row (read off the nav spots) */
+  /** the pass floor: the seat pitch (smallest distance between two seats of the row, read off the nav spots), at most SOFA_ROW.passFloorM */
   passM: number
 }
 
@@ -122,7 +123,7 @@ export function rowApproach<S extends { x: number; z: number }>(zone: SofaRow, e
   const pad = SOFA_ROW.approachPadM
   let passM = Infinity
   for (let i = 0; i < own.length; i++) for (let j = i + 1; j < own.length; j++) passM = Math.min(passM, Math.hypot(own[i].x - own[j].x, own[i].z - own[j].z))
-  return { zone, uMin: uMin - pad, uMax: uMax + pad, vMin: -zone.sizeZ / 2 - pad, vMax: vSeat + SOFA_ROW.seatEps, seats: own, passM: Number.isFinite(passM) ? passM : SOFA_ROW.pitchFallbackM }
+  return { zone, uMin: uMin - pad, uMax: uMax + pad, vMin: -zone.sizeZ / 2 - pad, vMax: vSeat + SOFA_ROW.seatEps, seats: own, passM: Math.min(Number.isFinite(passM) ? passM : Infinity, SOFA_ROW.passFloorM) }
 }
 
 const inApproach = (a: RowApproach, x: number, z: number) => {
