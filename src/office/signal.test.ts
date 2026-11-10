@@ -200,6 +200,23 @@ describe('the polling fallback', () => {
     vi.advanceTimersByTime(POLL_JOINED_MS)
     expect(a).toHaveBeenCalledTimes(1)
   })
+  it('skipFirstJoinCatchUp: the first join of that table does not re-read (#402), a rejoin after a drop does', () => {
+    stubDocument()
+    const wire = fakeWire()
+    const hub = createSignalHub(wire, { skipFirstJoinCatchUp: ['docs'] })
+    const docs = vi.fn()
+    const approvals = vi.fn()
+    hub.on('docs', docs)
+    hub.on('approvals', approvals)
+    wire.status(true)
+    vi.advanceTimersByTime(COALESCE_MS + 1)
+    expect(docs).not.toHaveBeenCalled()
+    expect(approvals).toHaveBeenCalledTimes(1) // other tables keep the catch-up
+    wire.status(false)
+    wire.status(true)
+    vi.advanceTimersByTime(MIN_GAP_MS + COALESCE_MS + 1)
+    expect(docs).toHaveBeenCalledTimes(1)
+  })
   it('the channel failing later puts the 15 s poll back', () => {
     stubDocument()
     const wire = fakeWire()

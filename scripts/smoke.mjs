@@ -105,10 +105,53 @@ async function check(label, origin) {
   }
 }
 
+/** the phone widths the dock must fit (#403: at 390 px the view button was at x −37, at 360 px the sound button was cut too) */
+const PHONES = [360, 390, 430]
+const DOCK_BUTTONS = 5
+
+async function dockFit(origin) {
+  for (const width of PHONES) {
+    const ctx = await browser.newContext({ viewport: { width, height: 844 }, hasTouch: true, isMobile: true })
+    const page = await ctx.newPage()
+    const problems = []
+    try {
+      await page.goto(origin + '/?debug=1')
+      await page.waitForFunction((n) => document.querySelectorAll('.corner-dock .dock-btn').length >= n, DOCK_BUTTONS, { timeout: WAIT_MS * 2 })
+      const r = await page.evaluate(() => {
+        const box = (el) => {
+          const b = el.getBoundingClientRect()
+          return { l: b.left, r: b.right, t: b.top, b: b.bottom, w: b.width, h: b.height }
+        }
+        return {
+          buttons: [...document.querySelectorAll('.corner-dock .dock-btn')].map((el) => ({ name: el.getAttribute('aria-label') || el.textContent.trim(), ...box(el) })),
+          hud: box(document.querySelector('.hud')),
+          vw: innerWidth,
+          vh: innerHeight,
+        }
+      })
+      if (r.buttons.length !== DOCK_BUTTONS) problems.push(`버튼 ${r.buttons.length}개 (${DOCK_BUTTONS}개여야 함)`)
+      for (const b of r.buttons) {
+        if (b.l < 0 || b.r > r.vw || b.t < 0 || b.b > r.vh) problems.push(`화면 밖: ${b.name} x ${Math.round(b.l)}..${Math.round(b.r)} y ${Math.round(b.t)}..${Math.round(b.b)}`)
+        if (b.w < 44 || b.h < 44) problems.push(`누르는 영역이 44 px보다 작음: ${b.name} ${Math.round(b.w)} × ${Math.round(b.h)}`)
+        const o = r.hud
+        if (o.l < b.r && b.l < o.r && o.t < b.b && b.t < o.b) problems.push(`안내 글씨와 겹침: ${b.name}`)
+      }
+    } catch (e) {
+      problems.push(`확인 못함: ${e.message.split('\n')[0]}`)
+    }
+    console.log(`${problems.length ? '✗' : '✓'} [휴대폰 도크] ${width} px`)
+    for (const p of problems) console.log(`    ${p}`)
+    if (problems.length) failed++
+    await ctx.close()
+  }
+}
+
 try {
   const url = arg('--url')
-  if (url) await check('지정 서버', url.replace(/\/$/, ''))
-  else
+  if (url) {
+    await check('지정 서버', url.replace(/\/$/, ''))
+    await dockFit(url.replace(/\/$/, ''))
+  } else
     for (const [label, withSupabase] of [
       ['Supabase env 있음', true],
       ['Supabase env 없음', false],
@@ -120,6 +163,8 @@ try {
       }
       try {
         await check(label, server.origin)
+        // the dock once, on the fake data (its debug page always has all five buttons)
+        if (!withSupabase) await dockFit(server.origin)
       } finally {
         await server.close()
       }

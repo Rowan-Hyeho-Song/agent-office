@@ -38,6 +38,8 @@ import {
   type V3,
 } from './tour'
 import { isBoardActive } from './boardView/store'
+import { NO_MOUSE, mouseStep, type MouseEv, type MouseState } from './tourInput'
+import { cutInLimits, freeSpot, stopEaseAt, stopEaseDone, type CutLimits } from './tourLimits'
 import { getTourState, registerTour, setTourAutoOff, setTourFade, setTourState, tourAutoOff } from './tourStore'
 import { VIEW, focusAllowsCameraKeys, keepClear } from './view'
 import { prefersReducedMotion, type OfficeWorld } from './world'
@@ -45,11 +47,15 @@ import { prefersReducedMotion, type OfficeWorld } from './world'
 // The tour's camera (#207, office-ui.md 10): after 45 s without input on the 3D it flies from agent to agent (tour.ts decides
 // the order, the framing and the way), any input ends it where the camera stands. CameraRig stands aside while it runs
 // (tourStore.isTouring); OrbitControls keeps the camera and the target, so nothing jumps when it ends.
+// The controls are DISABLED while it runs (their update() would clamp the tour's poses to the free-view limits, and the
+// tour has its own limits, tourLimits.ts, so the free limits are never loosened). When it ends the camera eases into the
+// free-view limits over 0.4 s (a snap under reduced motion); the controls get open limits only for that ease.
 
 interface Orbit {
   target: Vector3
   enabled: boolean
   minDistance: number
+  maxDistance: number
   maxPolarAngle: number
   minPolarAngle: number
 }
@@ -94,10 +100,10 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
     const plan = new TourPlan()
     let run: Run | null = null
     let lastInput = Date.now()
-    let saved: { minD: number; maxP: number; minP: number } | null = null
-    let relax = false
+    let saved: { minD: number; maxD: number; maxP: number; minP: number } | null = null
+    let ease: { from: V3; to: V3; t0: number } | null = null
     let gesture: { id: number; x: number; y: number; t: number } | null = null
-    let drag = { x: 0, y: 0, t: 0, sum: 0 }
+    let mouse: MouseState = NO_MOUSE
 
     const speed = () => (replay.getSnapshot().mode === 'office' ? replay.getSnapshot().speed : 1)
     const views = () => buildViews(observe(world, replay.getSnapshot().mode === 'office'), Date.now())
@@ -137,6 +143,10 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
         const blockers = parked.filter(([id]) => !subjects.includes(id)).map(([, r]) => robotBox(r.group))
         return { heads, blockers, fovY: ((camera as PerspectiveCamera).fov || 32) * DEG, aspect: (camera as PerspectiveCamera).aspect || 1.6, work }
       }
+      const cam = camera as PerspectiveCamera
+      const aspect = cam.aspect || 1.6
+      const fovY = (cam.fov || 32) * DEG
+      const limitsFor = (shot: Shot): CutLimits => ({ aspect, fovY, subjectH: Math.max(0, ...shot.heads.map((h) => h.max[1] - h.min[1])) })
       if (cut.type === 'establishing') return { base: { pos: homeNow(), target: [HOME_TARGET.x, HOME_TARGET.y, HOME_TARGET.z] }, follow: null }
       let base: Pose | null
       let follow: Run['follow'] = null
@@ -145,6 +155,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
         const n = Math.max(1, rigs.length)
         const centre = { x: rigs.reduce((s, r) => s + r.x, 0) / n, z: rigs.reduce((s, r) => s + r.z, 0) / n }
         c.shot = shotOf(cut.agents)
+        c.limits = limitsFor(c.shot)
         base = meetingPose(centre, c, homeNow(), 4.0, 2.6, variant)
       } else {
         const id = cut.agents[0]
@@ -162,6 +173,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
         else if (doing === 'boardgame' && ga && gb) c.shot = shotOf(players(ga, gb))
         else if (seat && (rig?.arrived === seat.id || cut.why === 'working')) c.shot = shotOf([id], seat)
         else c.shot = shotOf([id])
+        c.limits = limitsFor(c.shot)
         if (doing === 'pingpong' && a && b) base = tablePose(a, b, c, homeNow(), { dist: 3.8, y: 2.2, targetY: 0.76 }, variant)
         else if (doing === 'boardgame' && ga && gb) base = tablePose(ga, gb, c, homeNow(), { dist: 2.0, y: 1.8, targetY: 0.6 }, variant)
         else if (seat && (rig?.arrived === seat.id || cut.why === 'working')) base = workPose(seat, c, variant)
@@ -173,6 +185,8 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
       if (!base) return null
       // every cut's camera goes through the same clearance as the free camera (#208)
       base = { pos: keepClear(base.pos, base.target, c.boxes, c.margin), target: base.target }
+      // keepClear may have pushed it out of the tour's limits: then this composition cannot frame the subject (the cut is skipped)
+      if (c.limits && !cutInLimits(base.pos, base.target, c.limits)) return null
       return { base, follow }
     }
 
@@ -224,12 +238,9 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
       const ctl = live.current.controls
       if (!ctl || live.current.busy || document.hidden) return
       if (!getTourState().active) {
-        saved = { minD: ctl.minDistance, maxP: ctl.maxPolarAngle, minP: ctl.minPolarAngle }
-        // the tour's poses are closer / flatter than the free camera's limits; it hands them back when it ends
-        ctl.minDistance = 0.3
-        ctl.maxPolarAngle = Math.PI
-        ctl.minPolarAngle = 0
-        relax = false
+        endEase(false)
+        saved = { minD: ctl.minDistance, maxD: ctl.maxDistance, maxP: ctl.maxPolarAngle, minP: ctl.minPolarAngle }
+        ctl.enabled = false // the tour has its own limits; the controls would clamp its poses to the free view's
         setTourState({ active: true })
       }
       lastShot.clear()
@@ -245,18 +256,43 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
       if (ctl) {
         ctl.enabled = true
         if (saved) {
-          // keep the camera where it is: the limits come back as soon as the view is inside them again
-          const d = camera.position.distanceTo(ctl.target)
-          const polar = Math.acos(Math.min(1, Math.max(-1, (camera.position.y - ctl.target.y) / Math.max(d, 1e-6))))
-          ctl.minDistance = Math.min(saved.minD, d)
-          ctl.maxPolarAngle = Math.max(saved.maxP, polar)
-          ctl.minPolarAngle = Math.min(saved.minP, polar)
-          relax = true
+          // the camera stays where it is, then eases into the free-view limits (0.4 s; a snap under reduced motion)
+          const from = v3(camera.position)
+          const to = freeSpot(from, v3(ctl.target), { polar: [saved.minP, saved.maxP], distance: [saved.minD, saved.maxD] })
+          if (Math.hypot(to[0] - from[0], to[1] - from[1], to[2] - from[2]) > 1e-3) {
+            if (prefersReducedMotion()) {
+              camera.position.set(to[0], to[1], to[2])
+              camera.lookAt(ctl.target)
+            } else {
+              // open limits for the ease only: OrbitControls would clamp the camera at once
+              ctl.minDistance = 0.3
+              ctl.minPolarAngle = 0
+              ctl.maxPolarAngle = Math.PI
+              ease = { from, to, t0: performance.now() }
+            }
+          }
         }
       }
       if (why === 'button') setTourAutoOff(true)
       lastInput = Date.now()
       setTourState({ active: false, cut: null, canBack: false })
+    }
+
+    /** the ease into the free view is over (or cut short): the free limits come back */
+    function endEase(snap: boolean) {
+      const ctl = live.current.controls
+      if (ease && ctl) {
+        if (snap) {
+          camera.position.set(ease.to[0], ease.to[1], ease.to[2])
+          camera.lookAt(ctl.target)
+        }
+        if (saved) {
+          ctl.minDistance = saved.minD
+          ctl.maxPolarAngle = saved.maxP
+          ctl.minPolarAngle = saved.minP
+        }
+      }
+      ease = null
     }
 
     const advance = () => begin(plan.next(Date.now(), views(), speed()))
@@ -268,13 +304,14 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
     // ---- per frame -------------------------------------------------------------------------------------------------
     frame.current = (dt) => {
       const ctl = live.current.controls
-      if (relax && ctl && saved) {
-        const d = camera.position.distanceTo(ctl.target)
-        const polar = Math.acos(Math.min(1, Math.max(-1, (camera.position.y - ctl.target.y) / Math.max(d, 1e-6))))
-        if (d >= saved.minD) ctl.minDistance = saved.minD
-        if (polar <= saved.maxP) ctl.maxPolarAngle = saved.maxP
-        if (polar >= saved.minP) ctl.minPolarAngle = saved.minP
-        if (ctl.minDistance === saved.minD && ctl.maxPolarAngle === saved.maxP && ctl.minPolarAngle === saved.minP) relax = false
+      if (ease && ctl) {
+        const el = performance.now() - ease.t0
+        if (stopEaseDone(el)) endEase(true)
+        else {
+          const p = stopEaseAt(ease.from, ease.to, el)
+          camera.position.set(p[0], p[1], p[2])
+          camera.lookAt(ctl.target)
+        }
       }
       const r = run
       if (!r || !ctl) return
@@ -332,8 +369,17 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
     }
     const touch = (e: PointerEvent) => e.pointerType === 'touch'
 
+    // the mouse rule (tourInput.ts): a press ends it, a move only while a button is held and 30 px from the press; a plain move never
+    const mouseEv = (kind: MouseEv['kind'], e: PointerEvent): MouseEv => ({ kind, x: e.clientX, y: e.clientY, buttons: e.buttons, onBar: onBar(e), active: getTourState().active })
+    const mouseDo = (kind: MouseEv['kind'], e: PointerEvent) => {
+      const r = mouseStep(mouse, mouseEv(kind, e))
+      mouse = r.state
+      if (r.stop) stopTour()
+    }
+
     const onDown = (e: PointerEvent) => {
       lastInput = Date.now()
+      if (!touch(e)) return mouseDo('down', e)
       if (!getTourState().active || onBar(e)) return
       if (touch(e)) {
         if (gesture) {
@@ -346,11 +392,10 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
         setControls(false)
         return
       }
-      drag = { x: e.clientX, y: e.clientY, t: performance.now(), sum: 0 }
-      stopTour()
     }
     const onMove = (e: PointerEvent) => {
       lastInput = Date.now()
+      if (!touch(e)) return mouseDo('move', e)
       if (!getTourState().active || onBar(e)) return
       if (touch(e)) {
         // not a quick sideways swipe (slow or vertical): the free view
@@ -360,13 +405,9 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
         }
         return
       }
-      // a mouse that only passes over the picture does not end it; a real move does (30 px within 0.6 s)
-      const now = performance.now()
-      if (now - drag.t > 600) drag = { x: e.clientX, y: e.clientY, t: now, sum: 0 }
-      drag.sum = Math.hypot(e.clientX - drag.x, e.clientY - drag.y)
-      if (drag.sum > 30) stopTour()
     }
     const onUp = (e: PointerEvent) => {
+      if (!touch(e)) return mouseDo('up', e)
       if (!gesture || gesture.id !== e.pointerId) return
       const g = gesture
       gesture = null
@@ -374,7 +415,6 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
       const dy = e.clientY - g.y
       const quick = performance.now() - g.t <= TOUR.swipe.ms
       if (quick && Math.abs(dx) >= TOUR.swipe.px && Math.abs(dx) > Math.abs(dy)) {
-        setControls(true)
         return dx < 0 ? advance() : stepBack()
       }
       stopTour()
@@ -450,6 +490,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
       off()
       registerTour(null)
       stopTour()
+      endEase(true)
       frame.current = null
     }
   }, [limits, world, camera])

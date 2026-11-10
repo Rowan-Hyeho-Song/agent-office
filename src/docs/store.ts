@@ -45,9 +45,25 @@ export class LibraryStore {
     this.listeners.forEach((l) => l())
   }
 
-  async refresh() {
-    const seq = ++this.seq
+  private inflight: { role: Role; done: Promise<void> } | null = null
+
+  /**
+   * Re-reads the list. A call made while a read for the same role is still on its way shares that read instead of sending
+   * the same query again (#402: the first load and the Realtime join's catch-up re-read both ran before the first screen).
+   * A changed role always starts a new read.
+   */
+  refresh(): Promise<void> {
     const role = this.role()
+    if (this.inflight && this.inflight.role === role) return this.inflight.done
+    const done = this.load(role).finally(() => {
+      if (this.inflight?.done === done) this.inflight = null
+    })
+    this.inflight = { role, done }
+    return done
+  }
+
+  private async load(role: Role) {
+    const seq = ++this.seq
     try {
       const metas = await this.src.list(role)
       if (seq !== this.seq) return

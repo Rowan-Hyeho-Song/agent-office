@@ -334,6 +334,8 @@ button.secret-cover:hover .bar { background: var(--color-line); }
   transition: opacity 160ms ease, visibility 0s, right var(--dur-base) var(--ease-out);
 }
 .dock-slot:empty { display: none; }
+/* the two groups (CornerDock.tsx) are not boxes of their own except on phones (#403, below) */
+.dock-row { display: contents; }
 .dock-slot { display: flex; position: relative; }
 .dock-btn {
   flex: 1; display: flex; align-items: center; gap: var(--space-2); height: 32px; padding: 0 var(--space-3) 0 var(--space-2);
@@ -370,6 +372,17 @@ button.secret-cover:hover .bar { background: var(--color-line); }
   /* then the owner tag above the caption, and the one-time WASD hint above both */
   .owner-tag { bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px) + 44px + 8px + 26px); }
   p.cam-hint { bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px) + 44px + 8px + 26px + 30px); }
+}
+/* 480 px and under (#403, designer): two rows, both right-aligned, 8 px apart: the view and sound icons on top, the three labelled
+   launchers under them (360 px: about 307 px wide); every button 44 px high. The caption and what stands on it move up by the second row */
+@media (max-width: 480px) {
+  .corner-dock { flex-direction: column-reverse; align-items: flex-end; }
+  .dock-row { display: flex; flex-direction: row-reverse; align-items: center; gap: 8px; }
+  .dock-row:not(:has(.dock-slot:not(:empty))) { display: none; }
+  .dock-btn { height: 44px; }
+  .hud { bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px) + 44px + 8px + 44px + 8px); }
+  .owner-tag { bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px) + 44px + 8px + 44px + 8px + 26px); }
+  p.cam-hint { bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px) + 44px + 8px + 44px + 8px + 26px + 30px); }
 }
 @media (max-width: 359px) {
   .dock-btn { width: 44px; height: 44px; padding: 0; justify-content: center; }

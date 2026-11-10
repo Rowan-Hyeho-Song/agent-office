@@ -3,7 +3,7 @@ import { SideSlot, useSidePanelOpen } from './SidePanel'
 import { setSideBack, setSideRaise, setSideUnseen } from './sidePanel/store'
 import { clearFile, loadDocsSeen, reconcileDocs, saveDocsSeen, unreadFile, unreadFolder, type DocsSeen } from '../docs/unread'
 import { IssueReplayButton } from '../replay/IssueReplayButton'
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
 import { fmtDay as fmtShortDay } from '../approvals/view'
 import {
   KIND_NAME,
@@ -30,7 +30,7 @@ import { PendingChip, ProgressBar, StageChip } from './ProgressMarks'
 import { shownTitle } from '../docs/topics'
 import { SORTS, STAGE_FILTERS, loadView, saveView, stageCounts, viewFiles, type ListView, type SortKey, type StageFilter } from '../docs/progressList'
 import { STAGE_NAME } from '../docs/progress'
-import { closeDocs, openFromHash, toggleDocs, useDocsPanel } from './docs/panel'
+import { closeDocs, openFromHash, setDocsViewerReady, toggleDocs, useDocsPanel } from './docs/panel'
 import { AGENT_INFO, type OfficeWorld } from './world'
 
 /**
@@ -110,6 +110,12 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
   const dot = folded?.dot ?? false
   const fresh = folded?.fresh ?? 0
   useEffect(() => void setSideUnseen('docs', dot ? fresh : 0), [dot, fresh])
+
+  // this is the real launcher from here on: the stand-in in the main bundle steps aside
+  useLayoutEffect(() => {
+    setDocsViewerReady(true)
+    return () => setDocsViewerReady(false)
+  }, [])
 
   // an address in the page opens the viewer there, on load and when it changes
   useEffect(() => {

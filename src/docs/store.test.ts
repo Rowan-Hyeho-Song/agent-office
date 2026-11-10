@@ -74,3 +74,46 @@ describe('library store with the fake source', () => {
     expect(seen).toHaveLength(1)
   })
 })
+
+describe('one read serves every caller (#402)', () => {
+  it('a refresh asked while the same role is being read shares that read: the source is asked once', async () => {
+    const fake = new FakeDocsSource()
+    let asked = 0
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => (release = r))
+    const list = fake.list.bind(fake)
+    fake.list = async (role) => {
+      asked++
+      await gate
+      return list(role)
+    }
+    const store = new LibraryStore(fake, () => 'visitor')
+    const first = store.refresh() // the start-up load
+    const second = store.refresh() // e.g. the Realtime join's catch-up, the viewer opening
+    expect(second).toBe(first)
+    release()
+    await Promise.all([first, second])
+    expect(asked).toBe(1)
+    expect(store.getSnapshot().metas).not.toBeNull()
+    // once it is done, the next one is a new read
+    await store.refresh()
+    expect(asked).toBe(2)
+  })
+  it('a changed role never shares the old role\'s read', async () => {
+    const fake = new FakeDocsSource()
+    const asked: Role[] = []
+    const list = fake.list.bind(fake)
+    fake.list = async (role) => {
+      asked.push(role)
+      return list(role)
+    }
+    const state = { role: 'visitor' as Role }
+    const store = new LibraryStore(fake, () => state.role)
+    const a = store.refresh()
+    state.role = 'owner'
+    const b = store.refresh()
+    await Promise.all([a, b])
+    expect(asked).toEqual(['visitor', 'owner'])
+    expect(store.getSnapshot().metas!.some((m) => m.grade === 'review' && m.readable)).toBe(true)
+  })
+})

@@ -160,6 +160,10 @@ export class Stream {
   readonly vz: Float32Array
   readonly age: Float32Array
   readonly rad: Float32Array
+  /** 1 for the shake's last drops (drop()): the sound's "톡" when they reach the soil */
+  readonly mark: Uint8Array
+  /** where marked drops reached the soil since the last takeMarkedLanded() (sound, #185) */
+  private markedLanded: Vec3[] = []
   n = 0
   hits = 0
   misses = 0
@@ -179,6 +183,7 @@ export class Stream {
     this.vz = new Float32Array(cap)
     this.age = new Float32Array(cap)
     this.rad = new Float32Array(cap)
+    this.mark = new Uint8Array(cap)
     this.rand = rng(seed)
   }
   clear() {
@@ -227,11 +232,20 @@ export class Stream {
     this.vz[i] = (jz / jl) * v
     this.age[i] = age
     this.rad[i] = radius
+    this.mark[i] = 0
     return true
   }
   /** one drop at once (the last two of the shake: no spread, they hang at the rose's centre) */
   drop(tip: Vec3, dir: Vec3) {
-    return this.add(tip, dir, 0, 0.0025, 0)
+    const ok = this.add(tip, dir, 0, 0.0025, 0)
+    if (ok) this.mark[this.n - 1] = 1
+    return ok
+  }
+  /** the shake's last drops that reached the soil (inside or not) since the last call, and forget them */
+  takeMarkedLanded(): Vec3[] {
+    const out = this.markedLanded
+    this.markedLanded = []
+    return out
   }
   /**
    * Advance `dt` s of the office clock. `emit` (the spout's tip and direction, the flow 0 … 1) or null: no water leaves. Returns how many drops
@@ -246,6 +260,7 @@ export class Stream {
       if (a > 0.01 && y <= soil.y) {
         const x = this.ox[i] + this.vx[i] * a
         const z = this.oz[i] + this.vz[i] * a
+        if (this.mark[i]) this.markedLanded.push({ x, y: soil.y, z })
         if (Math.hypot(x - soil.x, z - soil.z) <= soil.r) {
           this.hits++
           landed++
@@ -285,6 +300,7 @@ export class Stream {
     this.vz[i] = this.vz[l]
     this.age[i] = this.age[l]
     this.rad[i] = this.rad[l]
+    this.mark[i] = this.mark[l]
   }
 }
 
@@ -380,14 +396,18 @@ export interface Drip {
  */
 export class Drips {
   drips: Drip[] = []
+  /** the drips that reached the soil in the last step (a falling drop, not one that stays on its leaf): the sound's "톡" (cue water.drip) */
+  landed: number[] = []
   /** `count` leaf tips start their drips after the staggered delay; `stay[k]`: drip k stays on its leaf (it would land outside the soil) */
   trigger(count: number, stay: readonly boolean[] = []) {
     this.drips = Array.from({ length: count }, (_, k) => ({ phase: 'wait' as DripPhase, t: -(DRIP_DELAY_S + DRIP_STAGGER_S * k), fell: 0, v: 0, stay: !!stay[k] }))
+    this.landed = []
   }
   get active() {
     return this.drips.some((d) => d.phase !== 'done')
   }
   step(dt: number, heightAbove: (k: number) => number) {
+    this.landed = []
     this.drips.forEach((d, k) => {
       if (d.phase === 'done') return
       d.t += dt
@@ -406,7 +426,10 @@ export class Drips {
       if (d.phase === 'fall') {
         d.v += G * dt
         d.fell += d.v * dt
-        if (d.fell >= heightAbove(k)) d.phase = 'done'
+        if (d.fell >= heightAbove(k)) {
+          d.phase = 'done'
+          this.landed.push(k)
+        }
       }
     })
   }
