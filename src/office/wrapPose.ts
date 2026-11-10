@@ -3,6 +3,27 @@
 
 import type { BeatKind, PieceKind } from './wrap'
 import { WRAP, cellOf } from './wrap'
+import { DEFAULT_CAMERA } from './room'
+import { angleFromFront, rightOf } from './tour'
+
+/**
+ * Where the writing happens (#229 designer): on a desk that faces the default camera (office-ui.md 10.3: the seat's facing direction and the direction to the
+ * camera have a positive dot product) the card and the pen in front of the body hide behind the monitor, so the card lies on the empty desk top beside the monitor
+ * on the side the default camera is on (the designer said the aisle side; that is the far side on two of the three facing desks, hidden by the monitor): body-local x +-0.32, z -0.36. `side` is +1 for the body's right, -1 for its left; the hand on that
+ * side holds the pen, the other presses the card, and the body turns 15 degrees toward it. null: the card stays in front (the desks with their back to the camera).
+ */
+export const WRITE_ASIDE = { x: 0.32, z: -0.36, turnDeg: 15 } as const
+export type WritePlace = { side: 1 | -1 } | null
+export function writePlace(spots: Record<string, { x: number; z: number; ry: number }>, spot: string, camera: readonly number[] = DEFAULT_CAMERA): WritePlace {
+  const seat = spots[spot]
+  if (!seat) return null
+  if (angleFromFront(seat, [camera[0], camera[1], camera[2]]) >= 90) return null
+  // the side the camera is on: from there the end of the monitor is seen past, so the pen is not behind it. (The aisle side, the side of the seat's
+  // desk_side spot, is the far side on two of the three facing desks: there the monitor hides the pen from the default camera.)
+  const [rx, rz] = rightOf(seat.ry)
+  const d = (camera[0] - seat.x) * rx + (camera[2] - seat.z) * rz
+  return { side: d >= 0 ? 1 : -1 }
+}
 
 export interface WrapBeat {
   kind: BeatKind
@@ -66,14 +87,18 @@ function along(route: Route, u: number): { pos: [number, number, number]; curl: 
  * One hand in a beat. `rest` is the hand's resting place (the rig's), `read` where a held card is read (0.25 m in front of the face),
  * `sit` the seat height offset, `m` the ambient motion (0.3 in reduced motion, which keeps the writing posture and nothing else).
  */
-export function wrapHand(side: 'l' | 'r', pose: 'write' | 'cardpost', b: WrapBeat | undefined, t: number, o: { rest: [number, number, number]; read: [number, number, number]; sit: number; m: number; reduced: boolean }): HandSpec {
+export function wrapHand(side: 'l' | 'r', pose: 'write' | 'cardpost', b: WrapBeat | undefined, t: number, o: { rest: [number, number, number]; read: [number, number, number]; sit: number; m: number; reduced: boolean; place?: WritePlace }): HandSpec {
   const u = b?.u ?? 0
   const row = b?.v ?? 0
-  const r = side === 'r'
   const { rest, sit, m } = o
   if (pose === 'write') {
-    const left: HandSpec = { pos: LEFT_ON_CARD, palm: 'down', curl: 'support' }
-    const penAt = (x: number, y: number, z: number): HandSpec => ({ pos: [x, y, z], palm: 'down', curl: 'pen' })
+    // the card's place: in front (default) or beside the monitor on the aisle side; the pen hand is the one on that side, the other presses the card
+    const s = o.place?.side ?? 1
+    const cx = o.place ? WRITE_ASIDE.x * s : 0
+    const dz = o.place ? WRITE_ASIDE.z - -0.43 : 0
+    const r = o.place ? side === (s > 0 ? 'r' : 'l') : side === 'r'
+    const left: HandSpec = { pos: [cx - s * 0.13, LEFT_ON_CARD[1], LEFT_ON_CARD[2] + dz], palm: 'down', curl: 'support' }
+    const penAt = (x: number, y: number, z: number): HandSpec => ({ pos: [cx + (x - NIB_X0) + s * NIB_X0, y, z + dz], palm: 'down', curl: 'pen' })
     const kind = o.reduced ? 'line' : b?.kind
     // the pen in small steady strokes: the wrist moves within 1 cm, a small up and down every 0.12 s
     const stroke = (x: number, z: number) => penAt(x + 0.012 * Math.sin(t * 9) * m * 0.3, NIB_Y + 0.004 * Math.sin((t * Math.PI * 2) / 0.12) * m, z + 0.01 * Math.sin(t * 6.5 + 1) * m)
@@ -98,18 +123,19 @@ export function wrapHand(side: 'l' | 'r', pose: 'write' | 'cardpost', b: WrapBea
         // the left hand lifts the card to 0.25 m in front of the face and lowers it; the pen hand rests on the desk
         if (r) return penAt(NIB_X0 + 0.05, NIB_Y, lineZ(row))
         const k = bump(u, 0.25)
-        return { pos: mix(LEFT_ON_CARD, o.read, k), palm: k > 0.5 ? 'up' : 'down', curl: 'support' }
+        return { pos: mix(left.pos, o.read, k), palm: k > 0.5 ? 'up' : 'down', curl: 'support' }
       }
       case 'next': {
         // pushes the done card to the left (0.3 s) and draws a new one (0.3 s)
         const out = Math.sin(Math.min(1, u * 2) * Math.PI) * 0.1
-        return r ? penAt(NIB_X0, NIB_Y, lineZ(0)) : { pos: [LEFT_ON_CARD[0] - out, LEFT_ON_CARD[1], LEFT_ON_CARD[2]], palm: 'down', curl: 'support' }
+        return r ? penAt(NIB_X0, NIB_Y, lineZ(0)) : { pos: [left.pos[0] - s * out, left.pos[1], left.pos[2]], palm: 'down', curl: 'support' }
       }
       default:
         return r ? stroke(NIB_X0, lineZ(row)) : left
     }
   }
   // at the board
+  const r = side === 'r'
   const k = b?.k ?? 0
   const card = CARD_AT(k, sit)
   const restSpec = (): HandSpec => ({ pos: rest, palm: 'none', curl: 'rest' })

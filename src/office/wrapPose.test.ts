@@ -1,13 +1,78 @@
 import { describe, expect, it } from 'vitest'
 import { REACH } from './water'
+import { GRAPH } from './navSpots.fixture'
+import { DEFAULT_CAMERA } from './room'
+import { angleFromFront } from './tour'
 import { planBoard, planDesk, tidyBeats, type Beat } from './wrap'
-import { wrapBack, wrapHand, wrapHead, type HandSpec } from './wrapPose'
+import { WRITE_ASIDE, wrapBack, wrapHand, wrapHead, writePlace, type HandSpec, type WritePlace } from './wrapPose'
 
 const REST: [number, number, number] = [0.24, 0.86, -0.1]
 const READ: [number, number, number] = [-0.02, 1.25, -0.27]
-const hand = (side: 'l' | 'r', pose: 'write' | 'cardpost', b: Beat, u: number, o: { reduced?: boolean } = {}): HandSpec =>
-  wrapHand(side, pose, { kind: b.kind, u, k: b.k, piece: b.piece, v: b.v, end: b.end }, 3, { rest: REST, read: READ, sit: -0.25, m: 1, reduced: !!o.reduced })
+const hand = (side: 'l' | 'r', pose: 'write' | 'cardpost', b: Beat, u: number, o: { reduced?: boolean; place?: WritePlace } = {}): HandSpec =>
+  wrapHand(side, pose, { kind: b.kind, u, k: b.k, piece: b.piece, v: b.v, end: b.end }, 3, { rest: REST, read: READ, sit: -0.25, m: 1, reduced: !!o.reduced, place: o.place })
 const dist = (a: HandSpec, b: HandSpec) => Math.hypot(a.pos[0] - b.pos[0], a.pos[1] - b.pos[1], a.pos[2] - b.pos[2])
+
+describe('writing beside the monitor on the desks that face the camera (#229)', () => {
+  const cam: [number, number, number] = [DEFAULT_CAMERA[0], DEFAULT_CAMERA[1], DEFAULT_CAMERA[2]]
+  const desks = [0, 1, 2, 3, 4].map((n) => ({ n, place: writePlace(GRAPH.spots, `work_${n}`), facing: angleFromFront(GRAPH.spots[`work_${n}`], cam) < 90 }))
+
+  it('is decided by the camera rule (office-ui.md 10.3: the seat facing and the direction to the camera, dot > 0), not by who sits there', () => {
+    for (const d of desks) expect(d.place !== null).toBe(d.facing)
+    expect(desks.some((d) => d.facing)).toBe(true)
+    expect(desks.some((d) => !d.facing)).toBe(true)
+    expect(writePlace(GRAPH.spots, 'whiteboard')).toBeNull()
+  })
+
+  it('the card is on the side the camera is on (the end of the monitor is seen past from there)', () => {
+    for (const d of desks.filter((x) => x.place)) {
+      const seat = GRAPH.spots[`work_${d.n}`]
+      const dot = (cam[0] - seat.x) * Math.cos(seat.ry) + (cam[2] - seat.z) * -Math.sin(seat.ry)
+      expect(Math.sign(dot)).toBe(d.place!.side)
+    }
+  })
+
+  for (const side of [1, -1] as const) {
+    const place: WritePlace = { side }
+    it(`side ${side}: the card is at x ${side * 0.32}, z -0.36; the aisle-side hand holds the pen, the other presses it; every hand stays in reach and does not jump`, () => {
+      const penSide = side > 0 ? 'r' : 'l'
+      const other = side > 0 ? 'l' : 'r'
+      const line: Beat = { kind: 'line', k: 0, dur: 2, piece: 'line', v: 0 }
+      const pen = hand(penSide, 'write', line, 0.5, { place })
+      expect(pen.curl).toBe('pen')
+      expect(pen.pos[2]).toBeCloseTo(WRITE_ASIDE.z, 1)
+      expect(Math.abs(pen.pos[0] - side * WRITE_ASIDE.x)).toBeLessThan(0.2)
+      expect(Math.sign(pen.pos[0])).toBe(side)
+      expect(hand(other, 'write', line, 0.5, { place })).toMatchObject({ curl: 'support', palm: 'down' })
+      expect(hand(other, 'write', line, 0.5, { place }).pos[1]).toBeCloseTo(0.82, 5)
+      for (const a of ['agent_0', 'agent_2', 'agent_4'])
+        for (let since = 0; since < 8; since++) {
+          const beats = planDesk(a, since, 50, null).beats
+          for (let i = 0; i < beats.length; i++)
+            for (const sd of ['l', 'r'] as const) {
+              for (let u = 0; u <= 1.0001; u += 0.1) {
+                const h = hand(sd, 'write', beats[i], Math.min(1, u), { place })
+                expect(Math.hypot(h.pos[0], h.pos[2])).toBeLessThanOrEqual(0.75)
+              }
+              if (i) expect(dist(hand(sd, 'write', beats[i - 1], 1, { place }), hand(sd, 'write', beats[i], 0, { place })), `${beats[i - 1].kind}->${beats[i].kind} ${sd}`).toBeLessThan(0.3)
+            }
+        }
+    })
+  }
+
+  it('the card is pushed to the stack by the pressing hand, away from the pen', () => {
+    const next: Beat = { kind: 'next', k: 0, dur: 0.6, piece: 'next', v: 3 }
+    const at = (side: 1 | -1, u: number) => hand(side > 0 ? 'l' : 'r', 'write', next, u, { place: { side } }).pos[0]
+    expect(at(1, 0.25)).toBeLessThan(at(1, 0))
+    expect(at(-1, 0.25)).toBeGreaterThan(at(-1, 0))
+  })
+
+  it('without a place (the desks with their back to the camera) the writing is where it was', () => {
+    const line: Beat = { kind: 'line', k: 0, dur: 2, piece: 'line', v: 0 }
+    expect(hand('r', 'write', line, 0.5).pos[2]).toBeCloseTo(-0.43, 1)
+    expect(hand('r', 'write', line, 0.5).pos[0]).toBeGreaterThan(0.1)
+    expect(hand('l', 'write', line, 0.5).pos[0]).toBeCloseTo(-0.13, 5)
+  })
+})
 
 describe('the hands of the wrap-up pieces (#229)', () => {
   it('every hand target is within an arm\'s reach of the body (horizontal, from the body centre), above the desk top', () => {
