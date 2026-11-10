@@ -83,8 +83,8 @@ const HAND_OMEGA = 12
  * swing below stillV (turning on the spot); settleS: on a stop the swing sinks to nothing, without overshoot, then bobS blends the standing bob in; attachS: the
  * hand's spring state (when it is farther than attachNear from the place) blends into the attached place (a hand that was elsewhere does not jump); carryShare: the free hand beside a carrying one swings this much.
  */
-const WALK = { hz: 0.8, hzMin: 0.5, hzMax: 1.0, cruise: CRUISE, amp: 0.05, ampMax: 0.07, arc: 0.012, inward: 0.01, wristDeg: 10, startS: 0.4, stillV: 0.1, stillBand: 0.1, settleS: 0.5, bobS: 0.3, attachS: 0.25, attachNear: 0.15, carryShare: 0.6, heldBob: 0.006, canBob: 0.01 } as const
-// #329: the swing's numbers are the cruising walk's (agents.md 2.5); its reference follows the cruise, so a faster cruise keeps 0.8 Hz and 5 cm at cruise
+const WALK = { hz: 0.8, hzMin: 0.5, hzMax: 1.0, cruise: CRUISE_TUNED, amp: 0.05, ampMax: 0.07, arc: 0.012, inward: 0.01, wristDeg: 10, startS: 0.4, stillV: 0.1, stillBand: 0.1, settleS: 0.5, bobS: 0.3, attachS: 0.25, attachNear: 0.15, carryShare: 0.6, heldBob: 0.006, canBob: 0.01 } as const
+// #329 (designer): the swing keeps its 0.75 m/s reference, so the faster 1.0 m/s cruise swings faster and wider: 0.8 x sqrt(1 / 0.75) = 0.92 Hz, +-6.7 cm (agents.md 2.5)
 interface Swing {
   dx: number
   dy: number

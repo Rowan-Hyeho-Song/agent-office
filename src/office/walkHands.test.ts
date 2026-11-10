@@ -61,10 +61,16 @@ describe('walking hands (#257)', () => {
     const { rig, rigs } = await setup('door', 'hall_east')
     let t = 120 * DT
     const z = { l: [] as number[], r: [] as number[] }
+    /** the cruising frames come in runs (a corner slows it): the crossings are counted inside each run only */
+    const runs: number[][] = []
+    let run: number[] | null = null
     for (let k = 0; k < 60 * 12 && priv(rig).path.length; k++) {
       t += DT
       rig.update(DT, t, GRAPH, rigs, false)
-      if (priv(rig).walkSt.mode === 'walk' && priv(rig).speed > 0.7) for (const side of ['l', 'r'] as const) z[side].push(offset(rig, side).z)
+      if (priv(rig).walkSt.mode === 'walk' && priv(rig).speed > 0.7) {
+        for (const side of ['l', 'r'] as const) z[side].push(offset(rig, side).z)
+        ;(run ??= runs[runs.push([]) - 1]).push(offset(rig, 'l').z)
+      } else run = null
     }
     expect(z.l.length).toBeGreaterThan(90)
     // opposite: the sum is small next to each (the arc and the inward step only move y and x)
@@ -74,11 +80,16 @@ describe('walking hands (#257)', () => {
     const amp = Math.max(...z.l.map(Math.abs))
     expect(amp).toBeGreaterThan(0.04)
     expect(amp).toBeLessThanOrEqual(0.07 + 1e-3)
-    // one cycle is 1 / 0.8 s at cruise: count the zero crossings of the left hand (2 per cycle)
+    // at cruise the swing runs 0.8 x sqrt(cruise / 0.75) Hz, clamped to 0.5 .. 1.0 (#329: 1.0 m/s -> 0.92 Hz): count the zero
+    // crossings of the left hand (2 per cycle) inside each cruising run
     let cross = 0
-    for (let i = 1; i < z.l.length; i++) if (Math.sign(z.l[i]) !== Math.sign(z.l[i - 1])) cross++
-    const hz = cross / 2 / (z.l.length * DT)
-    expect(hz).toBeGreaterThan(0.7)
+    let frames = 0
+    for (const r of runs) {
+      frames += r.length
+      for (let i = 1; i < r.length; i++) if (Math.sign(r[i]) !== Math.sign(r[i - 1])) cross++
+    }
+    const hz = cross / 2 / (frames * DT)
+    expect(hz).toBeGreaterThan(0.8)
     expect(hz).toBeLessThan(1.05)
   })
 
