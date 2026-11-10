@@ -55,6 +55,20 @@ export const CUES = {
     play: (o, v) => keyVoice(o, v.keyKind ?? 'char', 1 + (v.pitch - 1) * 0.5),
   },
   // the agents' mouse (#225 input bus): synth microswitch clicks and wheel notches, under a keystroke (mouse.ts)
+  // #229 the wrap-up (wrapup.md 5): a card pressed onto the board, a small paper "톡" (wrapSound.ts finds the moment)
+  'card.press': {
+    label: '정리 카드 보드에 누름',
+    kind: 'repeat',
+    bus: 'sfx',
+    spatial: true,
+    gap: 120,
+    length: 0.06,
+    // paper flattened onto cork under the thumb: a short dry tap and a soft low knock of the board
+    play: (o) => {
+      noise(o, 0.025, { freq: 1900, q: 1.1, level: 0.056, attack: 0.001 })
+      noise(o, 0.04, { kind: 'pink', filter: 'lowpass', freq: 450, level: 0.056, attack: 0.002 })
+    },
+  },
   'mouse.down': {
     label: '마우스 누름',
     kind: 'repeat',
