@@ -586,7 +586,7 @@ export class TrafficPlanner {
     ban = null
     const z = row.zone
     const sl = rowLocal(z, seat.x, seat.z)
-    // a seat along the sofa side of this row, not the chaise or a beanbag somewhere else
+    // a seat along the sofa side of this row, not the chaise
     if (Math.abs(sl.u) <= z.sizeX / 2 + 0.2 && Math.abs(sl.v) <= z.sizeZ / 2 + SOFA_ROW.stripM) {
       let best: NavSpot | null = null
       for (const e of row.entrances) if (!best || dist(e, seat) < dist(best, seat) - 1e-9) best = e
