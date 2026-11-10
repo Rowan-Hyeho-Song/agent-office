@@ -8,6 +8,7 @@ import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { loadOffice, stubCanvas } from './glbLoad'
 import { contactNormal } from './gripTargets'
 import { PlayStage, type StageIn } from './playStage'
+import { STONE_DISC_R } from './grip'
 import { AgentRig, PropBank, buildRig } from './rig'
 import type { Goal } from './director'
 
@@ -56,13 +57,19 @@ const inp = (w: W, goals: Record<string, Goal>, now: number, t: number, over: Pa
 
 const tipWorld = (rig: AgentRig, side: 'l' | 'r', f: number | 'thumb', out = new Vector3()) => {
   const h = rig.parts.hands[side]
-  const j = f === 'thumb' ? h.thumb[1]!.node : h.fingers[f][2]!.node
+  const j = f === 'thumb' ? h.thumb[2]!.node : h.fingers[f][2]!.node
   const tip = f === 'thumb' ? h.thumbTip! : h.tips[f]!
   j.updateWorldMatrix(true, false)
   return out.copy(tip).applyMatrix4(j.matrixWorld)
 }
 const at = (scene: Object3D, name: string) => scene.getObjectByName(name)!.getWorldPosition(new Vector3())
 const up = (scene: Object3D, name: string) => contactNormal(scene, scene.getObjectByName(name)!)
+/** the go stone's contacts are discs (agents.md 2.10): the distance from a tip to the disc of STONE_DISC_R round the contact in the plane across its normal */
+const toDisc = (tip: Vector3, c: Vector3, n: Vector3) => {
+  const d = tip.clone().sub(c)
+  const h = d.dot(n)
+  return Math.hypot(h, Math.max(0, d.addScaledVector(n, -h).length() - STONE_DISC_R))
+}
 
 describe('PlayStage', () => {
   it('ping-pong: the same office time gives the same ball position, in two separate worlds', async () => {
@@ -147,7 +154,7 @@ describe('PlayStage', () => {
           const cm = 'prop_piece_' + col + '_contact_middle'
           const ti = tipWorld(r, 'r', 0)
           const tm = tipWorld(r, 'r', 1)
-          worst = Math.max(worst, ti.distanceTo(at(w.scene, ci)), tm.distanceTo(at(w.scene, cm)))
+          worst = Math.max(worst, toDisc(ti, at(w.scene, ci), up(w.scene, ci)), toDisc(tm, at(w.scene, cm), up(w.scene, cm)))
           minOff = Math.min(minOff, ti.sub(at(w.scene, ci)).dot(up(w.scene, ci)), tm.sub(at(w.scene, cm)).dot(up(w.scene, cm)))
           frames++
         }
@@ -233,6 +240,33 @@ describe('PlayStage', () => {
     expect(picks).toBeGreaterThan(10)
     expect(seen.size).toBe(2)
   }, 60000)
+
+  it('omok: seated mid-move (the first frame is already past the pick), the stone is never taken from anywhere but where it rests', async () => {
+    const s = findSession('boardgame')
+    let attachedFrames = 0
+    for (let off = 0; off < 9000; off += 450) {
+      const w = await world()
+      const goals = seat(w.rigs, s)
+      const stones = ['prop_piece_a', 'prop_piece_b'].map((n) => w.nodes[n])
+      const home = stones.map((n) => n.position.clone())
+      const had = new Set<string>()
+      for (let k = 0; k < 120; k++) {
+        const now = s.startMs + 15_000 + off + k * 40
+        w.stage.update(inp(w, goals, now, k * 0.04))
+        w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
+        w.props.update(0.04)
+        stones.forEach((n, i) => {
+          const holder = Object.values(w.rigs).find((r) => r.want?.attached && r.want.prefer === n.name)
+          if (!holder) return
+          attachedFrames++
+          // the frame a hand takes it: it is where it rested, give or take the first 40 ms frame of the lift (2.4 cm at most; a late take was 20 cm away)
+          if (!had.has(n.name)) expect(n.position.distanceTo(home[i]), `offset ${off} frame ${k}: ${n.name} taken away from where it rests`).toBeLessThanOrEqual(0.05)
+          had.add(n.name)
+        })
+      }
+    }
+    expect(attachedFrames).toBeGreaterThan(10)
+  }, 120000)
 
   it('nobody seated: the ball waits on the table', async () => {
     const w = await world()

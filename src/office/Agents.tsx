@@ -22,6 +22,7 @@ import { ScreenLive } from './screenLive'
 import { deskProps } from './props'
 import { AgentRig, PropBank, buildRig } from './rig'
 import { PlayStage } from './playStage'
+import { makeTypingTools } from './debugPlay'
 import { replay } from '../replay/store'
 import { atMs } from '../replay/engine'
 import { boardDistance, REPLAY_PACE } from '../replay/walk'
@@ -88,6 +89,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
   const props = useMemo(() => (scene.userData.props ??= new PropBank(scene, nodes)) as PropBank, [scene, nodes])
   // what the hands do with things: play in 3D, grips (#135, #164); once per loaded scene
   const playStage = useMemo(() => (scene.userData.playStage ??= new PlayStage(scene, nodes, props)) as PlayStage, [scene, nodes, props])
+  if (world.debug && !world.typing) world.typing = makeTypingTools(world, playStage.typist)
   const tagEl = useRef<HTMLDivElement | null>(null)
   const tagAt = useRef<[number, number, number]>([0, 0, 0])
   // the LIVE desk props (#44): what each desk shows about its agent
@@ -103,6 +105,22 @@ export function Agents({ world }: { world: OfficeWorld }) {
   // handoffs between agents fly as a paper plane (#51)
   const planes = useMemo(() => (scene.userData.planes ??= new PaperPlanes(props, nodes)) as PaperPlanes, [scene, props, nodes])
   world.planes = planes
+  // ?debug=1: window.__office.paper.pass(from, to, method?) forces a pass ('hand' | 'slide' | 'toss' | 'plane'; none: paper-pass.md 1's choice)
+  world.paper = world.debug
+    ? {
+        pass: (from: string, to: string, method?: 'hand' | 'slide' | 'toss' | 'plane') => {
+          planes.pass(from, to, method)
+          const tour = (world as unknown as { tour?: { event: (a: string, ms?: number) => void } }).tour
+          tour?.event(from, 3500)
+          tour?.event(to, 6000)
+        },
+        log: () => planes.passes.log.slice(),
+        choose: (from: string, to: string) => {
+          const c = planes.passes.choose(world.rigs[from], world.rigs[to], world.rigs)
+          return { method: c.method, rule: c.rule, d: c.d, lane: c.lane?.offset ?? null }
+        },
+      }
+    : null
   const reduced = useReducedMotion()
   const layer = useRef<BubbleLayer | null>(null)
   // the timelapse (#158): its own planner, clocked by the replay clock, while the replay is open in the office
@@ -309,8 +327,9 @@ export function Agents({ world }: { world: OfficeWorld }) {
         tagAt.current = [tag.at.x, tag.at.y, tag.at.z]
       }
     }
-    props.hold(new Map(Object.values(rigs).map((r) => [r, r.want])))
+    // a paper handed / slid / tossed (#262) sets who holds it (rig.want) after the stage reset it, before the bank reads it
     planes.update(state.clock.elapsedTime, graph, rigs, reduced)
+    props.hold(new Map(Object.values(rigs).map((r) => [r, r.want])))
     props.update(Math.min(dt, 0.1))
     desks.update(desk, t, Math.min(dt, 0.1), reduced)
     // the monitors show what the director says each agent is doing now (#186); the timelapse shows its record's statuses

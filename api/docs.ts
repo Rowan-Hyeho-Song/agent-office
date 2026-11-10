@@ -1,4 +1,5 @@
 import { handle, type DocStore } from '../src/docs/ingest.js'
+import { signals } from '../src/server/signal.js'
 
 // Vercel function for the GitHub Action (.github/workflows/docs.yml) and the backfill script
 // (scripts/docs/backfill.mjs). Writes the docs tables with the server key; visitors read through RLS.
@@ -33,8 +34,10 @@ async function rest(path: string, init: RequestInit) {
 
 const MERGE = { prefer: 'resolution=merge-duplicates,return=minimal' }
 
-const supabase: DocStore = {
-  upsert: (rows) => rest('docs?on_conflict=source_url', { method: 'POST', headers: MERGE, body: JSON.stringify(rows) }),
+// #240 after a write that went through, one content-free signal per table (table + time, nothing else) tells open pages
+// to re-read; a failed signal never fails the write (src/server/signal.ts)
+const storeFor = (sig: ReturnType<typeof signals>): DocStore => ({
+  upsert: sig.after('docs', (rows) => rest('docs?on_conflict=source_url', { method: 'POST', headers: MERGE, body: JSON.stringify(rows) })),
   setOpenIssues: (repo, open, at) =>
     rest('projects?on_conflict=repo', { method: 'POST', headers: MERGE, body: JSON.stringify({ repo, open_issues: open, updated_at: at }) }),
   addHandoffs: (events) =>
@@ -44,21 +47,25 @@ const supabase: DocStore = {
       body: JSON.stringify(events.map((e) => ({ ...e, kind: 'handoff' }))),
     }),
   // a re-sent (edited) request updates its text; status and the decision columns are not in the row, so stay
-  upsertApprovals: (rows) => rest('approvals?on_conflict=source_url', { method: 'POST', headers: MERGE, body: JSON.stringify(rows) }),
-  decide: (requestUrl, d) =>
+  upsertApprovals: sig.after('approvals', (rows) => rest('approvals?on_conflict=source_url', { method: 'POST', headers: MERGE, body: JSON.stringify(rows) })),
+  decide: sig.after('approvals', (requestUrl, d) =>
     rest(`approvals?source_url=eq.${encodeURIComponent(requestUrl)}`, {
       method: 'PATCH',
       headers: { prefer: 'return=minimal' },
       body: JSON.stringify({ status: 'decided', ...d, updated_at: d.decided_at }),
     }),
-}
+  ),
+})
 
 export async function POST(request: Request) {
   if (!url || !key || !cfg.token) return Response.json({ error: 'not configured' }, { status: 503 })
+  const sig = signals(url, key)
   try {
-    return await handle(request, supabase, cfg)
+    return await handle(request, storeFor(sig), cfg)
   } catch (e) {
     console.error(e)
     return Response.json({ error: 'store failed' }, { status: 502 })
+  } finally {
+    await sig.flush()
   }
 }

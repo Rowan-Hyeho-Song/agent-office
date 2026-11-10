@@ -109,7 +109,7 @@ describe('props stay home unless a hand has them', () => {
               const cn = w.scene.getObjectByName(prop.name + '_contact_' + finger + (hs === 'l' ? '_l' : '')) ?? (hs === 'r' ? null : null)
               if (!cn || !GRIPS[sc.kind]?.[hs]?.contacts.includes(finger)) continue
               const h = rig.parts.hands[hs]
-              const j = finger === 'thumb' ? h.thumb[1]!.node : h.fingers[fi][2]!.node
+              const j = finger === 'thumb' ? h.thumb[2]!.node : h.fingers[fi][2]!.node
               const tipv = finger === 'thumb' ? h.thumbTip! : h.tips[fi]!
               j.updateWorldMatrix(true, false)
               const d = tipv.clone().applyMatrix4(j.matrixWorld).distanceTo(cn.getWorldPosition(new Vector3()))

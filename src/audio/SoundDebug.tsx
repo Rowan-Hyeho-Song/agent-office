@@ -136,6 +136,14 @@ export function SoundDebug() {
     start()
     cue('type', { agent: 'agent_3', keyKind: k })
   }
+  // #225 mouse: a click is down then up ~90 ms later; a scroll is notches 120–170 ms apart (the input bus's timing)
+  const mouseDemo = (what: 'click' | 'scroll') => {
+    start()
+    if (what === 'click') {
+      cue('mouse.down', { agent: 'agent_3' })
+      cue('mouse.up', { agent: 'agent_3', at: 0.09 })
+    } else for (let i = 0, t = 0; i < 6; i++, t += 0.12 + Math.random() * 0.05) cue('mouse.wheel', { agent: 'agent_3', at: t })
+  }
   const measureAll = async () => {
     const out: Partial<Record<CueName, Level>> = {}
     for (const n of CUE_NAMES) out[n] = await measureCue(n)
@@ -292,6 +300,12 @@ export function SoundDebug() {
           </button>
           <button type="button" onClick={() => oneKey('backspace')}>
             백스페이스
+          </button>{' '}
+          <button type="button" onClick={() => mouseDemo('click')}>
+            마우스 클릭
+          </button>
+          <button type="button" onClick={() => mouseDemo('scroll')}>
+            휠 여섯 칸
           </button>
         </div>
         <div>

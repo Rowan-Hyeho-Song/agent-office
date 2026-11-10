@@ -11,7 +11,7 @@ import { TRAFFIC, TrafficPlanner } from './traffic'
 
 // A whole meeting (gather, lines, decide, disperse) through the real traffic planner, the way Agents.tsx drives it:
 // the four agents never come closer than two bodies, everyone reaches its seat, and the meeting ends.
-const meta: DocMeta = { id: 11, kind: 'minutes', repo: 'o/r', folder: 28, title: 'T', agents: [], grade: 'public', approved: true, readable: true, created_at: '', updated_at: '' }
+const meta: DocMeta = { id: 11, kind: 'minutes', repo: 'o/r', folder: 28, title: 'T', agents: [], labels: [], grade: 'public', approved: true, readable: true, created_at: '', updated_at: '' }
 const row = (order: number, from: number, to: number[], text: string) => ({ order, from: { seat: from }, to: to.map((seat) => ({ seat })), text })
 const rows = [row(1, 0, [1], '하나.'), row(2, 1, [2], '둘.'), row(3, 2, [3], '셋.'), row(4, 3, [0], '넷.')]
 const status: StatusMap = Object.fromEntries([0, 1, 2, 3, 4].map((i) => [`agent_${i}`, { state: 'idle' as const, since: 0 }]))

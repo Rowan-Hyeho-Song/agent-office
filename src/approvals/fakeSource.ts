@@ -96,6 +96,8 @@ export class FakeApprovalSource implements ApprovalSource {
   private listeners = new Set<() => void>()
   /** set by the page: opens the panel (so a screenshot script can call approvals.open()) */
   openPanel: () => void = () => {}
+  /** set by the page: something changed (the real office hears it as a server signal, #240) */
+  onChange: () => void = () => {}
 
   role = () => this.r
   subscribe(cb: () => void) {
@@ -110,6 +112,14 @@ export class FakeApprovalSource implements ApprovalSource {
   /** debug: the next decide() fails (shows the error state) */
   failNext(n = 1) {
     this.fail = n
+  }
+  /** debug (#240): a new waiting request arrives while the page is open; the page is told, like the server's signal does */
+  add(title = '새 결재 요청', seat = 1, kind = '결정 요청') {
+    const id = Math.max(0, ...this.rows.map((a) => a.id)) + 1
+    const now = new Date().toISOString()
+    this.rows.push(row({ id, title, kind, requester_seat: seat, created_at: now, updated_at: now, content: '디버그로 더한 결재 요청입니다.', options: kind === '결정 요청' ? ['A 이대로', 'B 다시'] : [] }))
+    this.onChange()
+    return id
   }
   /** debug: back to the sample data */
   reset() {

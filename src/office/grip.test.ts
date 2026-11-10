@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import { describe, expect, it } from 'vitest'
 import { Matrix4, Quaternion, Vector3 } from 'three'
-import { GRIPS, GRIP_S, GripClock, REST, fitContact, handFor, objectFor, stoneGrip, stoneRoll, STONE_PITCH, tipAt, type FingerModel } from './grip'
+import { GRIPS, GRIP_S, GripClock, REST, STONE_ALT, STONE_VARIANT_DEFAULT, fitContact, getStoneVariant, handFor, objectFor, setStoneVariant, stoneGrip, stoneRoll, STONE_PITCH, tipAt, type FingerModel } from './grip'
 import { loadOffice, stubCanvas } from './glbLoad'
 import { contactAxis } from './gripTargets'
 import { buildRig, fingerModelOf } from './rig'
@@ -93,7 +93,7 @@ describe('contact correction on a plain finger', () => {
   it('a contact in front of the finger\'s reach is approached without going through the surface', () => {
     const m = finger()
     // a plane the finger would run into before reaching the point behind it: the tip stays on the outside
-    const target = tipAt(m, 1, 0).add(new Vector3(0, 0, -0.02))
+    const target = tipAt(m, 0.6, 0).add(new Vector3(0, 0, -0.02))
     const fit = fitContact(m, target, new Vector3(0, 0, -1), 0.5)
     expect(fit.off).toBeGreaterThanOrEqual(-1e-4)
   })
@@ -122,6 +122,30 @@ describe('the baked model and the #134 hands', () => {
         expect(g.err[top], `agent_${i} ${top} on top`).toBeLessThanOrEqual(0.003)
         expect(g.off[top]).toBeGreaterThanOrEqual(-1e-4)
       }
+    }
+  })
+})
+
+describe('the two go-grip variants (#282 omok comparison)', () => {
+  it('the current one is the default; the alternative (index 60/55, middle 70/50, discs r 10 mm) also fits the real model (the middle finger on top) within 3 mm', async () => {
+    expect(STONE_VARIANT_DEFAULT).toBe('current')
+    const { scene, nodes } = await loadOffice()
+    try {
+      for (const variant of ['current', 'alt'] as const) {
+        setStoneVariant(variant)
+        expect(getStoneVariant()).toBe(variant)
+        for (let i = 0; i < 4; i++) {
+          const hand = buildRig(scene, nodes, i).hands.r
+          const hold = GRIPS.piece.r!.hold
+          const models = { index: fingerModelOf(hand, 0, 'r')!, middle: fingerModelOf(hand, 1, 'r')! }
+          const g = stoneGrip(models, 'middle', { index: hold[0], middle: hold[1] }, STONE_PITCH, stoneRoll(models, 'middle', { index: hold[0], middle: hold[1] }, STONE_PITCH))
+          expect(g.err.middle, `${variant} agent_${i}`).toBeLessThanOrEqual(0.003)
+          expect(g.off.middle).toBeGreaterThanOrEqual(-1e-4)
+        }
+      }
+      expect(STONE_ALT.disc).toBeCloseTo(0.01, 6)
+    } finally {
+      setStoneVariant(STONE_VARIANT_DEFAULT)
     }
   })
 })

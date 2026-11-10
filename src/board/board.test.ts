@@ -106,6 +106,26 @@ describe('boardFromLibrary', () => {
     expect([...b.doing, ...b.review, ...b.done].some((c) => c.title === '개인' || c.title === '비밀')).toBe(false)
     expect(b.decisions.map((d) => [d.n, d.title])).toEqual([[2, '끝']])
   })
+  it('uses the stage of the plan when it has one (#241): the same rule as the library; waiting is not on the board; no progress = the old guess', () => {
+    const p = (stage: 'waiting' | 'doing' | 'review' | 'done') => ({ stage, checks: null, pending: 0 })
+    const metas = [
+      meta({ kind: 'plan', folder: 1, progress: p('doing') }, 1),
+      meta({ kind: 'plan', folder: 2, progress: p('review') }, 2),
+      meta({ kind: 'plan', folder: 3, progress: p('done') }, 3),
+      meta({ kind: 'plan', folder: 4, progress: p('waiting') }, 4),
+      // a report exists but the issue is still open: the guess said done, the stage says doing
+      meta({ kind: 'plan', folder: 5, progress: p('doing') }, 5),
+      meta({ kind: 'report', folder: 5 }, 6),
+      // no progress (filed before it existed): the guess
+      meta({ kind: 'plan', folder: 6 }, 7),
+      meta({ kind: 'report', folder: 7 }, 8),
+    ]
+    const b = boardFromLibrary(groupLibrary(metas))
+    expect(b.doing.map((c) => c.n).sort()).toEqual([1, 5, 6])
+    expect(b.review.map((c) => c.n)).toEqual([2])
+    expect(b.done.map((c) => c.n).sort()).toEqual([3, 7])
+    expect([...b.doing, ...b.review, ...b.done].some((c) => c.n === 4)).toBe(false)
+  })
 })
 
 describe('foldBoard', () => {

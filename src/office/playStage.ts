@@ -25,7 +25,8 @@ import {
 } from 'three'
 import type { Goal } from './director'
 import type { GripDemo } from './debugPlay'
-import { GRIPS, GripClock, STONE_H, STONE_PITCH, STONE_PITCH_FLAT, handFor, stoneGrip, stoneRoll, tipAt, type Curl, type StoneGrip } from './grip'
+import { GRIPS, GripClock, STONE_ABD, STONE_FALLBACK_M, STONE_H, STONE_PITCH, STONE_PITCH_FLAT, handFor, stoneGrip, stoneRoll, tipAt, type StoneGrip } from './grip'
+import { DIP_K, POSES, fingerFromC, toVec } from './handPose'
 import { contactNormal, fitFingers, handGripMatrix, offsetOf, resolveTarget, type GripTarget } from './gripTargets'
 import { fingerModelOf, type AgentRig, type PropBank } from './rig'
 import { noteTourEvent } from './tourEvents'
@@ -35,9 +36,10 @@ import { gameAt, N, type OmokView } from '../play/omok'
 import { rallyAt, type Dims, type Rally } from '../play/pingpong'
 import { CARRY_HOLD, HOLD_DEFAULT, PLANTS, canPose, dropAt, landing, lerpHold, plantsFrom, pourAt, solvePour, spoutOf, type Plant } from './water'
 import { WATER_S } from './waterRun'
-import { type Place, ease, followWeight, habitOf, placeSequence, swingTilt, swingTravel } from '../play/choreo'
+import { type Place, SEQ, ease, followWeight, habitOf, placeSequence, swingTilt, swingTravel } from '../play/choreo'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
+import { Typist } from './typist'
 
 const UP = new Vector3(0, 1, 0)
 const DEG = Math.PI / 180
@@ -51,6 +53,8 @@ const BLADE_Y = 0.175
 const FACE_GAP = 0.023
 /** the held object rises from where it rests to where it is held in this long, s */
 const LIFT_S = 0.35
+/** the grips whose approach turns the hand along the reach direction (#255, grips.md 1.1): the high-shelf book, the board marker, the ping-pong paddle */
+const REACH_KINDS = new Set(['book', 'marker', 'paddle'])
 /** carrying a prop back to where it rests, s */
 const PUT_S = 0.4
 
@@ -94,14 +98,30 @@ const blend = (a: Matrix4, b: Matrix4, k: number, out = new Matrix4()) => {
 /** a frame from three axes (columns) and an origin */
 const frame = (x: Vector3, y: Vector3, z: Vector3, o: Vector3) => new Matrix4().makeBasis(x, y, z).setPosition(o)
 
+/** a finger's [MCP, PIP, total abduction] into a 20-angle vector (DIP follows the PIP, k · PIP) */
+function setFingerJoints(vec: number[], k: number, j: readonly number[]) {
+  vec[k * 4] = j[0]
+  vec[k * 4 + 1] = j[1]
+  vec[k * 4 + 2] = DIP_K[k] * j[1]
+  vec[k * 4 + 3] = j[2]
+}
+/** pre-grip / closed / after as 20-angle vectors, weighted by the grip stage's mix */
+function mixVec(pre: readonly number[], hold: readonly number[], after: readonly number[], mix: readonly number[]) {
+  return pre.map((x, i) => x * mix[0] + hold[i] * mix[1] + after[i] * mix[2])
+}
+
 export class PlayStage {
+  /** the hands at the keyboard and the mouse (#225) */
+  readonly typist: Typist
+  /** the agents that typed this frame (the others' typing drive fades out) */
+  private typed = new Set<string>()
   /** the play sounds (#194 ②): one line at each event below */
   private sounds = new PlaySounds()
   private clocks = new Map<string, GripClock>()
   /** when each hand was last driven by grip() (the scene clock, s) */
   private lastGripT = new Map<string, number>()
   private targets = new Map<string, GripTarget | null>()
-  private fits = new Map<string, { curl: number[]; spread: number[] } | null>()
+  private fits = new Map<string, { hold: number[] } | null>()
   private lastHand = new Map<string, Matrix4>()
   private forced = new Set<Object3D>()
   /** the object pose the last grip() call placed the hand from (the partner hand of a two-handed hold follows it) */
@@ -130,7 +150,11 @@ export class PlayStage {
   private reactedGame = new Map<string, number>()
   /** each mover's place sequence of this frame (tests read it) */
   readonly lastPlace: Record<string, Place> = {}
+  /** per mover: whether the move's hand began from the pick (a move first seen after its pick, a seat taken mid-move, is left to the board: no hand ever took its stone) */
+  private handMove: Record<string, { key: string; ok: boolean }> = {}
   private stoneFrames = new Map<string, StoneGrip[]>()
+  /** per agent, decided once from the fits: the go grip, or (when its tips cannot land on the stone's discs within STONE_FALLBACK_M at some pitch) the tripod pinch */
+  private stoneModes = new Map<string, 'go' | 'pinch'>()
 
   // water and the book
   private drops: InstancedMesh | null = null
@@ -146,6 +170,7 @@ export class PlayStage {
   ) {
     this.sceneRef = scene
     scene.updateMatrixWorld(true)
+    this.typist = new Typist(nodes)
     this.tableNode = scene.getObjectByName('pp_table') ?? undefined
     const ex = this.tableNode?.userData as { size?: number[]; net_h?: number } | undefined
     if (ex?.size) this.dims = dimsOf(ex.size, ex.net_h ?? 0.15)
@@ -236,26 +261,22 @@ export class PlayStage {
     return this.targets.get(key)!
   }
 
-  /** the finger values at the closed stage for this hand and object: the table's, each touching finger bent onto its contact */
+  /**
+   * The fingers at the closed stage for this hand and object, as 20 joint angles (handPose.toVec): the table's hold (hand-poses.md 3), each
+   * touching finger replaced by the joints that put its tip on its contact (grip.ts fitContact: a finger MCP / PIP / abduction, the thumb
+   * CMC flex / abduct / MCP / IP). What is fitted is exactly what the rig shows.
+   */
   private holdFit(rig: AgentRig, side: 'l' | 'r', t: GripTarget) {
     const seat = Number(rig.id.split('_')[1])
     const key = `${t.key}:${seat}`
     if (!this.fits.has(key)) {
       const spec = GRIPS[t.kind][side]!
-      const curl = [...spec.hold]
-      const spread = [0, 0, 0, 0]
-      const fits = fitFingers(t, rig.parts.hands[side], offsetOf(t.key, seat))
-      for (const f of fits) {
-        const k = ['index', 'middle', 'ring', 'little'].indexOf(f.finger)
-        if (f.finger === 'thumb') {
-          curl[4] = f.a
-          curl[5] = f.b
-        } else {
-          curl[k] = f.a
-          spread[k] = f.b
-        }
+      const hold = rig.curlVec(side, spec.hold)
+      for (const f of fitFingers(t, rig.parts.hands[side], offsetOf(t.key, seat))) {
+        if (f.finger === 'thumb') hold.splice(16, 4, ...f.joints)
+        else setFingerJoints(hold, ['index', 'middle', 'ring', 'little'].indexOf(f.finger), f.joints)
       }
-      this.fits.set(key, { curl, spread })
+      this.fits.set(key, { hold })
     }
     return this.fits.get(key)!
   }
@@ -298,9 +319,7 @@ export class PlayStage {
     } else if (out.stage !== 'rest') this.lastHand.set(lastKey, target.clone())
     if (out.stage === 'rest') return false
     const fit = this.holdFit(rig, side, tgt)
-    const hold = fit.curl as unknown as Curl
-    const curl = [0, 1, 2, 3, 4, 5].map((k) => spec.pre[k] * out.mix[0] + hold[k] * out.mix[1] + spec.after[k] * out.mix[2])
-    rig.drive[side] = { target, w: out.wHand, curl, wc: out.wCurl, spread: fit.spread.map((s) => s * out.mix[1]) }
+    rig.drive[side] = { target, w: out.wHand, curl: null, angles: mixVec(rig.curlVec(side, spec.pre), fit.hold, rig.curlVec(side, spec.after), out.mix), wc: out.wCurl, spread: null, reach: REACH_KINDS.has(kind) }
     if (tgt.obj && info) {
       rig.want = { kind, side: 'r' === side || kind !== 'book' ? side : side, prefer: prefer ?? objName, attached: out.attached }
       if (out.attached) {
@@ -362,6 +381,7 @@ export class PlayStage {
   update(inp: StageIn) {
     for (const node of this.forced) this.props.force(node, null)
     this.forced.clear()
+    this.typed.clear()
     this.tag = null
     for (const id in inp.rigs) {
       const r = inp.rigs[id]
@@ -396,9 +416,10 @@ export class PlayStage {
     for (const id of ids) if (inp.gripDemo?.agent !== id) this.solo(inp.rigs[id], inp.goals[id], inp, pp, og)
     this.demo(inp)
     this.putBack(inp)
+    for (const id of ids) if (!this.typed.has(id)) this.typist.fade(inp.rigs[id], inp.dt)
     for (const id of ids) {
-      inp.rigs[id].applyDrive('l')
-      inp.rigs[id].applyDrive('r')
+      inp.rigs[id].applyDrive('l', inp.t, inp.reduced)
+      inp.rigs[id].applyDrive('r', inp.t, inp.reduced)
     }
     this.book(inp)
     this.water(inp)
@@ -520,6 +541,7 @@ export class PlayStage {
         return stoneGrip(models, top, { index: hold[0], middle: hold[1] }, pitch, stoneRoll(models, top, { index: hold[0], middle: hold[1] }, pitch))
       })
       this.stoneFrames.set(rig.id, f)
+      this.stoneModes.set(rig.id, f.every((g) => g.err[top] <= STONE_FALLBACK_M) ? 'go' : 'pinch')
     }
     return f
   }
@@ -695,6 +717,9 @@ export class PlayStage {
     const habit = habitOf(id)
     const p = placeSequence(mv.sinceMs, mv.thinkMs, habit)
     this.lastPlace[id] = p
+    const mk = `${s.seed}:${view.game}:${mv.cell}`
+    if (this.handMove[id]?.key !== mk) this.handMove[id] = { key: mk, ok: mv.sinceMs < SEQ.pick }
+    if (!this.handMove[id].ok) return
     if (p.stage === 'rest' && !p.landed) return
     const stone = this.props.info(rig, 'piece', `prop_piece_${wantColor === 1 ? 'a' : 'b'}`)
     // the opponent's last stone: a 10° glance while thinking; the chin hand and the 5° tilt of the defensive one
@@ -740,15 +765,49 @@ export class PlayStage {
     const spec = GRIPS.piece.r!
     // the fingers: pre-grip → the 바둑식 grip as the stone is picked, each letting go when it should
     const free = (k: number) => (k === 0 ? p.freeIndex : k === 1 ? p.freeMiddle : p.freeRest)
+    const fan = rig.fanOf(side)
+    const curlJ = (k: number, c: number) => {
+      const f = fingerFromC(k, c, fan[k])
+      return [f.mcp, f.pip, f.abd]
+    }
     const curl = [0, 1, 2, 3, 4, 5].map((k) => {
-      const held = k === 0 ? mix(sf[f0].index.a, sf[f0 + 1].index.a) : k === 1 ? mix(sf[f0].middle.a, sf[f0 + 1].middle.a) + 0.02 * p.press : spec.hold[k]
+      const held = k === 5 || k === 4 ? spec.hold[k] : k < 2 ? spec.hold[k] : spec.hold[k]
       // the pick is a thumb + index pinch; the arc re-grips it into the go grip
       const pinch = [0.6, 0.25, 0.3, 0.35, 0.15, 0.7][k]
       const grip = pinch + (held - pinch) * p.regrip
       const closed = spec.pre[k] + (grip - spec.pre[k]) * p.close
       return closed + (spec.after[k] - closed) * free(k === 5 || k === 4 ? 2 : k)
     })
-    rig.drive[side] = { target: hand, w: p.w, curl, wc: p.w, spread: [mix(sf[f0].index.b, sf[f0 + 1].index.b) * p.close * (1 - p.freeRest), mix(sf[f0].middle.b, sf[f0 + 1].middle.b) * p.close * (1 - p.freeMiddle), 0, 0] }
+    const angles = rig.curlVec(side, curl)
+    // the index and the middle finger: full joints (MCP, PIP, abduction) from the stone fits, blended pre-grip → pinch → go grip → after like the curls above
+    for (const k of [0, 1]) {
+      const held = [0, 1, 2].map((i) => mix(sf[f0][k === 0 ? 'index' : 'middle'].j[i], sf[f0 + 1][k === 0 ? 'index' : 'middle'].j[i]))
+      if (k === 1) {
+        held[0] += 1.7 * p.press
+        held[1] += 2 * p.press
+      }
+      const pinch = curlJ(k, [0.6, 0.25][k])
+      const pre = curlJ(k, spec.pre[k])
+      const after = curlJ(k, spec.after[k])
+      const j = [0, 1, 2].map((i) => {
+        const grip = pinch[i] + (held[i] - pinch[i]) * p.regrip
+        const closed = pre[i] + (grip - pre[i]) * p.close
+        return closed + (after[i] - closed) * free(k)
+      })
+      setFingerJoints(angles, k, j)
+    }
+    // an agent whose fingers cannot reach the stone's discs holds it with the tripod pinch instead (decided once per agent from the fits, deterministic)
+    const pinch = this.stoneModes.get(rig.id) === 'pinch'
+    if (pinch) {
+      const tri = toVec(POSES.tripod)
+      const pre = rig.curlVec(side, spec.pre)
+      const after = rig.curlVec(side, spec.after)
+      angles.forEach((_, i) => {
+        const closed = pre[i] + (tri[i] - pre[i]) * p.close
+        angles[i] = closed + (after[i] - closed) * free(0)
+      })
+    }
+    rig.drive[side] = { target: hand, w: p.w, curl: null, angles, abdLimits: pinch ? null : [STONE_ABD.index, STONE_ABD.middle, undefined, undefined], wc: p.w, spread: null }
     // the stone: the prop piece, in the hand until it lands; the board's own instance shows from the landing
     if (stone) {
       rig.want = { kind: 'piece', side, prefer: `prop_piece_${wantColor === 1 ? 'a' : 'b'}`, attached: p.attached }
@@ -859,13 +918,42 @@ export class PlayStage {
         const nib = new Vector3(c.x + 0.05 * Math.sin(sc * 1.1) + 0.02 * Math.sin(sc * 4), c.y + 0.005, c.z + 0.04 * Math.cos(sc * 0.8) + 0.02 * Math.cos(sc * 5))
         const held = this.writing(nib, fwd.clone().negate(), 0.071, 45 * DEG, 8 * DEG * Math.sin(sc * 5))
         this.grip(rig, 'r', 'tablet_pen', pen.node.name, true, held, inp)
-        // the other hand keeps typing (the pose); nothing more here
+        // the other hand keeps typing: the left types, the right holds the pen
+        if (goal.pose === 'type') this.typeAtDesk(rig, inp, seat, true)
       }
       return
     }
     if (goal.pose === 'idle' && resting && goal.spot === `work_${seat}` && (seat === 0 || seat === 1 || seat === 3 || seat === 4)) {
       this.grip(rig, 'r', 'mouse', `desk_${seat}_mouse`, true, null, inp)
     }
+    if (goal.pose === 'type' && resting) this.typeAtDesk(rig, inp, seat, false)
+  }
+
+  /**
+   * Working at the desk (#225): the hands type what the schedule says, the right hand now and then goes to the mouse (the grip stage of the
+   * mouse, blended with the keyboard hand), clicks and scrolls. `leftOnly`: the right hand holds the tablet pen.
+   */
+  private typeAtDesk(rig: AgentRig, inp: StageIn, seat: number, leftOnly: boolean) {
+    // a plane gesture owns the hands while it lasts
+    if (rig.gesture && inp.t < rig.gesture.until) return
+    const ty = this.typist
+    const t = ty.frozen[rig.id] ?? inp.t
+    const frame = ty.step(rig, seat, {
+      t,
+      dt: inp.dt,
+      reduced: inp.reduced,
+      activity: inp.status[rig.id]?.activity,
+      dilation: rig.gestureMin > 0 ? rig.gestureMin / 0.15 : 1,
+      still: rig.ambient === 0,
+      leftOnly,
+      hasMouse: seat !== 2,
+    })
+    if (!frame) return
+    this.typed.add(rig.id)
+    ty.warm(rig, seat, 1.5, inp.reduced)
+    if (leftOnly || seat === 2) return
+    this.grip(rig, 'r', 'mouse', `desk_${seat}_mouse`, frame.mouseWant, null, inp)
+    ty.mouseBlend(rig, seat, frame, rig.drive.r !== frame.kb ? rig.drive.r : null, t, inp.reduced)
   }
 
   /**
@@ -934,9 +1022,8 @@ export class PlayStage {
     const hand = rig.parts.hands[side]
     const seat = Number(rig.id.split('_')[1])
     const target = handFor(objPose, tgt.pg, handGripMatrix(hand)).multiply(offsetOf(tgt.key, seat))
-    const fit = tgt.contacts.length ? this.holdFit(rig, side, tgt) : { curl: [...spec.hold], spread: [0, 0, 0, 0] }
-    const curl = [0, 1, 2, 3, 4, 5].map((k) => spec.pre[k] * out.mix[0] + fit.curl[k] * out.mix[1] + spec.after[k] * out.mix[2])
-    rig.drive[side] = { target, w: out.wHand * scale, curl, wc: out.wCurl * scale, spread: fit.spread.map((x) => x * out.mix[1]) }
+    const hold = tgt.contacts.length ? this.holdFit(rig, side, tgt).hold : rig.curlVec(side, spec.hold)
+    rig.drive[side] = { target, w: out.wHand * scale, curl: null, angles: mixVec(rig.curlVec(side, spec.pre), hold, rig.curlVec(side, spec.after), out.mix), wc: out.wCurl * scale, spread: null }
   }
   private rightHand(rig: AgentRig, kind: string, tgt: GripTarget, objPose: Matrix4) {
     this.partner(rig, kind, 'r', tgt, objPose, 'l')

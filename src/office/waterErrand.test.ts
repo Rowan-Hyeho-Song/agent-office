@@ -35,6 +35,9 @@ describe('watering is an errand: take the can from where it rests, bring it back
       const p = STANDS[plant.name]
       expect(Math.hypot(at.pour.x - p.x, at.pour.z - p.z), 'it pours at the plant stand').toBeLessThan(0.15)
       expect(Math.hypot(at.put.x - c.x, at.put.z - c.z), 'it puts the can down at the can stand').toBeLessThan(0.15)
+      // the fig: the can rests on its stand in front of it (#259, watering.md 1.1), so lifting, pouring and putting back happen without a step
+      if (plant.name === 'plant_corner')
+        for (const k of ['pour', 'put'] as const) expect(Math.hypot(at[k].x - at.lift.x, at[k].z - at.lift.z), `fig: ${k} where it lifted, no walk`).toBeLessThan(0.1)
       // exactly one grasp and one release, of the can, no move at either, the whole time within the body's reach
       expect(s.byProp, 'only the can was taken').toEqual({ prop_watering_can: 1 })
       expect(s.grasps).toBe(1)
@@ -49,7 +52,7 @@ describe('watering is an errand: take the can from where it rests, bring it back
       const can = w.nodes.prop_watering_can
       const home = w.props.homeWorld(can).decompose(new Vector3(), new Quaternion(), new Vector3())
       void home
-      expect(can.position.distanceTo(new Vector3(CAN_HOME.x, 0.235, CAN_HOME.z)), 'back exactly where it rests').toBeLessThan(0.001)
+      expect(can.position.distanceTo(new Vector3(CAN_HOME.x, CAN_HOME.y, CAN_HOME.z)), 'back exactly where it rests').toBeLessThan(0.001)
       if (LOG)
         appendFileSync(
           LOG,

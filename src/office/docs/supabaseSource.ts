@@ -1,9 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Role } from '../../approvals/source'
-import { ownerMeta, type CoverSource, type DocBody, type DocMeta } from '../../docs/library'
+import { sanitizeProgress } from '../../docs/progress'
+import { ownerMeta, stringsOnly, type CoverSource, type DocBody, type DocMeta } from '../../docs/library'
 import type { DocsSource } from '../../docs/source'
 
 const COLS = 'id, kind, repo, folder, title, agents, grade, approved, created_at, updated_at'
+/** the issue's labels live in the document's `data` (the Action stores them for a plan); the view hands them out as `labels` */
+const OWNER_COLS = `${COLS}, labels:data->labels, progress:data->progress`
 const LIMIT = 1000
 
 /**
@@ -15,13 +18,15 @@ export function supabaseDocsSource(supabase: SupabaseClient): DocsSource {
   return {
     async list(role: Role): Promise<DocMeta[]> {
       if (role === 'owner') {
-        const { data, error } = await supabase.from('docs').select(COLS).order('created_at').limit(LIMIT)
+        const { data, error } = await supabase.from('docs').select(OWNER_COLS).order('created_at').limit(LIMIT)
         if (error) throw error
         return (data as CoverSource[]).map(ownerMeta)
       }
-      const { data, error } = await supabase.from('docs_cover').select(`${COLS}, readable`).order('created_at').limit(LIMIT)
+      // `*`: the view hands out only cover columns, and `labels` (#236) and `progress` (#241) arrive once supabase/docs.sql has been run again; naming
+      // it would make the whole read fail (400, undefined column) on a database that is a step behind the code (#289)
+      const { data, error } = await supabase.from('docs_cover').select('*').order('created_at').limit(LIMIT)
       if (error) throw error
-      return data as DocMeta[]
+      return (data as DocMeta[]).map((d) => ({ ...d, labels: stringsOnly(d.labels), progress: sanitizeProgress(d.progress) }))
     },
     async read(ids: number[]): Promise<DocBody[]> {
       if (!ids.length) return []

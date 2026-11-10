@@ -1,7 +1,8 @@
 import { BufferGeometry, Float32BufferAttribute, Mesh, Object3D } from 'three'
 import { describe, expect, it } from 'vitest'
 import { PaperPlanes } from './plane'
-import { HAND_SHAPES, jointAngles } from './rig'
+import { HAND_POSES } from './rig'
+import { POSES } from './handPose'
 
 /** a paper plane like prop_plane: nose at −z (a point), tail at +z (wings ±3 cm), keel down to y −0.011 at the tail */
 function plane() {
@@ -38,37 +39,18 @@ describe('PaperPlanes.pinchSpot (#62)', () => {
   })
 })
 
-describe('HAND_SHAPES (#62, #134)', () => {
-  it('the nine shapes of agents.md 2.7, one bend per finger', () => {
-    expect(Object.keys(HAND_SHAPES)).toEqual(['rest', 'type', 'hold', 'pinch', 'point', 'wave', 'frame', 'stamp', 'yield'])
-    expect(HAND_SHAPES.rest).toEqual({ f: [0.25, 0.25, 0.3, 0.35], thumb: [0.2, 0] })
-    expect(HAND_SHAPES.hold).toEqual({ f: [0.85, 0.88, 0.9, 0.92], thumb: [0.7, 1] })
-    expect(HAND_SHAPES.frame.thumb).toEqual([0, -0.85])
+describe('HAND_POSES (#62, #134, #282)', () => {
+  it('the nine shapes of agents.md 2.7 are named poses of hand-poses.md 2', () => {
+    expect(Object.keys(HAND_POSES)).toEqual(['rest', 'type', 'hold', 'pinch', 'point', 'wave', 'frame', 'stamp', 'yield'])
+    expect(HAND_POSES.rest).toBe(POSES.rest)
+    expect(HAND_POSES.hold).toBe(POSES.wrap)
+    expect(HAND_POSES.pinch).toBe(POSES.ok)
+    expect(HAND_POSES.frame.thumb).toEqual({ cmcFlex: -15, cmcAbd: 10, mcp: 0, ip: 0 })
   })
-  it('pinch: the index folds onto a straight thumb turned across the palm (the tips meet on the #148 hand)', () => {
-    const { pinch } = HAND_SHAPES
-    expect(pinch.f[0]).toBeGreaterThanOrEqual(0.85)
-    expect(pinch.thumb[0]).toBe(0)
-    expect(pinch.thumb[1]).toBeGreaterThan(0.5)
-  })
-})
-
-describe('jointAngles (#134)', () => {
-  const D = Math.PI / 180
-  it('root 75°·c, middle 90°·c, tip 60°·c', () => {
-    const a = jointAngles(HAND_SHAPES.hold, 'r')
-    expect(a.f[0][0]).toBeCloseTo(75 * D * 0.85)
-    expect(a.f[1][1]).toBeCloseTo(90 * D * 0.88)
-    expect(a.f[3][2]).toBeCloseTo(60 * D * 0.92)
-  })
-  it('the thumb: Rz(sx·60°·oppose)·Rx(55°·bend), tip Rx(70°·bend); the left hand opposes the other way', () => {
-    const r = jointAngles(HAND_SHAPES.hold, 'r')
-    const l = jointAngles(HAND_SHAPES.hold, 'l')
-    expect(r.t1z).toBeCloseTo(60 * D)
-    expect(l.t1z).toBeCloseTo(-60 * D)
-    expect(r.t1x).toBeCloseTo(55 * D * 0.7)
-    expect(r.t2x).toBeCloseTo(70 * D * 0.7)
-    // 메시's frame opens the thumb outward
-    expect(jointAngles(HAND_SHAPES.frame, 'r').t1z).toBeLessThan(0)
+  it('pinch: 끝 집기, the index bent onto the opposed thumb, the other three stretched', () => {
+    const { pinch } = HAND_POSES
+    expect(pinch.f[0].mcp).toBeGreaterThanOrEqual(40)
+    expect(pinch.f[1].mcp).toBeLessThan(20)
+    expect(pinch.thumb.ip).toBe(50)
   })
 })

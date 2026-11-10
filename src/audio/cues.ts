@@ -4,6 +4,7 @@
 
 import { MAX_SFX, audioGraph, duck, panner, type Bus, type Vec } from './engine'
 import { keyVoice, type KeyKind } from './keys'
+import { mouseVoice } from './mouse'
 import { getSetting } from './settings'
 import { knock, midi, noise, tone, type Out } from './synth'
 
@@ -52,6 +53,34 @@ export const CUES = {
     length: 0.1,
     // each seat's keyboard is a little different, half as far apart as their voices (±7%)
     play: (o, v) => keyVoice(o, v.keyKind ?? 'char', 1 + (v.pitch - 1) * 0.5),
+  },
+  // the agents' mouse (#225 input bus): synth microswitch clicks and wheel notches, under a keystroke (mouse.ts)
+  'mouse.down': {
+    label: '마우스 누름',
+    kind: 'repeat',
+    bus: 'keys',
+    spatial: true,
+    gap: 38,
+    length: 0.03,
+    play: (o, v) => mouseVoice(o, 'down', 1 + (v.pitch - 1) * 0.5),
+  },
+  'mouse.up': {
+    label: '마우스 뗌',
+    kind: 'repeat',
+    bus: 'keys',
+    spatial: true,
+    gap: 38,
+    length: 0.03,
+    play: (o, v) => mouseVoice(o, 'up', 1 + (v.pitch - 1) * 0.5),
+  },
+  'mouse.wheel': {
+    label: '마우스 휠 한 칸',
+    kind: 'repeat',
+    bus: 'keys',
+    spatial: true,
+    gap: 30,
+    length: 0.02,
+    play: (o, v) => mouseVoice(o, 'wheel', 1 + (v.pitch - 1) * 0.5),
   },
   'plane.throw': {
     label: '종이비행기 슉',
@@ -388,6 +417,7 @@ export type CueOpts = {
 // ── replay speed (sound.md 6): ×1 as is, ×4 half the busywork and events −3 dB, ×16 events only at −6 dB ──
 let speed = 1
 export const setCueSpeed = (s: number) => void (speed = s)
+export const getCueSpeed = () => speed
 
 /** whether a cue of this kind plays at this replay speed, and its gain factor (pure, tested) */
 export function speedRule(kind: Kind, s: number, roll: number): number {
@@ -409,7 +439,8 @@ export function keyRoll(key: string): number {
 // ── the voice cap and repeats ──
 /** last time per cue (per agent for typing and voices, so five typists don't share one 38 ms gap) */
 const lastAt = new Map<string, number>()
-const gapKey = (name: CueName, agent?: string) => ((name === 'type' || name === 'voice') && agent ? `${name}:${agent}` : name)
+const PER_AGENT = new Set<CueName>(['type', 'voice', 'mouse.down', 'mouse.up', 'mouse.wheel'])
+const gapKey = (name: CueName, agent?: string) => (PER_AGENT.has(name) && agent ? `${name}:${agent}` : name)
 /** how many times each cue has sounded (?debug level scripts read it through window.__sound) */
 export const cueCounts = new Map<CueName, number>()
 const lastPitch = new Map<CueName, number>()
