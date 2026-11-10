@@ -282,6 +282,21 @@ describe('the stream: a fixed pool', () => {
     expect(p.y).toBeCloseTo(0.4 - 0.5 * 9.81 * 0.09, 1)
     expect(p.x).toBeCloseTo(0.1, 1)
   })
+
+  it("#185 sound: a shed drop is told when it reaches the soil (once, where it lands); the stream's own drops are not", () => {
+    const s = new Stream(40, 3)
+    for (let k = 0; k < 30; k++) s.step(0.016, { tip, dir, flow: 1 }, soil)
+    s.drop(tip, { x: 0, y: -0.01, z: 0 })
+    const landed: { x: number; y: number; z: number }[] = []
+    for (let k = 0; k < 120; k++) {
+      s.step(0.016, null, soil)
+      landed.push(...s.takeMarkedLanded())
+    }
+    expect(landed, 'the one shed drop, not the stream').toHaveLength(1)
+    expect(landed[0].y).toBe(soil.y)
+    expect(landed[0].x).toBeCloseTo(tip.x, 2)
+    expect(s.takeMarkedLanded()).toEqual([])
+  })
 })
 
 describe('the soil: dark over 0.8 s, dry over 60 s', () => {

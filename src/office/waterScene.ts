@@ -48,6 +48,8 @@ export class WaterScene {
   private dripTriggers = 0
   /** which watering's drips are falling now (dripTriggers when they started): keys their sound for the replay */
   private dripRun = 0
+  /** the shake's last drops that have landed so far (keys their sound) */
+  private shakeDrops = 0
   private swing = new Map<string, Swaying>()
   private discs = new Map<string, Mesh>()
   private last: Plant | null = null
@@ -139,6 +141,8 @@ export class WaterScene {
           for (const t of lastDropTimes(pour.plant.name)) if (this.prevU < t && pour.u >= t) this.stream.drop(pour.tip, { x: 0, y: -0.01, z: 0 })
         }
       }
+      // the shake's last two drops reaching the soil, 0.2 s apart: a small "톡" each (watering.md 3, designer; sound.md 4.2 water.drip)
+      for (const at of this.stream.takeMarkedLanded()) cue('water.drip', { pos: at, key: `drip:shake:${plant.name}:${this.shakeDrops++}` })
     }
     if (pour) this.prevU = pour.u
     else {
