@@ -148,6 +148,10 @@ export class PlayStage {
   private rings: Mesh[] = []
   private line: Mesh | null = null
   private reactedGame = new Map<string, number>()
+  /** the faces of a result (#193): the games and points already answered, the coffee drinkers who had their first sip */
+  private faced = new Set<string>()
+  private lastPoint = new Map<string, string>()
+  private sipped = new Map<string, number>()
   /** each mover's place sequence of this frame (tests read it) */
   readonly lastPlace: Record<string, Place> = {}
   /** per mover: whether the move's hand began from the pick (a move first seen after its pick, a seat taken mid-move, is left to the board: no hand ever took its stone) */
@@ -508,6 +512,12 @@ export class PlayStage {
     const before = playing ? rallyAt(s.seed, s.players, tMs - 2000, d, true) : null
     if (playing && before && (before.score[0] !== rally.score[0] || before.score[1] !== rally.score[1]) && before.game === rally.game) {
       this.tag = { text: `${rally.score[0]} : ${rally.score[1]}`, at: this.tableWorld([0, d.netH! + 0.35, 0]) }
+      // the one who lost the point is startled (놀람); once per point
+      const pk = `${rally.game}|${rally.score[0]}:${rally.score[1]}`
+      if (this.lastPoint.get(s.spot) !== pk) {
+        this.lastPoint.set(s.spot, pk)
+        inp.rigs[s.players[rally.score[0] > before.score[0] ? 1 : 0]]?.faceEvent('surprised', inp.t)
+      }
       for (const p of s.players) noteTourEvent(p, 2500) // the tour (#207): a point is an event at both players
     }
   }
@@ -628,6 +638,16 @@ export class PlayStage {
         this.line.rotation.set(0, Math.atan2(-dir.z, dir.x), 0)
         this.line.scale.set(dir.length() * k, 1, 1)
         ;(this.line.material as MeshBasicMaterial).color.set(col)
+      }
+    }
+    // the faces of the result: the winner is glad (기쁨), the loser embarrassed (당황); an expression is information, reduced motion keeps it
+    if (view.phase === 'won' && view.winner && view.wonMs > 500) {
+      const fk = `${key}:${view.game}`
+      if (!this.faced.has(fk)) {
+        this.faced.add(fk)
+        const w = (view.winner === 1 ? view.black : (1 - view.black)) as 0 | 1
+        inp.rigs[s.players[w]]?.faceEvent('joy', inp.t)
+        inp.rigs[s.players[1 - w]]?.faceEvent('embarrassed', inp.t)
       }
     }
     if (inp.reduced) return
@@ -868,6 +888,11 @@ export class PlayStage {
       if (pressing) this.button(rig, 'coffee_button', u, inp)
       else if (cup) {
         const k = ((u - 1.8) % 12) / 12
+        // the first sip of the cup (기쁨)
+        if (u - 1.8 > 0.7 && this.sipped.get(rig.id) !== this.arrivedAt.get(rig.id)) {
+          this.sipped.set(rig.id, this.arrivedAt.get(rig.id) ?? 0)
+          rig.faceEvent('joy', inp.t)
+        }
         const sipping = k < 0.12 ? Math.sin((k / 0.12) * Math.PI) : 0
         const tilt = 30 * DEG * sipping
         // in front of the chest, the handle to the right; the sip tips it toward the face and lifts it 8 cm

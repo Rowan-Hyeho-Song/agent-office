@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DutySource, NIGHT, applyDuty, dutyOf, dutyStatus, nightDuty } from './duty'
+import { DutySource, NIGHT, applyDuty, dutyOf, dutyStatus, isLateHour, nightDuty } from './duty'
 import { isNight, kstMinutes, kstTimeToMs, minutesIntoNight, nightDate } from './kst'
 import { FakeStatusSource, type AgentStatus } from './status'
 
@@ -151,5 +151,26 @@ describe('five agents (#193)', () => {
     // seat 4's light is the last to go (stagger x 4 minutes)
     const t0 = kst('2026-11-08 23:00') + (NIGHT.staggerMin * 4 - 1) * 60_000
     expect(dutyStatus({ state: 'idle', since: 0 }, 'agent_4', FIVE, t0).night).toBeUndefined()
+  })
+})
+
+describe('the sleepy window (#193)', () => {
+  const at = (hhmm: string) => kstTimeToMs(hhmm, Date.UTC(2026, 10, 10, 3))!
+  it('30 minutes before each seat dozes: seat 0 22:30-23:00, seat 2 22:36-23:06, seat 4 22:42-23:12', () => {
+    expect(isLateHour(at('22:29'), 0)).toBe(false)
+    expect(isLateHour(at('22:30'), 0)).toBe(true)
+    expect(isLateHour(at('22:59'), 0)).toBe(true)
+    expect(isLateHour(at('23:00'), 0)).toBe(false)
+    expect(isLateHour(at('22:35'), 2)).toBe(false)
+    expect(isLateHour(at('22:36'), 2)).toBe(true)
+    expect(isLateHour(at('23:05'), 2)).toBe(true)
+    expect(isLateHour(at('23:06'), 2)).toBe(false)
+    expect(isLateHour(at('22:42'), 4)).toBe(true)
+    expect(isLateHour(at('23:11'), 4)).toBe(true)
+    expect(isLateHour(at('12:00'), 3)).toBe(false)
+  })
+  it('it is the KST clock: the debug offset moves it (the office passes now + offset)', () => {
+    const real = at('12:00')
+    expect(isLateHour(real + (kstTimeToMs('22:45', real)! - real), 1)).toBe(true)
   })
 })

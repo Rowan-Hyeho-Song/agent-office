@@ -59,7 +59,7 @@ export class LivePropsFeed extends Base {
 
   private async poll() {
     const [covers, handoffs] = await Promise.all([
-      this.client.from('approvals_cover').select('requester_seat'),
+      this.client.from('approvals_cover').select('requester_seat, created_at'),
       this.client
         .from('agent_events')
         .select('id', { count: 'exact', head: true })
@@ -68,12 +68,17 @@ export class LivePropsFeed extends Base {
         .gte('created_at', todayStart(this.now())),
     ])
     if (covers.error || handoffs.error) return // keep what we had (tables not there yet, or offline)
-    const rows = (covers.data ?? []) as { requester_seat: number | null }[]
+    const rows = (covers.data ?? []) as { requester_seat: number | null; created_at?: string }[]
     const pending = rows.length
     const prev = this.snapshot
     // the count went down: the owner just decided something (the planner stamps)
     const decidedAt = pending < prev.pending ? this.now() : prev.decidedAt
     const waitingSeats = [...new Set(rows.flatMap((r) => (r.requester_seat === null ? [] : [r.requester_seat])))].sort()
-    this.emit({ pending, waitingSeats, decidedAt, handoffsToday: handoffs.count ?? 0 })
+    const waitingSince: Record<number, number> = {}
+    for (const r of rows) {
+      const at = r.created_at ? Date.parse(r.created_at) : NaN
+      if (r.requester_seat !== null && Number.isFinite(at) && !(waitingSince[r.requester_seat] <= at)) waitingSince[r.requester_seat] = at
+    }
+    this.emit({ pending, waitingSeats, waitingSince, decidedAt, handoffsToday: handoffs.count ?? 0 })
   }
 }
