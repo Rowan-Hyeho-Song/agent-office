@@ -3,7 +3,7 @@
 // minutes as a conversation, the stable address of a minutes row and the bookshelf's binders. The components only draw.
 
 import { sanitizeProgress, type Progress } from './progress.js'
-import { topicsOf, type TopicId } from './topics.js'
+import { TOPIC_COLORS, topicsOf, type TopicId } from './topics.js'
 import type { ApprovalRequest, ApprovalResult, DocKind, Grade, Minutes, Speaker } from './types.js'
 
 /** a document as the viewer lists it: no body (read on demand). Redacted for who is asking, see coverOf / ownerMeta */
@@ -192,24 +192,42 @@ export function groupLibrary(metas: DocMeta[]): DocFolder[] {
   return [...folders.values()].sort((a, b) => b.latest.localeCompare(a.latest))
 }
 
-// ---- the bookshelf (Blender #67 node table) -------------------------------------------------------------------------
+// ---- the bookshelf (Blender #67 node table; one row of 21 since #280, docs/design/room-280.md 9.2) -------------------------------
 
-export const SHELVES = 3
-export const SLOTS = 10
-/** the last binder of a shelf leans toward the empty side, about the world z axis */
+/** the shelf row's three zones (one project each) of seven slots; the glb says the same in each binder's extras group / slot, which the rig reads first */
+export const GROUPS = 3
+export const GROUP_SLOTS = 7
+export const SLOTS = GROUPS * GROUP_SLOTS
+/** the last binder of a zone with room to its right leans toward the empty side, about the world z axis */
 export const LEAN_DEG = -8
+/** the spine colour of a file with no topic (designer, 9.2) */
+export const NO_TOPIC_SPINE = '#e9e4d8'
+/** a 15% darker spine for a finished file */
+export const DONE_DARKEN = 0.15
 
 export interface Binder {
   /** node name of the binder body; `_band`, `_label`, `_secret` share the stem */
   node: string
+  /** the row (always 0: the glb's one row) and the slot along it, 0..20 */
   r: number
   k: number
+  /** the zone (project) 0..2 and the place inside it 0..6 */
+  group: number
+  i: number
   fileKey: string
   repo: string | null
   n: number | null
   secret: boolean
   /** the folder's main agent seat, null = no agents known */
   seat: number | null
+  /** the spine colour: the file's first topic badge colour (docs-ui.md 3.6), ivory with none; 15% darker when done */
+  color: string
+  /** in progress: pulled 3 cm out of the row */
+  pulled: boolean
+  /** awaiting approval: an amber tag stands on the spine */
+  tagged: boolean
+  /** done: filed in line, the spine 15% darker */
+  done: boolean
   /** what the label shows */
   label: string
   lean: boolean
@@ -217,8 +235,10 @@ export interface Binder {
 
 export interface ShelfLayout {
   binders: Binder[]
-  /** the folder name plate of each shelf (index = r); '' = empty shelf */
+  /** the name plate of each zone (index = group); '' = empty zone */
   plates: string[]
+  /** how many more files each zone has than it can show: the '+N' tag */
+  more: number[]
   /** shown in the viewer when the shelf could not hold everything */
   note: string | null
 }
@@ -232,45 +252,69 @@ export function mainSeat(file: Pick<DocFile, 'docs'>): number | null {
   return best
 }
 
+/** darken a #rrggbb by a share (0.15 = 15% darker) */
+export function darken(hex: string, by: number): string {
+  const n = parseInt(hex.slice(1), 16)
+  const ch = (shift: number) => Math.round(((n >> shift) & 255) * (1 - by))
+  return `#${[16, 8, 0].map((sh) => ch(sh).toString(16).padStart(2, '0')).join('')}`
+}
+
+/** what a file's progress shows on its binder (designer 9.2): in progress is pulled out, a pending 🖊 is a tag, done is darker; waiting / review only the colour */
+export function binderState(p: Pick<Progress, 'stage' | 'pending'>): { pulled: boolean; tagged: boolean; done: boolean } {
+  return { pulled: p.stage === 'doing', tagged: p.pending > 0, done: p.stage === 'done' }
+}
+
+/** the spine colour of a file (before the done darkening): its first topic's badge colour */
+export const spineColor = (file: Pick<DocFile, 'topics'>): string => (file.topics[0] ? TOPIC_COLORS[file.topics[0]] : NO_TOPIC_SPINE)
+
 /**
- * Folders → shelves (the newest three folders, newest on the bottom shelf r0), files → binders left to right
- * (the newest ten of a folder, oldest first, so the newest is the last one and leans).
+ * Folders → zones (the three newest public folders, newest on the left), files → binders inside a zone (the newest seven by date, oldest left; empty slots
+ * stay empty), the rest of a zone's files are `more`. `perGroup` is the model's zone size (the rig clips to what its glb has).
  */
-export function shelfLayout(folders: DocFolder[]): ShelfLayout {
+export function shelfLayout(folders: DocFolder[], perGroup = GROUP_SLOTS): ShelfLayout {
   const binders: Binder[] = []
-  const plates = Array.from({ length: SHELVES }, () => '')
-  let cut = false
-  // private projects never stand on the shelf (#67): not their count, not their agents' band colours
+  const plates = Array.from({ length: GROUPS }, () => '')
+  const more = Array.from({ length: GROUPS }, () => 0)
+  // private projects never stand on the shelf (#67): not their count, not their agents' colours
   const shelved = folders.filter((f) => f.repo !== null)
-  shelved.slice(0, SHELVES).forEach((folder, r) => {
-    plates[r] = folder.label
+  shelved.slice(0, GROUPS).forEach((folder, group) => {
+    plates[group] = folder.label
     const files = [...folder.files].sort((a, b) => a.date.localeCompare(b.date) || (a.n ?? 0) - (b.n ?? 0))
-    if (files.length > SLOTS) cut = true
-    const shown = files.slice(-SLOTS)
-    shown.forEach((file, k) => {
+    more[group] = Math.max(0, files.length - perGroup)
+    const shown = files.slice(-perGroup)
+    shown.forEach((file, i) => {
+      const state = binderState(file.progress)
+      const base = spineColor(file)
+      const k = group * perGroup + i
       binders.push({
-        node: `shelf_r${r}_b${k}`,
-        r,
+        node: `shelf_r0_b${k}`,
+        r: 0,
         k,
+        group,
+        i,
         fileKey: file.key,
         repo: file.repo,
         n: file.n,
         secret: file.secret !== null,
         seat: mainSeat(file),
+        color: state.done ? darken(base, DONE_DARKEN) : base,
+        ...state,
         label: file.n === null ? '' : `#${file.n}`,
-        lean: k === shown.length - 1,
+        // leans toward the empty side: only the last one of a zone that has room to its right
+        lean: i === shown.length - 1 && shown.length < perGroup,
       })
     })
   })
-  if (shelved.length > SHELVES) cut = true
-  return { binders, plates, note: cut ? `책장엔 최근 폴더 ${SHELVES}개, 폴더마다 최근 ${SLOTS}권만 꽂혀요. 나머지는 이 목록에서 볼 수 있어요.` : null }
+  const cut = more.some((m) => m > 0) || shelved.length > GROUPS
+  return { binders, plates, more, note: cut ? `책장엔 최근 폴더 ${GROUPS}개, 폴더마다 최근 ${GROUP_SLOTS}권만 꽂혀요. 나머지는 이 목록에서 볼 수 있어요.` : null }
 }
 
-export const LABEL_GRID = { cols: 10, rows: 3, w: 640, h: 384 }
+/** the shared "spines" canvas: 21 cells of 64 × 128 in one row (the glb's label extras say the same: grid [21, 1], px [1344, 128]) */
+export const LABEL_GRID = { cols: SLOTS, rows: 1, w: 1344, h: 128 }
 
-/** the label's cell in the shared canvas: pixels, and the UV range (flipY = false, canvas row 0 = top = r0) */
-export function labelCell(k: number, r: number) {
-  const { cols, rows, w, h } = LABEL_GRID
+/** the label's cell in the shared canvas: pixels, and the UV range (flipY = false, canvas row 0 = top). `grid` is the glb's own (extras grid / px) when it has one */
+export function labelCell(k: number, r = 0, grid: { cols: number; rows: number; w: number; h: number } = LABEL_GRID) {
+  const { cols, rows, w, h } = grid
   const cw = w / cols
   const ch = h / rows
   return { x: k * cw, y: r * ch, w: cw, h: ch, u0: k / cols, u1: (k + 1) / cols, v0: r / rows, v1: (r + 1) / rows }
