@@ -19,6 +19,9 @@ export const PLANTS: Plant[] = [
   { name: 'plant_sofa', x: 1.3, z: 3.65, soilY: 0.02 + 0.26 - 0.015 + 0.003, r: 0.14 - 0.006 }, // monstera
   { name: 'plant_desk', x: -4.05, z: -3.8, soilY: 0.28 + 0.22 - 0.015 + 0.003, r: 0.12 - 0.006 }, // sansevieria on its stand, at the window's west end since #195
   { name: 'succulent', x: -2.93, z: -1.17, soilY: 0.778, r: 0.034 }, // 휴's desk; the estimate is the model's soil_succulent empty (plantsFrom reads the real one)
+  // the two hanging planters over the window (lounge-props.md 5, #280): the model's soil_plant_hang_<k> empties; watered with the can raised to the soil (solvePour lifts the hold)
+  { name: 'plant_hang_0', x: -2.9, z: -3.85, soilY: 1.818, r: 0.064 },
+  { name: 'plant_hang_1', x: -1.5, z: -3.85, soilY: 1.818, r: 0.064 },
 ]
 
 /** the plant the first test and the debug tools use */
@@ -38,6 +41,9 @@ export const STANDS: Record<string, { x: number; z: number }> = {
   // fig (CAN_HOME), 0.49 m from the can and 0.57 m from the fig since #280 (the same stand as the fig's), within arm's reach of both (watering.md 1.1). So watering the fig is turning
   // to the can, lifting it, turning back to the pot, pouring and putting it back without a step; for the other plants it is taken from here
   watering_can: { x: 4.1, z: 0.95 },
+  // the hanging planters (lounge-props.md 5): 0.55 m west of each pot's soil, in the window strip north of the pod, facing east (found by scanning the walkable floor: the stream lands on the soil centre, the can's forward offset 0.26 m)
+  plant_hang_0: { x: -3.45, z: -3.75 },
+  plant_hang_1: { x: -2.05, z: -3.75 },
   vine: { x: 3.7, z: -3.46 }, // 0.50 m in front of the shelf; the vine's soil is at 2.2 m, so the can is raised to it (not on the schedule)
 }
 export const standOf = (p: Plant) => STANDS[p.name]
@@ -54,15 +60,15 @@ export const REACH = 0.75
  * A stand an agent cannot use while another agent rests at one of these spots: they are closer than two body radii (0.6 m) plus the planner's gap, so
  * the planner would keep the water agent waiting for as long as the other stays. plant_desk's stand is 0.57 m from the head desk's side spot (the monstera's stand has no neighbour since the move, #280).
  */
-export const STAND_BLOCKERS: Record<string, string[]> = { plant_desk: ['desk_side_0'] }
+export const STAND_BLOCKERS: Record<string, string[]> = { plant_desk: ['desk_side_0'], plant_hang_1: ['chat_0'] }
 /**
- * A plant whose stand cannot be reached while another agent rests at one of these spots (the way there runs past it). plant_desk stands in the
- * pocket at the window's west end (#195): the only way in is the north lane past the memo seat, 0.41 m of free floor beside a seated body when the
- * planner needs 0.44 + its gap, and the west lane (work_1, work_2) is as narrow. So the plant is skipped while the memo seat is taken (its owner can still water it).
+ * A plant whose stand cannot be reached while another agent rests at one of these spots (the way there runs past it). Empty since #280 (the lounge acts):
+ * plant_desk used to wait for the memo seat (work_0) to be free, because the north lane past it left 0.41 m beside a seated body; with the wider window strip
+ * the day simulation (traffic.day.test.ts) runs the whole day without it (no wait over 60 s, the longest 16.4 s, every errand done), so the plant is watered whoever sits there.
  */
-export const PATH_BLOCKERS: Record<string, string[]> = { plant_desk: ['work_0'] }
+export const PATH_BLOCKERS: Record<string, string[]> = {}
 /** the plants the schedule waters (the floor plants; the desk succulent is left to its owner) */
-export const WATER_PLANTS = [PLANTS[0], PLANTS[1], PLANTS[2]]
+export const WATER_PLANTS = [PLANTS[0], PLANTS[1], PLANTS[2], PLANTS[4], PLANTS[5]]
 /** heading (rad, rig convention: it faces its −z) that looks from (x, z) at (tx, tz) */
 export const headingTo = (x: number, z: number, tx: number, tz: number) => Math.atan2(-(tx - x), -(tz - z))
 
@@ -77,7 +83,7 @@ export const CARRY_HOLD: Hold = { fwd: 0.06, lat: 0.22, y: 0.55 }
 
 /** how long the stages of one watering last, s: settle the can up to the pour hold, tip, hold (per plant: watering.md 1), tip back, lower it to the carrying hold */
 export const POUR_S = { settle: 0.5, up: 0.6, down: 0.6, back: 0.4 }
-export const POUR_HOLD_S: Record<string, number> = { plant_corner: 1.6, plant_sofa: 1.4, plant_desk: 0.8 }
+export const POUR_HOLD_S: Record<string, number> = { plant_corner: 1.6, plant_sofa: 1.4, plant_desk: 0.8, plant_hang_0: 0.8, plant_hang_1: 0.8 }
 export const pourHoldOf = (plant: string) => POUR_HOLD_S[plant] ?? 1.2
 export const pourTotal = (plant: string) => POUR_S.settle + POUR_S.up + pourHoldOf(plant) + POUR_S.down + POUR_S.back
 
