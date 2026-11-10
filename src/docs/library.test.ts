@@ -175,25 +175,29 @@ describe('groupLibrary', () => {
   })
 })
 
-describe('bookshelf layout (one row of 21: three zones of seven)', () => {
+describe('bookshelf layout (three rows of 21, one row per project)', () => {
   const day = (d: number) => `2026-11-${String(d).padStart(2, '0')}T00:00:00Z`
   const file = (n: number, d: number, o: Partial<CoverSource> = {}) => meta({ id: n, folder: n, created_at: day(d), agents: [1], ...o })
-  it('one binder per file, oldest left in its zone; stamp only on SECRET; a short zone leans its last binder toward the empty side', () => {
+  /** `count` files of one project, dated from day `from` */
+  const project = (repo: string, count: number, from = 1, id0 = 0) => Array.from({ length: count }, (_, i) => meta({ id: id0 + i + 1, repo: `o/${repo}`, folder: i + 1, created_at: day(from + i) }))
+  const rowOf = (l: ReturnType<typeof shelfLayout>, r: number) => l.binders.filter((b) => b.r === r)
+  it('one binder per file, oldest left in its row; stamp only on SECRET; a short row leans its last binder toward the empty side', () => {
     const folders = groupLibrary([file(1, 1), file(2, 2), meta({ id: 3, folder: 3, grade: 'review', approved: false, created_at: day(3), agents: [3, 3] })])
     const l = shelfLayout(folders)
+    // a single project: the most recent one stands on r1 (chest height)
     expect(l.binders.map((b) => [b.node, b.fileKey, b.secret, b.lean])).toEqual([
-      ['shelf_r0_b0', 'o/agent-office#1', false, false],
-      ['shelf_r0_b1', 'o/agent-office#2', false, false],
-      ['shelf_r0_b2', 'o/agent-office#3', true, true],
+      ['shelf_r1_b0', 'o/agent-office#1', false, false],
+      ['shelf_r1_b1', 'o/agent-office#2', false, false],
+      ['shelf_r1_b2', 'o/agent-office#3', true, true],
     ])
-    expect(l.binders.map((b) => [b.group, b.i, b.k])).toEqual([[0, 0, 0], [0, 1, 1], [0, 2, 2]])
+    expect(l.binders.map((b) => [b.r, b.k])).toEqual([[1, 0], [1, 1], [1, 2]])
     expect(l.binders.map((b) => b.label)).toEqual(['#1', '#2', '#3'])
     expect(l.binders[0].seat).toBe(1)
-    expect(l.plates).toEqual(['agent-office', '', ''])
+    expect(l.plates).toEqual(['', 'agent-office', ''])
     expect(l.more).toEqual([0, 0, 0])
     expect(l.note).toBeNull()
   })
-  it('three newest public folders in zones 0..2, newest on the left, seven slots each (zone g starts at slot 7g); private is never on the shelf', () => {
+  it('three public projects, one row each by most recent update: newest r1 (chest), then r2 (top), then r0 (bottom); private never stands on the shelf', () => {
     const l = shelfLayout(
       groupLibrary([
         meta({ id: 1, repo: 'o/a', folder: 1, created_at: day(1) }),
@@ -203,39 +207,72 @@ describe('bookshelf layout (one row of 21: three zones of seven)', () => {
         meta({ id: 5, repo: 'o/e', folder: 1, created_at: day(5), grade: 'private', approved: false }),
       ]),
     )
-    expect(l.plates).toEqual(['c', 'b', 'a'])
-    expect(l.binders.map((b) => b.node)).toEqual(['shelf_r0_b0', 'shelf_r0_b7', 'shelf_r0_b14'])
+    // c newest -> r1, b -> r2, a -> r0; plates indexed by row (r0 = bottom)
+    expect(l.plates).toEqual(['a', 'c', 'b'])
+    expect(l.binders.map((b) => [b.repo, b.node]).sort()).toEqual([['o/a', 'shelf_r0_b0'], ['o/b', 'shelf_r2_b0'], ['o/c', 'shelf_r1_b0']])
     expect(l.binders.every((b) => b.repo !== null && b.secret === false)).toBe(true)
     expect(l.plates).not.toContain(PRIVATE_LABEL)
     expect(l.note).toBeNull()
+  })
+  it('a fourth project does not fit: only the three most recent stand, with a note', () => {
+    const l = shelfLayout(groupLibrary([...project('a', 1, 1), ...project('b', 1, 2, 10), ...project('c', 1, 3, 20), ...project('d', 1, 4, 30)]))
+    expect(l.plates).toEqual(['b', 'd', 'c'])
+    expect(l.note).not.toBeNull()
   })
   it('private only: an empty shelf', () => {
     const l = shelfLayout(groupLibrary([meta({ id: 1, grade: 'private', approved: false, agents: [3] })]))
     expect(l.binders).toEqual([])
     expect(l.plates).toEqual(['', '', ''])
   })
-  it('more than seven files in a zone: the latest seven fill it (no lean), the rest is counted as +N, with a note', () => {
-    const l = shelfLayout(groupLibrary(Array.from({ length: 12 }, (_, i) => meta({ id: i + 1, folder: i + 1, created_at: day(i + 1) }))))
-    expect(l.binders).toHaveLength(7)
-    expect(l.binders[0].n).toBe(6)
-    expect(l.binders[6]).toMatchObject({ n: 12, lean: false, node: 'shelf_r0_b6' })
-    expect(l.more).toEqual([5, 0, 0])
-    expect(l.note).not.toBeNull()
-    expect(l.binders.some((b) => b.lean)).toBe(false)
+  it('two projects: the spare row (r0) carries on the newest one with its next older files, plate "<name> (이어서)"', () => {
+    const l = shelfLayout(groupLibrary([...project('old', 5, 1, 100), ...project('new', 30, 10)]))
+    // new has 30 files: the newest 21 on r1, the 9 before them on r0; old (5) on r2
+    expect(l.plates).toEqual(['new (이어서)', 'new', 'old'])
+    expect(rowOf(l, 1).map((b) => b.n)).toEqual(Array.from({ length: 21 }, (_, i) => 10 + i))
+    expect(rowOf(l, 0).map((b) => b.n)).toEqual(Array.from({ length: 9 }, (_, i) => 1 + i))
+    expect(rowOf(l, 2)).toHaveLength(5)
+    expect(rowOf(l, 0)[8].lean).toBe(true)
+    expect(rowOf(l, 1)[20].lean).toBe(false)
+    expect(l.more).toEqual([0, 0, 0])
   })
-  it('21 slots in all: a full shelf fills slot 0..20 and shows no overflow', () => {
-    const l = shelfLayout(
-      groupLibrary(['a', 'b', 'c'].flatMap((r, g) => Array.from({ length: 7 }, (_, i) => meta({ id: g * 10 + i + 1, repo: `o/${r}`, folder: i + 1, created_at: day(g * 7 + i + 1) })))),
-    )
-    expect(l.binders.map((b) => b.k).sort((a, b) => a - b)).toEqual(Array.from({ length: 21 }, (_, k) => k))
-    expect(l.binders.map((b) => b.group)).toEqual(Array.from({ length: 21 }, (_, k) => Math.floor(k / 7)))
+  it('one project: r2 and r0 carry on in turn; what is left beyond the rows is +N on the last row it stands on', () => {
+    const l = shelfLayout(groupLibrary(project('solo', 70)))
+    expect(l.plates).toEqual(['solo (이어서)', 'solo', 'solo (이어서)'])
+    expect(rowOf(l, 1).map((b) => b.n)).toEqual(Array.from({ length: 21 }, (_, i) => 50 + i))
+    expect(rowOf(l, 2).map((b) => b.n)).toEqual(Array.from({ length: 21 }, (_, i) => 29 + i))
+    expect(rowOf(l, 0).map((b) => b.n)).toEqual(Array.from({ length: 21 }, (_, i) => 8 + i))
+    // 70 files, 63 shown: 7 left, counted on the last row it stands on (r0)
+    expect(l.more).toEqual([7, 0, 0])
+    expect(l.note).not.toBeNull()
+  })
+  it('a project with nothing older to carry on with leaves its spare rows empty (no plate)', () => {
+    const l = shelfLayout(groupLibrary(project('solo', 21)))
+    expect(l.plates).toEqual(['', 'solo', ''])
+    expect(rowOf(l, 2)).toEqual([])
+  })
+  it('more than 21 files in a project, all three rows taken: the latest 21 fill its row (no lean), the rest is +N, with a note', () => {
+    const l = shelfLayout(groupLibrary([...project('big', 40, 1), ...project('b', 1, 41, 100), ...project('c', 1, 42, 200)]))
+    // c newest -> r1, b -> r2, big -> r0 (no spare row to carry on)
+    expect(l.plates).toEqual(['big', 'c', 'b'])
+    expect(rowOf(l, 0)).toHaveLength(21)
+    expect(rowOf(l, 0)[0].n).toBe(20)
+    expect(rowOf(l, 0)[20]).toMatchObject({ n: 40, lean: false })
+    expect(l.more).toEqual([19, 0, 0])
+    expect(l.note).not.toBeNull()
+  })
+  it('21 slots a row: a full shelf fills slot 0..20 of all three rows and shows no overflow', () => {
+    const l = shelfLayout(groupLibrary([...project('a', 21, 1, 0), ...project('b', 21, 22, 100), ...project('c', 21, 43, 200)]))
+    for (const r of [0, 1, 2]) expect(rowOf(l, r).map((b) => b.k)).toEqual(Array.from({ length: 21 }, (_, k) => k))
+    expect(l.binders).toHaveLength(63)
     expect(l.more).toEqual([0, 0, 0])
     expect(l.note).toBeNull()
   })
-  it('the zone size is the model size: a glb with fewer places gets a smaller zone', () => {
+  it('the row size is the model size: a glb with fewer places gets a smaller row', () => {
     const l = shelfLayout(groupLibrary(Array.from({ length: 5 }, (_, i) => meta({ id: i + 1, folder: i + 1, created_at: day(i + 1) }))), 3)
-    expect(l.binders).toHaveLength(3)
-    expect(l.more[0]).toBe(2)
+    // 5 files, 3 to a row: r1 shows the newest 3, r2 the 2 before
+    expect(rowOf(l, 1)).toHaveLength(3)
+    expect(rowOf(l, 2)).toHaveLength(2)
+    expect(l.more).toEqual([0, 0, 0])
   })
   it('state: in progress is pulled, a pending request is tagged, done is darker, waiting and review are plain', () => {
     expect(binderState({ stage: 'doing', pending: 0 })).toEqual({ pulled: true, tagged: false, done: false })
@@ -280,11 +317,13 @@ describe('bookshelf layout (one row of 21: three zones of seven)', () => {
     expect(mainSeat({ docs: [meta({ id: 1, agents: [2, 1] })] })).toBe(1)
     expect(mainSeat({ docs: [meta({ id: 1 })] })).toBeNull()
   })
-  it('label cell: one row of 21 (grid [21, 1], 1344 x 128 px, cells 64 x 128)', () => {
-    expect(LABEL_GRID).toMatchObject({ cols: 21, rows: 1, w: 1344, h: 128 })
-    expect(labelCell(0, 0)).toMatchObject({ x: 0, y: 0, w: 64, h: 128, u0: 0, v0: 0, v1: 1 })
-    expect(labelCell(20)).toMatchObject({ x: 1280, y: 0 })
+  it('label cell: 21 x 3 (grid [21, 3], 1344 x 384 px, cells 64 x 128, cell [k, r])', () => {
+    expect(LABEL_GRID).toMatchObject({ cols: 21, rows: 3, w: 1344, h: 384 })
+    expect(labelCell(0, 0)).toMatchObject({ x: 0, y: 0, w: 64, h: 128, u0: 0, v0: 0 })
+    expect(labelCell(0, 0).v1).toBeCloseTo(1 / 3)
+    expect(labelCell(20, 2)).toMatchObject({ x: 1280, y: 256 })
     expect(labelCell(20).u1).toBeCloseTo(1)
+    expect(labelCell(5, 1)).toMatchObject({ y: 128 })
     expect(labelCell(3, 0, { cols: 4, rows: 2, w: 400, h: 200 })).toMatchObject({ x: 300, w: 100, h: 100 })
   })
 })
