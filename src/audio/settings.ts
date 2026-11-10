@@ -104,3 +104,6 @@ export function markHintSeen() {
     /* ignore */
   }
 }
+
+/** the first-visit hint: decided on the first effect run and kept (a StrictMode re-run must not drop it); blocked = known, seen, or in the desk */
+export const decideHint = (prev: boolean | null, blocked: boolean): boolean => prev ?? !blocked

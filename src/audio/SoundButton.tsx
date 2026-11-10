@@ -1,8 +1,8 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { DockSlot } from '../office/CornerDock'
 import { ROOM_MODE } from '../room/link'
 import { getPanel, subscribePanel, togglePanel } from './panelState'
-import { getSetting, hintSeen, isKnown, markHintSeen, setSetting, subscribe } from './settings'
+import { decideHint, getSetting, hintSeen, isKnown, markHintSeen, setSetting, subscribe } from './settings'
 
 // The HUD sound button (docs/design/sound.md 2.5, designer spec): top of the dock, a 34 px icon with the desk room's
 // SoundToggle drawing and aria. Desktop: hovering or focusing it opens a 120 px volume slider to its left. Phones: the
@@ -24,8 +24,11 @@ export function SoundButton() {
   const [hint, setHint] = useState(false)
   const [flash, setFlash] = useState(false)
 
+  // StrictMode runs this effect twice: the choice is made once, so the second run still re-arms the hide timer
+  const showHint = useRef<boolean | null>(null)
   useEffect(() => {
-    if (ROOM_MODE || isKnown() || hintSeen()) return
+    showHint.current = decideHint(showHint.current, ROOM_MODE || isKnown() || hintSeen())
+    if (!showHint.current) return
     setHint(true)
     markHintSeen()
     const id = setTimeout(() => setHint(false), HINT_MS)

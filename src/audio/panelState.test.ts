@@ -113,3 +113,14 @@ describe('preview on release', () => {
     expect(previewsOnRelease('music')).toBe(false)
   })
 })
+
+describe('first-visit hint under StrictMode', () => {
+  it('decides once: the second effect run keeps showing, a blocked visitor never does', async () => {
+    const { decideHint } = await import('./settings')
+    const first = decideHint(null, false)
+    expect(first).toBe(true)
+    expect(decideHint(first, true)) // the re-run: hintSeen() is now true, the choice stays
+      .toBe(true)
+    expect(decideHint(null, true)).toBe(false)
+  })
+})
