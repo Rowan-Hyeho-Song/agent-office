@@ -2,7 +2,7 @@ import { Object3D } from 'three'
 import { describe, expect, it } from 'vitest'
 import { buildGrid, decodeFootprint, footprintFromRects } from './grid'
 import { buildGraph, type NavSpot } from './nav'
-import { inSofaRow, readSofaRow, SOFA_ROW, type SofaRow } from './sofaRow'
+import { inSofaRow, readSofaRow, rowApproach, rowLocal, SOFA_ROW, type SofaRow } from './sofaRow'
 import { CRUISE, CRUISE_TUNED, TRAFFIC, TrafficPlanner, type Request } from './traffic'
 import { FOOTPRINT_DATA } from './footprint.data'
 import { GRAPH } from './navSpots.fixture'
@@ -398,44 +398,54 @@ describe('the re-baked lounge: every stand has a way out', () => {
   }
 })
 
-// Seated bodies are exempt (#341): with seats 0 and 2 taken, the row and the east entrance are 0.545 / 0.563 m from a seated body, under 2R + gap.
-describe('the re-baked lounge: seated neighbours do not shut the way', () => {
-  it('seats 0 and 2 taken: a third body sits on seat 1 and leaves again within 60 s, never nearer than seatedM - 0.06 to a seated one nor 2R to a standing one', () => {
-    const p = new TrafficPlanner(buildGrid(decodeFootprint(FOOTPRINT_DATA), GRAPH), GRAPH)
-    p.place('s0', req('sofa_0'), 0, 0)
-    p.place('s2', req('sofa_2'), 0, 1)
-    p.place('w', req('hall_front'), 0, 2)
-    p.place('x', req('hall_lounge'), 0, 3)
-    p.update(0)
-    p.request('w', req('sofa_1'), 0)
-    p.request('x', req('hall_east'), 0)
-    let leave = false
-    let seatedMin = Infinity
-    let standMin = Infinity
-    let sat = -1
-    let out = -1
-    for (let t = 0; t <= 120; t += 0.05) {
-      if (sat < 0 && p.sample('w', t).arrived === 'sofa_1') sat = t
-      if (sat >= 0 && !leave && t > sat + 5) {
-        p.request('w', req('hall_front'), t)
-        leave = true
-      }
-      p.update(t)
-      const w = p.sample('w', t)
-      const x = p.sample('x', t)
-      for (const id of ['s0', 's2']) {
-        const s = p.sample(id, t)
-        // (the last 0.5 m into / out of seat 1 is the designed seat pair, judged by its own rule)
-        if (p.isSeatedPair(s.x, s.z, w.x, w.z) && Math.hypot(w.x - GRAPH.spots.sofa_1.x, w.z - GRAPH.spots.sofa_1.z) > 0.5) seatedMin = Math.min(seatedMin, Math.hypot(s.x - w.x, s.z - w.z))
-      }
-      if (!seated(x) && !seated(w)) standMin = Math.min(standMin, Math.hypot(x.x - w.x, x.z - w.z))
-      if (leave && out < 0 && p.sample('w', t).arrived === 'hall_front') out = t
-    }
-    expect(sat, 'sat on seat 1').toBeGreaterThanOrEqual(0)
-    expect(sat).toBeLessThan(60)
-    expect(out, 'left again').toBeGreaterThan(sat)
-    expect(out - sat - 5).toBeLessThan(60)
-    expect(seatedMin).toBeGreaterThanOrEqual(SOFA_ROW.seatedM - 0.06)
-    expect(standMin).toBeGreaterThanOrEqual(R2)
+// Seated bodies are exempt in the row and at the entrances (#341), but a walker never comes nearer than the seat pitch (the closest two seats of the
+// row, read off the nav graph; two heads are 0.42 m wide) to a body resting on a seat of the sofa (#280: 0.438 m was measured passing the sitter
+// on seat 2 into seat 1). Seats, entrances and starts are picked from the generated nav by kind and order: the sofa is rebuilt in the next bake.
+describe('the re-baked lounge: passing a seated body keeps the seat pitch', () => {
+  const zone = FOOTPRINT_DATA.zone as SofaRow
+  const all = Object.values(GRAPH.spots).sort((a, b) => (a.id < b.id ? -1 : 1))
+  const entrances = all.filter((s) => s.kind === 'sofa_in')
+  const rowSeats = (rowApproach(zone, entrances, all.filter((s) => s.kind === 'sofa')).seats as NavSpot[]).sort((a, b) => rowLocal(zone, a.x, a.z).u - rowLocal(zone, b.x, b.z).u)
+  // a hall spot beside each entrance: where a walker comes from
+  const starts = entrances.map((e) => all.filter((s) => s.kind === 'hall').sort((a, b) => Math.hypot(a.x - e.x, a.z - e.z) - Math.hypot(b.x - e.x, b.z - e.z))[0].id)
+  const cases: [string, string, string][] = []
+  rowSeats.forEach((seat, k) => {
+    for (const j of [k - 1, k + 1]) if (rowSeats[j]) for (const from of new Set(starts)) cases.push([seat.id, rowSeats[j].id, from])
   })
+  it('the row has seats to pass between', () => {
+    expect(rowSeats.length).toBeGreaterThanOrEqual(2)
+    expect(cases.length).toBeGreaterThan(0)
+  })
+  for (const [seat, sitter, from] of cases) {
+    it(`a sitter on ${sitter}, a walker from ${from} to ${seat} and back: never nearer than the pitch, there within 60 s`, () => {
+      const p = new TrafficPlanner(buildGrid(decodeFootprint(FOOTPRINT_DATA), GRAPH), GRAPH)
+      p.place('s', req(sitter), 0, 0)
+      p.place('w', req(from), 0, 1)
+      p.update(0)
+      p.request('w', req(seat), 0)
+      const pitch = p.seatPassM
+      expect(pitch).toBeGreaterThan(0.42)
+      let min = Infinity
+      let sat = -1
+      let out = -1
+      let sent = false
+      for (let t = 0; t <= 150; t += 0.05) {
+        if (sat < 0 && p.sample('w', t).arrived === seat) sat = t
+        if (sat >= 0 && !sent && t > sat + 5) {
+          p.request('w', req(from), t)
+          sent = true
+        }
+        p.update(t)
+        const w = p.sample('w', t)
+        const s = p.sample('s', t)
+        min = Math.min(min, Math.hypot(w.x - s.x, w.z - s.z))
+        if (sent && out < 0 && w.arrived === from) out = t
+      }
+      expect(sat, 'sat on the seat').toBeGreaterThanOrEqual(0)
+      expect(sat).toBeLessThan(60)
+      expect(out, 'left again').toBeGreaterThan(sat)
+      expect(out - sat - 5).toBeLessThan(60)
+      expect(min).toBeGreaterThanOrEqual(pitch - 0.005)
+    })
+  }
 })

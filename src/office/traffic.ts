@@ -194,7 +194,7 @@ interface Ctx {
   ref: { ax: number; az: number; bx: number; bz: number }[]
   lanePull: number
   /** an agent that starts closer to someone than the planning clearance (a sofa pair) may leave: no closer than it starts */
-  startLim?: Map<Traj, { lim: number; from: number }>
+  startLim?: Map<Traj, { lim: number; from: number; to?: number }>
   /** the sofa row (#341): the times somebody else stands in it (padded); the row's cells are unsafe then */
   rowBusy?: [number, number][]
 }
@@ -233,7 +233,7 @@ export class TrafficPlanner {
   /** how many searches ran / expanded (for the timing report) */
   stats = { searches: 0, expanded: 0 }
   /** the sofa's knee row (#341), if the scene has one: its cells, the slow stretch round it, the seat spots, a way in per seat */
-  private row?: { zone: SofaRow; cells: number[]; slow: Uint8Array; seats: NavSpot[]; entrances: NavSpot[]; approach: RowApproach; bans: Map<string, { key: string; set: Uint8Array } | null> }
+  private row?: { zone: SofaRow; cells: number[]; slow: Uint8Array; seats: NavSpot[]; entrances: NavSpot[]; approach: RowApproach; seatIds: Set<string>; bans: Map<string, { key: string; set: Uint8Array } | null> }
 
   constructor(
     readonly grid: Grid,
@@ -273,7 +273,8 @@ export class TrafficPlanner {
     const all = Object.values(graph.spots).sort((a, b) => (a.id < b.id ? -1 : 1))
     const seats = all.filter((s) => s.kind === 'sofa')
     const entrances = all.filter((s) => s.kind === 'sofa_in')
-    return { zone, cells, slow, seats, entrances, approach: rowApproach(zone, entrances, seats), bans: new Map<string, { key: string; set: Uint8Array } | null>() }
+    const approach = rowApproach(zone, entrances, seats)
+    return { zone, cells, slow, seats, entrances, approach, seatIds: new Set((approach.seats as NavSpot[]).map((s) => s.id)), bans: new Map<string, { key: string; set: Uint8Array } | null>() }
   }
 
   private name(id: string): number {
@@ -500,11 +501,13 @@ export class TrafficPlanner {
           // one standing body in the sofa row at a time (#341)
           if (this.row && this.standsInRow(A.x, A.z) && this.standsInRow(B.x, B.z)) return { early: seq[i], late: seq[j] }
           let lim = 2 * TRAFFIC.bodyR
-          if (this.row && seatedPair(this.row.approach, A.x, A.z, B.x, B.z)) lim = SOFA_ROW.seatedM - 0.03
+          if (this.row && seatedPair(this.row.approach, A.x, A.z, B.x, B.z)) lim = this.passLimit(0)
           if (d0 < lim && tt < t + 1.5) lim = d0 - 0.05
           if (d >= lim) continue
           const ia = Math.max(0, Math.min(ta.n - 1, Math.round((tt - ta.t0) / TRAFFIC.sampleDt)))
           const ib = Math.max(0, Math.min(tb.n - 1, Math.round((tt - tb.t0) / TRAFFIC.sampleDt)))
+          // the seat pitch is a floor, no exemption below it
+          if (this.row && (seatedPair(this.row.approach, A.x, A.z, B.x, B.z) || this.rowSeatPair(ta.at[ia], tb.at[ib]))) return { early: seq[i], late: seq[j] }
           if (ta.at[ia] >= 0 && tb.at[ib] >= 0 && this.exempt.has(ta.at[ia] * KEY + tb.at[ib])) continue
           // B walking in beside A resting at a spot next to B's destination, or A beside B's
           const approach = (g: { idx: number; x: number; z: number } | null, p: { x: number; z: number }, other: Traj, oi: number) =>
@@ -517,8 +520,8 @@ export class TrafficPlanner {
     return null
   }
 
-  private easeLim(sl: { lim: number; from: number }, t: number) {
-    return sl.lim + (this.thr - sl.lim) * Math.max(0, Math.min(1, (t - sl.from) / TRAFFIC.startEaseS))
+  private easeLim(sl: { lim: number; from: number; to?: number }, t: number) {
+    return sl.lim + ((sl.to ?? this.thr) - sl.lim) * Math.max(0, Math.min(1, (t - sl.from) / TRAFFIC.startEaseS))
   }
 
   private ghostOf(old: Traj, t: number): Traj {
@@ -650,7 +653,7 @@ export class TrafficPlanner {
     return a
   }
 
-  private planAgent(a: AgentRec, t: number, reserved: Traj[], lanePull: number): Traj {
+  private planAgent(a: AgentRec, t: number, reserved: Traj[], lanePull: number, noBan = false): Traj {
     const req = a.req
     const old = a.traj
     const here = this.px(old, t)
@@ -664,7 +667,7 @@ export class TrafficPlanner {
     const avoid = !!req.avoid
     // standing at a desk side (a night talk at a working desk): that side is not avoided for the way out
     const own = avoid ? ([...DESK_SIDES].find((id) => this.spots[id] && Math.hypot(here.x - this.spots[id].x, here.z - this.spots[id].z) < 0.6) ?? '') : ''
-    const ban = this.entranceBan(req.spot, here)
+    const ban = noBan ? null : this.entranceBan(req.spot, here)
     const field = this.fieldFor(goalCell, avoid, own, ban)
     const extra = this.blockedFor(avoid, own, ban)
     const V = TRAFFIC.cruise * req.pace
@@ -676,11 +679,15 @@ export class TrafficPlanner {
     }
     const ref = this.refRoute(here, goal, extra)
     const goalIdx = this.idx.get(req.spot) ?? -1
-    const startLim = new Map<Traj, { lim: number; from: number }>()
+    const startLim = new Map<Traj, { lim: number; from: number; to?: number }>()
     for (const r of reserved) {
       const q = this.px(r, t)
       const d = Math.hypot(q.x - here.x, q.z - here.z)
-      if (d < this.thr) startLim.set(r, { lim: d - 0.02, from: t })
+      if (d < this.thr) {
+        // starting beside someone (a seat beside a body that is walking in, or the other way round): no closer than now (less float; the seat pitch is a floor)
+        const seatedNow = this.row && seatedPair(this.row.approach, q.x, q.z, here.x, here.z)
+        startLim.set(r, { lim: d - (seatedNow ? SOFA_ROW.passVerifyM : 0.02), from: t })
+      }
     }
     const ctx: Ctx = { V, field, extra, reserved, goalCell, gx: goal.x, gz: goal.z, goalIdx, near: false, ref, lanePull, startLim, rowBusy: this.rowBusyOf(reserved) }
     // the destination is held for good by someone resting on it: go straight to waiting beside it
@@ -688,6 +695,8 @@ export class TrafficPlanner {
     let ways: Way[] | null = null
     let reached = true
     if (!blockedForever) ways = this.search(ctx, { t: t0, x: here.x, z: here.z, c: startCell })
+    // no way by the nearest entrance (a seated neighbour shuts it at the seat pitch): the other one, rather than waiting for the neighbour to go
+    if (!ways && ban) return this.planAgent(a, t, reserved, lanePull, true)
     if (!ways) {
       reached = false
       ways = this.search({ ...ctx, near: true }, { t: t0, x: here.x, z: here.z, c: startCell })
@@ -709,6 +718,13 @@ export class TrafficPlanner {
     }
     // the last stretch into the exact spot
     if (reached) {
+      // a seat of the row: along its lane (the cell the search ended on is within ringM of the lane's far end with a safe chord)
+      if (this.row?.seatIds.has(req.spot)) {
+        const w = this.laneEnd(goal.x, goal.z)
+        const l0 = ways[ways.length - 1]
+        const dw = Math.hypot(w.x - l0.x, w.z - l0.z)
+        if (dw > 1e-6) ways.push({ t: l0.t + dw / (V * this.speedScale(goalCell)), x: w.x, z: w.z, c: goalCell })
+      }
       const last = ways[ways.length - 1]
       const d = Math.hypot(goal.x - last.x, goal.z - last.z)
       if (d > 1e-6) ways.push({ t: last.t + d / (V * this.speedScale(goalCell)), x: goal.x, z: goal.z, c: goalCell })
@@ -751,15 +767,74 @@ export class TrafficPlanner {
   /** the clearance two agents need now: 2R, relaxed only for a goal spot designed next to the other's resting spot */
   private limit(ctx: Ctx, x: number, z: number, o: Traj, i: number, gap: number): number {
     const base = this.limitBase(ctx, x, z, o, i, gap)
-    // a seated body of the sofa row and one in its approach area: seatedM (less the grid's rounding while searching, as the designed pair below)
-    if (this.row && seatedPair(this.row.approach, x, z, o.x[i], o.z[i])) return Math.min(base, SOFA_ROW.seatedM - (gap > 0.05 ? 0.05 : 0.03))
+    // a seated body of the sofa row and one in its approach area: the seat pitch, kept passSearchM beyond while searching (cell centres), passVerifyM short for the finished path
+    if (this.row && seatedPair(this.row.approach, x, z, o.x[i], o.z[i])) return Math.min(base, this.passLimit(gap))
     return base
   }
 
+  /** the floor a walker keeps from a body resting on a seat of the sofa row (see SOFA_ROW.passSearchM) */
+  private passLimit(gap: number): number {
+    return this.row!.approach.passM + (gap > 0.05 ? SOFA_ROW.passSearchM : -SOFA_ROW.passVerifyM)
+  }
+
+  /** the far end of a seat's lane (SOFA_ROW.laneM from the seat toward the row, along the row's across axis) */
+  private laneEnd(gx: number, gz: number): { x: number; z: number } {
+    const z = this.row!.zone
+    return { x: gx - SOFA_ROW.laneM * Math.sin(z.ry), z: gz - SOFA_ROW.laneM * Math.cos(z.ry) }
+  }
+
+  /** the straight stretch from (x, z) to the seat spot (gx, gz) keeps the pitch from the body at (sx, sz) */
+  private chordSafe(x: number, z: number, gx: number, gz: number, sx: number, sz: number): boolean {
+    const dx = gx - x
+    const dz = gz - z
+    const len2 = dx * dx + dz * dz
+    const u = len2 < 1e-12 ? 0 : Math.max(0, Math.min(1, ((sx - x) * dx + (sz - z) * dz) / len2))
+    return Math.hypot(sx - (x + dx * u), sz - (z + dz * u)) >= this.row!.approach.passM - SOFA_ROW.passVerifyM
+  }
+
+  /** a cell within ringM of a seat of the row, from which the straight last stretch into the seat keeps the pitch from everyone resting on a seat */
+  private seatRingGoal(c: number, ctx: Ctx, tArr: number): boolean {
+    const p = centre(this.grid, c)
+    const w = this.laneEnd(ctx.gx, ctx.gz)
+    if (Math.hypot(p.x - w.x, p.z - w.z) >= SOFA_ROW.ringM) return false
+    const tmp = { x: 0, z: 0 }
+    for (const r of ctx.reserved) {
+      this.px(r, r.ghost ? r.t0 : r.endT, tmp)
+      if (this.restsOnRowSeat(tmp.x, tmp.z) && Math.hypot(tmp.x - ctx.gx, tmp.z - ctx.gz) > SOFA_ROW.seatEps && !this.chordSafe(p.x, p.z, w.x, w.z, tmp.x, tmp.z)) return false
+    }
+    // the two straight legs (cell -> lane end -> seat) take time: nobody else on the move comes within 2R + gap of them meanwhile
+    const leg1 = Math.hypot(w.x - p.x, w.z - p.z)
+    const total = (leg1 + SOFA_ROW.laneM) / (ctx.V * SOFA_ROW.speedScale)
+    const q = { x: 0, z: 0 }
+    for (const r of ctx.reserved) {
+      if (r.ghost && tArr > r.endT) continue
+      for (let tt = tArr; tt <= tArr + total + 0.3; tt += 0.1) {
+        const f = Math.min(1, ((tt - tArr) * ctx.V * SOFA_ROW.speedScale) / Math.max(1e-6, leg1 + SOFA_ROW.laneM))
+        const dd = f * (leg1 + SOFA_ROW.laneM)
+        const x = dd <= leg1 ? p.x + (w.x - p.x) * (dd / Math.max(1e-6, leg1)) : w.x + (ctx.gx - w.x) * ((dd - leg1) / SOFA_ROW.laneM)
+        const z = dd <= leg1 ? p.z + (w.z - p.z) * (dd / Math.max(1e-6, leg1)) : w.z + (ctx.gz - w.z) * ((dd - leg1) / SOFA_ROW.laneM)
+        this.px(r, tt, q)
+        // a body resting on a seat of the row is judged by the pitch (chord rule above)
+        if (this.restsOnRowSeat(q.x, q.z)) continue
+        if (Math.hypot(q.x - x, q.z - z) < this.thr) return false
+      }
+    }
+    return true
+  }
+
+  /** both are seats of the sofa row: a designed pair side by side (the walker's goal and a body resting on the seat next to it) */
+  private rowSeatPair(a: number, b: number): boolean {
+    return !!this.row && a >= 0 && b >= 0 && this.row.seatIds.has(this.names[a]) && this.row.seatIds.has(this.names[b])
+  }
   private limitBase(ctx: Ctx, x: number, z: number, o: Traj, i: number, gap: number): number {
     if (ctx.goalIdx >= 0) {
       const oa = o.at[i]
       if (oa >= 0) {
+        // two seats of the row side by side: only the goal cell itself may be closer than the pitch (its centre is up to 0.11 m from the spot); the way in keeps the pitch
+        if (this.rowSeatPair(ctx.goalIdx, oa)) {
+          const w = this.laneEnd(ctx.gx, ctx.gz)
+          return Math.hypot(x - w.x, z - w.z) < SOFA_ROW.ringM && this.chordSafe(x, z, w.x, w.z, o.x[i], o.z[i]) ? this.row!.approach.passM - SOFA_ROW.passVerifyM : 2 * TRAFFIC.bodyR + gap
+        }
         const e = this.exempt.get(ctx.goalIdx * KEY + oa)
         if (e !== undefined && Math.hypot(x - ctx.gx, z - ctx.gz) < EXEMPT_ZONE) {
           // a pair at least two bodies apart gives up the extra gap and the grid's rounding (the search tests cell centres, up
@@ -772,7 +847,17 @@ export class TrafficPlanner {
     return 2 * TRAFFIC.bodyR + gap
   }
 
-  /** one of the two rests on a seat of the sofa row and the other is in its approach area (sofaRow.ts): the pair that may be SOFA_ROW.seatedM apart */
+  /** a body at (x, z) rests on a seat of the sofa row */
+  restsOnRowSeat(x: number, z: number): boolean {
+    return !!this.row && this.row.approach.seats.some((s) => Math.hypot(s.x - x, s.z - z) < SOFA_ROW.seatEps)
+  }
+
+  /** the seat pitch of the sofa row (the floor between a walker and a body resting on a seat), or 0 without a row */
+  get seatPassM(): number {
+    return this.row?.approach.passM ?? 0
+  }
+
+  /** one of the two rests on a seat of the sofa row and the other is in its approach area (sofaRow.ts): the pair that may be the seat pitch apart */
   isSeatedPair(x1: number, z1: number, x2: number, z2: number): boolean {
     return !!this.row && seatedPair(this.row.approach, x1, z1, x2, z2)
   }
@@ -851,8 +936,9 @@ export class TrafficPlanner {
             const p = centre(g, c)
             let lim = this.thr
             if (sl && tt < sl.from + TRAFFIC.startEaseS) lim = this.easeLim(sl, tt)
+            else if (ex !== undefined && this.rowSeatPair(ctx.goalIdx, oa)) lim = Math.hypot(p.x - this.laneEnd(ctx.gx, ctx.gz).x, p.z - this.laneEnd(ctx.gx, ctx.gz).z) < SOFA_ROW.ringM && this.chordSafe(p.x, p.z, this.laneEnd(ctx.gx, ctx.gz).x, this.laneEnd(ctx.gx, ctx.gz).z, tmp.x, tmp.z) ? this.row!.approach.passM - SOFA_ROW.passVerifyM : this.thr
             else if (ex !== undefined && Math.hypot(p.x - ctx.gx, p.z - ctx.gz) < EXEMPT_ZONE) lim = ex - 0.2
-            if (this.row && seatedPair(this.row.approach, p.x, p.z, tmp.x, tmp.z)) lim = Math.min(lim, SOFA_ROW.seatedM - 0.05)
+            if (this.row && seatedPair(this.row.approach, p.x, p.z, tmp.x, tmp.z)) lim = Math.min(lim, this.passLimit(1))
             if (Math.hypot(p.x - tmp.x, p.z - tmp.z) < lim) mark(c, from, to)
           }
         }
@@ -954,7 +1040,8 @@ export class TrafficPlanner {
       if (ctx.near) {
         const d = Math.hypot(cc.x - ctx.gx, cc.z - ctx.gz)
         isGoal = d >= T.besideMin && d <= T.besideMax
-      } else isGoal = n.c === ctx.goalCell
+      } else if (this.row !== undefined && ctx.goalIdx >= 0 && this.row.seatIds.has(this.names[ctx.goalIdx])) isGoal = this.seatRingGoal(n.c, ctx, n.t)
+      else isGoal = n.c === ctx.goalCell
       if (isGoal && n.end === Infinity) {
         this.stats.expanded += expanded
         const out: Way[] = []
