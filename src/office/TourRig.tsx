@@ -102,7 +102,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
     const views = () => buildViews(observe(world, replay.getSnapshot().mode === 'office'), Date.now())
     const clearance = (): Clearance => ({ boxes: clearBoxes(Object.values(world.rigs)), margin: VIEW.clear.margin, sight: furnitureBoxes() })
     const spot = (id: string) => world.graph?.spots[id]
-    const home: V3 = [HOME_POS.x, HOME_POS.y, HOME_POS.z]
+    const homeNow = (): V3 => [HOME_POS.x, HOME_POS.y, HOME_POS.z] // the default view follows the viewport (portrait phone)
 
     // ---- where a cut is shot from -------------------------------------------------------------------------------
     // null = no camera that is clear and sees the subject: the cut is skipped (#253)
@@ -115,7 +115,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
         const blockers = parked.filter(([id]) => !subjects.includes(id)).map(([, r]) => robotBox(r.group))
         return { heads, blockers, fovY: ((camera as PerspectiveCamera).fov || 32) * DEG, aspect: (camera as PerspectiveCamera).aspect || 1.6, work }
       }
-      if (cut.type === 'establishing') return { base: { pos: home, target: [HOME_TARGET.x, HOME_TARGET.y, HOME_TARGET.z] }, follow: null }
+      if (cut.type === 'establishing') return { base: { pos: homeNow(), target: [HOME_TARGET.x, HOME_TARGET.y, HOME_TARGET.z] }, follow: null }
       let base: Pose | null
       let follow: Run['follow'] = null
       if (cut.type === 'meeting') {
@@ -123,7 +123,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
         const n = Math.max(1, rigs.length)
         const centre = { x: rigs.reduce((s, r) => s + r.x, 0) / n, z: rigs.reduce((s, r) => s + r.z, 0) / n }
         c.shot = shotOf(cut.agents)
-        base = meetingPose(centre, c, home)
+        base = meetingPose(centre, c, homeNow())
       } else {
         const id = cut.agents[0]
         const rig = world.rigs[id]
@@ -140,13 +140,13 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
         else if (doing === 'boardgame' && ga && gb) c.shot = shotOf(players(ga, gb))
         else if (seat && (rig?.arrived === seat.id || cut.why === 'working')) c.shot = shotOf([id], seat)
         else c.shot = shotOf([id])
-        if (doing === 'pingpong' && a && b) base = tablePose(a, b, c, home, { dist: 3.8, y: 2.2, targetY: 0.76 })
-        else if (doing === 'boardgame' && ga && gb) base = tablePose(ga, gb, c, home, { dist: 2.0, y: 1.8, targetY: 0.6 })
+        if (doing === 'pingpong' && a && b) base = tablePose(a, b, c, homeNow(), { dist: 3.8, y: 2.2, targetY: 0.76 })
+        else if (doing === 'boardgame' && ga && gb) base = tablePose(ga, gb, c, homeNow(), { dist: 2.0, y: 1.8, targetY: 0.6 })
         else if (seat && (rig?.arrived === seat.id || cut.why === 'working')) base = workPose(seat, c)
         else if (rig) {
           base = standPose({ x: rig.x, z: rig.z, ry: rig.heading }, c)
           if (base) follow = { id, off: [base.target[0] - rig.x, base.target[1], base.target[2] - rig.z] }
-        } else base = { pos: home, target: [HOME_TARGET.x, HOME_TARGET.y, HOME_TARGET.z] }
+        } else base = { pos: homeNow(), target: [HOME_TARGET.x, HOME_TARGET.y, HOME_TARGET.z] }
       }
       if (!base) return null
       // every cut's camera goes through the same clearance as the free camera (#208)
