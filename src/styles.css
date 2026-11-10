@@ -376,6 +376,7 @@ button.secret-cover:hover .bar { background: var(--color-line); }
   .dock-label { display: none; }
   .dock-badge { display: grid; }
 }
+@media (max-width: 640px) { body:has(.replay) .desk-link, body:has(.replay) .hud { display: none; } }
 body:has(.replay) .corner-dock, html[data-side='sheet'] .corner-dock { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 160ms ease, visibility 0s 160ms; }
 @media (prefers-reduced-motion: reduce) { .corner-dock { transition: none; } }
 html[data-motion='reduce'] .corner-dock { transition: none; }

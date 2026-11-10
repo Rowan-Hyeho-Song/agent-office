@@ -201,7 +201,7 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
   const d = describe(p)
   const lane = laneOf(p)
   const when = whenText(atMs(p))
-  const left = remainingMs(points, s.i, s.speed, (k, first) => pointWaitMs(points, k, (p) => stepMs(p, 1), boardDistance, first)) / 1000
+  const left = remainingMs(points, s.i, s.speed, (k, first) => pointWaitMs(points, k, (p) => stepMs(p, 1), boardDistance, first), s.ended) / 1000
   const hp = hover >= 0 ? points[hover] : null
   const share = () => {
     const url = replay.shareUrl()

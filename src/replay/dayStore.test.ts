@@ -278,3 +278,16 @@ describe('the list', () => {
     expect(fresh.markDay).toBeNull()
   })
 })
+
+describe('the time left', () => {
+  it('reads 0 once the end card is up, at any speed, not the 3 s the last point lasts', async () => {
+    const { remainingMs } = await import('./engine')
+    const s = await opened({ project: 'all', day: '2026-11-05' })
+    s.seek(s.points.length - 1)
+    // standing on the last point (not played to the end) still has its own step ahead
+    expect(remainingMs(s.points, s.getSnapshot().i, 1)).toBe(3000)
+    for (let n = 0; n < 100 && !s.getSnapshot().ended; n++) s.advance(500)
+    expect(s.getSnapshot().ended).toBe(true)
+    for (const speed of [1, 4, 16] as const) expect(remainingMs(s.points, s.getSnapshot().i, speed, undefined, s.getSnapshot().ended)).toBe(0)
+  })
+})
