@@ -8,7 +8,7 @@ export const ATLASES = ['room', 'floor', 'walls_nw', 'walls_se', 'work', 'wall_i
 export type AtlasName = (typeof ATLASES)[number]
 
 /** fetched after the first screen is shown (a 512 px stand-in is used until then) */
-export const DEFERRED_ATLASES: readonly AtlasName[] = ['wall_items', 'lounge2', 'desk_props']
+export const DEFERRED_ATLASES: readonly AtlasName[] = ['wall_items', 'lounge', 'lounge2', 'desk_props']
 export const isDeferred = (a: AtlasName) => DEFERRED_ATLASES.includes(a)
 
 export const atlasUrl = (a: AtlasName) => assetUrl(`models/${a}.webp`)

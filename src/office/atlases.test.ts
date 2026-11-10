@@ -5,8 +5,13 @@ import { ATLASES, DEFERRED_ATLASES, FIRST_URLS, _resetFirstScreen, afterFirstScr
 
 describe('load order', () => {
   it('only the close-up atlases are deferred, and they are real atlases', () => {
-    expect([...DEFERRED_ATLASES].sort()).toEqual(['desk_props', 'lounge2', 'wall_items'])
+    expect([...DEFERRED_ATLASES].sort()).toEqual(['desk_props', 'lounge', 'lounge2', 'wall_items'])
     for (const a of DEFERRED_ATLASES) expect(ATLASES).toContain(a)
+  })
+  it('scripts/atlas-lo.mjs makes stand-ins for exactly the deferred atlases', () => {
+    const src = readFileSync(new URL('../../scripts/atlas-lo.mjs', import.meta.url), 'utf8')
+    const list = /const DEFERRED = \[(.*?)\]/.exec(src)![1].split(',').map((x) => x.trim().replace(/'/g, ''))
+    expect(list.sort()).toEqual([...DEFERRED_ATLASES].sort())
   })
   it('the first screen fetches full files for the rest and stand-ins for the deferred ones', () => {
     expect(FIRST_URLS).toHaveLength(ATLASES.length)
@@ -82,8 +87,8 @@ describe('swap to the full atlas', () => {
       (t) => prepared.push(t),
     )
     expect(asked.sort()).toEqual(DEFERRED_ATLASES.map(atlasUrl).sort())
-    expect(done.sort()).toEqual(['desk_props', 'wall_items'])
-    expect(prepared).toHaveLength(2)
+    expect(done.sort()).toEqual(DEFERRED_ATLASES.filter((a) => a !== 'lounge2').sort())
+    expect(prepared).toHaveLength(DEFERRED_ATLASES.length - 1)
     const maps = g.children.map((m) => ((m as Mesh).material as MeshBasicMaterial).map)
     expect(maps).toContain(stands.lounge2) // kept
     expect(maps).not.toContain(stands.desk_props)
