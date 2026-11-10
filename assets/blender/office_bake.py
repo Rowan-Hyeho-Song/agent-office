@@ -96,6 +96,8 @@ Node contract (the app reads glTF extras):
   omok_bowl_b|w                    empties: the grab point in each stone bowl (extras bowl); black by nav_game_a
   pp_ball                          live "bot" (#135): the ball, the app moves it (not a prop); pivot = its center
   pp_table                         empty at the table top center, +x = the long side (extras size [l, w], net_h)
+  pp_net                           live "bot" (#280 3): the net's navy 1 cm lattice (static; the posts, clamps and white
+                                   band are in the lounge atlas)
   nav_<id>                         empties: where agents go and which way they face (navigation); nav_meet_center_*
                                    (#147): meeting ring centers, extras r = floor kept free around it
   soil_<plant>                     empties (#184): the soil top's centre of each world-built pot (plant_corner|desk|sofa,
@@ -1415,16 +1417,66 @@ def build_hits():
 
 
 # ================================================================ WALL ITEMS (atlas: wall_items)
+def board_mat():
+    """#280 3 (room-280.md 6.1): gloss white (roughness 0.25) with faint wiped streaks, about 5% darker, sideways"""
+    m, nodes, links, b = new_mat("whiteboard")
+    b.inputs["Roughness"].default_value = 0.25
+    tc = nodes.new("ShaderNodeTexCoord")
+    mp = nodes.new("ShaderNodeMapping")
+    mp.inputs["Scale"].default_value = (1.2, 1.0, 6.0)  # Blender z = web y: streaks along the board
+    nz = nodes.new("ShaderNodeTexNoise")
+    nz.inputs["Scale"].default_value = 2.5
+    nz.inputs["Detail"].default_value = 3
+    ramp = nodes.new("ShaderNodeValToRGB")
+    ramp.color_ramp.elements[0].position, ramp.color_ramp.elements[1].position = 0.52, 0.72
+    ramp.color_ramp.elements[0].color = rgba("#f4f4f0")
+    ramp.color_ramp.elements[1].color = rgba("#e6e7e2")
+    links.new(tc.outputs["Object"], mp.inputs["Vector"])
+    links.new(mp.outputs["Vector"], nz.inputs["Vector"])
+    links.new(nz.outputs["Fac"], ramp.inputs["Fac"])
+    links.new(ramp.outputs["Color"], b.inputs["Base Color"])
+    return m
+
+
+def build_whiteboard(G, z):
+    """#280 3 (room-280.md 6.1): the board (1.5 x 1.0, its front at z + 0.02 = the surface) in an aluminium frame of
+    2.2 cm bars with rounded front edges, grey corner caps, a full-width tray with end caps (its floor at 0.9975, the
+    markers' home), two wall brackets hooked over the top bar"""
+    frame_m = plastic("#b9bec7", 0.3, 0.8, 0.03, "wb_alu")
+    cap_m = plastic("#8b8f96", 0.5, 0, 0.05, "wb_cap")
+    x0, yc, w, h = WHITEBOARD_X, 1.5, 1.5, 1.0
+    fw, fd = 0.022, 0.026  # the bar section: face width, depth (z .. z + 0.026; the board 6 mm in)
+    zf = z + fd / 2
+    ox, oy = w / 2 + fw, h / 2 + fw  # outer half sizes
+    p = [box("wb", (w + 0.01, h + 0.01, 0.012), (x0, yc, z + 0.014), board_mat(), G)]
+    for sy in (-1, 1):  # top and bottom bars run the full width; the sides sit between them (caps hide the joins)
+        p.append(box("wb_frame", (2 * ox, fw, fd), (x0, yc + sy * (h / 2 + fw / 2), zf), frame_m, G, bev=0.006, seg=3))
+    for sx in (-1, 1):
+        p.append(box("wb_frame", (fw, h - 0.004, fd), (x0 + sx * (w / 2 + fw / 2), yc, zf), frame_m, G, bev=0.006, seg=3))
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            p.append(box("wb_corner", (0.03, 0.03, 0.03), (x0 + sx * (ox - 0.013), yc + sy * (oy - 0.013), z + 0.0145), cap_m, G, bev=0.006, seg=2))
+    # the tray: a floor from 2 mm inside the bottom bar out to 7 cm, a front lip, end caps
+    t0, t1 = z + fd - 0.002, z + 0.07
+    tl = 2 * ox - 0.04
+    p += [box("wb_tray", (tl, 0.006, t1 - t0), (x0, 0.9945, (t0 + t1) / 2), frame_m, G, bev=0.0015, seg=1),
+          box("wb_tray_lip", (tl, 0.02, 0.005), (x0, 1.0005, t1 - 0.002), frame_m, G, bev=0.0015, seg=2)]
+    for sx in (-1, 1):
+        p.append(box("wb_tray_end", (0.008, 0.026, t1 - t0 + 0.004), (x0 + sx * (tl / 2 + 0.0035), 0.999, (t0 + t1) / 2), cap_m, G, bev=0.002, seg=2))
+    # two brackets: a wall plate behind, a hook over the top bar and a short lip down its front
+    yt = yc + oy
+    for bx in (x0 - 0.5, x0 + 0.5):
+        p += [box("wb_bracket", (0.04, 0.06, 0.004), (bx, yt - 0.015, z - 0.0165), cap_m, G, bev=0.001, seg=1),
+              box("wb_bracket", (0.04, 0.004, fd + 0.022), (bx, yt + 0.0025, z + (fd - 0.013) / 2), cap_m, G, bev=0.001, seg=1),
+              box("wb_bracket", (0.04, 0.014, 0.004), (bx, yt - 0.005, z + fd + 0.0025), cap_m, G, bev=0.001, seg=1)]
+    return p
+
+
 def build_wall_items():
     G = "wall"
     z = -HZ + 0.02
-    frame_m = plastic("#c8ccd4", 0.35, 0.7, 0.05, "alu")
-    board = plastic("#f4f4f0", 0.25, 0, 0.05, "whiteboard")
     cork = plastic("#a87b4f", 0.95, 0, 0.8, "cork")
-    wbx = WHITEBOARD_X
-    p = [box("wb_frame", (1.56, 1.06, 0.03), (wbx, 1.5, z), frame_m, G, bev=0.006),
-         box("wb", (1.5, 1.0, 0.02), (wbx, 1.5, z + 0.01), board, G),
-         box("wb_tray", (1.3, 0.025, 0.06), (wbx, 0.985, z + 0.03), frame_m, G)]
+    p = build_whiteboard(G, z)
     # the cards and the visitor notes are the app's (surface_whiteboard / surface_bulletin): the boards stay empty
     # the markers on the tray are props (prop_marker_<k>, #164: MEMO writes with them)
     fp("whiteboard", p, "wall", "n")
@@ -2509,27 +2561,174 @@ def build_play_lives():
     return out
 
 
+PP_LIVE = []  # the net's mesh (live bot: a 1 cm lattice of 1.5 mm cords has no room in the atlas)
+
+
+def side_mat(o, m, ny=0.5):
+    """material slot 1 on the faces that are not up or down (a top's edge band): before the bevel is applied"""
+    o.data.materials.append(m)
+    for f in o.data.polygons:
+        if abs(f.normal.z) < ny:  # Blender z = web y
+            f.material_index = 1
+    return o
+
+
+def build_pingpong(G, metal):
+    """#280 3 (room-280.md 6.1): a folding indoor table at 0.75 scale. Two halves (2 cm top, a dark edge band, the
+    white lines), a steel apron under each, an A-frame of tubes per half on a foot bar with two casters (6 cm, dark
+    rubber), a centre beam and column (the fold), net posts clamped on the long edges, a white 1.5 cm band on top of
+    a navy 1 cm lattice (PP_LIVE)"""
+    tx, tz = PINGPONG
+    tw, td, th = 2.05, 1.14, 0.76  # 0.75 x a real table (2.74 x 1.525), office-quality.md rule 5
+    green = plastic("#1f5a46", 0.6, 0, 0.2, "pp_top")
+    band = plastic("#14241f", 0.55, 0, 0.1, "pp_band")
+    white = plastic("#f2f2f2", 0.5, 0, 0, "pp_line")
+    rubber = plastic("#3a3c40", 0.85, 0, 0.1, "pp_wheel")
+    clamp_m = plastic("#17191d", 0.5, 0.2, 0.05, "pp_clamp")
+    g = 0.006  # the gap between the halves (under the net)
+    hw = tw / 2 - g / 2
+    lw = 0.02  # edge lines (real 2 cm)
+    p = []
+    for s in (-1, 1):
+        cx = tx + s * (g / 2 + hw / 2)
+        x_out = tx + s * tw / 2  # the end line side
+        top = box("pp_top", (hw, 0.02, td), (cx, th - 0.01, tz), green, G)
+        side_mat(top, band)
+        add_bevel(top, 0.002, 1)
+        p.append(top)
+        # lines (#263: butt, not overlap), 1 mm proud: the long edges, the end line, the centre line
+        for sz in (-1, 1):
+            p.append(box("pp_edge", (hw - 0.001, 0.004, lw), (cx, th + 0.001, tz + sz * (td / 2 - lw / 2 - 0.0005)), white, G))
+        p.append(box("pp_end", (lw, 0.004, td - 2 * lw - 0.002), (x_out - s * (lw / 2 + 0.0005), th + 0.001, tz), white, G))
+        p.append(box("pp_mid", (hw - lw - 0.002, 0.004, 0.006), (cx - s * (lw / 2 + 0.0005), th + 0.001, tz), white, G))
+        # the apron: a steel band 4 cm in from the edges, under the top
+        ay, ah, at = th - 0.0205 - 0.025, 0.05, 0.015  # 0.5 mm under the top (no shared face)
+        x_in = tx + s * (g / 2 + 0.04)
+        x_end = x_out - s * 0.04
+        alen = abs(x_end - x_in)
+        for sz in (-1, 1):
+            p.append(box("pp_apron", (alen, ah, at), ((x_in + x_end) / 2, ay, tz + sz * (td / 2 - 0.04)), metal, G, bev=0.002, seg=1))
+        for xa in (x_in, x_end):
+            p.append(box("pp_apron", (at, ah, td - 0.08 - at - 0.004), (xa, ay, tz), metal, G, bev=0.002, seg=1))
+        # the A-frame: a rail across the underside, two tubes splaying out to a foot bar, a cross bar
+        xl, xf = tx + s * 0.60, tx + s * 0.68
+        p.append(box("pp_rail", (0.03, 0.03, td - 0.08 - 2 * at), (xl, th - 0.0355, tz), metal, G, bev=0.002, seg=1))
+        legs = []
+        for sz in (-1, 1):
+            a_, b_ = (xl, th - 0.05, tz + sz * 0.40), (xf, 0.095, tz + sz * 0.47)
+            legs.append((a_, b_))
+            p.append(segment("pp_leg", a_, b_, 0.016, metal, G, verts=12))
+        k = (th - 0.05 - 0.30) / (th - 0.05 - 0.095)  # the cross bar at 0.30 up
+        c0, c1 = [tuple(a_[i] + (b_[i] - a_[i]) * k for i in range(3)) for a_, b_ in legs]
+        p.append(segment("pp_cross", c0, c1, 0.011, metal, G, verts=10))
+        p.append(box("pp_foot", (0.04, 0.03, 1.0), (xf, 0.082, tz), metal, G, bev=0.003, seg=1))
+        for sz in (-1, 1):  # casters: a fork under the foot bar's ends, the wheel rolling along x
+            wz = tz + sz * 0.47
+            p += [box("pp_fork", (0.04, 0.006, 0.036), (xf, 0.0645, wz), metal, G),
+                  box("pp_fork", (0.004, 0.04, 0.03), (xf - 0.016, 0.042, wz), metal, G),
+                  box("pp_fork", (0.004, 0.04, 0.03), (xf + 0.016, 0.042, wz), metal, G),
+                  cyl("pp_wheel", 0.03, 0.022, (xf, 0.03, wz), rubber, G, 20, axis="x", bev=0.004),
+                  cyl("pp_hub", 0.011, 0.03, (xf, 0.03, wz), metal, G, 10, axis="x")]
+    # the fold: a beam between the foot bars, a column up to a cross-head under the gap
+    p += [box("pp_beam", (1.36 - 0.04 + 0.002, 0.026, 0.035), (tx, 0.082, tz), metal, G, bev=0.003, seg=1),
+          box("pp_column", (0.035, th - 0.089 - 0.094, 0.035), (tx, (th - 0.089 + 0.094) / 2, tz), metal, G, bev=0.003, seg=1),
+          box("pp_head", (0.06, 0.069, 0.5), (tx, th - 0.0555, tz), metal, G, bev=0.003, seg=1)]
+    # the net: posts just outside the long edges, a clamp over each edge with a screw under, the white band on top
+    zr = td / 2 + 0.03
+    for sz in (-1, 1):
+        zp = tz + sz * (td / 2 + 0.035)
+        p += [box("pp_post", (0.012, 0.155, 0.012), (tx, th + 0.0775, zp), clamp_m, G, bev=0.002, seg=1),
+              box("pp_post_cap", (0.018, 0.008, 0.018), (tx, th + 0.157, zp), clamp_m, G, bev=0.002, seg=1),
+              box("pp_clamp", (0.028, 0.012, 0.047), (tx, th + 0.0095, tz + sz * (td / 2 + 0.0105)), clamp_m, G, bev=0.002, seg=1),
+              box("pp_clamp", (0.025, 0.05, 0.012), (tx, th - 0.012, tz + sz * (td / 2 + 0.031)), clamp_m, G, bev=0.002, seg=1),
+              box("pp_clamp", (0.022, 0.012, 0.035), (tx, th - 0.031, tz + sz * (td / 2 + 0.008)), clamp_m, G, bev=0.002, seg=1),
+              cyl("pp_screw", 0.004, 0.044, (tx, th - 0.043, tz + sz * (td / 2 - 0.004)), clamp_m, G, 8),
+              cyl("pp_knob", 0.011, 0.008, (tx, th - 0.066, tz + sz * (td / 2 - 0.004)), clamp_m, G, 12, bev=0.002)]
+    p.append(box("pp_net_band", (0.004, 0.015, 2 * zr), (tx, th + 0.1425, tz), white, G))
+    # the lattice: 1 cm cells of 1.5 mm cords from 4 mm over the top up to the band
+    navy = plastic("#1d2a4a", 0.9, 0, 0.0, "pp_net")
+    y0, y1 = th + 0.004, th + 0.135
+    cords = []
+    n = round(2 * zr / 0.01)
+    for k in range(n + 1):
+        cords.append(box("cord", (0.0016, y1 - y0, 0.0016), (tx, (y0 + y1) / 2, tz - zr + k * 2 * zr / n), navy, "prop"))
+    for j in range(round((y1 - y0) / 0.01) + 1):
+        cords.append(box("cord", (0.001, 0.0015, 2 * zr), (tx, y0 + j * 0.01, tz), navy, "prop"))
+    PP_LIVE.append(join("pp_net", cords))
+    return p
+
+
+DRIP_TOP = 0.955  # #280 3: the drip tray grid's top, where prop_cup_0 stands under the spouts (the counter is 0.94)
+
+
+def build_espresso(G):
+    """#280 3 (room-280.md 6.1): a home espresso machine in the counter frame (local +x = front), 0.28 wide (z -0.26 ..
+    0.02), 0.34 high, 0.37 deep with the tank and the tray. Matte metal body on a dark plinth, the head unit over the
+    brew bay (its front at x 0.14 keeps COFFEE_BUTTON), a dark panel with a pressure gauge, the group head and a
+    portafilter (two spouts 5 mm over the mug on the tray, its handle 30 deg off the front), a drip tray with a chrome
+    grid, a steam wand and its knob on the left, a blue-grey tank at the back, a cup warmer with two cups on top"""
+    body_m = plastic("#c9ccd1", 0.5, 0.7, 0.05, "esp_body")
+    dark = plastic("#2a2d33", 0.5, 0, 0.1, "esp_panel")
+    chrome = plastic("#c8ccd4", 0.3, 0.9, 0, "chrome")
+    tank_m = plastic("#9fb0bd", 0.15, 0, 0, "esp_tank")
+    handle_m = plastic("#1d1f23", 0.45, 0, 0.05, "esp_handle")
+    face_m = plastic("#f2efe6", 0.4, 0, 0, "esp_gauge")
+    cup_m = plastic("#f4f4f0", 0.4, 0, 0, "cup")
+    zc = -0.12  # the brew axis (the spout and the mug)
+    p = [box("esp_plinth", (0.26, 0.012, 0.284), (-0.04, 0.946, zc), dark, G, bev=0.003, seg=1),
+         box("esp_body", (0.19, 0.329, 0.28), (-0.005, 1.1155, zc), body_m, G, bev=0.012),
+         box("esp_head", (0.055, 0.179, 0.278), (0.1125, 1.1895, zc), body_m, G, bev=0.012),
+         box("esp_panel", (0.002, 0.155, 0.2), (0.1405, 1.1925, -0.15), dark, G)]
+    # the pressure gauge over the group head
+    p += [torus("esp_gauge_ring", 0.024, 0.003, (0.143, 1.225, zc), chrome, G, axis="x", seg=28, rseg=6),
+          cyl("esp_gauge", 0.023, 0.002, (0.1427, 1.225, zc), face_m, G, 28, axis="x"),
+          box("esp_needle", (0.0018, 0.015, 0.0016), (0.1442, 1.229, zc - 0.004), handle_m, G),
+          cyl("esp_needle_hub", 0.003, 0.003, (0.1445, 1.225, zc), handle_m, G, 10, axis="x")]
+    # the group head, the portafilter (basket, spout block, two spouts), its handle 30 deg toward -z
+    p += [cyl("esp_group", 0.034, 0.015, (0.12, 1.094, zc), chrome, G, 28),
+          cyl("esp_basket", 0.032, 0.024, (0.12, 1.076, zc), chrome, G, 28, bev=0.002),
+          box("esp_spout_block", (0.02, 0.006, 0.03), (0.12, 1.061, zc), chrome, G, bev=0.001, seg=1)]
+    for dz in (-0.008, 0.008):
+        p.append(cyl("esp_spout", 0.0035, 0.0045, (0.12, 1.05725, zc + dz), chrome, G, 10))
+    a = math.radians(30)
+    h0 = (0.15, 1.075, zc)
+    h1 = (0.15 + 0.11 * math.cos(a), 1.068, zc - 0.11 * math.sin(a))
+    p += [segment("esp_pf_neck", (0.145, 1.076, zc), (0.165, 1.074, zc - 0.0087), 0.007, chrome, G, verts=10),
+          segment("esp_pf_handle", h0, h1, 0.010, handle_m, G, verts=12, r2=0.013),
+          sphere("esp_pf_end", 0.013, h1, handle_m, G, seg=12, rings=6)]
+    # the drip tray under the bay: a dark tray, chrome slats (the grid), a chrome front lip
+    p.append(box("esp_tray", (0.117, 0.0115, 0.23), (0.1465, 0.94575, zc), dark, G, bev=0.002, seg=1))
+    for k in range(8):
+        p.append(box("esp_grid", (0.006, 0.0035, 0.222), (0.098 + k * 0.0143, DRIP_TOP - 0.00175, zc), chrome, G))
+    p.append(box("esp_tray_lip", (0.004, 0.018, 0.234), (0.205, 0.949, zc), chrome, G, bev=0.001, seg=1))
+    # the steam wand (left, by the tray) and its knob on the panel
+    zs = -0.235
+    p += [segment("esp_wand", (0.14, 1.16, zs), (0.172, 1.16, zs), 0.005, chrome, G, verts=10),
+          sphere("esp_wand_joint", 0.0075, (0.175, 1.16, zs), chrome, G, seg=12, rings=6),
+          segment("esp_wand", (0.175, 1.16, zs), (0.186, 1.005, zs - 0.01), 0.0045, chrome, G, verts=10),
+          cyl("esp_wand_tip", 0.0055, 0.012, (0.1865, 1.0, zs - 0.0103), chrome, G, 10),
+          cyl("esp_knob", 0.014, 0.012, (0.146, 1.245, zs), handle_m, G, 18, axis="x", bev=0.002),
+          cyl("esp_knob_cap", 0.006, 0.003, (0.1525, 1.245, zs), chrome, G, 12, axis="x")]
+    # the water tank behind the body (blue-grey, a darker water line), its lid
+    p += [box("esp_tank", (0.067, 0.2985, 0.26), (-0.1315, 1.10075, zc + 0.01), tank_m, G, bev=0.004, seg=2),
+          box("esp_water_line", (0.068, 0.003, 0.261), (-0.1315, 1.17, zc + 0.01), dark, G),
+          box("esp_tank_lid", (0.073, 0.012, 0.266), (-0.1315, 1.2555, zc + 0.01), dark, G, bev=0.003, seg=2)]
+    # the cup warmer on top: a chrome plate, two small cups upside down
+    p.append(box("esp_warmer", (0.22, 0.003, 0.26), (0.02, 1.281, zc), chrome, G, bev=0.001, seg=1))
+    for cx, cz in ((-0.035, -0.19), (0.045, -0.075)):
+        p.append(cyl("esp_cup", 0.03, 0.055, (cx, 1.2825 + 0.0275 + 0.0005, cz), cup_m, G, 20, r2=0.025, bev=0.002))
+    return p
+
+
 def build_lounge():
     G = "lounge"
     metal = plastic("#2a2c31", 0.35, 0.8, 0.03, "metal")
     p = []
-    # ping-pong table
-    tx, tz = PINGPONG
-    tw, td, th = 2.05, 1.14, 0.76  # 0.75 x a real table (2.74 x 1.525), office-quality.md rule 5
-    green = plastic("#1f5a46", 0.6, 0, 0.2, "pp_top")
-    white = plastic("#f2f2f2", 0.5, 0, 0, "pp_line")
-    p += [box("pp_top", (tw, 0.04, td), (tx, th - 0.02, tz), green, G, bev=0.004),
-          box("pp_edge", (tw - 0.001, 0.004, 0.02), (tx, th + 0.001, tz + td / 2 - 0.0105), white, G),  # #263: lines butt, not overlap
-          box("pp_edge", (tw - 0.001, 0.004, 0.02), (tx, th + 0.001, tz - td / 2 + 0.0105), white, G),
-          box("pp_end", (0.02, 0.004, td - 0.041), (tx - tw / 2 + 0.0105, th + 0.001, tz), white, G),
-          box("pp_end", (0.02, 0.004, td - 0.041), (tx + tw / 2 - 0.0105, th + 0.001, tz), white, G),
-          box("pp_mid", (tw - 0.041, 0.004, 0.006), (tx, th + 0.001, tz), white, G),
-          box("pp_net", (0.01, 0.15, td + 0.1), (tx, th + 0.075, tz), plastic("#111318", 0.9, 0, 0.5, "net"), G)]
-    for sx in (-tw / 2 + 0.15, tw / 2 - 0.15):
-        for sz in (-td / 2 + 0.12, td / 2 - 0.12):
-            p.append(box("pp_leg", (0.05, th - 0.04, 0.05), (tx + sx, (th - 0.04) / 2, tz + sz), metal, G))
+    # ping-pong table (#280 3: room-280.md 6.1, a folding indoor table)
+    pp = build_pingpong(G, metal)
+    p += pp
     # with the players: nav_pingpong_a|b hover 1.33 m from the center, 0.22 m body -> 0.55 m past each end
-    fp("pingpong", p, "floor", grow=(0.55, 0.0))
+    fp("pingpong", pp, "floor", grow=(0.55, 0.0))
     # the paddles and the ball are props now (build_props): agents pick them up
     # #280: the old sofa is gone: the L sofa (build_sofa_l, atlas lounge2) stands in the south-east corner
     # board game table with two stools and a board
@@ -2557,8 +2756,7 @@ def build_lounge():
     c = []
     c += [box("counter", (0.6, 0.9, 0.7), (0, 0.45, 0), plastic("#2b2f3a", 0.6, 0, 0.2, "counter"), G, bev=0.01),
           box("counter_top", (0.64, 0.04, 0.74), (0, 0.92, 0), plastic("#e8e4dc", 0.3, 0, 0.3, "counter_top"), G, bev=0.006),
-          box("machine", (0.28, 0.36, 0.3), (0, 1.12, -0.12), plastic("#1b1d22", 0.35, 0.6, 0.05, "machine"), G, bev=0.02),
-          box("spout", (0.06, 0.05, 0.08), (0.12, 1.07, -0.12), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G),  # #156: 5 mm over the 9.5 cm mug
+          *build_espresso(G),
           # #164: the brew button the index presses (coffee_button_contact_index), a chrome ring round it
           cyl("coffee_btn", 0.011, 0.006, (COFFEE_BUTTON[0] - 0.003, COFFEE_BUTTON[1], COFFEE_BUTTON[2]), plastic("#2a2d33", 0.5, 0, 0.1, "coffee_btn"), G, 20, axis="x", bev=0.0015),
           torus("coffee_btn_ring", 0.0125, 0.0015, (0.1405, COFFEE_BUTTON[1], COFFEE_BUTTON[2]), plastic("#c8ccd4", 0.3, 0.9, 0, "chrome"), G, axis="x", seg=20, rseg=6)]
@@ -2899,8 +3097,8 @@ def paper_sheet(home_pos, home_rot, G):
 MUG_H, MUG_R = 0.095, 0.041
 
 
-def mug_home(C, bx, bz):
-    at = (C @ Mx((bx + 0.072, 0.94 + MUG_H / 2, bz))).to_translation()
+def mug_home(C, bx, bz, base=0.94):
+    at = (C @ Mx((bx + 0.072, base + MUG_H / 2, bz))).to_translation()
     return (at.x, at.z, -at.y), (0.0, COUNTER[2], 0.0)
 
 
@@ -3058,7 +3256,7 @@ def build_props():
     # _0 ivory with a gold band, _1 charcoal with an ivory inside. Home on the counter, handle toward the room
     C = counter_frame()
     for k, (bx, bz) in enumerate(((0.14, -0.12), (0.19, 0.07))):  # counter frame: under the spout, and beside it
-        out.append(prop(f"prop_cup_{k}", "cup", mug_parts(k, G), *mug_home(C, bx, bz)))
+        out.append(prop(f"prop_cup_{k}", "cup", mug_parts(k, G), *mug_home(C, bx, bz, DRIP_TOP if k == 0 else 0.94)))  # #280 3: _0 on the drip tray
     # watering can (#156, designer: an indoor 1.5 L metal can): origin at the middle of the handle's top run (the grip),
     # the oval body below, the long spout from low on the front, a brass rose. Home on the floor by the corner plant
     objs, rose_at, rose_dir = can_parts(G)
@@ -4216,6 +4414,14 @@ def build_records():
             lean = RRNG.uniform(-0.03, 0.03)
             p.append(box("record_spine", (0.004, 0.31, 0.30), (x + 0.002, cy + 0.155, sz + 0.02), plastic(col, 0.75, 0, 0.2, f"spine_{col[1:]}"), L2, rot_y=lean * 0.1))
             x += 0.004 + RRNG.uniform(0.0005, 0.0025)
+    # #280 3 (designer): a jacket leaning on the records in the upper right cubby (seen from the front: -x), dark with
+    # a circle and a band in two muted colours, 6 deg back, its foot 5 mm in from the cubby's front: in front of
+    # prop_record's home (z sz - 0.15), its top 5 mm clear of it
+    J = Mx((sx - 0.1825, 0.4025 + 0.0005, sz - 0.19), rx=math.radians(6))
+    jacket = [box("rec_jacket", (0.30, 0.30, 0.003), (0, 0.15, 0), plastic("#2a2f38", 0.7, 0, 0.1, "rec_jacket"), L2, bev=0.0008, seg=1),
+              cyl("rec_jacket_disc", 0.08, 0.0006, (0.03, 0.18, -0.0018), plastic("#c2a46e", 0.7, 0, 0.05, "rec_jacket_ochre"), L2, 40, axis="z"),
+              box("rec_jacket_band", (0.296, 0.03, 0.0006), (0, 0.08, -0.0018), plastic("#7d9a94", 0.7, 0, 0.05, "rec_jacket_teal"), L2)]
+    p += place(jacket, J)
     spk = plastic("#2b2e33", 0.6, 0.1, 0.1, "rec_speaker")
     cone = plastic("#1b1d21", 0.85, 0, 0.3, "rec_cone")
     p += [box("rec_speaker", (0.2, 0.28, 0.22), (sx + 0.1825, 0.4025 + 0.14, sz), spk, L2, bev=0.008, seg=2),
@@ -4292,6 +4498,22 @@ def build_coffee_bar():
             box("fridge_handle", (0.016, 0.4, 0.02), (-0.048, 0.55, -0.43), gra, "export", bev=0.004, seg=1),
             box("fridge_handle_foot", (0.012, 0.02, 0.016), (-0.044, 0.34, -0.43), gra, "export"),
             box("fridge_handle_foot", (0.012, 0.02, 0.016), (-0.044, 0.76, -0.43), gra, "export")]
+    # #280 3 (designer): a dark rubber gasket 2 mm proud of the door's outline (behind its face), three magnet memos
+    # on its upper half (#efe6d2, a small round magnet each, two pencil lines), all on the door (they swing with it)
+    gk = plastic("#202226", 0.9, 0, 0.0, "fridge_gasket")
+    door += [box("fridge_gasket", (0.01, 0.002, 0.48), (-0.006, 0.85 + 0.001, -0.24), gk, "export"),
+             box("fridge_gasket", (0.01, 0.002, 0.48), (-0.006, 0.07 - 0.001, -0.24), gk, "export"),
+             box("fridge_gasket", (0.01, 0.78, 0.002), (-0.006, 0.46, -0.001), gk, "export"),
+             box("fridge_gasket", (0.01, 0.78, 0.002), (-0.006, 0.46, -0.479), gk, "export")]
+    memo_m = plastic("#efe6d2", 0.85, 0, 0.1, "fridge_memo")
+    ink = plastic("#8a8478", 0.8, 0, 0.0, "fridge_memo_ink")
+    for (my, mz, deg, w_, h_, mc) in ((0.73, -0.32, 5, 0.075, 0.09, "#d64545"), (0.70, -0.16, -4, 0.07, 0.07, "#3c6fd6"),
+                                      (0.58, -0.27, 2, 0.06, 0.08, "#d9a93a")):
+        memo = [box("fridge_memo", (0.0015, h_, w_), (0, 0, 0), memo_m, "export"),
+                cyl("fridge_magnet", 0.0065, 0.004, (-0.0025, h_ / 2 - 0.012, 0), plastic(mc, 0.4, 0, 0.05, f"magnet_{mc[1:]}"), "export", 14, axis="x", bev=0.0012)]
+        for k in range(2):
+            memo.append(box("fridge_memo_ink", (0.0004, 0.0015, w_ * 0.62), (-0.0009, h_ / 2 - 0.032 - k * 0.014, -w_ * 0.08), ink, "export"))
+        door += place(memo, Mx((-0.04075, my, mz), rx=math.radians(deg)))
     dr = live(pivot(join("fridge_door", place(door, D)), D), "bot")
     dr["open"] = {"axis": "y", "sign": 1, "deg": 100, "open_s": 0.6, "close_s": 0.4}
     child_empty(None, "fridge_door_grip", D @ Mx((-0.06, 0.55, -0.43)), {"grip_for": "r", "pose": "wrap"})
@@ -4301,12 +4523,23 @@ def build_coffee_bar():
     p += [box("disp_body", (0.30, 0.70, 0.30), (xw - 0.15, 0.35, DISP_Z), iv, L2, bev=0.01, seg=2),
           lathe("disp_bottle", [(0, 0.70), (0.13, 0.70), (0.13, 0.98), (0.10, 1.03), (0.04, 1.05), (0, 1.05)], (xw - 0.15, 0, DISP_Z), bot_m, L2, seg=28),
           box("disp_tray", (0.08, 0.015, 0.18), (xw - 0.31, 0.30, DISP_Z), gra, L2, bev=0.003, seg=1)]
+    # #280 3 (designer): a grid on the drip tray, a paper cup holder (a ring on an arm, three cups nested) on the north
+    # side near the front
+    for k in range(8):
+        p.append(box("disp_grid", (0.07, 0.003, 0.006), (xw - 0.31, 0.309, DISP_Z - 0.075 + k * 0.0214), plastic("#8b8f96", 0.4, 0.5, 0.05, "disp_grid"), L2))
+    hx_, hz_ = xw - 0.24, DISP_Z - 0.15 - 0.048
+    cup_p = plastic("#f1ece0", 0.8, 0, 0.1, "paper_cup")
+    p += [box("cup_arm", (0.012, 0.012, 0.012), (hx_, 0.60, DISP_Z - 0.15 - 0.005), gra, L2, bev=0.002, seg=1),
+          torus("cup_ring", 0.04, 0.003, (hx_, 0.60, hz_), gra, L2, seg=24, rseg=6)]
+    for k in range(3):
+        p.append(cyl("paper_cup", 0.026, 0.08, (hx_, 0.56 + k * 0.015, hz_), cup_p, L2, 20, r2=0.036))
+    p.append(torus("paper_cup_lip", 0.036, 0.0015, (hx_, 0.6 + 0.03, hz_), cup_p, L2, seg=24, rseg=4))
     for k, c in enumerate(("#d64545", "#3c6fd6")):
         tz = DISP_Z - 0.045 + k * 0.09
         p += [box("disp_tap", (0.03, 0.03, 0.025), (xw - 0.315, 0.52, tz), gra, L2, bev=0.004, seg=1),
               cyl("disp_dot", 0.006, 0.002, (xw - 0.316, 0.545, tz), plastic(c, 0.4, 0, 0, f"tap_{c[1:]}"), L2, 12)]
         child_empty(None, f"water_tap_{k}", Mx((xw - 0.315, 0.535, tz)), {"press": "water", "hot": k == 0})
-    fp_box("water_dispenser", "floor", (xw - 0.33, 0.0, DISP_Z - 0.15), (xw, 1.05, DISP_Z + 0.15), wall="e")
+    fp_box("water_dispenser", "floor", (xw - 0.33, 0.0, DISP_Z - 0.15 - 0.09), (xw, 1.05, DISP_Z + 0.15), wall="e")  # with the cup holder
     # cup rail over the counter: a bar, three hooks, three mugs hanging by their handles
     cz = COUNTER[1]
     p.append(cyl("cup_rail", 0.006, 0.5, (xw - 0.035, 1.5, cz), gra, L2, 12, axis="z"))
@@ -4506,6 +4739,8 @@ for o in VEIN_NODES:
 for o in PLANT_NODES:  # #156: full texel density (half density left dark blotches on the leaves, office-quality.md 0)
     baked(o, "lounge")
 live(shade, "neon")
+for o in PP_LIVE:  # #280 3: the ping-pong net lattice (baked in: its shadow lies on the table)
+    live(o, "bot")
 for o in OMOK_NODES:  # #135: the 1.2 mm grid lines need about 3x the lounge texels
     baked(o, "lounge", density=OMOK_DENSITY)
 for o in build_props():
@@ -4745,6 +4980,15 @@ if PREVIEW:
         "q_sofa": ((-0.75, 1.35, 0.85), (0.35, 0.4, 2.15)),
         "q_lamp": ((2.6, 1.45, 1.15), (1.6, 1.0, 2.25)),
         "q_pingpong": ((3.45, 1.9, -0.65), (1.75, 0.65, 0.95)),
+        "pp_close": ((3.0, 1.3, 2.0), (1.6, 0.5, 0.7)),  # #280 3: the folding table
+        "pp_under": ((2.75, 0.4, 1.95), (2.1, 0.25, 0.7)),
+        "pp_net": ((1.98, 0.98, 1.3), (1.6, 0.82, 1.0)),
+        "wb_close": ((1.55, 1.45, -2.75), (0.8, 1.4, -4.1)),  # #280 3: the whiteboard
+        "wb_corner": ((1.8, 1.2, -3.55), (1.55, 1.0, -4.06)),
+        "esp_close": ((3.78, 1.32, 0.5), (4.42, 1.1, 0.2)),  # #280 3: the espresso machine (counter at x 4.48, z 0.1, front -x)
+        "esp_side": ((4.05, 1.3, 0.85), (4.45, 1.1, 0.25)),
+        "fridge_disp": ((3.55, 1.0, -0.3), (4.5, 0.6, -1.0)),  # #280 3: the gasket, memos, tray grid, cup holder
+        "rec_jacket": ((0.4, 0.75, 2.85), (0.45, 0.55, 3.8)),
         "q_game": ((-0.25, 1.5, 0.55), (-1.35, 0.6, 1.55)),
         "q_counter": ((-1.9, 1.55, 0.55), (-3.2, 0.95, 1.32)),
         "q_shelf": ((2.0, 1.3, -0.35), (2.85, 1.0, -2.57)),
