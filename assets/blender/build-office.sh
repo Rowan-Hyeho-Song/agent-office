@@ -18,4 +18,6 @@ pnpm dlx @gltf-transform/cli@4 optimize "$OUT/office.glb" "$OUT/office.opt.glb" 
 mkdir -p ../../public/models
 cp "$OUT/office.opt.glb" ../../public/models/office.glb
 cp "$OUT"/{room,floor,walls_nw,walls_se,work,wall_items,lounge,lounge2,desk_props}.webp ../../public/models/
+# the 512 px stand-ins the first screen shows while the close-up atlases load (#280)
+node ../../scripts/atlas-lo.mjs ../../public/models
 ls -la ../../public/models/
