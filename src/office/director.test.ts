@@ -4,7 +4,7 @@ import { buildScript } from './meeting'
 import { MEET_WORDS, MeetingRunner } from './meetingRun'
 import { BUBBLE_ASK, BUBBLE_REPLY, Director } from './director'
 import { playAt } from './play'
-import { WRAP_LABEL, wrapCards } from './wrap'
+import { startWrap, totalOf, TOUCH_LABEL, WRAP_LABEL } from './wrap'
 import type { AgentStatus, OfficeMessage, StatusMap } from './status'
 
 const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
@@ -96,7 +96,8 @@ describe('wrapping (#186): real work, then rest', () => {
     const d = new Director(AGENTS)
     const st = wrapping('agent_0')
     const { at, fn } = makeArrived()
-    const n = wrapCards('agent_0', since)
+    const plan = startWrap('agent_0', since, 0, false)
+    const n = plan.n
     let now = 0
     const seen: string[] = []
     const poses: string[] = []
@@ -115,11 +116,18 @@ describe('wrapping (#186): real work, then rest', () => {
     expect(d.shown.agent_0).toMatchObject({ kind: 'wrap', detail: WRAP_LABEL.seat, status: { state: 'wrapping' } })
     at.agent_0 = 'work_0'
     expect(step(100).g).toMatchObject({ spot: 'work_0', pose: 'write', carry: 1 })
-    for (let s = 0; s < n * 25; s++) step(100)
+    // the cards are written for the desk's share of the time (wrapup.md 1), then it sets off with all of them
+    for (let s = 0; s < totalOf(plan.plan.desk) * 10 - 1; s++) step(100)
     expect(step(100).g).toMatchObject({ spot: 'whiteboard', pose: 'carry', carry: n })
     at.agent_0 = 'whiteboard'
     expect(step(100).g).toMatchObject({ spot: 'whiteboard', pose: 'cardpost', carry: n })
-    for (let s = 0; s < 80 && d.shown.agent_0.detail === WRAP_LABEL.post; s++) step(100)
+    // the pieces at the board: posting, then touching the cards, to about 6 s before the display ends
+    let touched = false
+    for (let s = 0; s < 1500 && [WRAP_LABEL.post, TOUCH_LABEL].includes(d.shown.agent_0.detail!); s++) {
+      step(100)
+      touched ||= d.shown.agent_0.detail === TOUCH_LABEL
+    }
+    expect(touched).toBe(true)
     expect(d.shown.agent_0.detail).toBe(WRAP_LABEL.seat)
     expect(step(100).g).toMatchObject({ spot: 'work_0', pose: 'idle', carry: 0 })
     at.agent_0 = 'work_0'
@@ -130,8 +138,11 @@ describe('wrapping (#186): real work, then rest', () => {
     expect(last.sh).toMatchObject({ kind: 'rest', status: { state: 'idle' } })
     expect(last.sh.detail).toBeUndefined()
     expect(last.g.spot).toBe(playAt(MINUTE, AGENTS).agent_0.spot)
-    expect(seen).toEqual([WRAP_LABEL.seat, WRAP_LABEL.write, WRAP_LABEL.walk, WRAP_LABEL.post, WRAP_LABEL.seat, WRAP_LABEL.tidy, 'idle'])
-    expect(poses.slice(0, 6)).toEqual(['idle', 'write', 'carry', 'cardpost', 'idle', 'tidy'])
+    expect(seen).toEqual([WRAP_LABEL.seat, WRAP_LABEL.write, WRAP_LABEL.walk, WRAP_LABEL.post, TOUCH_LABEL, WRAP_LABEL.seat, WRAP_LABEL.tidy, 'idle'])
+    expect(poses.slice(0, 7)).toEqual(['idle', 'write', 'carry', 'cardpost', 'cardpost', 'idle', 'tidy'])
+    // the whole wrap-up lasted to about 6 s before the display's end (2 min from the status' since)
+    expect(now).toBeGreaterThan(since + 120_000 - 6000 - 30_000)
+    expect(now).toBeLessThanOrEqual(since + 120_000 - 6000 + 5000)
     // still `wrapping` in the raw status, and not started again with the same since
     for (let s = 0; s < 20; s++) expect(step(1000).sh.kind).toBe('rest')
   })
@@ -141,14 +152,15 @@ describe('wrapping (#186): real work, then rest', () => {
     const st = wrapping('agent_1')
     const { at, fn } = makeArrived()
     at.agent_1 = 'work_1'
-    const n = wrapCards('agent_1', since)
+    const n = startWrap('agent_1', since, 0, true)
+    const writeMs = totalOf(n.plan.desk) * 1000
     const trail: string[] = []
     let waitedFrom = -1
     let carryFrom: number | null = null
     let backAt = -1
     for (let now = 0; now <= 200_000; now += 100) {
       // someone else (a talk, a decision being pinned) takes the board from 10 s + the cards' writing to 100 s
-      at.agent_2 = now >= n * 2500 + 3000 && now < 100_000 ? 'whiteboard' : null
+      at.agent_2 = now >= writeMs + 3000 && now < 100_000 ? 'whiteboard' : null
       const g = d.goals(now, MINUTE, st, fn).agent_1
       const sh = d.shown.agent_1
       if (sh.kind === 'rest') {
@@ -174,7 +186,7 @@ describe('wrapping (#186): real work, then rest', () => {
     expect(backAt - waitedFrom).toBeGreaterThanOrEqual(19_900)
     expect(backAt - waitedFrom).toBeLessThan(21_000)
     expect(trail).toEqual([
-      WRAP_LABEL.write, WRAP_LABEL.walk, WRAP_LABEL.seat, '카드 다시 읽는 중', WRAP_LABEL.walk, WRAP_LABEL.post, WRAP_LABEL.seat, WRAP_LABEL.tidy, 'rest',
+      WRAP_LABEL.write, WRAP_LABEL.walk, WRAP_LABEL.seat, '카드 다시 읽는 중', WRAP_LABEL.walk, WRAP_LABEL.post, TOUCH_LABEL, WRAP_LABEL.seat, WRAP_LABEL.tidy, 'rest',
     ])
   })
 
@@ -196,21 +208,60 @@ describe('wrapping (#186): real work, then rest', () => {
     }
   })
 
-  it('reduced motion: it never leaves the desk, 1 -> 4 -> 5 in place', () => {
+  it('reduced motion: it never leaves the desk, writes the whole time (still posture), tidies, rests (1 -> 4 -> 5 in place)', () => {
     const d = new Director(AGENTS)
     const st = wrapping('agent_0')
     const { at, fn } = makeArrived()
     at.agent_0 = 'work_0'
     const poses = new Set<string>()
-    for (let now = 0; now < 15_000; now += 100) {
+    let wrapEnd = 0
+    for (let now = 0; now < 118_000; now += 100) {
       const g = d.goals(now, MINUTE, st, fn, { reduced: true }).agent_0
       if (d.shown.agent_0.kind === 'wrap') {
         poses.add(g.pose)
         expect(g.spot).toBe('work_0')
+        wrapEnd = now
       }
     }
+    // the time is filled the same: to about 6 s before the display ends
+    expect(wrapEnd).toBeGreaterThan(100 + 120_000 - 6000 - 12_000)
     expect([...poses].sort()).toEqual(['tidy', 'write'])
     expect(d.shown.agent_0.kind).toBe('rest')
+  })
+
+  it('a talk in the middle of the writing holds the wrap-up: back at the desk it goes on from where it was, never showing "writing" away from the desk', () => {
+    const d = new Director(AGENTS)
+    const st = allIdle()
+    st.agent_2 = { state: 'wrapping', since: 100 }
+    const { at, fn } = makeArrived()
+    at.agent_2 = 'work_2'
+    let now = 0
+    const tick = (ms: number) => {
+      now += ms
+      const g = d.goals(now, MINUTE, st, fn).agent_2
+      return g
+    }
+    for (let i = 0; i < 200; i++) tick(100)
+    const before = tick(0).beat!
+    expect(d.shown.agent_2.step).toBe('write')
+    d.receive(msg('agent_2', 'agent_3'))
+    // gone to the talk place: the talk's own display, the wrap-up's clock stands still
+    at.agent_2 = null
+    tick(100)
+    expect(d.shown.agent_2.kind).toBe('talk')
+    at.agent_2 = 'meet_talk_0'
+    at.agent_3 = 'meet_talk_1'
+    for (let i = 0; i < 400 && d.shown.agent_2.kind === 'talk'; i++) tick(100)
+    // the talk is over: on the way back it says so, and shows no writing until it sits at its desk
+    expect(d.shown.agent_2).toMatchObject({ kind: 'wrap', step: 'seat', detail: WRAP_LABEL.seat })
+    at.agent_2 = null
+    for (let i = 0; i < 20; i++) tick(100)
+    expect(d.shown.agent_2.step).toBe('seat')
+    at.agent_2 = 'work_2'
+    const after = tick(100)
+    expect(d.shown.agent_2.step).toBe('write')
+    // on from the same card: the pieces did not start over (card 1 of the plan was reached before the talk)
+    expect(after.beat!.k).toBeGreaterThanOrEqual(before.k)
   })
 
   it('a new wrap-up (a new since) starts over', () => {
@@ -218,13 +269,13 @@ describe('wrapping (#186): real work, then rest', () => {
     const { at, fn } = makeArrived()
     at.agent_0 = 'work_0'
     d.goals(0, MINUTE, wrapping('agent_0'), fn)
-    for (let now = 100; now < 30_000; now += 100) {
+    for (let now = 100; now < 118_000; now += 100) {
       at.agent_0 = d.goals(now, MINUTE, wrapping('agent_0'), fn).agent_0.spot
     }
     expect(d.shown.agent_0.kind).toBe('rest')
     const fresh = allIdle()
     fresh.agent_0 = { state: 'wrapping', since: 999_999 }
-    d.goals(31_000, MINUTE, fresh, fn)
+    d.goals(119_000, MINUTE, fresh, fn)
     expect(d.shown.agent_0).toMatchObject({ kind: 'wrap' })
   })
 })

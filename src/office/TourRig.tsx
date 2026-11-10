@@ -37,6 +37,7 @@ import {
   type Shot,
   type V3,
 } from './tour'
+import { isBoardActive } from './boardView/store'
 import { getTourState, registerTour, setTourAutoOff, setTourFade, setTourState, tourAutoOff } from './tourStore'
 import { VIEW, focusAllowsCameraKeys, keepClear } from './view'
 import { prefersReducedMotion, type OfficeWorld } from './world'
@@ -413,7 +414,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
       const st = getTourState()
       const ctl = live.current.controls
       if (st.active && (!ctl || live.current.busy || getSideLayout().open)) return stopTour()
-      if (st.active || !auto || tourAutoOff() || !ctl || live.current.busy || document.hidden || getSideLayout().open) return
+      if (st.active || !auto || tourAutoOff() || !ctl || live.current.busy || document.hidden || getSideLayout().open || isBoardActive()) return
       if (replay.getSnapshot().mode === 'list') return
       if (Date.now() - lastInput >= idleMs) startTour()
     }, 400)

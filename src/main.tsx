@@ -5,6 +5,7 @@ import './styles/fonts.css'
 import './styles/tokens.css'
 import './styles/bubbles.css'
 import './styles.css'
+import './styles/boardView.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
