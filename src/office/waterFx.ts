@@ -380,14 +380,18 @@ export interface Drip {
  */
 export class Drips {
   drips: Drip[] = []
+  /** the drips that reached the soil in the last step (a falling drop, not one that stays on its leaf): the sound's "톡" (cue water.drip) */
+  landed: number[] = []
   /** `count` leaf tips start their drips after the staggered delay; `stay[k]`: drip k stays on its leaf (it would land outside the soil) */
   trigger(count: number, stay: readonly boolean[] = []) {
     this.drips = Array.from({ length: count }, (_, k) => ({ phase: 'wait' as DripPhase, t: -(DRIP_DELAY_S + DRIP_STAGGER_S * k), fell: 0, v: 0, stay: !!stay[k] }))
+    this.landed = []
   }
   get active() {
     return this.drips.some((d) => d.phase !== 'done')
   }
   step(dt: number, heightAbove: (k: number) => number) {
+    this.landed = []
     this.drips.forEach((d, k) => {
       if (d.phase === 'done') return
       d.t += dt
@@ -406,7 +410,10 @@ export class Drips {
       if (d.phase === 'fall') {
         d.v += G * dt
         d.fell += d.v * dt
-        if (d.fell >= heightAbove(k)) d.phase = 'done'
+        if (d.fell >= heightAbove(k)) {
+          d.phase = 'done'
+          this.landed.push(k)
+        }
       }
     })
   }
