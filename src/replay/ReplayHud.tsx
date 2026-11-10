@@ -1,4 +1,3 @@
-import { DockSlot } from '../office/CornerDock'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type PointerEvent as RPointerEvent } from 'react'
 import { isApprovalBoxOpen } from '../office/approval/panel'
 import { isDocsOpen } from '../office/docs/panel'
@@ -23,7 +22,7 @@ if (typeof window !== 'undefined') {
 const narrowQuery = () => matchMedia('(max-width: 640px)')
 const p2 = (n: number) => String(n).padStart(2, '0')
 
-/** the entry button (bottom right) while the replay is off, and the replay itself while it is on */
+/** the replay itself while it is on (its entry button is ReplayEntry, in the main bundle) */
 export function ReplayHud({ world }: { world: OfficeWorld }) {
   const s = useReplay()
   // Esc closes the replay; a panel that was open at the key press takes that Esc itself (one layer at a time)
@@ -45,14 +44,6 @@ export function ReplayHud({ world }: { world: OfficeWorld }) {
   }, [s.mode])
   return (
     <>
-      {s.mode === 'off' && (
-        <DockSlot slot="replay">
-          <button type="button" className="dock-btn replay-entry" aria-label="타임랩스" onClick={() => void replay.open({ project: ALL })}>
-            <span aria-hidden="true">◀◀</span>
-            <span className="dock-label">타임랩스</span>
-          </button>
-        </DockSlot>
-      )}
       {s.mode === 'office' && <OfficeBars world={world} />}
       {s.mode === 'list' && <ReplayList />}
     </>

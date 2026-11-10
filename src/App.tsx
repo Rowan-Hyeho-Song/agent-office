@@ -1,33 +1,52 @@
 import { OrbitControls } from '@react-three/drei'
 import { Canvas } from '@react-three/fiber'
 import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing'
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState, type ReactNode } from 'react'
+import { afterFirstScreen } from './office/atlases'
 import { AgentList } from './office/AgentList'
 import { ApprovalBox } from './office/ApprovalBox'
 import { CornerDock } from './office/CornerDock'
-import { DebugPanel } from './office/DebugPanel'
-import { DocsViewer } from './office/DocsViewer'
 import { SidePanel } from './office/SidePanel'
+import { DocsLauncherStub } from './office/DocsLauncherStub'
+import { ReplayEntry } from './replay/ReplayEntry'
 import { SideViewOffset } from './office/sidePanelRig'
 import { CameraHint, CameraRig } from './office/cameraRig'
 import { EdgeHintRig, EdgeHints } from './office/EdgeHints'
 import { TourBar } from './office/TourBar'
 import { TourRig } from './office/TourRig'
-import { BoardCamera } from './office/boardView/BoardCamera'
-import { BoardView } from './office/boardView/BoardView'
 import { CAMERA_FAR, LAMP_POS } from './office/room'
 import { VIEW } from './office/view'
 import { Office } from './office/Office'
 import { CAMERA_FOV, HOME_POS, HOME_TARGET, useCameraBusy } from './room/Door'
 import { RoomUi } from './room/RoomUi'
 import { createWorld } from './office/world'
-import { ReplayDriver } from './replay/ReplayDriver'
-import { ReplayHud } from './replay/ReplayHud'
 import { SoundButton } from './audio/SoundButton'
 import { ViewToggle } from './office/ViewToggle'
-import { SoundPanel } from './audio/SoundPanel'
-import { SoundDebug } from './audio/SoundDebug'
 import { SoundListener, SoundRoot } from './audio/SoundRoot'
+
+// #402: UI that the first screen does not show is its own chunk, fetched once the first screen has been shown (ReadyPing), so it
+// never competes with the room's own downloads. Each one is a store-driven panel: the stores stay in the main bundle, so an
+// open request made before the chunk arrives is still there when the panel mounts.
+const DocsViewer = lazy(() => import('./office/DocsViewer').then((m) => ({ default: m.DocsViewer })))
+const BoardView = lazy(() => import('./office/boardView/BoardView').then((m) => ({ default: m.BoardView })))
+const BoardCamera = lazy(() => import('./office/boardView/BoardCamera').then((m) => ({ default: m.BoardCamera })))
+const ReplayDriver = lazy(() => import('./replay/ReplayDriver').then((m) => ({ default: m.ReplayDriver })))
+const ReplayHud = lazy(() => import('./replay/ReplayHud').then((m) => ({ default: m.ReplayHud })))
+const SoundPanel = lazy(() => import('./audio/SoundPanel').then((m) => ({ default: m.SoundPanel })))
+const DebugPanel = lazy(() => import('./office/DebugPanel').then((m) => ({ default: m.DebugPanel })))
+const SoundDebug = lazy(() => import('./audio/SoundDebug').then((m) => ({ default: m.SoundDebug })))
+
+/** true once the first screen has been shown: the later chunks are not requested before that */
+function useFirstScreenShown() {
+  const [shown, setShown] = useState(false)
+  useEffect(() => afterFirstScreen(() => setShown(true)), [])
+  return shown
+}
+
+/** a lazy panel: nothing before the first screen, then its own chunk; each one apart, so a slow or failed chunk holds back no other */
+function Later({ on, children }: { on: boolean; children: ReactNode }) {
+  return on ? <Suspense fallback={null}>{children}</Suspense> : null
+}
 
 /** ?debug=1&view=top: straight down over the floor plan, to check routes against the furniture */
 const TOP: [number, number, number] = [0, 13, 0.01]
@@ -47,6 +66,7 @@ export function App() {
     if (world.debug) (window as unknown as { __office: typeof world }).__office = world
   }, [world])
   const busy = useCameraBusy()
+  const later = useFirstScreenShown()
   // the free camera's limits apply to the normal view (not the ?debug close-up or the top-down check)
   const limits = !top && !close
   return (
@@ -88,7 +108,9 @@ export function App() {
         )}
         <CameraRig limits={limits} world={world} />
         <TourRig limits={limits} world={world} />
-        <BoardCamera />
+        <Later on={later}>
+          <BoardCamera />
+        </Later>
         <SideViewOffset />
         <EdgeHintRig limits={limits} />
         <SoundListener world={world} />
@@ -103,17 +125,37 @@ export function App() {
       <CornerDock />
       <SidePanel world={world} />
       <ApprovalBox world={world} />
-      <DocsViewer world={world} />
-      <BoardView world={world} />
+      <DocsLauncherStub world={world} />
+      <ReplayEntry />
       <RoomUi />
-      <ReplayDriver world={world} />
-      <ReplayHud world={world} />
-      {world.debug && <DebugPanel world={world} />}
       <SoundRoot world={world} />
       <SoundButton />
       <ViewToggle />
-      <SoundPanel />
-      {world.debug && <SoundDebug />}
+      <Later on={later}>
+        <DocsViewer world={world} />
+      </Later>
+      <Later on={later}>
+        <BoardView world={world} />
+      </Later>
+      <Later on={later}>
+        <ReplayDriver world={world} />
+      </Later>
+      <Later on={later}>
+        <ReplayHud world={world} />
+      </Later>
+      <Later on={later}>
+        <SoundPanel />
+      </Later>
+      {world.debug && (
+        <Later on={later}>
+          <DebugPanel world={world} />
+        </Later>
+      )}
+      {world.debug && (
+        <Later on={later}>
+          <SoundDebug />
+        </Later>
+      )}
     </>
   )
 }

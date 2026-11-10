@@ -11,6 +11,13 @@ export default defineConfig({
   build: {
     // three + R3F + postprocessing is ~1MB raw by design
     chunkSizeWarningLimit: 1200,
+    rolldownOptions: {
+      output: {
+        // #402: the lazy panels share modules with the main bundle; left alone the bundler cuts shared chunks out of the middle of
+        // three/react and the pieces compress ~25 KB worse (brotli) than one file. The libraries get one chunk of their own.
+        codeSplitting: { groups: [{ name: 'vendor', test: /node_modules/ }] },
+      },
+    },
   },
   test: {
     // the simulation tests (omok, pingpong, formation) take 1-2 s alone but over 5 s when the machine is busy

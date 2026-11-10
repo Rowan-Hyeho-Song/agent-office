@@ -42,5 +42,23 @@ export function openFromHash(): boolean {
   return !!ref
 }
 
+/** whether the viewer component is mounted (it is its own chunk, #402): until then DocsLauncherStub stands in for its dock button */
+let viewerReady = false
+const readyListeners = new Set<() => void>()
+export const setDocsViewerReady = (v: boolean) => {
+  if (viewerReady === v) return
+  viewerReady = v
+  readyListeners.forEach((l) => l())
+}
+export function useDocsViewerReady() {
+  return useSyncExternalStore(
+    (cb) => {
+      readyListeners.add(cb)
+      return () => void readyListeners.delete(cb)
+    },
+    () => viewerReady,
+  )
+}
+
 /** the current panel state (debug and tests read what a click asked for) */
 export const getDocsPanel = () => state

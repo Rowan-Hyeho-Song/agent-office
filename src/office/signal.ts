@@ -54,7 +54,10 @@ export function tablesOf(payload: unknown): SignalTable[] {
 }
 
 /** `wire` null = no Realtime (the debug fakes): only `receive` and the slow poll */
-export function createSignalHub(wire: SignalWire | null): SignalHub {
+export function createSignalHub(wire: SignalWire | null, opts: { skipFirstJoinCatchUp?: readonly SignalTable[] } = {}): SignalHub {
+  // #402: a table whose list is read at start-up has nothing to catch up on when the channel joins for the first time; the
+  // catch-up would only send the same query a second time before the first screen. A rejoin after a drop still catches up.
+  let firstJoin = true
   const listeners: Record<SignalTable, Set<() => void>> = { approvals: new Set(), docs: new Set() }
   const pending: Partial<Record<SignalTable, ReturnType<typeof setTimeout>>> = {}
   let leave: (() => void) | null = null
@@ -88,7 +91,12 @@ export function createSignalHub(wire: SignalWire | null): SignalHub {
     const was = isJoined
     isJoined = joined
     if (was !== joined) restartPoll()
-    if (joined && !was) fireAll() // whatever happened while the channel was down
+    if (joined && !was) {
+      // whatever happened while the channel was down
+      const first = firstJoin
+      firstJoin = false
+      TABLES.forEach((t) => !(first && opts.skipFirstJoinCatchUp?.includes(t)) && fire(t))
+    }
   }
   const syncOwner = () => {
     if (owner && count() && wire && !leaveOwner) leaveOwner = wire.changes((t) => fire(t))
