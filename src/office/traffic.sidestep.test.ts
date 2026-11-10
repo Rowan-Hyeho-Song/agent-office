@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { buildGrid, decodeFootprint, footprintFromRects } from './grid'
 import { buildGraph, type NavSpot } from './nav'
 import { inSofaRow, readSofaRow, SOFA_ROW, type SofaRow } from './sofaRow'
-import { TRAFFIC, TrafficPlanner, type Request } from './traffic'
+import { CRUISE, CRUISE_TUNED, TRAFFIC, TrafficPlanner, type Request } from './traffic'
 import { FOOTPRINT_DATA } from './footprint.data'
 import { GRAPH } from './navSpots.fixture'
 import { PLAYS } from './play'
@@ -239,7 +239,8 @@ describe('the sofa row: side-step rule', () => {
     let inside = 0
     let maxSpeed = 0
     let maxYaw = 0
-    // a stand-in for the rig's heading (rig.ts: capped turn rate, 60 fps) so the turn at the edge is judged too
+    // a stand-in for the rig's heading (rig.ts: capped turn rate TURN_RATE = 4.5 x CRUISE / CRUISE_TUNED, 60 fps) so the turn at the edge is judged too
+    const TURN = (4.5 * CRUISE) / CRUISE_TUNED / 60
     let yaw = NaN
     let sent = false
     for (let t = 0; t <= 60; t += 1 / 60) {
@@ -253,7 +254,7 @@ describe('the sofa row: side-step rule', () => {
       if (Number.isNaN(yaw)) yaw = s.heading ?? 0
       if (s.heading !== null) {
         const diff = wrap(s.heading - yaw)
-        const turn = Math.max(-4.5 / 60, Math.min(4.5 / 60, diff)) * Math.min(1, 12 / 60 + 0.4)
+        const turn = Math.max(-TURN, Math.min(TURN, diff)) * Math.min(1, 12 / 60 + 0.4)
         yaw = wrap(yaw + turn)
       }
       if (inSofaRow(ZONE, s.x, s.z) && s.moving) {

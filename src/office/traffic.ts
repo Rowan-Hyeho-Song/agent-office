@@ -21,6 +21,8 @@ import { inSofaRow, rowLocal, SOFA_ROW, type SofaRow } from './sofaRow'
 
 /** how near its goal a walker is allowed the relaxed clearance to a neighbour resting on a designed pair spot (m): the arrival zone (0.45 m, the day sim's own) plus half a grid cell. It was 0.75; with the sofa against the south wall and the fig beside it (#280) a walker coming from the north-west cut in to 0.39 m from the sleeper from that far out */
 const EXEMPT_ZONE = 0.5
+/** how many points of the next SOFA_ROW.turnLeadS are checked for the sofa row (0.1 s apart): a body turns to the sofa before it steps in */
+const LEAD_STEPS = 10
 /**
  * The agents' cruising walk, m/s (#329: 0.75 -> 1.0, the user found them slow). The one number for the planner (TRAFFIC.cruise) and the
  * rig (rig.ts SPEED, and its acceleration, corner speed and turn rate, which scale with it).
@@ -362,8 +364,13 @@ export class TrafficPlanner {
     const row = this.row
     if (!row) return false
     if (inSofaRow(row.zone, p.x, p.z)) return true
-    const ahead = this.px(tr, now + SOFA_ROW.turnLeadS)
-    return inSofaRow(row.zone, ahead.x, ahead.z)
+    // anywhere in the next turnLeadS, not only its end: at 1.0 m/s (#337) the point 1 s ahead was already past the row on the seat, and the
+    // body turned only as it stepped in (20° off the sofa for the first steps)
+    for (let k = 1; k <= LEAD_STEPS; k++) {
+      const ahead = this.px(tr, now + (SOFA_ROW.turnLeadS * k) / LEAD_STEPS)
+      if (inSofaRow(row.zone, ahead.x, ahead.z)) return true
+    }
+    return false
   }
 
   /** the planned position at a time (any time; before / after the stored span it clamps) */
