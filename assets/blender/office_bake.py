@@ -3949,7 +3949,9 @@ def hand_fingers(n, Mh, sx, shell, square=False):
     # faces the index finger, so its MCP / IP bend it across the palm (a fist: the tip over the middle finger) and an
     # opposed thumb meets the index tip (1.7 mm at the joint limits; 13.8 mm untwisted)
     T = Mh @ Mx(tuple(root)) @ Mx(rz=-sx * math.radians(35)) @ Mx(rx=math.radians(20)) @ Mx(ry=-sx * math.radians(75))
-    finger(f"{n}_t", T, [0.030, 0.023], 0.019, 0.017)  # #288 designer: +15% (0.026 + 0.020 reached the index tip only at 6.8 mm)
+    # #231 (designer, coder): LOOP's keycap tip is chamfered 6 mm, so its fingertip (the pad's far end, rig.ts tipOf)
+    # sat 2 mm short of the round tips' apex (thumb 71.3 vs 73.3 mm): its thumb tip segment is 2 mm longer instead
+    finger(f"{n}_t", T, [0.030, 0.023 + (0.002 if square else 0.0)], 0.019, 0.017)  # #288 designer: +15% (0.026 + 0.020 reached the index tip only at 6.8 mm)
     joint_axes(out, Mh, sx)
     return out
 
