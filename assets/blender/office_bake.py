@@ -109,6 +109,7 @@ Node contract (the app reads glTF extras):
   prop_paper_grip_side_l|r         empties (#280, paper-pass.md 5): children of prop_paper_a, the long edges 1.5 cm in, 45%
                                    up from the near edge (grip_for l|r, pose side_read); _contact_thumb (writing face) |
                                    _contact_index (back), also children of prop_paper_a
+  hit_whiteboard                   (#234) empty: the whiteboard's click box on its face (extras hit, size [1.6, 1.1, 0.1], wall n)
   pp_net                           live "bot" (#280 3): the net's navy 1 cm lattice (static; the posts, clamps and white
                                    band are in the lounge atlas)
   nav_<id>                         empties: where agents go and which way they face (navigation); nav_meet_center_*
@@ -1425,6 +1426,9 @@ def build_hits():
     hit("library", "library", Mx((SHELF_X, 1.05, -HZ + 0.01 + SHELF_D / 2)), (SHELF_W + 0.03, 2.1, SHELF_D))
     # the wall clock (#91): face and hands, a little proud of the face
     hit("clock", "clock", CLOCK_M @ Mx((0, 0, 0.015)), (CLOCK_S + 0.04, CLOCK_S + 0.04, 0.05))["wall"] = "w"
+    # #234 / #388 (coder): the whiteboard's click box over its face (1.5 x 1.0 + a margin), on the board face, with the
+    # back wall (it fades with it)
+    hit("whiteboard", "whiteboard", Mx((WHITEBOARD_X, 1.5, -HZ + 0.04)), (1.6, 1.1, 0.1))["wall"] = "n"
 
 
 # ================================================================ WALL ITEMS (atlas: wall_items)
