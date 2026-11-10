@@ -29,7 +29,7 @@ import { prepareView } from './walls'
 //   nav:   "<kind>"  empties: where agents go and which way they face (navigation graph: nav.ts)
 
 export const MODEL_URL = assetUrl('models/office.glb')
-export const ATLASES = ['room', 'walls_nw', 'walls_se', 'work', 'wall_items', 'lounge', 'desk_props'] as const
+export const ATLASES = ['room', 'floor', 'walls_nw', 'walls_se', 'work', 'wall_items', 'lounge', 'desk_props'] as const
 const ATLAS_URLS = ATLASES.map((a) => assetUrl(`models/${a}.webp`))
 
 /**
