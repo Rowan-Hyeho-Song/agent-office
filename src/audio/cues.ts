@@ -354,6 +354,33 @@ export const CUES = {
       noise(o, 0.05, { freq: 3500, q: 1.2, level: 0.011, at: 0.03 })
     },
   },
+  'lever.down': {
+    label: '문 레버 누름 (걸쇠 딸깍)',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 300,
+    length: 0.06,
+    // the latch pulled back at the bottom of the press: a small metal click with a short ring, a dull knock of the door under it
+    play: (o) => {
+      knock(o, 2400, 0.03, 0.03, 14, 0.4)
+      tone(o, 3300, 0.04, { type: 'sine', level: 0.004, attack: 0.001 })
+      knock(o, 300, 0.04, 0.02, 3, 0.8)
+    },
+  },
+  'lever.up': {
+    label: '문 레버 놓음 (스프링 철컥)',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 300,
+    length: 0.06,
+    // the spring brings the lever up and the latch snaps out: a lighter, higher click
+    play: (o) => {
+      knock(o, 2900, 0.025, 0.022, 12, 0.4)
+      noise(o, 0.01, { freq: 4500, q: 2, level: 0.006, attack: 0.0005, at: 0.012 })
+    },
+  },
   'door.enter': {
     label: '출입문 (따로 열었을 때)',
     kind: 'ui',

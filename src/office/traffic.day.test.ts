@@ -75,3 +75,17 @@ describe('a whole day through the planner', () => {
     expect(r.errandsAtOnce, 'one can').toBeLessThanOrEqual(1)
   }, 120_000)
 })
+
+// #280: the lounge acts run through the day like any other errand: they are sent, reach their stands and run to their end, never two at the bar, never two at the turntable
+describe('the lounge acts through the day', () => {
+  it('the fridge, the dispenser and the turntable are all visited; one at the bar, one at the turntable', () => {
+    const r = wholeDay()
+    console.log(`day sim (#280): lounge acts ${JSON.stringify(r.acts)}; most at once ${r.actsAtOnce}; bodies inside the fridge door's swing while it was held: ${r.sweptBreaches}`)
+    for (const k of ['fridge', 'dispenser', 'record'] as const) {
+      expect(r.acts[k].sent, `${k} sent`).toBeGreaterThan(5)
+      expect(r.acts[k].done, `${k} finished`).toBeGreaterThanOrEqual(r.acts[k].reached - 4)
+    }
+    expect(r.actsAtOnce, 'the bar and the turntable').toBeLessThanOrEqual(2)
+    expect(r.sweptBreaches, 'nobody but the one at the fridge stands in the area its door sweeps').toBe(0)
+  }, 120_000)
+})
