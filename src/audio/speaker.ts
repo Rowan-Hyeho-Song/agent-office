@@ -95,9 +95,15 @@ export function faderTargets(state: MusicState, layers: readonly Layer[], forMe:
 
 /** how a speaker sounds with distance (sound.md 6, to be judged on #194):
  *  - 'room': like every other cue, the whole room at full level from the default view, left/right only (the default)
- *  - 'near': quieter far away, louder close up; the same level at the default view (18.4 m), at most +4 dB nearer */
+ *  - 'near': quieter far away, louder close up; the same level at the default view (17.7 m), at most +4 dB nearer */
 export type MusicDist = 'room' | 'near'
-export const DEFAULT_VIEW_M = 18.4 // #280 bigger room: DEFAULT_CAMERA (9.56, 7.8, 10.54) → the speakers (coder's number; was 16.1)
+/** DEFAULT_CAMERA (9.56, 7.8, 10.54) → the speakers' middle (#367 bake: L 17.44 m, R 17.93 m; was 18.4 by estimate, 16.1 in the old room) */
+export const DEFAULT_VIEW_M = 17.7
+/** desk_4_spk_l / _r in office.glb (#367 bake), used until the coder hands the live nodes over */
+export const SPEAKER_FALLBACK: readonly [number, number, number][] = [
+  [-2.622, 0.819, 0.189],
+  [-2.622, 0.819, -0.609],
+]
 export const NEAR_GAIN_DB = 4
 export function distParams(d: MusicDist): { ref: number; trim: number } {
   if (d === 'room') return { ref: REF_DISTANCE, trim: 1 }
@@ -149,12 +155,12 @@ function build(g: NonNullable<ReturnType<typeof audioGraph>>): AudioNode {
     p.refDistance = ref
     p.maxDistance = MAX_DISTANCE
     p.rolloffFactor = 1
-    // until the nodes are known: where #249 puts them
-    const z = i === 0 ? 0.389 : -0.409
+    // until the nodes are known: where the bake puts them
+    const [fx, fy, fz] = SPEAKER_FALLBACK[i]
     if (p.positionX) {
-      p.positionX.value = -2.322
-      p.positionY.value = 0.819
-      p.positionZ.value = z
+      p.positionX.value = fx
+      p.positionY.value = fy
+      p.positionZ.value = fz
     }
     forMeG.connect(half).connect(p).connect(trim)
     split.push(half)
