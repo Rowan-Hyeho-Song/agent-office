@@ -17,7 +17,7 @@
 
 import { cellAt, centre, distanceField, findPath, nearestWalkable, step, type Grid } from './grid'
 import { DESK_SIDES, dist, type NavGraph, type NavSpot } from './nav'
-import { inSofaRow, rowLocal, SOFA_ROW, type SofaRow } from './sofaRow'
+import { inSofaRow, rowApproach, rowLocal, seatedPair, SOFA_ROW, type RowApproach, type SofaRow } from './sofaRow'
 
 /** how near its goal a walker is allowed the relaxed clearance to a neighbour resting on a designed pair spot (m): the arrival zone (0.45 m, the day sim's own) plus half a grid cell. It was 0.75; with the sofa against the south wall and the fig beside it (#280) a walker coming from the north-west cut in to 0.39 m from the sleeper from that far out */
 const EXEMPT_ZONE = 0.5
@@ -233,7 +233,7 @@ export class TrafficPlanner {
   /** how many searches ran / expanded (for the timing report) */
   stats = { searches: 0, expanded: 0 }
   /** the sofa's knee row (#341), if the scene has one: its cells, the slow stretch round it, the seat spots, a way in per seat */
-  private row?: { zone: SofaRow; cells: number[]; slow: Uint8Array; seats: NavSpot[]; entrances: NavSpot[]; bans: Map<string, { key: string; set: Uint8Array } | null> }
+  private row?: { zone: SofaRow; cells: number[]; slow: Uint8Array; seats: NavSpot[]; entrances: NavSpot[]; approach: RowApproach; bans: Map<string, { key: string; set: Uint8Array } | null> }
 
   constructor(
     readonly grid: Grid,
@@ -271,7 +271,9 @@ export class TrafficPlanner {
       if (inSofaRow(zone, p.x, p.z) && !g.blocked[c]) cells.push(c)
     }
     const all = Object.values(graph.spots).sort((a, b) => (a.id < b.id ? -1 : 1))
-    return { zone, cells, slow, seats: all.filter((s) => s.kind === 'sofa'), entrances: all.filter((s) => s.kind === 'sofa_in'), bans: new Map<string, { key: string; set: Uint8Array } | null>() }
+    const seats = all.filter((s) => s.kind === 'sofa')
+    const entrances = all.filter((s) => s.kind === 'sofa_in')
+    return { zone, cells, slow, seats, entrances, approach: rowApproach(zone, entrances, seats), bans: new Map<string, { key: string; set: Uint8Array } | null>() }
   }
 
   private name(id: string): number {
@@ -498,6 +500,7 @@ export class TrafficPlanner {
           // one standing body in the sofa row at a time (#341)
           if (this.row && this.standsInRow(A.x, A.z) && this.standsInRow(B.x, B.z)) return { early: seq[i], late: seq[j] }
           let lim = 2 * TRAFFIC.bodyR
+          if (this.row && seatedPair(this.row.approach, A.x, A.z, B.x, B.z)) lim = SOFA_ROW.seatedM - 0.03
           if (d0 < lim && tt < t + 1.5) lim = d0 - 0.05
           if (d >= lim) continue
           const ia = Math.max(0, Math.min(ta.n - 1, Math.round((tt - ta.t0) / TRAFFIC.sampleDt)))
@@ -747,6 +750,13 @@ export class TrafficPlanner {
 
   /** the clearance two agents need now: 2R, relaxed only for a goal spot designed next to the other's resting spot */
   private limit(ctx: Ctx, x: number, z: number, o: Traj, i: number, gap: number): number {
+    const base = this.limitBase(ctx, x, z, o, i, gap)
+    // a seated body of the sofa row and one in its approach area: seatedM (less the grid's rounding while searching, as the designed pair below)
+    if (this.row && seatedPair(this.row.approach, x, z, o.x[i], o.z[i])) return Math.min(base, SOFA_ROW.seatedM - (gap > 0.05 ? 0.05 : 0.03))
+    return base
+  }
+
+  private limitBase(ctx: Ctx, x: number, z: number, o: Traj, i: number, gap: number): number {
     if (ctx.goalIdx >= 0) {
       const oa = o.at[i]
       if (oa >= 0) {
@@ -760,6 +770,11 @@ export class TrafficPlanner {
       }
     }
     return 2 * TRAFFIC.bodyR + gap
+  }
+
+  /** one of the two rests on a seat of the sofa row and the other is in its approach area (sofaRow.ts): the pair that may be SOFA_ROW.seatedM apart */
+  isSeatedPair(x1: number, z1: number, x2: number, z2: number): boolean {
+    return !!this.row && seatedPair(this.row.approach, x1, z1, x2, z2)
   }
 
   /** the share of its cruise a body keeps on this cell: slow in the sofa row and on its approach (#341) */
@@ -837,6 +852,7 @@ export class TrafficPlanner {
             let lim = this.thr
             if (sl && tt < sl.from + TRAFFIC.startEaseS) lim = this.easeLim(sl, tt)
             else if (ex !== undefined && Math.hypot(p.x - ctx.gx, p.z - ctx.gz) < EXEMPT_ZONE) lim = ex - 0.2
+            if (this.row && seatedPair(this.row.approach, p.x, p.z, tmp.x, tmp.z)) lim = Math.min(lim, SOFA_ROW.seatedM - 0.05)
             if (Math.hypot(p.x - tmp.x, p.z - tmp.z) < lim) mark(c, from, to)
           }
         }

@@ -397,3 +397,45 @@ describe('the re-baked lounge: every stand has a way out', () => {
     }
   }
 })
+
+// Seated bodies are exempt (#341): with seats 0 and 2 taken, the row and the east entrance are 0.545 / 0.563 m from a seated body, under 2R + gap.
+describe('the re-baked lounge: seated neighbours do not shut the way', () => {
+  it('seats 0 and 2 taken: a third body sits on seat 1 and leaves again within 60 s, never nearer than seatedM - 0.06 to a seated one nor 2R to a standing one', () => {
+    const p = new TrafficPlanner(buildGrid(decodeFootprint(FOOTPRINT_DATA), GRAPH), GRAPH)
+    p.place('s0', req('sofa_0'), 0, 0)
+    p.place('s2', req('sofa_2'), 0, 1)
+    p.place('w', req('hall_front'), 0, 2)
+    p.place('x', req('hall_lounge'), 0, 3)
+    p.update(0)
+    p.request('w', req('sofa_1'), 0)
+    p.request('x', req('hall_east'), 0)
+    let leave = false
+    let seatedMin = Infinity
+    let standMin = Infinity
+    let sat = -1
+    let out = -1
+    for (let t = 0; t <= 120; t += 0.05) {
+      if (sat < 0 && p.sample('w', t).arrived === 'sofa_1') sat = t
+      if (sat >= 0 && !leave && t > sat + 5) {
+        p.request('w', req('hall_front'), t)
+        leave = true
+      }
+      p.update(t)
+      const w = p.sample('w', t)
+      const x = p.sample('x', t)
+      for (const id of ['s0', 's2']) {
+        const s = p.sample(id, t)
+        // (the last 0.5 m into / out of seat 1 is the designed seat pair, judged by its own rule)
+        if (p.isSeatedPair(s.x, s.z, w.x, w.z) && Math.hypot(w.x - GRAPH.spots.sofa_1.x, w.z - GRAPH.spots.sofa_1.z) > 0.5) seatedMin = Math.min(seatedMin, Math.hypot(s.x - w.x, s.z - w.z))
+      }
+      if (!seated(x) && !seated(w)) standMin = Math.min(standMin, Math.hypot(x.x - w.x, x.z - w.z))
+      if (leave && out < 0 && p.sample('w', t).arrived === 'hall_front') out = t
+    }
+    expect(sat, 'sat on seat 1').toBeGreaterThanOrEqual(0)
+    expect(sat).toBeLessThan(60)
+    expect(out, 'left again').toBeGreaterThan(sat)
+    expect(out - sat - 5).toBeLessThan(60)
+    expect(seatedMin).toBeGreaterThanOrEqual(SOFA_ROW.seatedM - 0.06)
+    expect(standMin).toBeGreaterThanOrEqual(R2)
+  })
+})

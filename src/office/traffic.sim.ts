@@ -7,6 +7,7 @@ import { FOOTPRINT_DATA } from './footprint.data'
 import { buildGrid, decodeFootprint } from './grid'
 import { GRAPH } from './navSpots.fixture'
 import type { OfficeMessage, StatusMap } from './status'
+import { SOFA_ROW } from './sofaRow'
 import { TRAFFIC, TrafficPlanner } from './traffic'
 import type { Shown } from './wrap'
 
@@ -86,6 +87,8 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
   const rand = rng(7)
   let min = Infinity
   let minExempt = Infinity
+  // a body resting on a seat of the sofa row and one in the row's approach area (#341): SOFA_ROW.seatedM apart is allowed
+  let minSeated = Infinity
   let replans = 0
   let t = opts.fromMin * 60
   const end = opts.toMin * 60
@@ -188,6 +191,7 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
         for (let j = i + 1; j < AGENTS.length; j++) {
           const d = Math.hypot(s[i].x - s[j].x, s[i].z - s[j].z)
           if (isExempt(s[i], s[j])) minExempt = Math.min(minExempt, d)
+          else if (planner.isSeatedPair(s[i].x, s[i].z, s[j].x, s[j].z) && d >= SOFA_ROW.seatedM - 0.06) minSeated = Math.min(minSeated, d)
           else {
             if (d < min) min = d
             if (d < 2 * TRAFFIC.bodyR) worst.push({ t: tt, d, who: `${AGENTS[i]}/${AGENTS[j]}`, goals: `${goals[AGENTS[i]].spot}/${goals[AGENTS[j]].spot}`, at: `${s[i].x.toFixed(2)},${s[i].z.toFixed(2)}/${s[j].x.toFixed(2)},${s[j].z.toFixed(2)}` })
@@ -198,5 +202,5 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
     t += step
   }
   planMs.sort((a, b) => a - b)
-  return { min, minExempt, replans, worst, samples, planMs, stats: planner.stats, mismatch: mism, frames, maxWait, longWaits, errands, errandsAtOnce }
+  return { min, minExempt, minSeated, replans, worst, samples, planMs, stats: planner.stats, mismatch: mism, frames, maxWait, longWaits, errands, errandsAtOnce }
 }
