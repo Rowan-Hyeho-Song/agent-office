@@ -43,7 +43,7 @@ describe('the circle keeps its middle free (#355)', () => {
         expect(into.sample('a', 25).arrived, `${d} -> ${s} arrives`).toBe(s)
       }
     }
-  })
+  }, 120_000) // every seat / formation through the planner: heavy, slow under a loaded machine (the 30 s default was missed at 33 s)
 
   it('the planner keeps out of it from every formation spot (open and closed, 2-5 seats), the others staying where they stand', () => {
     for (const open of [true, false]) {
@@ -67,7 +67,7 @@ describe('the circle keeps its middle free (#355)', () => {
         }
       }
     }
-  })
+  }, 120_000) // every seat / formation through the planner: heavy, slow under a loaded machine (the 30 s default was missed at 33 s)
 
   it('arriving at a formation spot is from outside the inner half too (the other seats taken)', () => {
     for (const open of [true, false]) {
@@ -85,7 +85,7 @@ describe('the circle keeps its middle free (#355)', () => {
         }
       }
     }
-  })
+  }, 120_000) // every seat / formation through the planner: heavy, slow under a loaded machine (the 30 s default was missed at 33 s)
 
   it('a body bound for the centre itself still goes in', () => {
     const p = planner()
