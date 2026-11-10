@@ -8,15 +8,26 @@ import { createPortal } from 'react-dom'
 // covers the right side.
 
 export type DockSlotName = 'approval' | 'docs' | 'replay' | 'sound' | 'camera'
-/** bottom up; the view toggle sits on top, the sound button just under it (sound.md 2.5, office-ui.md 10.6) */
-const SLOTS: DockSlotName[] = ['approval', 'docs', 'replay', 'sound', 'camera']
+/**
+ * bottom up; the view toggle sits on top, the sound button just under it (sound.md 2.5, office-ui.md 10.6). Two groups: the labelled
+ * launchers and the two icons. On a wide screen and down to 481 px the groups do not count (display: contents: one column, or one row);
+ * at 480 px and under they are the dock's two rows, the icons over the labelled ones (#403: five in one row did not fit a phone)
+ */
+const ROWS: { name: string; slots: DockSlotName[] }[] = [
+  { name: 'labels', slots: ['approval', 'docs', 'replay'] },
+  { name: 'icons', slots: ['sound', 'camera'] },
+]
 const slotId = (s: DockSlotName) => `dock-${s}`
 
 export function CornerDock() {
   return (
     <nav className="corner-dock" aria-label="바로 가기">
-      {SLOTS.map((s) => (
-        <div key={s} id={slotId(s)} className="dock-slot" />
+      {ROWS.map((r) => (
+        <div key={r.name} className={`dock-row dock-row-${r.name}`}>
+          {r.slots.map((s) => (
+            <div key={s} id={slotId(s)} className="dock-slot" />
+          ))}
+        </div>
       ))}
     </nav>
   )
