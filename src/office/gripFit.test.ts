@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { loadOffice, stubCanvas } from './glbLoad'
 import { buildRig } from './rig'
 import { GRIP_OFFSETS } from './gripFit.data'
+import './loungeActs' // registers the lounge's grips (record, pillow, fridge door, door lever) in GRIPS
 import { composeOffset, fitFingers, resolveTarget, solveTarget, type GripTarget } from './gripTargets'
 
 stubCanvas()
@@ -23,6 +24,7 @@ const OBJECTS: [string, string, 'l' | 'r'][] = [
   ['prop_book', 'book', 'l'], ['prop_book', 'book', 'r'], ['prop_book', 'leaf', 'r'],
   // the five shelf books held open for reading (#231): the same reading grip, built from each book's own size
   ...[0, 1, 2, 3, 4].flatMap((k) => ([['prop_shelfbook_' + k, 'book', 'l'], ['prop_shelfbook_' + k, 'book', 'r'], ['prop_shelfbook_' + k, 'leaf', 'r']] as [string, string, 'l' | 'r'][])),
+  ['prop_record', 'record', 'r'],
   ['desk_0_mouse', 'mouse', 'r'], ['desk_1_mouse', 'mouse', 'r'], ['desk_3_mouse', 'mouse', 'r'], ['desk_4_mouse', 'mouse', 'r'],
 ]
 const LOG = process.env.FIT_LOG
