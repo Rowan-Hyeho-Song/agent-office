@@ -5,6 +5,7 @@ import { deskOf, Director, requestOf, type Goal } from './director'
 import { applyDuty } from './duty'
 import { FOOTPRINT_DATA } from './footprint.data'
 import { buildGrid, decodeFootprint } from './grid'
+import { actTotal, inSwept, syncFridgeHold } from './lounge'
 import { GRAPH } from './navSpots.fixture'
 import type { OfficeMessage, StatusMap } from './status'
 import { TRAFFIC, TrafficPlanner } from './traffic'
@@ -113,12 +114,20 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
   const errands: Record<string, number> = { fetch: 0, lift: 0, carry: 0, pour: 0, return: 0, put: 0, done: 0 }
   const stageOf: Record<string, string | undefined> = {}
   let errandsAtOnce = 0
+  // the lounge acts (#280, lounge.ts): how many were sent, how many got as far as their stand, how many ran to their end; who was at the bar / turntable at once
+  const acts: Record<string, { sent: number; reached: number; done: number }> = { fridge: { sent: 0, reached: 0, done: 0 }, dispenser: { sent: 0, reached: 0, done: 0 }, record: { sent: 0, reached: 0, done: 0 } }
+  const actSeen: Record<string, { kind: string; reached: boolean; total: number } | undefined> = {}
+  let actsAtOnce = 0
   // frames where what is shown and what the body does disagree; the longest an agent went without reaching its goal (the #188 leftover)
   const mism: { t: number; who: string; why: string }[] = []
   let frames = 0
   const goalSince: Record<string, { key: string; t: number }> = {}
   const maxWait = { s: 0, who: '', spot: '', t: 0 }
   const longWaits: { who: string; spot: string; t: number; s: number }[] = []
+  const lastU: Record<string, number> = {}
+  const hold = { user: null as string | null, from: 0 }
+  // the fridge door's swing (#280): nobody but its user is ever inside the area it sweeps while it is held
+  let sweptBreaches = 0
   let first = true
   let samples = 0
   while (t < end) {
@@ -134,6 +143,7 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
         director.receive(m)
       }
     }
+    syncFridgeHold(planner, hold, director.fridgeUser(), t)
     const arrived = (a: string) => (planner.has(a) ? planner.sample(a, t).arrived : null)
     const goals: Record<string, Goal> = director.goals(now, minute, status, arrived)
     // as Agents.tsx does: forget the departures no goal holds any more, keep the held ones
@@ -163,6 +173,27 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
       }
     }
     errandsAtOnce = Math.max(errandsAtOnce, onErrand)
+    let onAct = 0
+    for (const a of AGENTS) {
+      const ac = goals[a].act
+      const prev = actSeen[a]
+      if (ac) onAct++
+      if (ac && !prev) {
+        acts[ac.kind].sent++
+        actSeen[a] = { kind: ac.kind, reached: false, total: actTotal(ac.kind, ac.mode, ac.recordOn) }
+      }
+      const cur = actSeen[a]
+      if (cur && ac && ac.u >= 0 && !cur.reached) {
+        cur.reached = true
+        acts[cur.kind].reached++
+      }
+      if (cur && !ac) {
+        if (cur.reached && lastU[a] >= cur.total - 2.1) acts[cur.kind].done++
+        actSeen[a] = undefined
+      }
+      lastU[a] = ac ? ac.u : 0
+    }
+    actsAtOnce = Math.max(actsAtOnce, onAct)
     for (const a of AGENTS) {
       const g = goals[a]
       const at = planner.has(a) ? planner.sample(a, t).arrived : null
@@ -200,6 +231,7 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
         else if (seatHeld[a] !== spot.id) seatHeld[a] = undefined
         if (seatHeld[a]) maxSeatDrift = Math.max(maxSeatDrift, Math.hypot(s[i].x - spot.x, s[i].z - spot.z))
       })
+      if (hold.user) AGENTS.forEach((a, i) => { if (a !== hold.user && tt >= hold.from && inSwept(s[i].x, s[i].z)) sweptBreaches++ })
       for (let i = 0; i < AGENTS.length; i++) {
         for (let j = i + 1; j < AGENTS.length; j++) {
           const d = Math.hypot(s[i].x - s[j].x, s[i].z - s[j].z)
@@ -216,5 +248,5 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
     t += step
   }
   planMs.sort((a, b) => a - b)
-  return { min, minExempt, minSeated, minSeatRest, maxSeatDrift, seatPassM: planner.seatPassM, replans, worst, samples, planMs, stats: planner.stats, mismatch: mism, frames, maxWait, longWaits, errands, errandsAtOnce }
+  return { min, minExempt, minSeated, minSeatRest, maxSeatDrift, seatPassM: planner.seatPassM, replans, worst, samples, planMs, stats: planner.stats, mismatch: mism, frames, maxWait, longWaits, errands, errandsAtOnce, acts, actsAtOnce, sweptBreaches }
 }

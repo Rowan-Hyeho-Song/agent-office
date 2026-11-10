@@ -9,6 +9,7 @@ import { ReadyPing } from '../room/RoomUi'
 import { ClockRig } from './ClockRig'
 import { SpeakerClick } from './SpeakerClick'
 import { TurntablePick } from './TurntablePick'
+import { FramePick } from './FramePick'
 import { Agents } from './Agents'
 import { useRole } from './ApprovalBox'
 import { Icon } from './ApprovalIcons'
@@ -42,6 +43,7 @@ export function Office({ world }: { world: OfficeWorld }) {
       {world.approvals && <DoorKey world={world} nodes={nodes} />}
       <Door nodes={nodes} />
       <Frames nodes={nodes} />
+      <FramePick scene={scene} />
       <ReadyPing />
     </>
   )

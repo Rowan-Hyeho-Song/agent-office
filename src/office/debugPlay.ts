@@ -1,6 +1,8 @@
 // ?debug=1 tools for close-ups (#184): put an agent into a play / prop scene right now, or loop the three grip stages in place.
 //   window.__office.play.force(agent, kind, plant?, reduced?)   kind: water | books | coffee | pingpong | boardgame (a pair game takes the next agent too);
 //                                             water sends the agent for the can (the whole errand, waterRun.ts); plant: plant_corner | plant_sofa | plant_desk
+//                                             the lounge (#280): fridge | dispenser | record (put a record on, or lift the arm when the needle is down) | record-lift |
+//                                             sofa (a seat: plant a pillow hug with seat 'sofa_0' | 'sofa_2') | lie (the east seat) | door (the door spot: lever, mat)
 //   window.__office.play.clear()
 //   window.__office.play.stone('current' | 'alt')   the go-grip variant (grip.ts STONE_VARIANT_DEFAULT): call before the stone game starts
 //   window.__office.grip.demo(agent, prop)    prop: marker | pen | stamp | mouse | cup | paddle | can | book: walks the agent to it and
@@ -17,6 +19,7 @@ import { ALL_POSES, type AnyPoseId } from './handPose'
 import { setStoneVariant, type StoneVariant } from './grip'
 import { CAN_HOME, WATER_PLANTS, canStand } from './water'
 import { hash } from './play'
+import { isAct } from './lounge'
 import { SETTLE_MS, type PlaySession } from '../play/session'
 import { officeNow, type OfficeWorld } from './world'
 import { onInput } from './inputEvents'
@@ -153,7 +156,20 @@ export function makePlayTools(world: OfficeWorld) {
         world.director.forceWater(agent, WATER_PLANTS.find((p) => p.name === plant)?.name ?? WATER_PLANTS[0].name, officeNow(world), reduced)
         return
       }
+      // the lounge acts (lounge.ts) run through the Director like the schedule's own; the sofa, the east seat and the door are plain goals
+      if (isAct(kind)) {
+        world.director.forceAct(agent, kind, officeNow(world))
+        return
+      }
+      if (kind === 'record-lift') {
+        world.director.forceAct(agent, 'record', officeNow(world), 'lift')
+        return
+      }
       const goals: Record<string, Partial<Goal>> = {
+        sofa: { spot: 'sofa_0', pose: 'sofa' },
+        sofa2: { spot: 'sofa_2', pose: 'sofa' },
+        lie: { spot: 'sofa_3', pose: 'sofa' },
+        door: { spot: 'door', pose: 'idle' },
         coffee: { spot: 'coffee', pose: 'coffee' },
         books: { spot: 'shelf', pose: 'books', face: BOOK.face, ...standSlot(BOOK) },
       }
@@ -167,6 +183,7 @@ export function makePlayTools(world: OfficeWorld) {
       world.forcedSessions = []
       world.gripDemo = null
       world.director.clearWater()
+      world.director.clearActs()
     },
   }
   const grip = {
