@@ -773,7 +773,11 @@ html[data-motion='reduce'] .tour-bar { animation: none; }
 .sound-row input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%; background: var(--color-text); border: 0; }
 .sound-row input[type='range']::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--color-text); border: 0; }
 .sound-val { flex: none; margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--color-text-muted); }
-.sound-panel.muted .sound-val, .sound-panel.muted input::-webkit-slider-runnable-track, .sound-panel.muted input::-webkit-slider-thumb, .sound-panel.muted input::-moz-range-track, .sound-panel.muted input::-moz-range-thumb { opacity: 0.5; }
+/* muted: the track and thumb at half strength, never the focus ring. One rule per engine: a selector list holding the other engine's
+   pseudo-elements is dropped whole (Chrome ignored the dim) */
+.sound-panel.muted .sound-val { opacity: 0.5; }
+.sound-panel.muted input::-webkit-slider-runnable-track, .sound-panel.muted input::-webkit-slider-thumb { opacity: 0.5; }
+.sound-panel.muted input::-moz-range-track, .sound-panel.muted input::-moz-range-progress, .sound-panel.muted input::-moz-range-thumb { opacity: 0.5; }
 .sound-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--color-line); min-height: 28px; }
 .sound-reset { background: none; border: 0; padding: 4px 0; color: var(--color-text); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .sound-reset[aria-disabled='true'] { opacity: 0.5; cursor: default; text-decoration: none; }
