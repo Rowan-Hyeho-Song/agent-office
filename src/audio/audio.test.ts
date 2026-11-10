@@ -3,7 +3,7 @@ import { BLEND_MIN, PERIODS } from '../office/outside'
 import { PERIOD_LEVELS, ambienceAt } from './ambience'
 import { AGENT_PITCH, CUES, CUE_NAMES, speedRule } from './cues'
 import { momentaryMax } from './levels'
-import { CHORDS, HOOK, LAYERS, WORK_LAYERS, stepEvents } from './music'
+import { CHORDS, HISS_LEVEL, HOOK, LAYERS, WORK_LAYERS, stepEvents } from './music'
 import { clampVolume, parseSetting } from './settings'
 
 describe('parseSetting', () => {
@@ -39,6 +39,11 @@ describe('ambienceAt', () => {
 })
 
 describe('music', () => {
+  it('keeps the tape hiss under the desk room’s (#194 치지직: it was 8.5 dB over)', () => {
+    // the desk room: 0.012 on ±0.5 noise = 0.006 on full scale; ours is on full scale
+    expect(HISS_LEVEL).toBeLessThanOrEqual(0.006)
+    expect(20 * Math.log10(HISS_LEVEL / 0.016)).toBeLessThanOrEqual(-15)
+  })
   it('opens the hook with the mushroom notes A C E G', () => {
     const notes = [0, 2, 3, 5].map((s) => stepEvents(s, ['hook'])[0].note)
     expect(notes).toEqual([69, 72, 76, 79])
