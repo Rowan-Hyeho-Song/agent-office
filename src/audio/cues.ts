@@ -235,6 +235,21 @@ export const CUES = {
       }
     },
   },
+  'water.drip': {
+    label: '잎끝 물방울 톡',
+    kind: 'repeat',
+    bus: 'sfx',
+    spatial: true,
+    gap: 150,
+    length: 0.05,
+    // #185 / #393: a drop from a leaf tip landing on the wet soil: a tiny "plip" (a short sine rising 1.5 → 2.4 kHz, the
+    // bubble's ring) over a soft dull touch of the soil; each drop a little different in pitch
+    play: (o) => {
+      const p = 0.9 + Math.random() * 0.25
+      tone(o, 1500 * p, 0.03, { type: 'sine', level: 0.012, slide: 1.6, attack: 0.001 })
+      noise(o, 0.015, { kind: 'pink', filter: 'lowpass', freq: 700, level: 0.012, attack: 0.001 })
+    },
+  },
   // ── #280 라운지 소품 (lounge-props.md, sound.md 4.4). 모두 그 자리에서 나는 작은 사건음이다. 레코드에는 지직거림을
   // 넣지 않는다(사용자 "치지지지직" 뒤, 5.2) ──
   'record.out': {
