@@ -11,6 +11,7 @@
 //   - destination occupied -> wait beside it (0.66-0.9 m) until it is free (a replan follows any goal change);
 //   - the sofa's knee row (sofaRow.ts, optional): one standing body at a time (a reservation over the row's cells like any other,
 //     the others wait outside its mouth), slow, facing the sofa; an entering body comes from the entrance nearest its seat;
+//   - an area reserved for a time (reserve(), #280: the fridge door's swing): its cells, padded by the body's radius, are shut for everybody but its owner while it is held;
 //   - the cell path is smoothed in time (moving average) so the walk is round, and the result is verified against
 //     everyone ahead and the furniture (the raw stair-step path is the fallback).
 // Time is the caller's simulation clock (seconds), never frame dependent. Pure: no three.js, no Date.
@@ -207,6 +208,19 @@ interface Ctx {
   startLim?: Map<Traj, { lim: number; from: number; to?: number }>
   /** the sofa row (#341): the times somebody else stands in it (padded); the row's cells are unsafe then */
   rowBusy?: [number, number][]
+  /** the agent that is planning (an area it reserved is open to it) */
+  owner?: string
+}
+
+/** an area the others keep out of for a time (#280): `near` = how close to it (m) a body's centre may not come */
+export interface Reservation {
+  id: string
+  owner: string
+  /** the distance from a floor point to the area (0 inside it) */
+  distance: (x: number, z: number) => number
+  near: number
+  from: number
+  to: number
 }
 
 interface SNode {
@@ -241,6 +255,8 @@ export class TrafficPlanner {
   private thrV = 2 * TRAFFIC.bodyR + TRAFFIC.verifyGap
   /** spot pairs designed closer than 2R (sofa seats): resting there side by side is allowed */
   readonly exemptPairs: [string, string][] = []
+  /** the areas held for a time (reserve()) and the cells each shuts */
+  private zones = new Map<string, { r: Reservation; cells: Set<number> }>()
   /** how many searches ran / expanded (for the timing report) */
   stats = { searches: 0, expanded: 0 }
   /** the sofa's knee row (#341), if the scene has one: its cells, the slow stretch round it, the seat spots, a way in per seat */
@@ -327,6 +343,29 @@ export class TrafficPlanner {
     a.req = req
     this.addSlot(req)
     this.dirty = true
+  }
+
+  /**
+   * Hold an area for `owner` from `from` to `to` (planner seconds): everybody else's plans keep their centre `near` m away from it then (the fridge door's swing, #280).
+   * The same id again replaces it (a new end). A reservation changes the others' routes, so it replans.
+   */
+  reserve(r: Reservation) {
+    const old = this.zones.get(r.id)?.r
+    if (old && old.owner === r.owner && old.from === r.from && old.to === r.to) return
+    const g = this.grid
+    const cells = new Set<number>()
+    for (let c = 0; c < g.w * g.h; c++) {
+      if (g.blocked[c]) continue
+      const p = centre(g, c)
+      if (r.distance(p.x, p.z) < r.near) cells.add(c)
+    }
+    this.zones.set(r.id, { r, cells })
+    this.dirty = true
+  }
+
+  /** let go of a reserved area */
+  release(id: string) {
+    if (this.zones.delete(id)) this.dirty = true
   }
 
   /** replan if anything was requested (or a blocked destination is due a retry); true when it did */
@@ -810,7 +849,7 @@ export class TrafficPlanner {
         startLim.set(r, { lim: d - (seatedNow ? SOFA_ROW.passVerifyM : 0.02), from: t })
       }
     }
-    const ctx: Ctx = { V, field, extra, reserved, goalCell, gx: goal.x, gz: goal.z, goalIdx, near: false, ref, lanePull, startLim, rowBusy: this.rowBusyOf(reserved) }
+    const ctx: Ctx = { V, field, extra, reserved, goalCell, gx: goal.x, gz: goal.z, goalIdx, near: false, ref, lanePull, startLim, rowBusy: this.rowBusyOf(reserved), owner: a.id }
     // the destination is held for good by someone resting on it: go straight to waiting beside it
     const blockedForever = !this.restClear(goal.x, goal.z, 1e12, ctx)
     let ways: Way[] | null = null
@@ -988,7 +1027,16 @@ export class TrafficPlanner {
     return this.row?.slow[c] ? SOFA_ROW.speedScale : 1
   }
 
+  /** a floor point inside a reserved area (somebody else's) at time t */
+  private zoneShut(owner: string | undefined, x: number, z: number, t: number): boolean {
+    const c = cellAt(this.grid, x, z)
+    if (c < 0) return false
+    for (const { r, cells } of this.zones.values()) if (r.owner !== owner && t >= r.from && t <= r.to && cells.has(c)) return true
+    return false
+  }
+
   private pairOk(ctx: Ctx, x: number, z: number, t: number, tmp: { x: number; z: number }): boolean {
+    if (this.zones.size && this.zoneShut(ctx.owner, x, z, t)) return false
     if (ctx.rowBusy?.length && this.row && inSofaRow(this.row.zone, x, z) && ctx.rowBusy.some(([a, b]) => t >= a && t <= b)) return false
     for (const r of ctx.reserved) {
       if (r.ghost && t > r.endT) continue
@@ -1067,6 +1115,15 @@ export class TrafficPlanner {
       for (let tt = Math.floor(t0 / 0.1) * 0.1; tt < end; tt += 0.1) sample(tt, tt - 0.05, tt + 0.05, Math.max(0, Math.min(r.n - 1, Math.round((tt - r.t0) / TRAFFIC.sampleDt))))
       // resting for good from here on
       if (!r.ghost) sample(end, end - 0.05, Infinity, r.n - 1)
+    }
+    // a reserved area (reserve()): its cells are shut for everybody but its owner while it is held
+    for (const { r, cells } of this.zones.values()) {
+      if (r.owner === ctx.owner || r.to <= t0) continue
+      for (const c of cells) {
+        const l = map.get(c) ?? []
+        l.push([r.from, r.to])
+        map.set(c, l)
+      }
     }
     // the sofa row holds one standing body at a time: its cells are shut for whoever else would be in it then
     if (this.row && ctx.rowBusy?.length) {

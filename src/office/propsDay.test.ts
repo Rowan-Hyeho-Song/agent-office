@@ -177,7 +177,9 @@ describe('one can for the whole office: a second agent sent for it while the fir
     for (let m = MIN0 - (MIN0 % BLOCK_MINUTES); m < MIN0 + 24 * 60 && m0 < 0; m += BLOCK_MINUTES) {
       const a = Object.entries(playAt(m, IDS)).find(([, x]) => x.kind === 'water')
       const b = Object.entries(playAt(m + BLOCK_MINUTES, IDS)).find(([, x]) => x.kind === 'water')
-      if (a && b && a[0] !== b[0]) m0 = m
+      // the stretch is about the one can: the second block holds no omok game, whose stone's own reach (the pairs test above covers every pair of the day) is not what is looked at here
+      const game = Object.values(playAt(m + BLOCK_MINUTES, IDS)).some((y) => y.kind === 'boardgame')
+      if (a && b && a[0] !== b[0] && !game) m0 = m
     }
     expect(m0, 'a block where two agents water in a row').toBeGreaterThanOrEqual(0)
     const [first] = Object.entries(playAt(m0, IDS)).find(([, x]) => x.kind === 'water')!

@@ -71,6 +71,8 @@ const NOD_DEG = 5
 const NOD_HAND_S = 0.8
 const LIFT = 0.06 // extra hover height while moving
 /** seated spots: the head floats lower over the cushion / stool */
+/** lying on the chaise: the head's height above the floor (the cushion's top 0.44 + the head's own half height) and how far it tips back (face up, rad) */
+const LIE = { headY: 0.62, faceUpRad: (80 * Math.PI) / 180 }
 const SEAT: Record<string, number> = { sofa: -0.3, stool: -0.2 }
 /** where the beam of light ends when the agent hovers over furniture (else the floor) */
 const SURFACE: Record<string, number> = { work: 0.76, stool: 0.525, sofa: 0.44 }
@@ -572,7 +574,8 @@ export class PropBank {
       }
       p.node.position.lerp(this.pos, k)
       p.node.quaternion.slerp(this.quat, k)
-      p.node.visible = !p.holder || !p.holder.attached || p.holder.rig.visible
+      // a prop the model hides at rest (extras hidden_at_rest: the record's jacket, which also leans baked in its shelf) shows only in a hand
+      p.node.visible = p.node.userData.hidden_at_rest ? !!p.holder?.attached && p.holder.rig.visible : !p.holder || !p.holder.attached || p.holder.rig.visible
     }
   }
 }
@@ -710,6 +713,10 @@ export class AgentRig {
   private floorY: { pool: number; ring: number } | null = null
   /** 0 → 1 while dozing (#110): lowers the head, dims the beam */
   private dozing = 0
+  /** lying on the chaise (nav extras lie + head, lounge-props.md 1): how far it has gone (0 … 1), and where the head goes in the root's frame */
+  private lying = 0
+  private lieOff = new Vector3()
+  private headRest: { x: number; z: number } | null = null
   private look = { pitch: 0, yaw: 0, roll: 0 }
   /** the current bends per hand (eased toward the pose's shape): four fingers, then the thumb's bend and opposition */
   private curls: Record<'l' | 'r', number[]> = { l: toVec(REST_POSE), r: toVec(REST_POSE) }
@@ -885,6 +892,11 @@ export class AgentRig {
     return this.goal && this.arrived === this.goal.spot ? this.goal.pose : null
   }
   /** it is free and at play: its goal is a play (pingpong, a board game, coffee, the sofa, watering, a book), also while it walks there; talks, meetings, dozing and work are not */
+  /** how far down it has lain on the chaise (0 … 1) */
+  get lyingK(): number {
+    return this.lying
+  }
+
   get resting(): boolean {
     return !!this.goal && RESTING_POSES.has(this.goal.pose)
   }
@@ -1116,12 +1128,27 @@ export class AgentRig {
     const lean = MathUtils.clamp(this.turnVel * 0.09, -0.22, 0.22) * motion
     const forward = Math.min(this.speed / (SPEED * this.pace), 1) * 0.12 * motion
     const dy = this.lift + this.seat + bob
-    head.position.y = this.parts.headRestY + dy
-    head.rotation.set(this.look.pitch - forward, this.look.yaw, this.look.roll + lean, 'YXZ')
+    // lying down (a nav spot with `lie`: the east seat, `head` = the floor point the head goes to, the north armrest's inside face): the head glides there, low, face up; the beam and the pool of light are off
+    const lieSpot = resting && goal.pose === 'sofa' ? g.spots[goal.spot]?.head : undefined
+    this.lying = damp(this.lying, lieSpot ? 1 : 0, 3, dt)
+    const lieK = this.lying
+    this.headRest ??= { x: head.position.x, z: head.position.z }
+    if (lieK > 0.001) {
+      if (lieSpot) {
+        const wx = lieSpot.x - this.x
+        const wz = lieSpot.z - this.z
+        const c = Math.cos(this.heading)
+        const sn = Math.sin(this.heading)
+        this.lieOff.set(wx * c - wz * sn, LIE.headY - this.parts.headRestY, wx * sn + wz * c)
+      }
+      head.position.set(this.headRest.x + this.lieOff.x * lieK, this.parts.headRestY + MathUtils.lerp(dy, this.lieOff.y, lieK), this.headRest.z + this.lieOff.z * lieK)
+    } else head.position.set(this.headRest.x, this.parts.headRestY + dy, this.headRest.z)
+    head.rotation.set(this.look.pitch - forward + lieK * LIE.faceUpRad, this.look.yaw, this.look.roll + lean, 'YXZ')
 
     // the beam reaches from the head's underside down to the floor, or to the furniture it hovers over
     if (beam) {
       const top = BEAM_H + dy
+      beam.visible = lieK < 0.3
       beam.position.y = top
       beam.scale.y = Math.max(0.02, (top - this.surface) / BEAM_H)
       beam.traverse((o) => {
@@ -1136,6 +1163,8 @@ export class AgentRig {
     const lift = this.ground(this.parts.root.position.x, this.parts.root.position.z)
     if (pool) pool.position.y = this.floorY.pool + lift
     if (ringN) ringN.position.y = this.floorY.ring + lift
+    if (pool) pool.visible = lieK < 0.3
+    if (ringN) ringN.visible = lieK < 0.3
     if (pool) {
       const up = MathUtils.clamp(dy, 0, 0.3) / 0.3
       pool.scale.setScalar(1 + up * 0.35)
@@ -1704,6 +1733,8 @@ export class AgentRig {
         p.turn = new Quaternion().setFromAxisAngle(AXIS_X, swing.wrist).multiply(p.turn)
       }
       // the tuck: the free hand on a sitter's side comes in toward the body (the walking place and the standing rest place only)
+      // lying: the hands come with the head (the free ones rest beside it)
+      if (this.lying > 0.001) p.pos.add(new Vector3(this.lieOff.x, this.lieOff.y * 0.6, this.lieOff.z).multiplyScalar(this.lying))
       const tk = this.tuck[side] * (1 - this.heldAmount(side))
       if (tk > 0.001 && (p.walk || p.rest)) p.pos.x -= (side === 'l' ? -1 : 1) * TUCK.inM * tk
       if (this.forced[side]) p.curl = this.forced[side]!

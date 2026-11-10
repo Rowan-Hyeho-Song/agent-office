@@ -10,6 +10,8 @@ export interface NavSpot {
   z: number
   ry: number
   kind: NavKind
+  /** a lying-down seat (nav extras `lie` + `head`, #280): the floor point the head goes to (the north armrest's inside face); the way it lies follows from where that is */
+  head?: { x: number; z: number }
 }
 
 export interface NavGraph {

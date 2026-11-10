@@ -5,6 +5,8 @@ import { DESK_SIDES } from './nav'
 import { blockOf, playAt, PLAYS, soloAt, type PlayKind } from './play'
 import { activityLabel, type AgentStatus, type OfficeMessage, type StatusMap } from './status'
 import type { Request } from './traffic'
+import { actSpot, actU, deckAfter, startAct, stepAct, type ActRun } from './actRun'
+import { ACT_LABEL, ACT_PLACE, isAct, type ActKind, type RecordMode } from './lounge'
 import { PATH_BLOCKERS, STAND_BLOCKERS, WATER_PLANTS } from './water'
 import { holding, placeOf, startWater, stepWater, WATER_LABEL, type WaterRun, type WaterStage } from './waterRun'
 import { startWrap, stepWrap, viewOf, WALKING_TO_DESK, type BeatKind, type Shown, type WrapRun } from './wrap'
@@ -38,6 +40,8 @@ export interface Goal {
   waiting?: boolean
   /** the watering errand (#228): its stage, the plant, and how long (s) the stage has lasted: the hands are drawn from these, not from where the agent stands */
   water?: { stage: WaterStage; plant: string; u: number }
+  /** a lounge act (lounge.ts: the fridge, the dispenser, the turntable): which, how long since the agent reached its stand (s, -1 on the way), the turntable's mode and whether a record was on the platter */
+  act?: { kind: ActKind; u: number; mode?: RecordMode; recordOn: boolean }
   /** what it's doing, for the debug panel */
   label: string
 }
@@ -93,6 +97,11 @@ export class Director {
   /** the watering errands in progress (waterRun.ts; at most one: there is one can) and the block each agent has watered in already */
   private waters: Record<string, WaterRun> = {}
   private waterDone: Record<string, number> = {}
+  /** the lounge acts in progress (actRun.ts; the fridge and the dispenser share one bar, the turntable has its own) and the block each agent has acted in already */
+  private acts: Record<string, ActRun> = {}
+  private actDone: Record<string, number> = {}
+  /** the turntable: a record is on the platter, the needle is down (set as the agent's hands get there) */
+  private deck = { recordOn: false, needle: false }
   /** what each agent's goal was last frame, and the departure its goal was held back to (putAway) */
   private lastPose: Record<string, { pose: Pose; spot: string }> = {}
   private leaving: Record<string, { spot: string; depart: number }> = {}
@@ -152,6 +161,22 @@ export class Director {
   /** the agent has the can in its hand (or is putting it down): it is not called away from it */
   carries = (a: string) => !!this.waters[a] && holding(this.waters[a])
 
+  /** the turntable as the acts have left it (a record on the platter, the needle down) */
+  deckState = () => this.deck
+
+  /** an agent is on its way to put a record on (the needle is not down yet): the break music waits for it (speaker.ts recordComing) */
+  recordComing = () => Object.values(this.acts).some((r) => r.kind === 'record' && (r.mode ?? 'put') === 'put' && !this.deck.needle)
+
+  /** the agent that has the fridge door in use, if any (the planner keeps everybody else off the area it sweeps, traffic.ts reserve) */
+  fridgeUser = (): string | null => Object.entries(this.acts).find(([, r]) => r.kind === 'fridge')?.[0] ?? null
+
+  /** ?debug=1: send an agent to a lounge act right now */
+  forceAct(agent: string, kind: ActKind, now: number, mode?: RecordMode) {
+    for (const k of Object.keys(this.acts)) delete this.acts[k]
+    this.acts[agent] = startAct(kind, blockOf(Math.floor(now / 60000)), kind === 'record' ? (mode ?? (this.deck.needle ? 'lift' : 'put')) : undefined, this.deck.recordOn)
+    this.actDone[agent] = this.acts[agent].block
+  }
+
   clearWater() {
     for (const k of Object.keys(this.waters)) delete this.waters[k]
   }
@@ -204,8 +229,9 @@ export class Director {
 
   /**
    * @param opts.reduced  reduced motion: the wrap-up does not walk (writes, tidies in place)
+   * @param opts.wantsBreak  the break music is due (speaker.ts musicWantsBreak): somebody goes to put a record on (agent_4 first); `false` with the needle down: somebody lifts the arm
    */
-  goals(now: number, minute: number, status: StatusMap, arrivedAt: (a: string) => string | null, opts: { reduced?: boolean } = {}): Record<string, Goal> {
+  goals(now: number, minute: number, status: StatusMap, arrivedAt: (a: string) => string | null, opts: { reduced?: boolean; wantsBreak?: boolean } = {}): Record<string, Goal> {
     this.startTalks(now, status)
     this.updateTalks(now, arrivedAt)
 
@@ -287,8 +313,42 @@ export class Director {
         if (plant) this.waters[a] = startWater(plant, block, now, !!opts.reduced)
       }
     }
+    // the lounge acts (lounge.ts): started by the schedule or by the music's wish for a break, once the agent is free; called away it simply stops
+    for (const a of this.agents) {
+      const run = this.acts[a]
+      if (!run) continue
+      if (!resting(a) || a in this.meet) {
+        delete this.acts[a]
+        continue
+      }
+      const r = stepAct(run, { now, arrived: arrivedAt(a) === actSpot(run) })
+      if (r.run.t0 !== null && run.kind === 'record') {
+        const d = deckAfter(r.run, actU(r.run, now))
+        this.deck.recordOn = d.recordOn
+        if (d.needle !== null) this.deck.needle = d.needle
+      }
+      if (r.done) delete this.acts[a]
+      else this.acts[a] = r.run
+    }
+    const beginAct = (a: string, kind: ActKind) => {
+      const bar = (k: ActKind) => (k === 'record' ? 'record' : 'bar')
+      if (Object.values(this.acts).some((r) => bar(r.kind) === bar(kind))) return
+      this.acts[a] = startAct(kind, block, kind === 'record' ? (this.deck.needle ? 'lift' : 'put') : undefined, this.deck.recordOn)
+      this.actDone[a] = block
+    }
+    // the break music is due and nobody has put the record on: whoever rests, agent_4 (echo) first; the break is over and the needle is still down: somebody lifts it
+    if (opts.wantsBreak !== undefined && opts.wantsBreak !== this.deck.needle && !Object.values(this.acts).some((r) => r.kind === 'record')) {
+      const free = this.agents.filter((x) => resting(x) && !this.acts[x] && !this.waters[x])
+      const a = free.includes('agent_4') ? 'agent_4' : free[0]
+      if (a) beginAct(a, 'record')
+    }
+    for (const a of this.agents) {
+      const k = play[a]?.kind
+      if (k && isAct(k) && resting(a) && !this.acts[a] && !this.waters[a] && this.actDone[a] !== block) beginAct(a, k)
+    }
     // whoever is on an errand is not free for the schedule's other plays (a game partner left alone goes to a solo)
-    if (Object.keys(this.waters).length) play = playAt(minute, this.agents, new Set([...busy, ...Object.keys(this.waters)]))
+    const away = [...Object.keys(this.waters), ...Object.keys(this.acts)]
+    if (away.length) play = playAt(minute, this.agents, new Set([...busy, ...away]))
     const out: Record<string, Goal> = {}
     const shown: Record<string, Shown> = {}
     const playing: string[] = []
@@ -324,6 +384,14 @@ export class Director {
         shown[a] = free
           ? { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
           : { status: s, kind: s.state === 'working' ? 'work' : s.state === 'wrapping' ? 'wrap' : s.state === 'off' ? 'off' : 'duty', detail: WATER_LABEL[wr.stage], ...(s.state === 'wrapping' ? { step: 'seat' as const } : {}) }
+        continue
+      }
+      // a lounge act: its own place and hands for as long as it lasts
+      const ar = this.acts[a]
+      if (ar) {
+        const pl = ACT_PLACE[ar.kind]
+        out[a] = { spot: pl.spot, pose: ar.kind, face: pl.face, ...standSlot({ stand: pl.stand, face: pl.face }), act: { kind: ar.kind, u: actU(ar, now), ...(ar.mode ? { mode: ar.mode } : {}), recordOn: ar.recordOn }, label: ACT_LABEL[ar.kind] }
+        shown[a] = { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
         continue
       }
       // #110: nobody leaves. Off at night = dozing at its own desk, or the one awake on night duty; off by day
@@ -364,6 +432,10 @@ export class Director {
       shown[a] = { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
       const p = play[a]
       // water is an errand (above): an agent assigned to it that has not started waits for the can (or has already watered this block)
+      if (p && isAct(p.kind)) {
+        out[a] = { ...deskIdle(desk), label: this.actDone[a] === block ? '자리에서 쉬는 중' : `${ACT_LABEL[p.kind]} 차례 기다리는 중` }
+        continue
+      }
       if (p?.kind === 'water') {
         out[a] = { ...deskIdle(desk), label: this.waterDone[a] === block ? '자리에서 쉬는 중' : '물뿌리개 차례 기다리는 중' }
         continue

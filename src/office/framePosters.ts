@@ -23,3 +23,18 @@ export function containRect(fw: number, fh: number, iw: number, ih: number): { x
   const h = ih * s
   return { x: (fw - w) / 2, y: (fh - h) / 2, w, h }
 }
+
+/** what a click on each frame does (lounge-props.md 6: the project's page), and its name tag. */
+export const AGENT_OFFICE_REPO_URL = 'https://github.com/Rowan-Hyeho-Song/agent-office'
+export type FrameGo = 'desk' | 'site' | 'repo'
+/**
+ * 0 rowansong.dev: the site (the desk site's address, DESK_URL, in a new tab); 1 agent office: this project's page (its repository, in a new tab: the office is already open);
+ * 2 desk room: the way back to the desk (the exit animation inside the room, else the desk site in this tab: the same as the door's).
+ * Frames 0 and 2 both land on the desk site's address today: it is the only address the office knows for either (see the PR).
+ */
+export const FRAME_LINKS: readonly { name: string; go: FrameGo }[] = [
+  { name: 'rowansong.dev', go: 'site' },
+  { name: 'agent office', go: 'repo' },
+  { name: '책상 방', go: 'desk' },
+]
+export const linkOf = (frame: number) => FRAME_LINKS[frame] ?? null
