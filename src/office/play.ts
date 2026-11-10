@@ -25,8 +25,8 @@ export const PLAYS: PlayDef[] = [
   { kind: 'sofa', label: '소파에서 낮잠', spots: ['sofa_0', 'sofa_1', 'sofa_2'], weight: 2 },
   // one of the floor plants (water.ts), chosen per block, watered from its own stand beside the pot
   { kind: 'water', label: '화분 물 주기', spots: ['hall_lounge'], weight: 1 },
-  // the book on the side table by the sofa (the model's only book prop): read standing in front of that table, put back after (#184)
-  { kind: 'books', label: '책 고르기', spots: ['shelf'], weight: 1, face: { x: 1.95, z: 3.28 }, stand: { x: 1.93, z: 2.62 } },
+  // the book on the side table by the sofa (the model's only book prop): read from the west of it, beyond the west mouth of the sofa's entrance gap (standing in the 0.9 m gap between the beanbag and the table closed the way to the sofa for as long as the reading took, #341), put back after (#184)
+  { kind: 'books', label: '책 고르기', spots: ['shelf'], weight: 1, face: { x: 1.95, z: 3.28 }, stand: { x: 1.15, z: 3.3 } },
 ]
 
 /**

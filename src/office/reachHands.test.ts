@@ -74,7 +74,7 @@ describe('reaching hands (#255)', () => {
       let extra: Partial<Goal> = {}
       if (prop === 'book') {
         // the high shelf (#199): where the grip demo stands (debugPlay.ts BOOK)
-        const BOOK = { stand: { x: 1.93, z: 2.62 }, face: { x: 1.95, z: 3.28 } }
+        const BOOK = { stand: { x: 1.15, z: 3.3 }, face: { x: 1.95, z: 3.28 } }
         extra = { face: BOOK.face, ...standSlot(BOOK) }
         sp = { x: BOOK.stand.x, z: BOOK.stand.z, ry: Math.atan2(-(BOOK.face.x - BOOK.stand.x), -(BOOK.face.z - BOOK.stand.z)) }
       }
