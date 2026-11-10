@@ -43,9 +43,11 @@ export const GRIPS: Record<string, GripSpec> = {
     l: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.25, 0.25, 0.3, 0.3], [0.1, 0]), after: REST, contacts: ['palm'] },
   },
   book: {
-    l: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.35, 0.4, 0.45, 0.5], [0.2, -0.3]), after: REST, contacts: ['thumb'] },
-    r: { pre: all(0.15, [0.1, 0]), hold: all(0.3, [0.15, 0.4]), after: REST, contacts: ['index'] },
+    l: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.3, 0.3, 0.3, 0.3], [0.3, 0.4]), after: REST, contacts: ['index', 'middle', 'ring', 'little', 'thumb'] },
+    r: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.3, 0.3, 0.3, 0.3], [0.3, 0.4]), after: REST, contacts: ['index', 'middle', 'ring', 'little', 'thumb'] },
   },
+  // the right thumb and index pinching the corner of the one leaf that turns (#231): the index 0.6, the thumb (0.25, 0.85), the others 0.3
+  leaf: { r: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.6, 0.3, 0.3, 0.3], [0.25, 0.85]), after: REST, contacts: ['index', 'thumb'] } },
   paddle: { r: { pre: curlOf([0.15, 0.4, 0.45, 0.5], [0.1, 0.3]), hold: curlOf([0.15, 0.8, 0.85, 0.9], [0.25, 0.7]), after: REST, contacts: ['index', 'thumb'] } },
   // the pen family: a tripod grip, ring and little folded
   tablet_pen: { r: { pre: curlOf([0.3, 0.35, 0.6, 0.65], [0.2, 0.5]), hold: curlOf([0.45, 0.55, 0.8, 0.85], [0.35, 0.8]), after: REST, contacts: ['thumb', 'index', 'middle'] } },
@@ -257,6 +259,40 @@ export function tipAtJoints(m: FingerModel, joints: readonly number[], out = new
 }
 
 /**
+ * The finger's centre line in the hand's frame for full joint angles (same joint math as tipAtJoints): the origin of each segment, then the tip.
+ * For checks that no part of a finger is inside something (bookGrip.test.ts), not for the fit.
+ */
+export function pointsAtJoints(m: FingerModel, joints: readonly number[]): Vector3[] {
+  const acc = new Matrix4()
+  const mm = new Matrix4()
+  const qq = new Quaternion()
+  const j = m.joint ?? NO_JOINT
+  const pts: Vector3[] = []
+  if (m.thumb) {
+    const t = clampThumb({ cmcFlex: joints[0], cmcAbd: joints[1], mcp: joints[2], ip: joints[3] })
+    acc.compose(m.p[0], thumbRootQuat(m.rest[0], j[0], t, qq), one)
+    pts.push(new Vector3().setFromMatrixPosition(acc))
+    acc.multiply(mm.compose(m.p[1], segmentQuat(m.rest[1], j[1], t.mcp, qq), one))
+    pts.push(new Vector3().setFromMatrixPosition(acc))
+    acc.multiply(mm.compose(m.p[2], segmentQuat(m.rest[2], j[2], t.ip, qq), one))
+    pts.push(new Vector3().setFromMatrixPosition(acc))
+  } else {
+    const k = m.finger ?? 0
+    const restAbd = m.restAbd ?? 0
+    const f = clampFinger({ mcp: joints[0], pip: joints[1], abd: joints[2] }, k, undefined, m.abdLimits)
+    const spec = j[0] ?? { flex: { axis: 'x' as const, sign: 1 }, abduct: { axis: 'z' as const, sign: m.sx } }
+    acc.compose(m.p[0], fingerRootQuat(m.rest[0], spec, restAbd, f.abd, f.mcp, qq), one)
+    pts.push(new Vector3().setFromMatrixPosition(acc))
+    acc.multiply(mm.compose(m.p[1], segmentQuat(m.rest[1], j[1], f.pip, qq), one))
+    pts.push(new Vector3().setFromMatrixPosition(acc))
+    acc.multiply(mm.compose(m.p[2], segmentQuat(m.rest[2], j[2], f.dip!, qq), one))
+    pts.push(new Vector3().setFromMatrixPosition(acc))
+  }
+  pts.push(m.tip.clone().applyMatrix4(acc))
+  return pts
+}
+
+/**
  * The tip for a table-style value: a finger `a` = c (MCP 85c, PIP 100c, DIP k · PIP), `b` = the swing on top of the baked fan, radians; the
  * thumb `a` = bend, `b` = opposition (hand-poses.md 3). Limits applied.
  */
@@ -402,6 +438,8 @@ export interface ContactIn {
   /** the table's value to start from (c, or the thumb's bend) and the thumb's opposition */
   a0: number
   b0: number
+  /** the contact is a disc of this radius round `p` across the normal (m), not a point: the pad may land anywhere on it (default 0) */
+  radius?: number
 }
 export interface Solved {
   /** how the hand sits relative to "grip frame on grip frame": hand_world = grip_aligned_world · offset (offset in the hand's frame) */
@@ -420,8 +458,9 @@ const OFFSET_STEP = [0.012, 0.012, 0.012, 0.2, 0.2, 0.2]
  * the palm goes, but its contacts are where the fingertips go). So: start with the grip frame on the grip frame, and where the
  * fingertips cannot reach, move the hand the least that lets every contact finger land within tolerance, none through the
  * surface. A pattern search over the hand's six offsets, each trial fitting every contact finger. Deterministic.
+ * `extra` adds a cost for a trial (the hand's offset matrix, the fits): the book grip uses it to keep every finger segment out of the book's solids.
  */
-export function solveContacts(contacts: ContactIn[], keepNear = 0.02): Solved {
+export function solveContacts(contacts: ContactIn[], keepNear = 0.02, extra?: (offset: Matrix4, fits: Solved['fits']) => number): Solved {
   const T = new Matrix4()
   const inv = new Matrix4()
   const q = new Quaternion()
@@ -435,13 +474,14 @@ export function solveContacts(contacts: ContactIn[], keepNear = 0.02): Solved {
     for (const c of contacts) {
       const p = c.p.clone().applyMatrix4(inv)
       const n = c.n.clone().transformDirection(inv)
-      const f = fitContact(c.model, p, n, c.a0, c.b0, full ? 14 : 6)
+      const f = fitContact(c.model, p, n, c.a0, c.b0, full ? 14 : 6, c.radius ?? 0)
       cost += f.err * f.err + (f.off < 0 ? 4000 * f.off * f.off : 0)
       worst = Math.max(worst, f.err)
       fits.push({ finger: c.finger, joints: f.joints, err: f.err, off: f.off })
     }
     const moved = Math.hypot(v[0], v[1], v[2])
     // a little pull toward the designer's grip frame, so a hand that already reaches stays where it is
+    if (extra) cost += extra(T, fits)
     return { cost: cost + (keepNear > 0 ? (moved / keepNear) ** 2 * 1e-6 : 0) + 4e-6 * (v[3] ** 2 + v[4] ** 2 + v[5] ** 2), worst, fits, moved }
   }
   let best: { v: number[]; r: ReturnType<typeof trial> } | null = null
