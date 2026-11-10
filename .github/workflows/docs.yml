@@ -14,6 +14,13 @@ on:
   # a branch `<type>/<n>-…` appearing or going away moves issue n between 대기 and 진행 중
   create:
   delete:
+  # by hand only (needs write access): re-file every issue / comment / PR (#400, scripts/docs/backfill.mjs)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'dry run (send nothing, print the counts)'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -50,6 +57,26 @@ jobs:
         with:
           node-version: 22
       - run: node scripts/docs/event.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OFFICE_DOCS_URL: ${{ secrets.OFFICE_DOCS_URL }}
+          OFFICE_DOCS_TOKEN: ${{ secrets.OFFICE_DOCS_TOKEN }}
+
+  # #400: the one-off backfill, run by hand after a deploy. Same builders and the same filter as `sync` (backfill.mjs
+  # skips strangers' writing), the default branch's scripts only, and nothing but the existing secrets.
+  backfill:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: scripts/docs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/docs/backfill.mjs "$GITHUB_REPOSITORY" ${{ inputs.dry_run && '--dry-run' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OFFICE_DOCS_URL: ${{ secrets.OFFICE_DOCS_URL }}
