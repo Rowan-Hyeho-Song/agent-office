@@ -8,6 +8,7 @@ import {
   DRIP_DELAY_S,
   DRIP_FORM_S,
   DRIP_R,
+  DRIP_STAY,
   DRY_S,
   Drips,
   HABIT_OF_SEAT,
@@ -398,6 +399,39 @@ describe('the leaf-tip drips', () => {
     expect(d.below(0)).toBeGreaterThan(0.0)
     while (d.active) d.step(0.02, height)
     expect(d.size(0)).toBe(0)
+  })
+
+  it('one whose drop would land outside the soil stays on the leaf: forms 1 s, glints, shrinks away in 0.3 s, never falls (watering.md 3, #393)', () => {
+    const d = new Drips()
+    d.trigger(2, [true, false])
+    expect(d.drips.map((x) => x.stay)).toEqual([true, false])
+    let t = 0
+    let formAt = -1
+    let shrinkAt = -1
+    let doneAt = -1
+    let biggest = 0
+    let fell = false
+    while (d.active && t < 5) {
+      d.step(0.005, height)
+      t += 0.005
+      const x = d.drips[0]
+      if (x.phase === 'form' && formAt < 0) formAt = t
+      if (x.phase === 'shrink' && shrinkAt < 0) shrinkAt = t
+      if (x.phase === 'done' && doneAt < 0) doneAt = t
+      if (x.phase === 'fall') fell = true
+      biggest = Math.max(biggest, d.size(0))
+      // it hangs at its tip: never further below it than its own size
+      expect(d.below(0)).toBeLessThanOrEqual(DRIP_R * (1 + DRIP_STAY.swell) + 1e-9)
+      if (x.phase === 'shrink') expect(d.size(0)).toBeLessThanOrEqual(DRIP_R)
+    }
+    expect(fell, 'it never falls').toBe(false)
+    expect(shrinkAt - formAt).toBeCloseTo(DRIP_FORM_S, 1)
+    expect(doneAt - shrinkAt).toBeCloseTo(DRIP_STAY.shrinkS, 1)
+    // the glint: just before it shrinks it swells clearly past full size (a quarter over its size then, which is not quite full yet)
+    expect(biggest).toBeGreaterThan(DRIP_R * 1.15)
+    expect(d.size(0)).toBe(0)
+    // the other one fell as before
+    expect(d.drips[1].phase).toBe('done')
   })
 
   it('a new watering starts them again', () => {

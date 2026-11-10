@@ -151,13 +151,13 @@ export class WaterScene {
       // leaf drips begin where the water starts to hit, once per watering (the water pausing and starting again does not start them again)
       if (landing && !this.dripFired && level.drips && this.swing.has(plant.name)) {
         this.dripFired = true
-        // only a tip whose drop would fall inside the soil disc forms a drip
+        // 2 or 3 of the leaf tips: one whose drop would fall inside the soil disc lets it fall, the others keep theirs on the leaf (watering.md 3)
         const tips = [0, 1, 2].map((k) => this.tipOf(plant.name, k))
-        const ok = dripTips(tips.map((t) => t ?? { x: 1e3, z: 1e3 }), plant)
-        this.dripIdx = ok.slice(0, 2 + (this.dripTriggers++ % 2))
+        const inside = new Set(dripTips(tips.map((t) => t ?? { x: 1e3, z: 1e3 }), plant))
+        this.dripIdx = [0, 1, 2].filter((k) => tips[k]).slice(0, 2 + (this.dripTriggers++ % 2))
         if (this.dripIdx.length) {
           this.dripPlant = plant.name
-          this.drips.trigger(this.dripIdx.length)
+          this.drips.trigger(this.dripIdx.length, this.dripIdx.map((k) => !inside.has(k)))
         }
       }
       this.swayStep(plant, dt, landing && level.sway ? flow : 0, pour)

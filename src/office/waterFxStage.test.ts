@@ -40,7 +40,7 @@ function pour(w: World, id: string, plantName: string, o: { habit?: HabitKind | 
   const habitS = habitSeconds(o.habit)
   const t4 = POUR_S.settle + POUR_S.up + pourHoldOf(plant.name) + POUR_S.down
   const total = pourTotal(plant.name, habitS)
-  const stats = { maxN: 0, maxDrawn: 0, hitsAtT4: 0, missesAtT4: 0, maxWet: 0, maxSway: 0, dripsSeen: false, wetAt: [] as number[], frames: 0, firstWetAt: -1, particlesSeen: false }
+  const stats = { maxN: 0, maxDrawn: 0, hitsAtT4: 0, missesAtT4: 0, maxWet: 0, maxSway: 0, dripsSeen: false, dripFell: false, wetAt: [] as number[], frames: 0, firstWetAt: -1, particlesSeen: false }
   const swayNode = w.scene.getObjectByName(plant.name)!
   const t0 = 100
   w.fx.stream.clear()
@@ -57,6 +57,7 @@ function pour(w: World, id: string, plantName: string, o: { habit?: HabitKind | 
     stats.maxDrawn = Math.max(stats.maxDrawn, w.fx.drawn)
     if (w.fx.stream.n > 0) stats.particlesSeen = true
     if (w.fx.drawn > w.fx.stream.n) stats.dripsSeen = true
+    if (w.fx.drips.drips.some((x) => x.phase === 'fall')) stats.dripFell = true
     const wet = w.fx.wetness(plant.name)
     stats.maxWet = Math.max(stats.maxWet, wet)
     if (wet > 0 && stats.firstWetAt < 0) stats.firstWetAt = u
@@ -106,13 +107,14 @@ describe('the water on the model (#185)', () => {
     expect(stats.maxWet).toBe(1)
   }, 60000)
 
-  it('the leaves sway (the fig, the monstera, the sansevieria) a little, no drip forms at a tip outside the soil disc, and the plant comes to rest after', async () => {
+  it('the leaves sway (the fig, the monstera, the sansevieria) a little, drips gather at their tips and stay there (outside the soil), and the plant comes to rest after', async () => {
     const w = await world()
     for (const name of ['plant_corner', 'plant_sofa', 'plant_desk']) {
       const { stats } = pour(w, 'agent_3', name)
       expect(stats.maxSway, name).toBeGreaterThan(0.3 * (Math.PI / 180))
-      // the model's leaf tips of these three all hang outside the soil disc: no drip forms (waterFx.dripTips)
-      expect(stats.dripsSeen, name + ' drips').toBe(false)
+      // the model's leaf tips of these three all hang outside the soil disc: the drips form, glint and shrink away on the leaf; none falls to the floor
+      expect(stats.dripsSeen, name + ' drips').toBe(true)
+      expect(stats.dripFell, name + ' no drip falls outside the soil').toBe(false)
       idle(w, 300)
       const node = w.scene.getObjectByName(name)!
       expect(node.quaternion.angleTo(new Quaternion()), name + ' back at rest').toBeLessThan(1e-6)

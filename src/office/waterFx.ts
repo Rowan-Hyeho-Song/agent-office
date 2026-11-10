@@ -345,13 +345,18 @@ export class Sway {
 
 // ----------------------------------------------------------------------------------------------------------------- the leaf-tip drips
 
-/** the leaf tips (by index) whose drop would fall inside the soil disc: only those form a drip */
+/** the leaf tips (by index) whose drop would fall inside the soil disc: those drips fall; the others stay on the leaf (Drips.trigger) */
 export function dripTips(tips: { x: number; z: number }[], soil: { x: number; z: number; r: number }): number[] {
   return tips.flatMap((t, k) => (Math.hypot(t.x - soil.x, t.z - soil.z) <= soil.r ? [k] : []))
 }
 
-export type DripPhase = 'wait' | 'form' | 'fall' | 'done'
+export type DripPhase = 'wait' | 'form' | 'fall' | 'shrink' | 'done'
 export const DRIP_FORM_S = 1
+/**
+ * A drip whose drop would land outside the soil does not fall (watering.md 3, #393): formed, it glints (swells by `swell` and back over the last
+ * `glintS` of the forming) and then shrinks away on the leaf in `shrinkS`
+ */
+export const DRIP_STAY = { glintS: 0.2, swell: 0.25, shrinkS: 0.3 } as const
 export const DRIP_R = 0.0025
 /** the first drip starts this long after the water began hitting the plant, each next leaf this much later */
 export const DRIP_DELAY_S = 0.5
@@ -364,17 +369,20 @@ export interface Drip {
   /** the fall: how far it has dropped (m) and its speed */
   fell: number
   v: number
+  /** it stays on the leaf (its drop would land outside the soil): glints and shrinks instead of falling */
+  stay: boolean
 }
 
 /**
  * The drops that gather at 2 – 3 leaf tips once the plant is hit: wait, form for 1 s (growing to 5 mm across), fall under gravity until they have
- * dropped `heightAbove(k)` (the tip's height over the soil or the floor under it), then done. A new watering starts them again.
+ * dropped `heightAbove(k)` (the tip's height over the soil), then done. One whose drop would land outside the soil stays on the leaf instead:
+ * formed, it glints and shrinks away in DRIP_STAY.shrinkS. A new watering starts them again.
  */
 export class Drips {
   drips: Drip[] = []
-  /** `count` leaf tips start their drips after the staggered delay */
-  trigger(count: number) {
-    this.drips = Array.from({ length: count }, (_, k) => ({ phase: 'wait' as DripPhase, t: -(DRIP_DELAY_S + DRIP_STAGGER_S * k), fell: 0, v: 0 }))
+  /** `count` leaf tips start their drips after the staggered delay; `stay[k]`: drip k stays on its leaf (it would land outside the soil) */
+  trigger(count: number, stay: readonly boolean[] = []) {
+    this.drips = Array.from({ length: count }, (_, k) => ({ phase: 'wait' as DripPhase, t: -(DRIP_DELAY_S + DRIP_STAGGER_S * k), fell: 0, v: 0, stay: !!stay[k] }))
   }
   get active() {
     return this.drips.some((d) => d.phase !== 'done')
@@ -384,6 +392,11 @@ export class Drips {
       if (d.phase === 'done') return
       d.t += dt
       if (d.phase === 'wait' && d.t >= 0) d.phase = 'form'
+      if (d.phase === 'form' && d.t >= DRIP_FORM_S && d.stay) {
+        d.phase = 'shrink'
+        d.t -= DRIP_FORM_S
+      }
+      if (d.phase === 'shrink' && d.t >= DRIP_STAY.shrinkS) d.phase = 'done'
       if (d.phase === 'form' && d.t >= DRIP_FORM_S) {
         d.phase = 'fall'
         d.t = 0
@@ -397,17 +410,23 @@ export class Drips {
       }
     })
   }
-  /** the drop's radius (m) now: growing while it forms, full while it falls, nothing otherwise */
+  /** the drop's radius (m) now: growing while it forms (one that stays glints at the end of it), full while it falls, shrinking on the leaf, nothing otherwise */
   size(k: number) {
     const d = this.drips[k]
     if (!d) return 0
-    if (d.phase === 'form') return DRIP_R * (0.15 + 0.85 * ease(d.t / DRIP_FORM_S))
+    if (d.phase === 'form') {
+      const g = d.stay ? (d.t - (DRIP_FORM_S - DRIP_STAY.glintS)) / DRIP_STAY.glintS : -1
+      const glint = g > 0 && g < 1 ? 1 + DRIP_STAY.swell * Math.sin(Math.PI * g) : 1
+      return DRIP_R * (0.15 + 0.85 * ease(d.t / DRIP_FORM_S)) * glint
+    }
+    if (d.phase === 'shrink') return DRIP_R * (1 - ease(Math.min(1, d.t / DRIP_STAY.shrinkS)))
     return d.phase === 'fall' ? DRIP_R : 0
   }
   /** how far below its leaf's tip the drop is (m): hanging a little under it while it forms */
   below(k: number) {
     const d = this.drips[k]
     if (!d) return 0
+    // hanging under the tip by its own size while it forms or shrinks
     return d.phase === 'fall' ? d.fell + DRIP_R : this.size(k)
   }
 }
