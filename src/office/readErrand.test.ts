@@ -54,8 +54,9 @@ describe('stepRead: the errand in stages', () => {
     expect(READ_S.pick).toBeLessThan(1.5)
     expect(READ_S.pick).toBeGreaterThanOrEqual(0.3 + 0.12 + 0.35)
     expect(READ_S.put).toBeGreaterThanOrEqual(READ_S.lower + 0.06 + 0.3)
-    // it closes (READ_S.close) inside the lowering: the book is shut before the hand lets go
-    expect(READ_S.close).toBeLessThanOrEqual(READ_S.lower)
+    // it opens and closes inside the reading, so the first leaf (at 1 s) and the last (the book is shut READ_S.close before the end) are never mid-way
+    expect(READ_S.open).toBeLessThanOrEqual(1)
+    expect(READ_S.close).toBeLessThan(READ_S.read / 2)
   })
 
   it('nothing is in the hand before the pick; called away it forgets the book, or with it in hand brings it back', () => {
@@ -201,9 +202,27 @@ describe('on the stage: the baked book, the planner walking the body', () => {
     const pad: Record<string, number> = {}
     const boxes = bookBoxes(bookDimsOf(w.nodes.prop_book_l, w.nodes.prop_book_r))
     const open: { l: number; r: number }[] = []
+    // the book is closed in every stage but the reading (picked, carried, put back closed); the left hand never jumps between frames while seated (closed grip to reading grip and back)
+    const openOutside: string[] = []
+    let lastHand: Vector3 | null = null
+    let handStep = 0
+    let handStepAt = ''
+    let prevStep = 0
+    let handJerk = 0
     const r = runRead(w, 'agent_0', 0, guard, {
       onStep: (walk, st) => {
         const g = walk.goals.agent_0
+        if (st && st !== 'read' && (w.nodes.prop_book_l.rotation.z !== 0 || w.nodes.prop_book_r.rotation.z !== 0)) openOutside.push(st)
+        // the hand in the book's own frame: the body still glides into the seat in the first moments, what is checked is the hand against the book
+        const hp = w.rigs.agent_0.parts.hands.l.node.getWorldPosition(new Vector3()).applyMatrix4(book.matrixWorld.clone().invert())
+        if (st === 'read' && lastHand) {
+          const d = hp.distanceTo(lastHand)
+          if (d > handStep) [handStep, handStepAt] = [d, g.read!.u.toFixed(2)]
+          handJerk = Math.max(handJerk, Math.abs(d - prevStep))
+          prevStep = d
+        }
+        lastHand = st === 'read' ? hp : null
+        if (st !== 'read') prevStep = 0
         if (st !== 'read') return
         const rig = w.rigs.agent_0
         lap.push(book.getWorldPosition(new Vector3()).y)
@@ -211,7 +230,7 @@ describe('on the stage: the baked book, the planner walking the body', () => {
         if (vis && !turns.vis) turns.n++
         turns.vis = vis
         // the open book: both halves at their open angle
-        if (g.read!.u > 1.5) open.push({ l: w.nodes.prop_book_l.rotation.z, r: w.nodes.prop_book_r.rotation.z })
+        if (g.read!.u > 1.5 && g.read!.u < READ_S.read - READ_S.close - 0.1) open.push({ l: w.nodes.prop_book_l.rotation.z, r: w.nodes.prop_book_r.rotation.z })
         // the hands on it, mid-reading and between two turns: every pad on its surface (fingers 1 mm, thumb 2.5 mm), none inside the book
         if (g.read!.u > 3 && g.read!.u < 3.1 && !vis) {
           const inv = book.matrixWorld.clone().invert()
@@ -257,6 +276,11 @@ describe('on the stage: the baked book, the planner walking the body', () => {
       if (k.endsWith('min')) expect(d, `${k} not inside`).toBeGreaterThanOrEqual(-1e-4)
       else expect(d, `${k} pad on the surface`).toBeLessThanOrEqual(k.endsWith('thumb') ? 0.0025 : 0.001)
     }
+    expect(openOutside, 'closed except while reading').toEqual([])
+    // 0.03 s a frame: against the book the hand glides from the closed grip to the reading grip (and back) at under 0.8 m/s, and its step never changes by more than 5 mm from one frame to
+    // the next (a jump would be a step of its own)
+    expect(handStep, `left hand step at u ${handStepAt}`).toBeLessThan(0.025)
+    expect(handJerk, 'no jump of the hand against the book').toBeLessThan(0.005)
     // the round trip: taken within reach, put down within reach, nothing jumped, nothing was ever loose, and it is back exactly where it rested, closed
     expectClean('seated reading', guard.stats, 'book')
     expect(guard.stats.byProp.prop_book).toBe(1)

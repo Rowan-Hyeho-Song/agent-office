@@ -31,8 +31,9 @@ export const READ_S = {
   pick: 1.0,
   /** seated and reading, to the end of the last leaf that fits (a leaf every 6 s) */
   read: 60,
-  /** closing it and lowering it to where it rests, then the hand opens and lets go */
-  close: 0.35,
+  /** seated: it opens (and the right hand comes to it) in `open` s; `close` s before the end of the reading it closes again; then lowering it to where it rests, and the hand opens and lets go */
+  open: 0.5,
+  close: 0.5,
   lower: 0.5,
   put: 1.0,
   /** the stand is taken (the planner keeps waiting): give up the walk after this long. Not yet holding the book: forget it; holding it: bring it back unused */

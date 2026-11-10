@@ -21,7 +21,7 @@ const OBJECTS: [string, string, 'l' | 'r'][] = [
   ['prop_paddle_a', 'paddle', 'r'], ['prop_paddle_b', 'paddle', 'r'],
   ['prop_marker_0', 'marker', 'r'], ['prop_marker_1', 'marker', 'r'], ['prop_marker_2', 'marker', 'r'],
   ['prop_tablet_pen', 'tablet_pen', 'r'],
-  ['prop_book', 'book', 'l'], ['prop_book', 'book', 'r'], ['prop_book', 'leaf', 'r'],
+  ['prop_book', 'book', 'l'], ['prop_book', 'book', 'r'], ['prop_book', 'leaf', 'r'], ['prop_book', 'bookclosed', 'l'],
   // the five shelf books held open for reading (#231): the same reading grip, built from each book's own size
   ...[0, 1, 2, 3, 4].flatMap((k) => ([['prop_shelfbook_' + k, 'book', 'l'], ['prop_shelfbook_' + k, 'book', 'r'], ['prop_shelfbook_' + k, 'leaf', 'r']] as [string, string, 'l' | 'r'][])),
   ['prop_record', 'record', 'r'],

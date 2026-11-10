@@ -296,7 +296,7 @@ export class PlayStage {
   }
 
   private target(objName: string, kind: string, side: 'l' | 'r') {
-    const key = `${objName}:${side}`
+    const key = `${objName}:${kind}:${side}`
     if (!this.targets.has(key)) this.targets.set(key, resolveTarget(this.sceneRef, objName, kind, side))
     return this.targets.get(key)!
   }
@@ -346,7 +346,9 @@ export class PlayStage {
     // the mouse body is live but not a prop (#305): the hand is placed on the body where it is now, wherever the typist has slid it
     const body = kind === 'mouse' ? tgt.obj : null
     if (body) body.updateWorldMatrix(true, false)
-    const info = tgt.obj && !body ? this.props.info(rig, kind, prefer ?? objName) : null
+    // the closed book's grip is the same prop as the open one (PropBank knows props by their own kind)
+    const propKind = kind === 'bookclosed' ? 'book' : kind
+    const info = tgt.obj && !body ? this.props.info(rig, propKind, prefer ?? objName) : null
     const home = body ? body.matrixWorld.clone() : tgt.obj ? this.props.homeWorld(tgt.obj) : new Matrix4()
     let pose = home
     // reduced motion: the can is simply in the hand (watering.md 5); everything else is lifted from where it rests
@@ -365,7 +367,7 @@ export class PlayStage {
     const fit = this.holdFit(rig, side, tgt)
     rig.drive[side] = { target, w: out.wHand, curl: null, angles: mixVec(rig.curlVec(side, spec.pre), fit.hold, rig.curlVec(side, spec.after), out.mix), wc: out.wCurl, spread: null, reach: REACH_KINDS.has(kind) }
     if (tgt.obj && info && !body) {
-      rig.want = { kind, side: 'r' === side || kind !== 'book' ? side : side, prefer: prefer ?? objName, attached: out.attached }
+      rig.want = { kind: propKind, side, prefer: prefer ?? objName, attached: out.attached }
       if (out.attached) {
         this.props.force(tgt.obj, pose)
         this.forced.add(tgt.obj)
@@ -1079,20 +1081,23 @@ export class PlayStage {
   }
 
   /**
-   * The reading errand (#280, readRun.ts decides the stage and how long it has lasted; this only draws it). The left hand takes the book where it rests on the low
-   * table (pick), carries it open at the chest (carry, return: the body's own height, so seated it is lower), reads it seated (read: a leaf turns every 6 s), and lowers it
-   * to exactly where it rests, closing it, before it lets go (put). The book is never moved by anything but the hand.
+   * The reading errand (#280, readRun.ts decides the stage and how long it has lasted; this only draws it). The left hand takes the CLOSED book where it rests on the low
+   * table (pick: the bake's prop_book_grip_l, thumb on the edge, grip kind bookclosed) and carries it closed at the chest (carry, return: the body's own height, so
+   * seated it is lower). Once seated it opens to 150° (READ_S.open) while the hand moves from the closed grip to the reading grip and the right hand comes
+   * to the other cover (both blended, nothing jumps), and a leaf turns every 6 s; READ_S.close before the end it closes again and the hands go back to the closed grip.
+   * Put: lowered closed to exactly where it rests before the hand lets go. The book is never moved by anything but the hand.
    */
   private readErrand(rig: AgentRig, r: NonNullable<Goal['read']>, inp: StageIn) {
     if (r.stage === 'fetch') return
     const book = this.props.info(rig, 'book')
     if (!book) return
     const t = inp.t
+    const name = book.node.name
     const seat = Number(rig.id.split('_')[1])
     const root = rig.parts.root
     const yaw = new Quaternion().setFromAxisAngle(UP, rig.heading)
     const right = new Vector3(Math.cos(rig.heading), 0, -Math.sin(rig.heading))
-    // the page faces the reader (tipped up 30°), the spine runs down, the left page on the reader's left; at the chest of the body as it is now (sitting lowers it)
+    // the cover faces the reader (tipped up 30°), the spine runs down; at the chest of the body as it is now (sitting lowers it)
     const face = new Vector3(0, 0.5, 0.87).applyQuaternion(yaw).normalize()
     const q = new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(right, face, new Vector3().crossVectors(right, face)))
     const drop = rig.parts.head.position.y - rig.parts.headRestY
@@ -1100,24 +1105,29 @@ export class PlayStage {
     const carrying = new Matrix4().compose(root.localToWorld(new Vector3(-0.02, 1.0 + drop + bob, -0.32)), q, ONE)
     let held = carrying
     let want = true
-    let closeAt: number | undefined
     if (r.stage === 'put') {
       const dur = Math.max(READ_S.lower, rig.gestureMin)
-      closeAt = t - r.u
       const k = inp.reduced ? 1 : ease(Math.min(1, r.u / dur))
       held = blend(carrying, this.props.homeWorld(book.node), k)
       // exactly at rest for the last frames in the hand
       if (r.u >= dur + 0.06) want = false
     }
-    const attached = this.grip(rig, 'l', 'book', book.node.name, want, held, inp)
-    const tr = this.target(book.node.name, 'book', 'r')
-    if (tr) {
-      this.rightHand(rig, 'book', tr, this.lastObjPose)
-      if (attached) this.setExtra(rig, 'l', book.node.name, (m) => this.rightHand(rig, 'book', tr, m))
+    // how far the book is open: 0 closed (every stage but reading), 1 open (the middle of the reading)
+    const closeFrom = READ_S.read - READ_S.close
+    const w = r.stage !== 'read' ? 0 : r.u < READ_S.open ? ease(r.u / READ_S.open) : r.u > closeFrom ? 1 - ease((r.u - closeFrom) / READ_S.close) : 1
+    // the left hand: the closed grip, and (while the book is open at all) the reading grip mixed in by w
+    const attached = this.grip(rig, 'l', 'bookclosed', name, want, held, inp)
+    const shut = rig.drive.l
+    if (w > 0 && shut?.target && shut.angles) {
+      const a = { target: shut.target.clone(), angles: [...shut.angles], w: shut.w, wc: shut.wc }
+      this.grip(rig, 'l', 'book', name, want, held, inp)
+      const op = rig.drive.l
+      if (op?.target && op.angles) rig.drive.l = { ...op, target: blend(a.target, op.target, w), angles: op.angles.map((x, i) => a.angles[i] * (1 - w) + x * w), w: a.w * (1 - w) + op.w * w, wc: a.wc * (1 - w) + op.wc * w }
     }
-    const openAt = this.clocks.get(`${rig.id}:l`)?.attachedAt ?? t
-    this.reading = { rig, openAt, turnAt: r.u, ...(closeAt !== undefined ? { closeAt } : {}) }
-    if (attached && tr && r.stage === 'read') this.turnLeaf(rig, book.node.name, r.u, openAt, this.lastObjPose, inp)
+    const tr = this.target(name, 'book', 'r')
+    if (tr && w > 0) this.partner(rig, 'book', 'r', tr, this.lastObjPose, 'l', w)
+    this.reading = r.stage === 'read' ? { rig, openAt: t - r.u, turnAt: r.u, closeAt: t - (r.u - closeFrom) } : null
+    if (attached && tr && w >= 1) this.turnLeaf(rig, name, r.u, t - r.u, this.lastObjPose, inp)
     else this.hideLeaf()
   }
 
