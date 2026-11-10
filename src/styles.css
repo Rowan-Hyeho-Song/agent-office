@@ -738,3 +738,65 @@ html[data-motion='reduce'] .tour-bar { animation: none; }
 /* reduced motion: the pan is a fade cut */
 .edge-fade { position: fixed; inset: 0; z-index: 4; pointer-events: none; background: var(--color-bg, #0b0e13); opacity: 0; transition: opacity 0.15s linear; }
 .edge-fade[data-on] { opacity: 1; }
+
+/* sound settings panel (#353, docs/design/office-ui.md 11): popover by the turntable / HUD, bottom sheet <= 640 px */
+.sound-volume { gap: 4px; }
+.sound-volume { width: calc(120px + 36px + 24px + 4px); }
+.sound-detail { flex: none; width: 24px; height: 24px; padding: 0; display: grid; place-items: center; background: none; border: 0; color: var(--color-text-muted); cursor: pointer; }
+.sound-detail svg { width: 16px; height: 16px; }
+.sound-detail:hover, .sound-detail[aria-expanded='true'] { color: var(--color-cyan); }
+.sound-detail:focus-visible, .sound-panel :is(button, input):focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+.sound-dock.panel-open .sound-volume { opacity: 1; visibility: visible; pointer-events: auto; transition: none; }
+.sound-panel { position: fixed; left: 0; top: 0; z-index: 40; box-sizing: border-box; padding: 8px 12px 10px; background: var(--color-surface); color: var(--color-text);
+  box-shadow: inset 0 0 0 1px var(--color-line), 0 0 0 1px var(--color-halo); border-radius: 8px; font: 13px var(--font-pixel, monospace); }
+.sound-panel::before { content: ''; position: absolute; top: var(--tail-y, 20px); width: 10px; height: 10px; margin-top: -5px; background: var(--color-surface); rotate: 45deg; }
+.sound-panel[data-side='right']::before { left: -5px; border-left: 1px solid var(--color-line); border-bottom: 1px solid var(--color-line); }
+.sound-panel[data-side='left']::before { right: -5px; border-right: 1px solid var(--color-line); border-top: 1px solid var(--color-line); }
+.sound-panel[data-tail='0']::before, .sound-panel.sheet::before { display: none; }
+.sound-head { display: flex; align-items: center; gap: 8px; height: 32px; }
+.sound-head h2 { margin: 0; font: inherit; font-weight: 700; }
+.sound-off { color: var(--color-text-muted); font-size: 11px; }
+.sound-mute { margin-left: auto; }
+.sound-ib { width: 24px; height: 24px; padding: 0; display: grid; place-items: center; background: none; border: 0; color: var(--color-text); cursor: pointer; }
+.sound-ib svg { width: 16px; height: 16px; }
+.sound-panel.sheet .sound-ib { width: 44px; height: 44px; margin: -10px 0; }
+.sound-panel.sheet .sound-mute { margin-left: auto; }
+.sound-dock.panel-open .sound-hint { display: none; }
+.sound-row { display: block; height: 48px; margin-top: 8px; }
+.sound-top { display: flex; align-items: baseline; gap: 6px; height: 18px; line-height: 18px; margin-bottom: 4px; }
+.sound-name { flex: none; font-size: 12px; color: var(--color-text); }
+.sound-top small { font-size: 11px; color: var(--color-text-muted); white-space: nowrap; }
+.sound-row input[type='range'] { display: block; width: 100%; height: 26px; margin: 0; background: transparent; appearance: none; -webkit-appearance: none; cursor: pointer; }
+.sound-row input[type='range']::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--color-cyan) var(--fill, 0%), var(--color-text-faint) var(--fill, 0%)); }
+.sound-row input[type='range']::-moz-range-track { height: 4px; border-radius: 2px; background: var(--color-text-faint); }
+.sound-row input[type='range']::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--color-cyan); }
+.sound-row input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%; background: var(--color-text); border: 0; }
+.sound-row input[type='range']::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--color-text); border: 0; }
+.sound-val { flex: none; margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--color-text-muted); }
+/* muted: the track and thumb at half strength, never the focus ring. One rule per engine: a selector list holding the other engine's
+   pseudo-elements is dropped whole (Chrome ignored the dim) */
+.sound-panel.muted .sound-val { opacity: 0.5; }
+.sound-panel.muted input::-webkit-slider-runnable-track, .sound-panel.muted input::-webkit-slider-thumb { opacity: 0.5; }
+.sound-panel.muted input::-moz-range-track, .sound-panel.muted input::-moz-range-progress, .sound-panel.muted input::-moz-range-thumb { opacity: 0.5; }
+.sound-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--color-line); min-height: 28px; }
+.sound-reset { background: none; border: 0; padding: 4px 0; color: var(--color-text); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.sound-reset[aria-disabled='true'] { opacity: 0.5; cursor: default; text-decoration: none; }
+.sound-done { color: var(--color-cyan); font-size: 11px; }
+.sound-panel.sheet { left: 0; right: 0; bottom: 0; top: auto; width: 100%; border-radius: 12px 12px 0 0; padding: 4px 16px calc(12px + env(safe-area-inset-bottom, 0px)); animation: sound-sheet-up 240ms ease-out; }
+.sound-panel.sheet .sound-row { height: 60px; }
+.sound-panel.sheet .sound-top { height: 20px; line-height: 20px; margin-bottom: 4px; }
+.sound-panel.sheet .sound-row input[type='range'] { height: 36px; }
+.sound-grip { display: block; width: 24px; height: 4px; margin: 6px auto 4px; border-radius: 2px; background: var(--color-text-faint); }
+.sound-dim { position: fixed; left: 0; right: 0; top: 0; height: 20%; z-index: 39; background: rgb(0 0 0 / 0.6); }
+@keyframes sound-sheet-up { from { translate: 0 100%; } }
+@media (prefers-reduced-motion: reduce) { .sound-panel.sheet { animation: sound-sheet-fade 120ms linear; } }
+html[data-motion='reduce'] .sound-panel.sheet { animation: sound-sheet-fade 120ms linear; }
+@keyframes sound-sheet-fade { from { opacity: 0; } }
+/* turntable hover / open outline (TurntablePick): a screen-space box on the turntable */
+.tt-outline { position: fixed; left: 0; top: 0; z-index: 25; pointer-events: none; box-sizing: border-box; border: 2px solid var(--color-cyan); border-radius: 4px; display: none; }
+.tt-outline[data-show='1'] { display: block; }
+.tt-outline[data-open='1'][data-hover='0'] { opacity: 0.6; }
+.tt-outline[data-press='1'] { background: rgb(77 243 255 / 0.25); box-shadow: 0 0 8px var(--color-cyan); }
+.tt-tag { position: absolute; left: 50%; bottom: calc(100% + 6px); translate: -50% 0; white-space: nowrap; padding: 2px 8px; background: var(--color-surface-alpha); color: var(--color-text);
+  box-shadow: inset 0 0 0 1px var(--color-cyan); font: 12px var(--font-pixel, monospace); }
+.tt-outline[data-hover='0'] .tt-tag { display: none; }

@@ -22,6 +22,7 @@ import { createWorld } from './office/world'
 import { ReplayDriver } from './replay/ReplayDriver'
 import { ReplayHud } from './replay/ReplayHud'
 import { SoundButton } from './audio/SoundButton'
+import { SoundPanel } from './audio/SoundPanel'
 import { SoundDebug } from './audio/SoundDebug'
 import { SoundListener, SoundRoot } from './audio/SoundRoot'
 
@@ -105,6 +106,7 @@ export function App() {
       {world.debug && <DebugPanel world={world} />}
       <SoundRoot world={world} />
       <SoundButton />
+      <SoundPanel />
       {world.debug && <SoundDebug />}
     </>
   )
