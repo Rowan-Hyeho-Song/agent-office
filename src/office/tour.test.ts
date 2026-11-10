@@ -30,6 +30,7 @@ import {
   meetingPose,
   orbitYaw,
   pathClear,
+  playOf,
   rightOf,
   shouldFly,
   sightClear,
@@ -524,5 +525,129 @@ describe('the way there', () => {
     expect(pathClear(A, B, near)).toBe(false)
     const far: Clearance = { boxes: [{ min: [p[0] - 0.1, p[1] + 1, p[2] - 0.1], max: [p[0] + 0.1, p[1] + 1.2, p[2] + 0.1] }], margin: 0.3 }
     expect(pathClear(A, B, far)).toBe(true)
+  })
+})
+
+// #277: the tour does not repeat the same play or the same shot back to back
+describe('no repeats (#277)', () => {
+  const players = (now: number, hit?: string) =>
+    buildViews(
+      [
+        obs('a', { pose: 'pingpong', ...(hit === 'a' ? { event: { at: now, until: now + 3000 } } : {}) }),
+        obs('b', { pose: 'pingpong', ...(hit === 'b' ? { event: { at: now, until: now + 3000 } } : {}) }),
+        obs('c', { state: 'working' }),
+        obs('d', { pose: 'sofa' }),
+        obs('e', { pose: 'water' }),
+      ],
+      now,
+    )
+
+  it('the same play fills two cuts in a row at most, then another subject; one subject alone gets the establishing shot between', () => {
+    const plan = new TourPlan()
+    const only = buildViews([obs('a', { pose: 'pingpong' }), obs('b', { pose: 'pingpong' })], NOW)
+    const ids = Array.from({ length: 8 }, (_, i) => plan.next(NOW + i, only).id)
+    // a, b (two cuts of the table game), then the establishing shot, then a and b again
+    expect(ids).toEqual(['a', 'b', 'establishing', 'a', 'b', 'establishing', 'a', 'b'])
+    const mixed = new TourPlan()
+    const views = players(NOW)
+    const seq = Array.from({ length: 12 }, (_, i) => mixed.next(NOW + i, views))
+    for (let i = 2; i < seq.length; i++) expect(seq.slice(i - 2, i + 1).every((c) => playOf(c) === 'pingpong')).toBe(false)
+  })
+
+  it('an event at a play that has had its two cuts waits: it does not cut in, and a later one after another cut does', () => {
+    const plan = new TourPlan()
+    const calm = buildViews([obs('a', { pose: 'pingpong' }), obs('b', { pose: 'pingpong' }), obs('d', { pose: 'sofa' })], NOW)
+    // start at a (table game), then b: the table game has had its two cuts
+    plan.startAt(NOW, 'a', calm)
+    plan.next(NOW + 1, calm)
+    expect(plan.history.map((c) => c.id)).toEqual(['a', 'b'])
+    const at = NOW + 5000
+    expect(plan.interrupt(at + 5000, players(at, 'a'), NOW)).toBeNull() // a point at the table, 5 s in: over the limit
+    // another subject is shown, then a point at the table cuts in as before
+    const other = plan.next(NOW + 6000, players(NOW + 6000))
+    expect(playOf(other)).not.toBe('pingpong')
+    const later = NOW + 7000
+    expect(plan.interrupt(later + 5000, players(later, 'b'), later - 1000)?.id).toBe('b')
+  })
+
+  it('an event at the first cut of a play still cuts in (only the third is held back)', () => {
+    const plan = new TourPlan()
+    const calm = buildViews([obs('c', { state: 'working' }), obs('a', { pose: 'pingpong' }), obs('b', { pose: 'pingpong' })], NOW)
+    expect(plan.next(NOW, calm).id).toBe('c')
+    const cut = plan.interrupt(NOW + 5000, players(NOW + 1000, 'a'), NOW)
+    expect(cut?.id).toBe('a')
+    expect(cut?.why).toBe('event')
+  })
+
+  it('a subject shown again is composed another way: never the same subject and composition twice in a row', () => {
+    const plan = new TourPlan()
+    const views = players(NOW)
+    const seq = Array.from({ length: 30 }, (_, i) => plan.next(NOW + i, views))
+    for (let i = 1; i < seq.length; i++) {
+      if (seq[i].subject === seq[i - 1].subject) expect(seq[i].variant).not.toBe(seq[i - 1].variant)
+    }
+    // both players are one subject (the table), in the order a, b: composed 0 then 1
+    const t = seq.filter((c) => c.subject === 'table:pingpong').slice(0, 3)
+    expect(t.map((c) => c.variant)).toEqual([0, 1, 2])
+    // the establishing shot too: its sweep starts from the other side every other time
+    const est = seq.filter((c) => c.type === 'establishing')
+    expect(est.length).toBeGreaterThan(2)
+    expect(driftRange(est[0], false)[0]).toBe(-driftRange(est[1], false)[0])
+  })
+
+  it('a ten-minute tour record: no play three cuts in a row, no same subject in the same composition twice in a row, events still cut in', () => {
+    const plan = new TourPlan()
+    const cuts: { t: number; cut: ReturnType<TourPlan['next']> }[] = []
+    let now = NOW
+    let cutStart = now
+    // a point at the table every 5 s, alternately a and b: the "highest score" the old order kept picking
+    const viewsAt = (t: number) => {
+      const k = Math.floor((t - NOW) / 5000)
+      return players(NOW + k * 5000 + 1, k % 2 ? 'b' : 'a').map((v) => v)
+    }
+    let cut = plan.next(now, viewsAt(now))
+    cuts.push({ t: now, cut })
+    let events = 0
+    for (now = NOW + 500; now < NOW + 600_000; now += 500) {
+      const vs = viewsAt(now)
+      const ev = plan.interrupt(now, vs, cutStart)
+      if (ev) {
+        events++
+        cut = ev
+        cutStart = now
+        cuts.push({ t: now, cut })
+      } else if (now - cutStart >= dwellMs(cut, now)) {
+        cut = plan.next(now, vs)
+        cutStart = now
+        cuts.push({ t: now, cut })
+      }
+    }
+    expect(cuts.length).toBeGreaterThan(40)
+    expect(events).toBeGreaterThan(0)
+    let playRun = 0
+    let worstRun = 0
+    cuts.forEach(({ cut: c }, i) => {
+      playRun = playOf(c) && i > 0 && playOf(cuts[i - 1].cut) === playOf(c) ? playRun + 1 : playOf(c) ? 1 : 0
+      worstRun = Math.max(worstRun, playRun)
+      if (i > 0 && cuts[i - 1].cut.subject === c.subject) expect(cuts[i - 1].cut.variant).not.toBe(c.variant)
+    })
+    expect(worstRun).toBeLessThanOrEqual(TOUR.samePlayMax)
+  })
+
+  it('the compositions of one subject are different places in a clear room: work, table, stander, circle', () => {
+    const far = (a: Pose | null, b: Pose | null) => !!a && !!b && Math.hypot(a.pos[0] - b.pos[0], a.pos[1] - b.pos[1], a.pos[2] - b.pos[2]) > 0.5
+    const seat = seatOf(1)
+    const w = [0, 1, 2].map((v) => workPose(seat, NO_BOXES, v))
+    expect([far(w[0], w[1]), far(w[0], w[2]), far(w[1], w[2])]).toEqual([true, true, true])
+    const a = { x: -1, z: 0 }
+    const b = { x: 1, z: 0 }
+    const tbl = [0, 1, 2].map((v) => tablePose(a, b, NO_BOXES, HOME, { dist: 3, y: 2, targetY: 0.76 }, v))
+    expect([far(tbl[0], tbl[1]), far(tbl[0], tbl[2]), far(tbl[1], tbl[2])]).toEqual([true, true, true])
+    const st = [0, 1, 2].map((v) => standPose({ x: 0, z: 0, ry: 0 }, NO_BOXES, 2.2, 1.7, 1.0, v))
+    expect([far(st[0], st[1]), far(st[0], st[2]), far(st[1], st[2])]).toEqual([true, true, true])
+    const mt = [0, 1, 2].map((v) => meetingPose({ x: 0, z: 0 }, NO_BOXES, HOME, 4.0, 2.6, v))
+    expect([far(mt[0], mt[1]), far(mt[0], mt[2]), far(mt[1], mt[2])]).toEqual([true, true, true])
+    // the first composition is what it always was
+    expect(workCandidates(seat)[0]).toEqual(workCandidates(seat, 0)[0])
   })
 })
