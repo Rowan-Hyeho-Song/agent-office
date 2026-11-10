@@ -4930,7 +4930,9 @@ def build_entry():
     band_m = plastic("#5e4630", 0.98, 0, 0.9, "door_mat_band")
     mx_ = -HX + 0.32
     p += [rounded_slab("door_mat", 0.5, 0.015, 0.8, 0.03, (mx_, 0.0075, DOOR_Z), coir, L2, seg=2),
-          text("door_mat_txt", "AGENT OFFICE", 0.06, (mx_, 0.0158, DOOR_Z), band_m, L2, facing="up", extrude=0.0, rot=math.pi / 2)]
+          # along the mat's long side (by the wall), read from the default camera (user, #280): reading north (-z),
+          # the letters' tops to the wall (-x). rot pi/2 about the vertical (text() used to ignore rot); 7 cm letters
+          text("door_mat_txt", "AGENT OFFICE", 0.07, (mx_, 0.0158, DOOR_Z), band_m, L2, facing="up", extrude=0.0, rot=math.pi / 2)]
     if not _font and os.path.exists(FONT_PATH):  # the pixel letters (lounge-props.md 8): Galmuri, as the stamp
         _font.append(bpy.data.fonts.load(FONT_PATH))
     if _font:
@@ -5276,6 +5278,7 @@ if PREVIEW:
         "lib_row2": ((3.25, 1.05, -2.85), (3.45, 0.95, -3.95)),
         "frames": ((-2.7, 1.6, -0.4), (-4.8, 1.5, -1.0)),
         "door_lever": ((-4.25, 1.2, 3.15), (-4.65, 1.03, 2.85)),
+        "door_mat": ((-3.85, 1.7, 3.25), (-4.48, 0.0, 2.4)),  # #280: the mat from the south-east (as the default camera)
         "wb_close": ((1.55, 1.45, -2.75), (0.8, 1.4, -4.1)),  # #280 3: the whiteboard
         "wb_corner": ((1.8, 1.2, -3.55), (1.55, 1.0, -4.06)),
         "esp_close": ((3.78, 1.32, 0.5), (4.42, 1.1, 0.2)),  # #280 3: the espresso machine (counter at x 4.48, z 0.1, front -x)
