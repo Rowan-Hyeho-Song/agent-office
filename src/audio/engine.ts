@@ -45,10 +45,21 @@ export const MAX_DISTANCE = 52
 /** most one-shot sfx sounding at once (sound.md 6) */
 export const MAX_SFX = 6
 
+/**
+ * #353 the panel's two categories over the buses: 배경음악 = the speaker music; 효과음 = everything else that sounds in
+ * the room, including the room tone (ambience is the room being alive, not music: turning the music off for one's own
+ * playlist keeps the office around you). Each category is one gain after its buses, so the debug faders, ducks and
+ * the keys glue underneath are untouched.
+ */
+export type Category = 'music' | 'sfx'
+export const BUS_CATEGORY: Record<Bus, Category> = { music: 'music', sfx: 'sfx', voice: 'sfx', ambience: 'sfx', keys: 'sfx' }
+
 type Graph = {
   ctx: AudioContext
   master: GainNode
   room: GainNode
+  /** the visitor's category levels (settings `music` / `sfx`) */
+  cat: Record<Category, GainNode>
   bus: Record<Bus, GainNode>
   echo: DelayNode
   analyser: AnalyserNode
@@ -95,10 +106,17 @@ export function ensureAudio(): Graph | null {
     const room = ctx.createGain()
     room.gain.value = 1
     room.connect(master)
+    const cat = {} as Record<Category, GainNode>
+    for (const c of ['music', 'sfx'] as Category[]) {
+      cat[c] = ctx.createGain()
+      cat[c].gain.value = getSetting()[c]
+      cat[c].connect(room)
+    }
     const bus = {} as Record<Bus, GainNode>
     for (const b of Object.keys(BUS_LEVEL) as Bus[]) {
       bus[b] = ctx.createGain()
       bus[b].gain.value = busLevel[b]
+      const out = cat[BUS_CATEGORY[b]]
       if (b === 'keys') {
         const glue = ctx.createDynamicsCompressor()
         glue.threshold.value = KEYS_GLUE.threshold
@@ -108,11 +126,11 @@ export function ensureAudio(): Graph | null {
         glue.release.value = KEYS_GLUE.release
         const trim = ctx.createGain()
         trim.gain.value = Math.pow(10, -KEYS_GLUE_MAKEUP_DB / 20)
-        bus[b].connect(glue).connect(trim).connect(room)
-      } else bus[b].connect(room)
+        bus[b].connect(glue).connect(trim).connect(out)
+      } else bus[b].connect(out)
     }
     const echo = makeEcho(ctx, bus.sfx)
-    g = { ctx, master, room, bus, echo, analyser }
+    g = { ctx, master, room, cat, bus, echo, analyser }
     document.addEventListener('visibilitychange', () => {
       if (!g) return
       if (document.hidden) void g.ctx.suspend()
@@ -131,6 +149,12 @@ subscribe(() => {
   const t = g.ctx.currentTime
   g.master.gain.cancelScheduledValues(t)
   g.master.gain.setTargetAtTime(masterGain(), t, 0.01)
+  // #353 the category sliders: the same short ramp (a slider drag must not zipper)
+  const s = getSetting()
+  for (const c of ['music', 'sfx'] as Category[]) {
+    g.cat[c].gain.cancelScheduledValues(t)
+    g.cat[c].gain.setTargetAtTime(s[c], t, 0.01)
+  }
 })
 
 /** the whole office up or down (room crossfade, sound.md 2.3) */

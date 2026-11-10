@@ -584,6 +584,21 @@ let activeKeys: Span[] = []
 /** how many spans overlap [t, t + len) (pure, tested) */
 export const overlapping = (spans: Span[], t: number, len: number) => spans.filter(([s, e]) => s < t + len && e > t).length
 
+/** #353 the settings panel's preview: at most one in this many ms (designer, office-ui.md 11) */
+export const PREVIEW_GAP_MS = 150
+let lastPreview = -Infinity
+/** whether a preview at `now` (ms) may sound after one at `last` (pure, tested) */
+export const previewDue = (last: number, now: number) => now - last >= PREVIEW_GAP_MS
+/**
+ * #353 the 전체 / 효과음 slider was let go: one `ui.click` (the desk room's click, level 0.04) at the new level. It goes
+ * through the sfx category and the master, so it sounds exactly as loud as the setting now is.
+ */
+export function previewClick(now = performance.now()): boolean {
+  if (!previewDue(lastPreview, now)) return false
+  lastPreview = now
+  return cue('ui.click')
+}
+
 /** play a cue now. Returns whether it sounded (for tests and the debug panel). */
 export function cue(name: CueName, opts: CueOpts = {}): boolean {
   const g = audioGraph()

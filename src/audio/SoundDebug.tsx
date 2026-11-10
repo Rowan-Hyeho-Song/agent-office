@@ -275,6 +275,15 @@ export function SoundDebug() {
         </button>{' '}
         <input type="range" min={0} max={100} value={Math.round(s.volume * 100)} onChange={(e) => setSetting({ volume: Number(e.target.value) / 100 })} aria-label="음량" />{' '}
         {Math.round(s.volume * 100)}%
+        {/* #353 the visitor's two category levels (the turntable panel's 배경음악 · 효과음), saved and shared like the volume */}
+        {(['music', 'sfx'] as const).map((k) => (
+          <label key={k}>
+            {' '}
+            {k === 'music' ? '배경음악' : '효과음'}{' '}
+            <input type="range" min={0} max={100} value={Math.round(s[k] * 100)} onChange={(e) => setSetting({ [k]: Number(e.target.value) / 100 })} />{' '}
+            {Math.round(s[k] * 100)}%
+          </label>
+        ))}
       </section>
 
       <section aria-label="버스">
