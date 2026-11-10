@@ -106,6 +106,9 @@ Node contract (the app reads glTF extras):
                                    door); extras press {axis z, sign -1, deg 30, press_s, release_s}; child empty
                                    door_lever_grip (grip_for l, pose wrap)
   hit_turntable                    (#353) empty: the turntable's click box (extras hit, size [0.46, 0.16, 0.36]), axes = the room's
+  prop_paper_grip_side_l|r         empties (#280, paper-pass.md 5): children of prop_paper_a, the long edges 1.5 cm in, 45%
+                                   up from the near edge (grip_for l|r, pose side_read); _contact_thumb (writing face) |
+                                   _contact_index (back), also children of prop_paper_a
   pp_net                           live "bot" (#280 3): the net's navy 1 cm lattice (static; the posts, clamps and white
                                    band are in the lounge atlas)
   nav_<id>                         empties: where agents go and which way they face (navigation); nav_meet_center_*
@@ -3620,6 +3623,18 @@ def build_hands():
         contact(o, "thumb", (0, PAPER[2] / 2, z), (0, 1, 0), nm)
         contact(o, "index", (0, -PAPER[2] / 2, z), (0, -1, 0), nm)
     contact(o, "palm", (0, -PAPER[2] / 2, 0), (0, -1, 0))
+    # #280 (paper-pass.md 5, user: hold it by the sides to read): prop_paper_grip_side_l | _r on the long edges 1.5 cm
+    # in, 45% up from the near short edge (1.5 cm under the fold), children of the near half prop_paper_a (they fold
+    # with it). The reader stands at the near edge facing +z: their right is -x. Thumb on the writing face, index
+    # behind; the fingers reach into the sheet, palm as the other paper grips
+    pa = bpy.data.objects["prop_paper_a"]
+    zs_ = -PAPER[1] / 2 + 0.45 * PAPER[1]
+    for s_, sx in (("r", -1), ("l", 1)):
+        x_ = sx * (PAPER[0] / 2 - 0.015)
+        nm = f"prop_paper_grip_side_{s_}"
+        child_empty(pa, nm, pa.matrix_world @ grip_frame((x_, 0, zs_), (-sx, 0, 0), (0, -1, 0), s_), {"grip_for": s_, "pose": "side_read"})
+        for part, y_, n_ in (("thumb", PAPER[2] / 2, 1), ("index", -PAPER[2] / 2, -1)):
+            child_empty(pa, f"{nm}_contact_{part}", pa.matrix_world @ Matrix.Translation(W(x_, y_, zs_)) @ web_z_along((0, n_, 0)), {"contact": part})
     # paper plane (OK pinch): index and thumb 2 cm from the tail (+z), on the top and bottom faces
     o = O["prop_plane"]
     lo, hi = [min(v.co[k] for v in o.data.vertices) for k in range(3)], [max(v.co[k] for v in o.data.vertices) for k in range(3)]
