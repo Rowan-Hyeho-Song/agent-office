@@ -25,10 +25,10 @@ export const PLAYS: PlayDef[] = [
   { kind: 'sofa', label: '소파에서 낮잠', spots: ['sofa_0', 'sofa_1', 'sofa_2'], weight: 2 },
   // one of the floor plants (water.ts), chosen per block, watered from its own stand beside the pot
   { kind: 'water', label: '화분 물 주기', spots: ['hall_lounge'], weight: 1 },
-  // the book on the side table by the sofa (the model's only book prop), read standing west of it. PAUSED below: the designer's reading is seated
-  // (taken from the table, read on sofa seat 0 or the beanbag, put back; lounge-props.md, #341), which comes with the lounge behaviours and #231's
+  // the book on the low table by the sofa (the model's only book prop), picked standing north of sofa seat 0 facing slot 2. PAUSED below: the designer's reading is seated
+  // (taken from the table, read on sofa seat 0, else seat 1, put back; lounge-props.md, #341), which comes with the lounge behaviours and #231's
   // open book. This stand stays for the debug close-up and the grip tests only
-  { kind: 'books', label: '책 고르기', spots: ['shelf'], weight: 1, face: { x: 1.95, z: 3.28 }, stand: { x: 1.15, z: 3.3 } },
+  { kind: 'books', label: '책 고르기', spots: ['shelf'], weight: 1, face: { x: 2.85, z: 2.55 }, stand: { x: 2.81, z: 2.88 } },
 ]
 
 /** plays kept off the schedule (day and night) for now; their definitions stay for the debug tools and the grip tests */

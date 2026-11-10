@@ -15,7 +15,7 @@ const mesh = (name: string, x: number, userData: Record<string, unknown> = {}) =
 
 describe('fade groups', () => {
   it('the bookshelf (binders, plates, hit box) is one fade group', () => {
-    for (const n of ['shelf_r0_b0', 'shelf_r2_b9_label', 'screen_shelf_r1', 'hit_library']) expect(fadeGroupOfNode(n)).toBe(SHELF)
+    for (const n of ['shelf_r0_b0', 'shelf_r0_b20_label', 'screen_shelf_r0_g1', 'hit_library']) expect(fadeGroupOfNode(n)).toBe(SHELF)
   })
   it('desks and their screens fade with their desk', () => {
     expect(fadeGroupOfNode('desk_2_lamp')).toBe('desk2')
