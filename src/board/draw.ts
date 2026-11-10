@@ -5,8 +5,10 @@ import { BH, BW, FS_L, FS_S, type BoardLayout } from './layout'
 
 const FONT = 'Galmuri11, ui-monospace, monospace'
 const AGENT_NAMES = ['메모', '메시', '휴', '루프', '에코']
+/** the agent's name on a card (임시 = a session the office does not know) */
+export const agentName = (seat: number | null): string => (seat === null ? '임시' : (AGENT_NAMES[seat] ?? '임시'))
 /** tokens.css --board-* and --agent-N, read from the page when there is one (fallbacks match the tokens) */
-const FALLBACK = { marker: '#1f2a44', card: '#fbf8f1', ink: '#1f1b14', note: '#ffe27a', agents: ['#ffb347', '#8f9bff', '#ff3ea5', '#4df3ff'], unknown: '#a39d90' }
+const FALLBACK = { marker: '#1f2a44', card: '#fbf8f1', ink: '#1f1b14', note: '#ffe27a', agents: ['#ffb347', '#8f9bff', '#ff3ea5', '#4df3ff', '#f2ffc4'], unknown: '#a39d90' }
 
 export function boardColors() {
   if (typeof document === 'undefined') return FALLBACK
