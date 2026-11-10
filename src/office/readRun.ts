@@ -41,6 +41,13 @@ export const READ_S = {
   carryMax: 30,
 } as const
 
+/**
+ * Seated, the book is held lower and further out than it is carried (#395, the same rule as the sheet, paper-pass.md 5): seen from the front its top edge, the
+ * turning leaf and both hands stay 1 cm under the face screen's bottom edge (readErrand.test.ts). Metres in the body's frame, reached as the body sits down
+ * (`sitM` of the head's drop), so nothing jumps; the head's bow is not changed.
+ */
+export const READ_HOLD = { down: 0.18, forward: 0.1, sitM: 0.25 } as const
+
 /** where the book rests (the baked `table_low_slot_2`) and the two places it is taken from, one for each seat that reads (the stand of seat 0: the knee row in front of it; seat 1: the table's east end) */
 export const BOOK_AT = { x: 2.8, z: 2.51 }
 export const READ_STANDS = [

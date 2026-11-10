@@ -38,7 +38,7 @@ import { gameAt, N, type OmokView } from '../play/omok'
 import { rallyAt, type Dims, type Rally } from '../play/pingpong'
 import { CARRY_HOLD, HOLD_DEFAULT, PLANTS, canPose, dropAt, landing, lerpHold, plantsFrom, pourAt, solvePour, spoutOf, type Plant } from './water'
 import { WATER_S } from './waterRun'
-import { READ_S } from './readRun'
+import { READ_HOLD, READ_S } from './readRun'
 import { type Place, SEQ, ease, followWeight, habitOf, placeSequence, swingTilt, swingTravel } from '../play/choreo'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
@@ -1102,7 +1102,9 @@ export class PlayStage {
     const q = new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(right, face, new Vector3().crossVectors(right, face)))
     const drop = rig.parts.head.position.y - rig.parts.headRestY
     const bob = inp.reduced ? 0 : Math.sin(t * 1.3 + seat) * 0.004
-    const carrying = new Matrix4().compose(root.localToWorld(new Vector3(-0.02, 1.0 + drop + bob, -0.32)), q, ONE)
+    // seated it comes down into the lap and a little out (READ_HOLD, #395), as far as the body has sat
+    const sat = Math.min(1, Math.max(0, -drop / READ_HOLD.sitM))
+    const carrying = new Matrix4().compose(root.localToWorld(new Vector3(-0.02, 1.0 + drop + bob - READ_HOLD.down * sat, -0.32 - READ_HOLD.forward * sat)), q, ONE)
     let held = carrying
     let want = true
     if (r.stage === 'put') {

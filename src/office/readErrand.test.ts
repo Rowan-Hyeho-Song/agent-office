@@ -3,19 +3,94 @@
 //  - readRun.ts, the stages and their times on their own (which seat, called away, a stand that stays taken);
 //  - the Director: seat 0, else seat 1, else this reading is skipped; the goal of every stage (where, what the label says);
 //  - the stage on the baked model, with the planner walking the body: the sequence and its timing, where the body stands for the pick, the book back exactly where it rests,
-//    nothing loose or jumping or out of reach (Guard), and the hands on the open book while seated: no finger inside it, pads within 1 mm (the thumb 2.5 mm).
+//    nothing loose or jumping or out of reach (Guard), and the hands on the open book while seated: no finger inside it, pads within 1 mm (the thumb 2.5 mm);
+//    the face stays visible: the open book's top edge and the hands' tops 1 cm under the face screen's bottom edge (#395).
 import { describe, expect, it } from 'vitest'
-import { Vector3 } from 'three'
+import { Box3, Raycaster, Vector3, type Mesh, type Object3D } from 'three'
 import { stubCanvas } from './glbLoad'
 import { Director } from './director'
 import { BLOCK_MINUTES, playAt } from './play'
 import { Guard, IDS, REACH, expectClean, runRead, world } from './errandWorld.fixture'
 import { GRAPH } from './navSpots.fixture'
 import { bookBoxes, bookDimsOf, distToBook, halfAngle, OPEN_ANGLE } from './bookGeom'
-import { BOOK_AT, READ_LABEL, READ_S, READ_STANDS, callAway, chooseSeat, holding, pickSpot, placeOf, seatSpot, startRead, stepRead, type ReadRun } from './readRun'
+import { BOOK_AT, READ_HOLD, READ_LABEL, READ_S, READ_STANDS, callAway, chooseSeat, holding, pickSpot, placeOf, seatSpot, startRead, stepRead, type ReadRun } from './readRun'
 import type { StatusMap } from './status'
 
 stubCanvas()
+
+/** what is drawn of `root` (a hidden part, like the leaf between two turns, is left out) */
+function drawnBox(root: Object3D) {
+  const box = new Box3()
+  root.traverseVisible((o) => {
+    const g = (o as Mesh).isMesh ? (o as Mesh).geometry : null
+    if (!g) return
+    if (!g.boundingBox) g.computeBoundingBox()
+    box.union(g.boundingBox!.clone().applyMatrix4(o.matrixWorld))
+  })
+  return box
+}
+
+/**
+ * The face stays visible while reading (#395, the same rule as the sheet, paper-pass.md 5): seen from the front, the open book's top edge and the tops of both hands
+ * stay 1 cm under the face screen's bottom edge. The clearance of each this frame (>= 0: under the line), and whether the body has sat down (the head lowered by
+ * READ_HOLD.sitM: the first moments of the reading it is still coming down with the book carried at the chest, as on the way there)
+ */
+function faceClear(w: Awaited<ReturnType<typeof world>>, agent: string) {
+  w.scene.updateMatrixWorld(true)
+  const parts = w.rigs[agent].parts
+  const line = drawnBox(w.nodes[`${agent}_face`]).min.y - 0.01
+  const hands = (['l', 'r'] as const).map((s) => drawnBox(parts.hands[s].node).max.y)
+  return { book: line - drawnBox(w.nodes.prop_book).max.y, hands: line - Math.max(...hands), seated: parts.head.position.y - parts.headRestY <= -READ_HOLD.sitM }
+}
+
+/**
+ * How far the book is inside the furniture under it (> 0: inside): every vertex of the book as drawn against the height of the sofa, its cushions and pillows and the
+ * low table straight under it (a 1 cm height map around where the book is first checked, 20 cm round it). Seated the book is held over the floor in front of the
+ * cushion (#395); a hold pulled back over the cushion would sink in
+ */
+function sinkUnder(w: Awaited<ReturnType<typeof world>>) {
+  const CELL = 0.01
+  const MARGIN = 0.2
+  const under: Object3D[] = []
+  w.scene.traverse((o) => void ((o as Mesh).isMesh && /^(sofa|lounge$|table_low|prop_pillow)/.test(o.name) && under.push(o)))
+  let map: { x0: number; z0: number; nx: number; nz: number; top: Float32Array } | null = null
+  const v = new Vector3()
+  return (root: Object3D) => {
+    if (!map) {
+      const box = drawnBox(root)
+      const x0 = box.min.x - MARGIN, z0 = box.min.z - MARGIN
+      const nx = Math.ceil((box.max.x - box.min.x + 2 * MARGIN) / CELL) + 1, nz = Math.ceil((box.max.z - box.min.z + 2 * MARGIN) / CELL) + 1
+      const top = new Float32Array(nx * nz).fill(-Infinity)
+      const rc = new Raycaster()
+      for (let i = 0; i < nx; i++)
+        for (let k = 0; k < nz; k++) {
+          rc.set(new Vector3(x0 + i * CELL, 1.5, z0 + k * CELL), new Vector3(0, -1, 0))
+          const hit = rc.intersectObjects(under, false)[0]
+          if (hit) top[i * nz + k] = hit.point.y
+        }
+      map = { x0, z0, nx, nz, top }
+    }
+    const m = map
+    let sink = -Infinity
+    root.traverseVisible((o) => {
+      const pos = (o as Mesh).isMesh ? (o as Mesh).geometry.getAttribute('position') : null
+      if (!pos) return
+      for (let j = 0; j < pos.count; j++) {
+        v.fromBufferAttribute(pos, j).applyMatrix4(o.matrixWorld)
+        const i = Math.round((v.x - m.x0) / CELL), k = Math.round((v.z - m.z0) / CELL)
+        // a vertex off the map is more than 20 cm from where the book was first: the test then fails rather than not looking
+        sink = i >= 0 && i < m.nx && k >= 0 && k < m.nz ? Math.max(sink, m.top[i * m.nz + k] - v.y) : Infinity
+      }
+    })
+    return sink
+  }
+}
+
+/** keep the worst clearance of each and the time into the reading it happened at */
+function track(worst: { book: number; hands: number; bookAt: number; handsAt: number }, c: { book: number; hands: number }, u: number) {
+  if (c.book < worst.book) [worst.book, worst.bookAt] = [c.book, u]
+  if (c.hands < worst.hands) [worst.hands, worst.handsAt] = [c.hands, u]
+}
 
 /** step a run with the agent standing where `at()` says, a frame every 100 ms */
 function drive(run: ReadRun, at: (t: number) => string | null, seconds: number, t0 = 0) {
@@ -198,12 +273,15 @@ describe('on the stage: the baked book, the planner walking the body', () => {
     const home = { p: book.position.clone(), q: book.quaternion.clone() }
     const guard = new Guard(w)
     const lap: number[] = []
+    let sink = -Infinity
+    const sinkOf = sinkUnder(w)
     const turns = { n: 0, vis: false }
     const pad: Record<string, number> = {}
     const boxes = bookBoxes(bookDimsOf(w.nodes.prop_book_l, w.nodes.prop_book_r))
     const open: { l: number; r: number }[] = []
     // the book is closed in every stage but the reading (picked, carried, put back closed); the left hand never jumps between frames while seated (closed grip to reading grip and back)
     const openOutside: string[] = []
+    const clear = { book: Infinity, hands: Infinity, bookAt: 0, handsAt: 0 }
     let lastHand: Vector3 | null = null
     let handStep = 0
     let handStepAt = ''
@@ -231,6 +309,11 @@ describe('on the stage: the baked book, the planner walking the body', () => {
         turns.vis = vis
         // the open book: both halves at their open angle
         if (g.read!.u > 1.5 && g.read!.u < READ_S.read - READ_S.close - 0.1) open.push({ l: w.nodes.prop_book_l.rotation.z, r: w.nodes.prop_book_r.rotation.z })
+        // the face is never covered while seated (opening, the turns, closing)
+        const c = faceClear(w, 'agent_0')
+        if (c.seated) track(clear, c, g.read!.u)
+        // nothing of the book inside the sofa or the table (every 0.09 s while seated)
+        if (c.seated && lap.length % 3 === 0) sink = Math.max(sink, sinkOf(book))
         // the hands on it, mid-reading and between two turns: every pad on its surface (fingers 1 mm, thumb 2.5 mm), none inside the book
         if (g.read!.u > 3 && g.read!.u < 3.1 && !vis) {
           const inv = book.matrixWorld.clone().invert()
@@ -259,13 +342,14 @@ describe('on the stage: the baked book, the planner walking the body', () => {
     expect(r.at.return.t - r.at.read.t).toBeGreaterThanOrEqual(READ_S.read)
     expect(r.at.return.t - r.at.read.t).toBeLessThan(READ_S.read + 0.5)
     expect(r.ended - r.at.put.t).toBeGreaterThanOrEqual(READ_S.put - 0.1)
-    // the book is read open at 150° (lower half lifted LIFT, upper at pi - LIFT), in the lap: above the table (0.40), under the face
+    // the book is read open at 150° (lower half lifted LIFT, upper at pi - LIFT), low in front of the cushion (#395): not into the sofa or the table, under the face
     for (const o of open) {
       expect(o.l).toBeCloseTo(halfAngle('l'), 3)
       expect(o.r).toBeCloseTo(halfAngle('r'), 3)
       expect(o.l - o.r).toBeCloseTo(OPEN_ANGLE, 3)
     }
-    expect(Math.min(...lap)).toBeGreaterThan(0.55)
+    console.log(`seat 0 sink ${(sink * 1000).toFixed(1)} mm`)
+    expect(sink, 'the book is not inside the sofa or the table').toBeLessThanOrEqual(0)
     expect(Math.max(...lap)).toBeLessThan(1.1)
     // a leaf turns every 6 s: about ten in a minute
     expect(turns.n).toBeGreaterThanOrEqual(8)
@@ -277,6 +361,10 @@ describe('on the stage: the baked book, the planner walking the body', () => {
       else expect(d, `${k} pad on the surface`).toBeLessThanOrEqual(k.endsWith('thumb') ? 0.0025 : 0.001)
     }
     expect(openOutside, 'closed except while reading').toEqual([])
+    // #395: seen from the front the mouth is never hidden: the book's top edge and the hands' tops 1 cm under the face screen's bottom edge, the whole time seated
+    console.log(`seat 0 face clear: book ${(clear.book * 1000).toFixed(1)} mm (u ${clear.bookAt.toFixed(2)} s), hands ${(clear.hands * 1000).toFixed(1)} mm (u ${clear.handsAt.toFixed(2)} s)`)
+    expect(clear.book, 'book top edge ≤ face screen bottom − 1 cm').toBeGreaterThanOrEqual(0)
+    expect(clear.hands, 'hands top ≤ face screen bottom − 1 cm').toBeGreaterThanOrEqual(0)
     // 0.03 s a frame: against the book the hand glides from the closed grip to the reading grip (and back) at under 0.8 m/s, and its step never changes by more than 5 mm from one frame to
     // the next (a jump would be a step of its own)
     expect(handStep, `left hand step at u ${handStepAt}`).toBeLessThan(0.025)
@@ -296,8 +384,24 @@ describe('on the stage: the baked book, the planner walking the body', () => {
     const book = w.nodes.prop_book
     const home = book.position.clone()
     const guard = new Guard(w)
-    const r = runRead(w, 'agent_2', 1, guard)
+    const clear = { book: Infinity, hands: Infinity, bookAt: 0, handsAt: 0 }
+    const sinkOf = sinkUnder(w)
+    let sink = -Infinity
+    let n = 0
+    const r = runRead(w, 'agent_2', 1, guard, {
+      onStep: (_walk, st) => {
+        if (st !== 'read') return
+        const c = faceClear(w, 'agent_2')
+        if (c.seated) track(clear, c, _walk.goals.agent_2.read!.u)
+        if (c.seated && ++n % 3 === 0) sink = Math.max(sink, sinkOf(book))
+      },
+    })
     expect(r.stages).toEqual(['fetch', 'pick', 'carry', 'read', 'return', 'put'])
+    // #395: another body, the same rule
+    console.log(`seat 1 sink ${(sink * 1000).toFixed(1)} mm; face clear: book ${(clear.book * 1000).toFixed(1)} mm (u ${clear.bookAt.toFixed(2)} s), hands ${(clear.hands * 1000).toFixed(1)} mm (u ${clear.handsAt.toFixed(2)} s)`)
+    expect(sink, 'the book is not inside the sofa or the table').toBeLessThanOrEqual(0)
+    expect(clear.book, 'book top edge ≤ face screen bottom − 1 cm').toBeGreaterThanOrEqual(0)
+    expect(clear.hands, 'hands top ≤ face screen bottom − 1 cm').toBeGreaterThanOrEqual(0)
     expect(Math.hypot(r.at.pick.x - 3.12, r.at.pick.z - 2.72)).toBeLessThan(0.1)
     expect(r.at.carry.t - r.at.pick.t, 'the stop at the east end').toBeLessThan(1.5)
     const seat1 = GRAPH.spots.sofa_1

@@ -348,7 +348,7 @@ export class Director {
       } else this.waters[a] = r.run
     }
     if (!Object.keys(this.waters).length) {
-      const a = this.agents.find((x) => resting(x) && steady(x) && !this.acts[x] && !this.reads[x] && play[x]?.kind === 'water' && this.waterDone[x] !== block)
+      const a = this.agents.find((x) => play[x]?.kind === 'water' && this.waterDone[x] !== block && !this.acts[x] && !this.reads[x] && resting(x) && steady(x))
       if (a) {
         // the scheduled plant, or the next one whose stand is not taken by somebody resting beside it (water.ts STAND_BLOCKERS)
         const names = WATER_PLANTS.map((p) => p.name)
@@ -379,7 +379,7 @@ export class Director {
       } else this.reads[a] = r.run
     }
     if (!Object.keys(this.reads).length) {
-      const a = this.agents.find((x) => resting(x) && steady(x) && !this.acts[x] && !this.waters[x] && play[x]?.kind === 'books' && this.readDone[x] !== block)
+      const a = this.agents.find((x) => play[x]?.kind === 'books' && this.readDone[x] !== block && !this.acts[x] && !this.waters[x] && resting(x) && steady(x))
       if (a) {
         // seat 0 when nobody rests on it or is heading for it, else seat 1, else this reading is skipped (the block counts as read)
         this.readDone[a] = block
@@ -416,7 +416,7 @@ export class Director {
     // the break music is due and nobody has put the record on: whoever rests, agent_4 (echo) first; the break is over and the needle is still down: somebody lifts it
     const wishes = opts.wantsBreak === undefined ? null : opts.wantsBreak ? !this.deck.needle : this.deck.needle && now - this.needleAt >= LIFT_AFTER_MS
     if (wishes && !Object.values(this.acts).some((r) => r.kind === 'record')) {
-      const free = this.agents.filter((x) => resting(x) && steady(x) && !this.acts[x] && !this.waters[x] && !this.reads[x])
+      const free = this.agents.filter((x) => !this.acts[x] && !this.waters[x] && !this.reads[x] && resting(x) && steady(x))
       const a = free.includes('agent_4') ? 'agent_4' : free[0]
       if (a) beginAct(a, 'record')
     }
@@ -424,7 +424,7 @@ export class Director {
       const k = play[a]?.kind
       // the break music is on and the needle is down: the schedule does not send anybody to lift the arm (that is for the end of the break, above)
       if (k === 'record' && opts.wantsBreak && this.deck.needle) continue
-      if (k && isAct(k) && resting(a) && steady(a) && !this.acts[a] && !this.waters[a] && !this.reads[a] && this.actDone[a] !== block) beginAct(a, k)
+      if (k && isAct(k) && this.actDone[a] !== block && !this.acts[a] && !this.waters[a] && !this.reads[a] && resting(a) && steady(a)) beginAct(a, k)
     }
     // whoever is on an errand is not free for the schedule's other plays (a game partner left alone goes to a solo)
     const away = [...Object.keys(this.waters), ...Object.keys(this.acts), ...Object.keys(this.reads)]

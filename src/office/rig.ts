@@ -1578,6 +1578,9 @@ export class AgentRig {
       case 'water':
         return side === 'r' ? at(0.16, 0.86 + s(1.2) * 0.02, -0.42, NONE, HOLD_POSE) : at(rest.x, rest.y, rest.z)
       case 'books':
+        // the reading errand (#280): the hand that is not on the book hangs at the side, lowered as far as the body sits (the shelf reach below would lift it over the
+        // head whenever it lets go of the book: as the book opens and closes, #395)
+        if (this.goal?.read) return at(rest.x, rest.y + sit, rest.z)
         return side === 'r' ? at(0.14, 1.3 + Math.max(0, s(0.6)) * 0.12, -0.4, this.reachAt(side, v(0.14, 1.3 + Math.max(0, s(0.6)) * 0.12, -0.4), v(0, 0, -1)), LOOSE_POSE) : at(rest.x, rest.y, rest.z)
       default:
         return { ...at(rest.x, rest.y + s(1.1, sx) * 0.01 * this.walkSt.bob, rest.z), rest: true }
