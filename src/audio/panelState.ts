@@ -96,3 +96,6 @@ export function setTurntableBox(b: Box | null) {
   turntableBox = b
   boxListeners.forEach((f) => f())
 }
+
+/** which sliders make the preview click when let go: 전체 and 효과음 (the music itself is 배경음악's preview) */
+export const previewsOnRelease = (k: LevelKey) => k !== 'music'

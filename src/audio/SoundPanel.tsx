@@ -6,6 +6,7 @@ import {
   PANEL_W,
   closePanel,
   fromPct,
+  previewsOnRelease,
   getPanel,
   getTurntableBox,
   outsideClosesPanel,
@@ -147,7 +148,7 @@ export function SoundPanel() {
   // 전체 and 효과음 let go: one click at the new level (배경음악 has none: the music itself is the preview).
   // Keys: 150 ms after the last one.
   const preview = (k: LevelKey, how: 'now' | 'later') => {
-    if (k === 'music') return
+    if (!previewsOnRelease(k)) return
     clearTimeout(timers.current.key)
     if (how === 'now') previewClick()
     else timers.current.key = setTimeout(() => previewClick(), 150)
@@ -187,10 +188,13 @@ export function SoundPanel() {
           const pct = toPct(s[l.key])
           return (
             <div className="sound-row" key={l.key}>
-              <label className="sound-name" htmlFor={`sound-${l.key}`}>
-                {l.label}
+              <div className="sound-top">
+                <label className="sound-name" htmlFor={`sound-${l.key}`}>{l.label}</label>
                 <small id={`sound-${l.key}-d`}>{l.hint}</small>
-              </label>
+                <output className="sound-val" aria-hidden="true">
+                {pct}%
+              </output>
+              </div>
               <input
                 id={`sound-${l.key}`}
                 ref={i === 0 ? firstRef : undefined}
@@ -206,9 +210,6 @@ export function SoundPanel() {
                 onPointerUp={() => preview(l.key, 'now')}
                 onKeyUp={(e) => /^(Arrow|Page|Home$|End$)/.test(e.key) && preview(l.key, 'later')}
               />
-              <output className="sound-val" aria-hidden="true">
-                {pct}%
-              </output>
             </div>
           )
         })}

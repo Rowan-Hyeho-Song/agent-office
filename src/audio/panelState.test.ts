@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { LEVELS, closePanel, fromPct, getPanel, openPanel, outsideClosesPanel, placePopover, togglePanel, toPct, valueText, EDGE, PANEL_W, TAIL } from './panelState'
+import { LEVELS, previewsOnRelease, closePanel, fromPct, getPanel, openPanel, outsideClosesPanel, placePopover, togglePanel, toPct, valueText, EDGE, PANEL_W, TAIL } from './panelState'
 import { DEFAULT_SETTING, getSetting, resetLevels, setSetting } from './settings'
 import { previewDue } from './cues'
 
@@ -103,5 +103,13 @@ describe('popover placement', () => {
     const p = placePopover({ left: 1200, right: 1234, top: 700, bottom: 734 }, 1280, 800, 200, 'left')
     expect(p.side).toBe('left')
     expect(p.x + PANEL_W).toBeLessThanOrEqual(1200 - TAIL)
+  })
+})
+
+describe('preview on release', () => {
+  it('전체 and 효과음 preview, 배경음악 does not', () => {
+    expect(previewsOnRelease('volume')).toBe(true)
+    expect(previewsOnRelease('sfx')).toBe(true)
+    expect(previewsOnRelease('music')).toBe(false)
   })
 })
