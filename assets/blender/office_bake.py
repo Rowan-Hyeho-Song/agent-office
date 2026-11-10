@@ -96,6 +96,9 @@ Node contract (the app reads glTF extras):
   omok_bowl_b|w                    empties: the grab point in each stone bowl (extras bowl); black by nav_game_a
   pp_ball                          live "bot" (#135): the ball, the app moves it (not a prop); pivot = its center
   pp_table                         empty at the table top center, +x = the long side (extras size [l, w], net_h)
+  door_lever                       live "bot" (#280 3): the door's lever, pivot on its axle (local z = out of the
+                                   door); extras press {axis z, sign -1, deg 30, press_s, release_s}; child empty
+                                   door_lever_grip (grip_for l, pose wrap)
   pp_net                           live "bot" (#280 3): the net's navy 1 cm lattice (static; the posts, clamps and white
                                    band are in the lounge atlas)
   nav_<id>                         empties: where agents go and which way they face (navigation); nav_meet_center_*
@@ -1472,6 +1475,60 @@ def build_whiteboard(G, z):
     return p
 
 
+def pin_hole_mat(base_hex_unused, rows):
+    """#280 3 (room-280.md 6.2): the bookshelf wood with two rows of shelf-pin holes (4.4 mm, 32 mm apart) printed by
+    the shader on the sides' inner faces. rows = the two web z of the hole lines (front and back)"""
+    m, nodes, links, b = new_mat("shelf_wood_holes")
+    b.inputs["Roughness"].default_value = 0.6
+    bump(nodes, links, b, 900, 0.4, 0.0002)  # as plastic(..., grain 0.4): the same wood as shelf_wood
+    geo = nodes.new("ShaderNodeNewGeometry")
+    sep = nodes.new("ShaderNodeSeparateXYZ")
+    links.new(geo.outputs["Position"], sep.inputs["Vector"])
+
+    def op(kind, a, b_=None):
+        n = nodes.new("ShaderNodeMath")
+        n.operation = kind
+        for i, v in enumerate((a, b_)):
+            if v is None:
+                continue
+            if isinstance(v, (int, float)):
+                n.inputs[i].default_value = v
+            else:
+                links.new(v, n.inputs[i])
+        return n.outputs[0]
+
+    dy = op("MULTIPLY", op("SUBTRACT", op("FRACT", op("DIVIDE", sep.outputs["Z"], 0.032)), 0.5), 0.032)  # web y = Blender z
+    dz = op("MINIMUM", *[op("ABSOLUTE", op("ADD", sep.outputs["Y"], z_)) for z_ in rows])  # web z = -Blender y
+    mask = op("LESS_THAN", op("ADD", op("MULTIPLY", dy, dy), op("MULTIPLY", dz, dz)), 0.0022 ** 2)
+    ramp = nodes.new("ShaderNodeValToRGB")
+    ramp.color_ramp.interpolation = "CONSTANT"
+    ramp.color_ramp.elements[0].color = rgba("#6b4a30")
+    ramp.color_ramp.elements[1].position = 0.5
+    ramp.color_ramp.elements[1].color = rgba("#24180f")
+    links.new(mask, ramp.inputs["Fac"])
+    links.new(ramp.outputs["Color"], b.inputs["Base Color"])
+    return m
+
+
+BRNG = random.Random(2806)  # #280 3: the decorative books' spine marks (their own stream: RNG stays as it was)
+
+
+def spine_marks(cx, y0, bw, bh, zf, col):
+    """#280 3 (room-280.md 6.2): on a decorative book's spine: a dark headband at the top, a colour band, a title line"""
+    light = col in ("#ecf0f1", "#d4a017")
+    ink = plastic("#2c3e50" if light else "#efe6d2", 0.7, 0, 0.05, "spine_title_dark" if light else "spine_title")
+    band = plastic(BRNG.choice(("#c9a465", "#efe6d2", "#2b2622")), 0.6, 0.3 if not light else 0, 0.05, "spine_band")
+    head = plastic("#2b2622", 0.8, 0, 0.1, "spine_head")
+    out = []
+    for nm, w_, h_, y_, m in (("spine_head", bw * 0.9, 0.004, y0 + bh - 0.005, head),
+                              ("spine_band", bw * 0.9, 0.01, y0 + bh * BRNG.uniform(0.7, 0.8), band),
+                              ("spine_title", bw * 0.28, bh * 0.3, y0 + bh * 0.42, ink)):
+        q = quad(nm, w_, h_, m, "wall")
+        q.location = W(cx, y_, zf + 0.0004)
+        out.append(q)
+    return out
+
+
 def build_wall_items():
     G = "wall"
     z = -HZ + 0.02
@@ -1490,10 +1547,22 @@ def build_wall_items():
     shelf_m = plastic("#6b4a30", 0.6, 0, 0.4, "shelf_wood")
     sx = SHELF_X
     sz = -HZ + sd / 2 + 0.01
-    p += [box("shelf_l", (0.03, sh, sd), (sx - sw / 2, sh / 2, sz), shelf_m, G),
-          box("shelf_r", (0.03, sh, sd), (sx + sw / 2, sh / 2, sz), shelf_m, G),
-          # #263: the top overhangs the sides by 2 mm all round (its faces sat on theirs and z-fought)
-          box("shelf_top", (sw + 0.034, 0.03, sd + 0.004), (sx, sh, sz + 0.001), shelf_m, G)]
+    holes = pin_hole_mat(shelf_m, (sz + sd / 2 - 0.045, sz - sd / 2 + 0.06))
+    sides = [box("shelf_l", (0.03, sh, sd), (sx - sw / 2, sh / 2, sz), shelf_m, G),
+             box("shelf_r", (0.03, sh, sd), (sx + sw / 2, sh / 2, sz), shelf_m, G)]
+    for o, s_ in zip(sides, (1, -1)):  # #280 3: the pin holes on the inner faces only
+        o.data.materials.append(holes)
+        for f in o.data.polygons:
+            if f.normal.x * s_ > 0.9:
+                f.material_index = 1
+    p += sides + [
+        # #263: the top overhangs the sides by 2 mm all round (its faces sat on theirs and z-fought)
+        box("shelf_top", (sw + 0.034, 0.03, sd + 0.004), (sx, sh, sz + 0.001), shelf_m, G)]
+    # #280 3 (room-280.md 6.2): a 2 cm crown moulding under the top, round the front and both sides, 8 mm proud
+    zf_ = sz + sd / 2
+    p += [box("shelf_moulding", (sw + 0.03 + 0.016, 0.02, 0.012), (sx, sh - 0.025, zf_ + 0.002), shelf_m, G, bev=0.004, seg=2)]
+    for s_ in (-1, 1):
+        p.append(box("shelf_moulding", (0.012, 0.02, sd - 0.004), (sx + s_ * (sw / 2 + 0.015 + 0.002), sh - 0.025, sz - 0.004), shelf_m, G, bev=0.004, seg=2))
     # the back reads as a furniture back from behind (designer, #109: when the n wall is lowered the app fades the
     # shelf to 25% and this side faces the camera): a 6 cm frame and a panel set 5 mm in, not one flat board
     fw, bz = 0.06, -HZ + 0.016
@@ -1508,7 +1577,7 @@ def build_wall_items():
     for s in range(5):
         y0 = 0.08 + s * 0.42
         # #263: between the sides and in front of the back frame, 2 mm back from the front (it shared their faces)
-        p.append(box("shelf", (sw - 0.03, 0.025, sd - 0.014), (sx, y0, sz + 0.005), shelf_m, G))
+        p.append(box("shelf", (sw - 0.03, 0.025, sd - 0.014), (sx, y0, sz + 0.005), shelf_m, G, bev=0.003, seg=1))  # #280 3: eased edges
         x = sx - sw / 2 + 0.03
         while x < sx + sw / 2 - 0.08:
             if RNG.random() < 0.08:
@@ -1520,6 +1589,7 @@ def build_wall_items():
             col = RNG.choice(book_cols)  # drawn even where the binders stand: the rest of the room keeps its randomness
             if s not in LIB_ROWS:
                 p.append(box("book", (bw, bh, bd), (x + bw / 2, y0 + 0.0125 + bh / 2, sz + 0.02), plastic(col, 0.7, 0, 0.2, "book"), G))
+                p += spine_marks(x + bw / 2, y0 + 0.0125, bw, bh, sz + 0.02 + bd / 2, col)
             x += bw + 0.003
     p += library_statics(shelf_m)
     # #126: a pothos on top, over the right half (the decorative top row), hanging at most 0.35 m
@@ -2539,8 +2609,10 @@ def build_play_lives():
     th = 0.76
     M = Mx((tx + 0.25, th + 0.02, tz - 0.1))
     # the seam: a flush colour band on the ball (a ring standing proud read as Saturn and flickered, designer)
-    ball = sphere("ball", 0.02, (0, 0, 0), plastic("#f7f7f2", 0.8, 0, 0, "ball"), G, seg=32, rings=16)
+    # #280 3 (room-280.md 6.2): 200 triangles (was 1,088): 10 x 8, the seam band, three small stars printed on one face
+    ball = sphere("ball", 0.02, (0, 0, 0), plastic("#f7f7f2", 0.8, 0, 0, "ball"), G, seg=10, rings=8)
     ball.data.materials.append(plastic("#dcdcd4", 0.8, 0, 0, "ball_seam"))
+    ball.data.materials.append(plastic("#3a3d42", 0.7, 0, 0, "ball_logo"))
     bm = bmesh.new()
     bm.from_mesh(ball.data)
     for z in (0.0005, -0.0005):  # web y = Blender z: cut two rings 1 mm apart round the equator
@@ -2549,6 +2621,21 @@ def build_play_lives():
     for f in bm.faces:
         if abs(f.calc_center_median().z) < 0.0005:
             f.material_index = 1
+    # the stars: in the plane of an upper-band face, 0.15 mm proud, 3.4 mm apart along it
+    face = max((f for f in bm.faces if 0.006 < f.calc_center_median().z < 0.016), key=lambda f: f.calc_center_median().x)
+    c0, nrm = face.calc_center_median(), face.normal.copy()
+    east = nrm.cross(Vector((0, 0, 1))).normalized()
+    north = east.cross(nrm).normalized()
+    for k in (-1, 0, 1):
+        c = c0 + nrm * 0.00015 + east * (k * 0.0034)
+        mid = bm.verts.new(c)
+        ring = [bm.verts.new(c + (east * math.cos(a) + north * math.sin(a)) * (0.0015 if j % 2 == 0 else 0.0006))
+                for j, a in enumerate(math.pi / 2 + 2 * math.pi * j / 10 for j in range(10))]
+        for j in range(10):
+            f = bm.faces.new((mid, ring[(j + 1) % 10], ring[j]))  # (east, north) turns clockwise about nrm
+            f.material_index = 2
+            f.smooth = False
+    bm.normal_update()
     bm.to_mesh(ball.data)
     bm.free()
     ball = [ball]
@@ -2802,9 +2889,13 @@ def build_lounge():
     # small round side table in the open front middle (#109): an empty top and a basket for now
     sx2, sz2 = SIDE_TABLE
     # #280: the book table (r 0.21) at the long sofa's west end; the basket is gone (the book lies on it)
-    st = [cyl("side_top", SIDE_R, 0.03, (sx2, 0.55, sz2), plastic("#c9b89a", 0.55, 0, 0.35, "desk_top"), G, 32, bev=0.006),
+    # #280 3 (room-280.md 6.2): a 5 mm chamfer round the top's edges, a collar where the column meets the top and the foot
+    top_ = add_bevel(cyl("side_top", SIDE_R, 0.03, (sx2, 0.55, sz2), plastic("#c9b89a", 0.55, 0, 0.35, "desk_top"), G, 32), 0.005, 1, angle=50)
+    st = [top_,
           cyl("side_col", 0.025, 0.52, (sx2, 0.27, sz2), metal, G, 12),
-          cyl("side_foot", 0.15, 0.02, (sx2, 0.01, sz2), metal, G, 24)]
+          cyl("side_foot", 0.15, 0.02, (sx2, 0.01, sz2), metal, G, 24),
+          cyl("side_collar", 0.036, 0.02, (sx2, 0.525, sz2), metal, G, 16, bev=0.003),
+          cyl("side_collar", 0.034, 0.018, (sx2, 0.029, sz2), metal, G, 16, bev=0.003)]
     fp("side_table", st, "floor")
     p += st
     lounge = join("lounge", p)
@@ -3228,24 +3319,54 @@ def build_props():
         o.data.transform(Matrix.Diagonal((1.4, 1.0, 1.0, 1.0)))
         return o
 
-    def oval(name, r, depth, z, m):
-        o = cyl(name, r, depth, (0, 0.17, z), m, G, 32, axis="z")
+    S = 20  # #280 3 (room-280.md 6.2): blade segments; a paddle ~530 triangles (was 612)
+
+    def oval_obj(name, bm, m, z):
+        o = mesh_obj(name, bm, m, G)
+        o.location = W(0, 0.17, z)
+        o.rotation_euler = (math.pi / 2, 0, 0)  # the cone's local +z = web +z
         o.data.transform(Matrix.Diagonal((1.0, 0.16 / 0.15, 1.0, 1.0)))  # local y = web y after the axis turn
+        return smooth(o)
+
+    def blade_band(name, r, depth, z, m):
+        """the blade's edge only (its faces lie under the rubbers): an open oval tube"""
+        bm = bmesh.new()
+        bmesh.ops.create_cone(bm, cap_ends=False, segments=S, radius1=r, radius2=r, depth=depth)
+        return oval_obj(name, bm, m, z)
+
+    def rubber(name, sign, m):
+        """a rubber face flush with the blade's edge, 1 mm: the top inset 2 mm, its ring and edge the dark sponge (the
+        rim, designer), no bottom cap (it sits on the blade)"""
+        bm = bmesh.new()
+        bmesh.ops.create_cone(bm, cap_ends=True, segments=S, radius1=0.075, radius2=0.075, depth=0.001)
+        bm.faces.ensure_lookup_table()
+        top = next(f for f in bm.faces if f.normal.z * sign > 0.9)
+        bot = next(f for f in bm.faces if f.normal.z * sign < -0.9)
+        bmesh.ops.delete(bm, geom=[bot], context="FACES_ONLY")
+        bmesh.ops.inset_region(bm, faces=[top], thickness=0.002, depth=0.0)
+        for f in bm.faces:
+            f.material_index = 0 if f is top else 1
+        o = oval_obj(name, bm, m, sign * 0.0025)
+        o.data.materials.append(sponge)
         return o
 
+    sponge = plastic("#2a2324", 0.85, 0, 0.1, "paddle_sponge")
     for end, bx, bz, rz in (("a", tx - 0.6, tz + 0.25, -math.pi / 2), ("b", tx + 0.62, tz - 0.25, math.pi / 2)):
-        objs = [squash(cyl("grip", 0.016, 0.1, (0, 0.05, 0), wood_h, G, 28, r2=0.013), 0.8),  # round, 3.2 -> 2.6 cm
-                squash(cyl("ply", 0.0162, 0.096, (0, 0.05, 0), ply, G, 28, r2=0.0132), 0.1),  # its sides: a dark ply line
-                oval("blade", 0.075, 0.004, 0.0, wood_h),
-                oval("rubber_red", 0.074, 0.001, 0.0025, red),
-                oval("rubber_black", 0.074, 0.001, -0.0025, black),
-                # #156 (real paddles): a rounded throat where the handle flares into the blade, a darker centre
-                # ply showing along the handle's sides, a small brass badge on each face
+        # the handle flares toward its end (FL, 3.4 -> 2.6 cm), a darker centre ply along its sides, a rounded throat
+        objs = [squash(cyl("grip", 0.017, 0.1, (0, 0.05, 0), wood_h, G, 12, r2=0.013), 0.8),
+                squash(cyl("ply", 0.0172, 0.096, (0, 0.05, 0), ply, G, 12, r2=0.0132), 0.1),
+                # the blade's edge in five plies: light wood with two dark lines 0.2 mm proud
+                blade_band("blade", 0.075, 0.004, 0.0, wood_h),
+                blade_band("blade_ply", 0.0752, 0.0005, 0.0009, ply),
+                blade_band("blade_ply", 0.0752, 0.0005, -0.0009, ply),
+                rubber("rubber_red", 1, red),
+                rubber("rubber_black", -1, black),
                 # the throat sits inside the rubber faces (it z-fought them: a sawtooth edge in the app)
-                cyl("throat", 0.02, 0.0044, (0, 0.093, 0), wood_h, G, 28, axis="z", bev=0.001)]
-        for sz in (1, -1):  # a flat oval badge with a darker rim, on each face of the handle
-            objs += [oval_plate("badge_rim", 0.0068, 0.0004, (0, 0.06, sz * 0.0112), rim_m),
-                     oval_plate("badge", 0.0056, 0.0006, (0, 0.06, sz * 0.0115), gilt)]
+                cyl("throat", 0.02, 0.0044, (0, 0.093, 0), wood_h, G, 12, axis="z")]
+        for sz in (1, -1):  # the logo plate: a flat oval brass badge on each face of the handle
+            o_ = cyl("badge", 0.0062, 0.0006, (0, 0.06, sz * 0.0121), gilt, G, 10, axis="z")
+            o_.data.transform(Matrix.Diagonal((1.4, 1.0, 1.0, 1.0)))
+            objs.append(o_)
         hx = bx + (-0.17 if end == "a" else 0.17)  # handle end sits 0.17 m behind the blade center
         out.append(prop(f"prop_paddle_{end}", "paddle", objs, (hx, th + 0.003, bz), (-math.pi / 2, 0.0, rz),
                         grip_pos=(0, -0.02, 0), grip_rot=(math.pi, 0, 0)))
@@ -3501,9 +3622,40 @@ def build_door():
     x = -HX + 0.03
     p = [panel("door_body", 1.05, 2.2, 0.12, 0.12, (0, 0, 0), ivory, G, edge=0.01),
          panel("door_bezel", 0.86, 1.86, 0.02, 0.08, (0, 0, 0.06), dark, G)]
-    for k, dx in enumerate((-0.18, 0.18)):
-        p.append(cyl("knob", 0.03, 0.03, (dx, -0.98, 0.07), plastic("#2a2c31", 0.4, 0.6, 0, "knob"), G, 16, axis="z"))
+    # #280 3 (room-280.md 6.2, designer PR #347). The door frame: local x across (+x = north, the umbrella stand's
+    # side = the hinges), y up (floor at -1.12), z out of the wall (the wall at -0.09, the slab's face at 0.06).
+    # The screen is the door's glass: a 1.5 cm metal glass frame round it, no frosted strip; the two knobs are gone
+    alu = plastic("#b9bec7", 0.3, 0.8, 0.03, "door_alu")
+    gra = plastic("#33373e", 0.45, 0.4, 0.1, "door_casing")
+    sw_, sh_, sy_ = 0.8, 1.78, 0.02  # the screen quad (below): its size and height in this frame
+    for s_ in (-1, 1):
+        p += [box("door_glass_frame", (sw_ + 0.03, 0.015, 0.01), (0, sy_ + s_ * (sh_ / 2 + 0.0075), 0.073), alu, G, bev=0.002, seg=1),
+              box("door_glass_frame", (0.015, sh_, 0.01), (s_ * (sw_ / 2 + 0.0075), sy_, 0.073), alu, G, bev=0.002, seg=1)]
+    # the casing: 7 cm graphite boards on the wall round the opening, 5 cm proud (the slab stands in it)
+    ow, oh = 1.05 / 2 + 0.003, 1.1 + 0.003  # the opening's half width, its top over the centre
+    for s_ in (-1, 1):
+        p.append(box("door_casing", (0.07, oh + 1.12 + 0.068, 0.05), (s_ * (ow + 0.035), (oh + 0.068 - 1.12) / 2, -0.065), gra, G, bev=0.004, seg=2))
+    p.append(box("door_casing", (2 * ow + 0.144, 0.07, 0.052), (0, oh + 0.035, -0.065), gra, G, bev=0.004, seg=2))  # 1 mm proud of the sides (no shared face)
+    # three hinges on the north edge, a brushed threshold strip on the floor across the opening
+    for hy in (-0.8, 0.0, 0.8):
+        p += [cyl("door_hinge", 0.007, 0.09, (ow + 0.004, hy, 0.0), alu, G, 12),
+              cyl("door_hinge_tip", 0.004, 0.012, (ow + 0.004, hy + 0.051, 0.0), alu, G, 8),
+              cyl("door_hinge_tip", 0.004, 0.012, (ow + 0.004, hy - 0.051, 0.0), alu, G, 8)]
+    p.append(box("door_threshold", (2 * ow - 0.002, 0.012, 0.15), (0, -1.12 + 0.006, -0.015), plastic("#9aa0aa", 0.4, 0.7, 0.05, "door_threshold"), G, bev=0.003, seg=1))
+    # the lever's plate and rose on the south margin (the screen's side margin, 1.0 m up); the lever is live (below)
+    lx_, ly_ = -(sw_ / 2 + 0.015 + (1.05 / 2 - sw_ / 2 - 0.015) / 2), 1.0 - 1.12
+    p += [box("door_lever_plate", (0.04, 0.18, 0.006), (lx_, ly_, 0.063), alu, G, bev=0.002, seg=1),
+          cyl("door_lever_rose", 0.017, 0.01, (lx_, ly_ + 0.05, 0.071), alu, G, 20, axis="z", bev=0.002)]
     M = Mx((x + 0.06, 1.12, DOOR_Z), ry=math.pi / 2)
+    # the lever: its own live node, pivot on the axle (local z = out of the door), the arm toward the hinges; the app
+    # presses it 30 deg (the free end down) when an agent comes in or leaves (designer: wrap grip)
+    L = M @ Mx((lx_, ly_ + 0.05, 0.07))
+    lev = [segment("door_lever_neck", (0, 0, 0), (0, 0, 0.045), 0.008, alu, "export", verts=12),
+           segment("door_lever_arm", (0, 0, 0.045), (0.12, 0, 0.045), 0.009, alu, "export", verts=12, r2=0.011),
+           sphere("door_lever_end", 0.011, (0.12, 0, 0.045), alu, "export", seg=12, rings=6)]
+    lever = live(pivot(join("door_lever", place(lev, L)), L), "bot")
+    lever["press"] = {"axis": "z", "sign": -1, "deg": 30, "press_s": 0.3, "release_s": 0.3}
+    child_empty(lever, "door_lever_grip", L @ Mx((0.07, 0, 0.045)), {"grip_for": "l", "pose": "wrap"})
     placed = place(p, M)
     fp("door", placed, "wall", "w")
     fp_box("door_clear", "clear", (x + 0.13, 0.0, DOOR_Z - 0.5), (x + 0.13 + 0.8, 0.0, DOOR_Z + 0.5))  # 0.8 m kept free in front
@@ -4414,10 +4566,10 @@ def build_records():
             lean = RRNG.uniform(-0.03, 0.03)
             p.append(box("record_spine", (0.004, 0.31, 0.30), (x + 0.002, cy + 0.155, sz + 0.02), plastic(col, 0.75, 0, 0.2, f"spine_{col[1:]}"), L2, rot_y=lean * 0.1))
             x += 0.004 + RRNG.uniform(0.0005, 0.0025)
-    # #280 3 (designer): a jacket leaning on the records in the upper right cubby (seen from the front: -x), dark with
-    # a circle and a band in two muted colours, 6 deg back, its foot 5 mm in from the cubby's front: in front of
-    # prop_record's home (z sz - 0.15), its top 5 mm clear of it
-    J = Mx((sx - 0.1825, 0.4025 + 0.0005, sz - 0.19), rx=math.radians(6))
+    # #280 3 (designer, option 2): a jacket leaning on the records in the lower right cubby (seen from the front: -x;
+    # the upper one is prop_record's home, it would pull out through it), dark with
+    # a circle and a band in two muted colours, 9 deg back, its foot 1 cm in from the cubby's front
+    J = Mx((sx - 0.1825, 0.035 + 0.0005, sz - 0.185), rx=math.radians(9))
     jacket = [box("rec_jacket", (0.30, 0.30, 0.003), (0, 0.15, 0), plastic("#2a2f38", 0.7, 0, 0.1, "rec_jacket"), L2, bev=0.0008, seg=1),
               cyl("rec_jacket_disc", 0.08, 0.0006, (0.03, 0.18, -0.0018), plastic("#c2a46e", 0.7, 0, 0.05, "rec_jacket_ochre"), L2, 40, axis="z"),
               box("rec_jacket_band", (0.296, 0.03, 0.0006), (0, 0.08, -0.0018), plastic("#7d9a94", 0.7, 0, 0.05, "rec_jacket_teal"), L2)]
@@ -4983,12 +5135,21 @@ if PREVIEW:
         "pp_close": ((3.0, 1.3, 2.0), (1.6, 0.5, 0.7)),  # #280 3: the folding table
         "pp_under": ((2.75, 0.4, 1.95), (2.1, 0.25, 0.7)),
         "pp_net": ((1.98, 0.98, 1.3), (1.6, 0.82, 1.0)),
+        "pp_props": ((2.05, 0.9, 0.78), (2.05, 0.77, 0.5)),  # #280 3: a paddle
+        "pp_ball": ((1.92, 0.83, 0.68), (1.85, 0.78, 0.6)),
+        "lib_close": ((2.75, 1.5, -2.9), (3.45, 1.2, -3.95)),  # #280 3: the bookshelf
+        "lib_top": ((2.85, 2.15, -3.25), (3.2, 1.9, -3.95)),
+        "lib_side": ((3.6, 1.15, -3.35), (2.93, 1.05, -3.85)),
+        "lib_pins": ((3.12, 0.62, -3.7), (2.915, 0.6, -3.8)),
+        "book_table": ((2.35, 0.95, 2.75), (1.85, 0.45, 3.335)),  # #280 3
+        "door_close": ((-3.2, 1.4, 3.3), (-4.75, 1.05, 2.4)),
+        "door_lever": ((-4.25, 1.2, 3.15), (-4.65, 1.03, 2.85)),
         "wb_close": ((1.55, 1.45, -2.75), (0.8, 1.4, -4.1)),  # #280 3: the whiteboard
         "wb_corner": ((1.8, 1.2, -3.55), (1.55, 1.0, -4.06)),
         "esp_close": ((3.78, 1.32, 0.5), (4.42, 1.1, 0.2)),  # #280 3: the espresso machine (counter at x 4.48, z 0.1, front -x)
         "esp_side": ((4.05, 1.3, 0.85), (4.45, 1.1, 0.25)),
         "fridge_disp": ((3.55, 1.0, -0.3), (4.5, 0.6, -1.0)),  # #280 3: the gasket, memos, tray grid, cup holder
-        "rec_jacket": ((0.4, 0.75, 2.85), (0.45, 0.55, 3.8)),
+        "rec_jacket": ((0.4, 0.5, 2.85), (0.45, 0.2, 3.8)),
         "q_game": ((-0.25, 1.5, 0.55), (-1.35, 0.6, 1.55)),
         "q_counter": ((-1.9, 1.55, 0.55), (-3.2, 0.95, 1.32)),
         "q_shelf": ((2.0, 1.3, -0.35), (2.85, 1.0, -2.57)),
