@@ -388,6 +388,13 @@ html[data-motion='reduce'] .corner-dock { transition: none; }
 .doc-nav { flex: 1; min-height: 0; padding: var(--space-3) var(--space-4); overflow: auto; scrollbar-gutter: stable; }
 .doc-path { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); padding: var(--space-3) var(--space-4) 0; font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
 .doc-nav .doc-path { padding: 0 0 var(--space-3); }
+/* the path line stays at the top while the list scrolls (#319): full width over the 16px sides, the surface behind it and a line under it so the rows read as passing under */
+.doc-nav > .doc-path { position: sticky; top: calc(-1 * var(--space-3)); z-index: 1; margin: calc(-1 * var(--space-3)) calc(-1 * var(--space-4)) var(--space-3); padding: var(--space-3) var(--space-4); background: var(--color-surface); border-bottom: 1px solid var(--color-line); }
+.doc-main > .doc-path { border-bottom: 1px solid var(--color-line); padding-bottom: var(--space-2); }
+/* scrolled: a short shadow under the header, so a half-hidden title does not read as stuck to it (designer, #321) */
+.doc-nav[data-scrolled='true'] > .doc-path { box-shadow: 0 6px 8px -6px rgb(0 0 0 / 0.7); }
+.doc-main > :has(+ .doc-stage) { position: relative; z-index: 1; }
+.doc-main[data-scrolled='true'] > :has(+ .doc-stage) { box-shadow: 0 6px 8px -6px rgb(0 0 0 / 0.7); }
 .doc-path button { font: inherit; background: none; border: 0; padding: 2px 0; color: var(--color-text); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .doc-path button:hover { color: var(--color-amber); }
 .doc-path button:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
@@ -399,7 +406,8 @@ html[data-motion='reduce'] .corner-dock { transition: none; }
 .doc-folder[aria-current='true'] { background: var(--surface-raised); color: var(--color-amber); }
 .doc-folder svg, .doc-file svg { width: 12px; height: 12px; flex: none; }
 .doc-file { flex-direction: column; align-items: stretch; gap: var(--space-1); container: docfile / inline-size; font-size: 13px; line-height: 1.4; border-left: var(--bubble-stripe) solid transparent; }
-.doc-file .l1 { display: flex; gap: var(--space-2); align-items: center; min-width: 0; }
+.doc-file .l1 { display: flex; gap: var(--space-2); align-items: baseline; min-width: 0; } /* number · title · SECRET on the title's first line, however many lines it wraps to (#319) */
+.doc-file .l1 .doc-dot { align-self: flex-start; margin-top: calc((1.4em - 6px) / 2); }
 .doc-file .l1 .ttl { min-width: 0; word-break: keep-all; overflow-wrap: anywhere; } /* break between words; only a word longer than the line breaks inside (designer, #301) */
 .doc-file .l2 { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); min-width: 0; padding-left: calc(var(--space-2) + 2ch); font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); } /* the second line: topics, date, agents (#236) */
 .doc-file .l2 .who i { font-style: normal; color: var(--agent-ink); }
@@ -460,7 +468,7 @@ html[data-motion='reduce'] .corner-dock { transition: none; }
 .doc-toc button[aria-selected='true'] { background: var(--paper); color: var(--paper-ink); }
 .doc-stage { flex: 1; min-height: 0; padding: var(--space-3) var(--space-4) var(--space-4); overflow: auto; scrollbar-gutter: stable; }
 .doc-stage > * + * { margin-top: var(--space-4); }
-.doc-paper { position: relative; overflow-wrap: anywhere; background: var(--paper); color: var(--paper-ink); padding: var(--space-6) var(--space-6) var(--space-8); font-family: var(--font-text); font-size: 14.5px; line-height: 1.75; box-shadow: 0 1px 0 color-mix(in srgb, var(--paper-ink) 20%, transparent), 0 10px 24px var(--color-halo); max-width: 640px; margin-inline: auto; }
+.doc-paper { position: relative; word-break: keep-all; overflow-wrap: anywhere; background: var(--paper); color: var(--paper-ink); padding: var(--space-6) var(--space-6) var(--space-8); font-family: var(--font-text); font-size: 14.5px; line-height: 1.75; box-shadow: 0 1px 0 color-mix(in srgb, var(--paper-ink) 20%, transparent), 0 10px 24px var(--color-halo); max-width: 640px; margin-inline: auto; }
 .doc-paper h5 { font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); letter-spacing: var(--letter-spacing-label); color: var(--paper-muted); margin: var(--space-4) 0 var(--space-1); border-bottom: 1px solid color-mix(in srgb, var(--paper-ink) 18%, transparent); padding-bottom: 2px; }
 .doc-paper h5:first-of-type { margin-top: 0; }
 .doc-paper p { margin: 0 0 var(--space-2); }

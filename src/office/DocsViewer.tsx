@@ -46,6 +46,14 @@ export function DocsViewer({ world }: { world: OfficeWorld }) {
 }
 
 /** the 6 px ivory dot before a folder / file title that has new documents (read as words too) */
+/** the header above a scroll area gets a short shadow once the area is scrolled (designer, #321): on the scroll area itself (the list) or its column (the paper) */
+const markScrolled = (e: { currentTarget: HTMLElement }) => {
+  const el = e.currentTarget
+  const on = el.scrollTop > 0 ? 'true' : 'false'
+  const host = el.classList.contains('doc-stage') ? el.parentElement : el
+  if (host && host.dataset.scrolled !== on) host.dataset.scrolled = on
+}
+
 const NewMark = () => (
   <>
     <i className="doc-dot" aria-hidden="true" />
@@ -254,12 +262,12 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
                     ))}
                   </div>
                 )}
-                <div className="doc-stage" id="doc-stage" role="tabpanel" aria-labelledby={kind ? `doc-tab-${kind}` : undefined}>
+                <div className="doc-stage" id="doc-stage" onScroll={markScrolled} role="tabpanel" aria-labelledby={kind ? `doc-tab-${kind}` : undefined}>
                   <Stack file={file} folder={folder} docs={docs} bodies={snap.bodies} isOwner={isOwner} peeling={peeling} row={sel.row} nonce={panel.nonce} />
                 </div>
               </div>
             ) : (
-              <nav className="doc-nav" aria-label="서재 목록">
+              <nav className="doc-nav" aria-label="서재 목록" onScroll={markScrolled}>
                 {view === 'files' && folder && <DocPath folder={folder} file={null} onRoot={() => setStage('folders')} onFolder={() => setStage('files')} />}
                 {snap.metas === null && !snap.error && <p className="doc-note">불러오는 중…</p>}
                 {snap.error && (
