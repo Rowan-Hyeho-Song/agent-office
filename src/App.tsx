@@ -13,6 +13,8 @@ import { CameraHint, CameraRig } from './office/cameraRig'
 import { EdgeHintRig, EdgeHints } from './office/EdgeHints'
 import { TourBar } from './office/TourBar'
 import { TourRig } from './office/TourRig'
+import { BoardCamera } from './office/boardView/BoardCamera'
+import { BoardView } from './office/boardView/BoardView'
 import { CAMERA_FAR, LAMP_POS } from './office/room'
 import { VIEW } from './office/view'
 import { Office } from './office/Office'
@@ -86,6 +88,7 @@ export function App() {
         )}
         <CameraRig limits={limits} world={world} />
         <TourRig limits={limits} world={world} />
+        <BoardCamera />
         <SideViewOffset />
         <EdgeHintRig limits={limits} />
         <SoundListener world={world} />
@@ -101,6 +104,7 @@ export function App() {
       <SidePanel world={world} />
       <ApprovalBox world={world} />
       <DocsViewer world={world} />
+      <BoardView world={world} />
       <RoomUi />
       <ReplayDriver world={world} />
       <ReplayHud world={world} />
