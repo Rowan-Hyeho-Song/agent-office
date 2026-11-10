@@ -4,6 +4,7 @@
 // The design: docs/design/watering.md (#185), grips.md; the rule (#184, #228): no prop moves on its own, a hand takes it where it rests.
 
 import { CAN_HOME, WATER_PLANTS, canStand, pourTotal, standOf, type Plant } from './water'
+import { habitSeconds, type HabitKind } from './waterFx'
 
 export type WaterStage =
   /** walking to the can's stand */
@@ -56,11 +57,13 @@ export interface WaterRun {
   t0: number
   /** reduced motion (watering.md 5): it walks to the plant empty-handed, the can is in its hand only while it pours, and gone from it after: nothing is carried, nothing flies */
   reduced: boolean
+  /** the little habit this agent shows at the plant after the shake (watering.md 4), decided from the time seed when the errand starts; none under reduced motion */
+  habit?: HabitKind | null
 }
 
 export const plantByName = (name: string): Plant => WATER_PLANTS.find((p) => p.name === name) ?? WATER_PLANTS[0]
 
-export const startWater = (plant: string, block: number, now: number, reduced: boolean): WaterRun => ({ plant, block, stage: reduced ? 'carry' : 'fetch', t0: now, reduced })
+export const startWater = (plant: string, block: number, now: number, reduced: boolean, habit: HabitKind | null = null): WaterRun => ({ plant, block, stage: reduced ? 'carry' : 'fetch', t0: now, reduced, habit: reduced ? null : habit })
 
 /** the can is in the hand in these stages (an agent called away in one of them first finishes bringing it back); reduced motion walks empty-handed */
 export const holding = (run: WaterRun) => (run.stage === 'carry' && !run.reduced) || run.stage === 'pour' || run.stage === 'return' || run.stage === 'put'
@@ -86,7 +89,7 @@ export function stepWater(run: WaterRun, inp: { now: number; at: (spot: string) 
         r.stage = 'return'
       } else r.stage = 'pour'
     } else if (r.stage === 'pour') {
-      if (el < pourTotal(r.plant)) break
+      if (el < pourTotal(r.plant, habitSeconds(r.habit))) break
       r.stage = r.reduced ? 'put' : 'return'
     } else if (r.stage === 'return') {
       if (!inp.at(CAN_SPOT)) break

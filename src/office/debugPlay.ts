@@ -18,6 +18,7 @@ import { standSlot } from './director'
 import { ALL_POSES, type AnyPoseId } from './handPose'
 import { setStoneVariant, type StoneVariant } from './grip'
 import { CAN_HOME, WATER_PLANTS, canStand } from './water'
+import type { HabitKind } from './waterFx'
 import { hash } from './play'
 import { isAct } from './lounge'
 import { SETTLE_MS, type PlaySession } from '../play/session'
@@ -138,7 +139,7 @@ export function makeTypingTools(world: OfficeWorld, typist: Typist) {
 
 export function makePlayTools(world: OfficeWorld) {
   const play = {
-    force(agent: string, kind: string, plant?: string, reduced = false) {
+    force(agent: string, kind: string, plant?: string, reduced = false, habit?: HabitKind | null) {
       const ids = Object.keys(world.rigs)
       world.forceGoal = world.forceGoal ?? {}
       // everyone else goes to their own desk, so nobody else is sent to the same spots by the schedule
@@ -153,7 +154,7 @@ export function makePlayTools(world: OfficeWorld) {
         return
       }
       if (kind === 'water') {
-        world.director.forceWater(agent, WATER_PLANTS.find((p) => p.name === plant)?.name ?? WATER_PLANTS[0].name, officeNow(world), reduced)
+        world.director.forceWater(agent, WATER_PLANTS.find((p) => p.name === plant)?.name ?? WATER_PLANTS[0].name, officeNow(world), reduced, habit)
         return
       }
       // the lounge acts (lounge.ts) run through the Director like the schedule's own; the sofa, the east seat and the door are plain goals

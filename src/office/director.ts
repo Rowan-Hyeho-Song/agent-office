@@ -9,6 +9,7 @@ import { actSpot, actU, deckAfter, startAct, stepAct, type ActRun } from './actR
 import { ACT_LABEL, ACT_PLACE, isAct, type ActKind, type RecordMode } from './lounge'
 import { PATH_BLOCKERS, STAND_BLOCKERS, WATER_PLANTS } from './water'
 import { holding, placeOf, startWater, stepWater, WATER_LABEL, type WaterRun, type WaterStage } from './waterRun'
+import { habitFor, type HabitKind } from './waterFx'
 import { startWrap, stepWrap, viewOf, WALKING_TO_DESK, type BeatKind, type Shown, type WrapRun } from './wrap'
 
 /** `write` / `carry` / `cardpost` / `tidy` are the wrap-up's own (#186, wrap.ts) */
@@ -39,7 +40,7 @@ export interface Goal {
   reread?: boolean
   waiting?: boolean
   /** the watering errand (#228): its stage, the plant, and how long (s) the stage has lasted: the hands are drawn from these, not from where the agent stands */
-  water?: { stage: WaterStage; plant: string; u: number }
+  water?: { stage: WaterStage; plant: string; u: number; habit?: HabitKind | null }
   /** a lounge act (lounge.ts: the fridge, the dispenser, the turntable): which, how long since the agent reached its stand (s, -1 on the way), the turntable's mode and whether a record was on the platter */
   act?: { kind: ActKind; u: number; mode?: RecordMode; recordOn: boolean }
   /** what it's doing, for the debug panel */
@@ -192,11 +193,12 @@ export class Director {
   }
 
   /** ?debug=1: send an agent for the can right now (the schedule's own errands start the same way) */
-  forceWater(agent: string, plant: string, now: number, reduced = false) {
+  forceWater(agent: string, plant: string, now: number, reduced = false, habit?: HabitKind | null) {
     this.clearWater()
     delete this.waterDone[agent]
     // it counts as this block's watering: the schedule does not send the agent again right after
-    this.waters[agent] = startWater(plant, blockOf(Math.floor(now / 60000)), now, reduced)
+    const block = blockOf(Math.floor(now / 60000))
+    this.waters[agent] = startWater(plant, block, now, reduced, habit === undefined ? habitFor(agent, block) : habit)
   }
 
   /** start queued talks whose two agents are both free and in the office */
@@ -320,7 +322,7 @@ export class Director {
         const first = Math.max(0, names.indexOf(play[a].plant ?? ''))
         const free = (n: string) => ![...(STAND_BLOCKERS[n] ?? []), ...(PATH_BLOCKERS[n] ?? [])].some((spot) => this.agents.some((x) => x !== a && (this.lastGoal[x]?.spot === spot || arrivedAt(x) === spot)))
         const plant = [0, 1, 2].map((k) => names[(first + k) % names.length]).find(free)
-        if (plant) this.waters[a] = startWater(plant, block, now, !!opts.reduced)
+        if (plant) this.waters[a] = startWater(plant, block, now, !!opts.reduced, habitFor(a, block))
       }
     }
     // the lounge acts (lounge.ts): started by the schedule or by the music's wish for a break, once the agent is free; called away it simply stops
@@ -395,7 +397,7 @@ export class Director {
       const wr = this.waters[a]
       if (wr) {
         const pl = placeOf(wr)
-        out[a] = { spot: pl.spot, pose: 'water', face: pl.face, ...standSlot({ stand: pl.stand, face: pl.face }), water: { stage: wr.stage, plant: wr.plant, u: (now - wr.t0) / 1000 }, label: `화분 물 주기 · ${WATER_LABEL[wr.stage]}` }
+        out[a] = { spot: pl.spot, pose: 'water', face: pl.face, ...standSlot({ stand: pl.stand, face: pl.face }), water: { stage: wr.stage, plant: wr.plant, u: (now - wr.t0) / 1000, habit: wr.habit }, label: `화분 물 주기 · ${WATER_LABEL[wr.stage]}` }
         const free = (s.state === 'idle' && s.night !== 'duty') || (s.state === 'wrapping' && !this.runs[a])
         shown[a] = free
           ? { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
