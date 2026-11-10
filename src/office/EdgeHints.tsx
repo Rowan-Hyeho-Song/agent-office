@@ -1,5 +1,5 @@
 import { useFrame, useThree } from '@react-three/fiber'
-import { useRef, useSyncExternalStore } from 'react'
+import { useRef, useState, useSyncExternalStore } from 'react'
 import { Vector3, type PerspectiveCamera } from 'three'
 import { HOME_POS, HOME_TARGET, useCameraBusy } from '../room/Door'
 import { LANDMARKS, PORTRAIT_ASPECT, landmarkView, type Pose } from './portraitCamera'
@@ -95,22 +95,31 @@ export function EdgeHintRig({ limits }: { limits: boolean }) {
   return null
 }
 
+/** reduced motion: the pan is a 0.3 s fade cut (designer, #340): the view fades out in 0.15 s, jumps, fades back in 0.15 s */
+export const FADE_HALF_MS = 150
+
 export function EdgeHints() {
   const list = useHints()
+  const [fade, setFade] = useState(false)
+  const go = (id: string) => {
+    if (!reduced()) return void (panWish = id)
+    setFade(true)
+    window.setTimeout(() => {
+      panWish = id
+      window.setTimeout(() => setFade(false), 30)
+    }, FADE_HALF_MS)
+  }
   return (
     <>
       {list.map((h) => (
-        <button
-          key={h.id}
-          type="button"
-          className={`edge-hint edge-hint-${h.side}`}
-          style={{ top: `${h.top}%` }}
-          aria-label={`${h.label} 쪽으로 화면 이동`}
-          onClick={() => void (panWish = h.id)}
-        >
-          {h.side === 'l' ? `‹ ${h.label}` : `${h.label} ›`}
+        // the button is the 44 x 44 px touch area (transparent); the chip inside keeps its size (designer, #340)
+        <button key={h.id} type="button" className={`edge-hint edge-hint-${h.side}`} style={{ top: `${h.top}%` }} aria-label={`${h.label} 쪽으로 보기`} onClick={() => go(h.id)}>
+          <span className="edge-chip" aria-hidden="true">
+            {h.side === 'l' ? `‹ ${h.label}` : `${h.label} ›`}
+          </span>
         </button>
       ))}
+      <div className="edge-fade" data-on={fade || undefined} aria-hidden="true" />
     </>
   )
 }

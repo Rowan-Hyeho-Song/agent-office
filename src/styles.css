@@ -717,13 +717,24 @@ html[data-motion='reduce'] .tour-bar { animation: none; }
 .doc-filehead .topics { margin: var(--space-1) 0; }
 
 /* portrait phone: the landmarks the home view leaves out (EdgeHints.tsx) */
+/* the button is a transparent 44 x 44 px touch area; the chip inside keeps the look (designer, #340) */
 .edge-hint {
   position: fixed; z-index: 5; translate: 0 -50%;
-  font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1);
-  min-height: 32px; padding: 0 var(--space-2); cursor: pointer;
-  color: var(--color-text-muted); background: rgba(10, 13, 19, 0.82); border: 1px solid var(--color-line);
+  display: flex; align-items: center; min-width: 44px; min-height: 44px; padding: 0; cursor: pointer;
+  background: none; border: 0; color: var(--color-text-muted);
 }
-.edge-hint-l { left: 0; border-left: 0; }
-.edge-hint-r { right: 0; border-right: 0; }
+.edge-hint-l { left: 0; justify-content: flex-start; }
+.edge-hint-r { right: 0; justify-content: flex-end; }
+.edge-chip {
+  font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: var(--line-height-1);
+  min-height: 32px; display: inline-flex; align-items: center; padding: 0 var(--space-2);
+  background: rgba(10, 13, 19, 0.82); border: 1px solid var(--color-line);
+}
+.edge-hint-l .edge-chip { border-left: 0; }
+.edge-hint-r .edge-chip { border-right: 0; }
 .edge-hint:hover, .edge-hint:focus-visible { color: var(--color-text); }
-.edge-hint:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
+.edge-hint:focus-visible { outline: none; }
+.edge-hint:focus-visible .edge-chip { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+/* reduced motion: the pan is a fade cut */
+.edge-fade { position: fixed; inset: 0; z-index: 4; pointer-events: none; background: var(--color-bg, #0b0e13); opacity: 0; transition: opacity 0.15s linear; }
+.edge-fade[data-on] { opacity: 1; }
