@@ -10,6 +10,8 @@ import { ALL, LANES, LANE_NAME, SECRET_NOTE, SPEEDS, atMs, describe, dayLabel, l
 import { replay, useReplay } from './store'
 import { useLineSub } from './lineSub'
 import { ReplayList } from './ReplayList'
+import { DayCalendar } from './DayCalendar'
+import { announceText, dayText, endText, navLabel } from './days'
 import './replay.css'
 
 /** the last input was the keyboard (so the bar may take a visible focus on entering) */
@@ -82,8 +84,7 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
   useEffect(() => {
     let raf = 0
     let key = ''
-    const loop = (now: number) => {
-      replay.tick(now)
+    const loop = () => {
       const c = canvas.current
       const w = wrap.current
       if (c && w) {
@@ -133,11 +134,13 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
     setHover(near ? n.k : -1)
   }
   // WASD / R belong to the camera (#111), which acts only while focus is on the 3D view: hand the focus back to it
+  // Shift + arrows: the previous / next day (a day's view), or the previous / next day's first point inside an issue's span
+  const changeDay = (dir: 1 | -1) => (replay.getSnapshot().day !== null ? replay.goDay(dir) : replay.dayStep(dir))
   const replayKey = (e: { key: string; shiftKey: boolean; preventDefault(): void }) => {
     const k = e.key
     if (k === ' ') replay.toggle()
-    else if (k === 'ArrowRight') e.shiftKey ? replay.dayStep(1) : replay.step(1)
-    else if (k === 'ArrowLeft') e.shiftKey ? replay.dayStep(-1) : replay.step(-1)
+    else if (k === 'ArrowRight') e.shiftKey ? changeDay(1) : replay.step(1)
+    else if (k === 'ArrowLeft') e.shiftKey ? changeDay(-1) : replay.step(-1)
     else if (k === 'Home') replay.seek(0)
     else if (k === 'End') replay.seek(points.length - 1)
     else if ('123'.includes(k) && k.length === 1) replay.setSpeed(SPEEDS['123'.indexOf(k)])
@@ -167,11 +170,13 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
   // the date announced when the day changes while playing (every point would never stop talking)
   const day = p ? dayLabel(atMs(p)) : ''
   const [announce, setAnnounce] = useState('')
-  const lastDay = useRef(day)
+  const lastDay = useRef(s.day ?? day)
   useEffect(() => {
-    if (day !== lastDay.current && s.playing) setAnnounce(`${day}`)
-    lastDay.current = day
-  }, [day, s.playing])
+    // a day's view: once after the day changed ("11.08 일, 점 210개"); an issue's span: when its date turns over while playing
+    const key = s.day ?? day
+    if (key !== lastDay.current && (s.day !== null || s.playing)) setAnnounce(s.day !== null ? announceText({ id: s.day, count: s.count }) : day)
+    lastDay.current = key
+  }, [day, s.day, s.count, s.playing])
 
   const grain = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -196,7 +201,6 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
   const d = describe(p)
   const lane = laneOf(p)
   const when = whenText(atMs(p))
-  const dateText = s.flip ?? (compact ? when.slice(5) : when)
   const left = remainingMs(points, s.i, s.speed, (k, first) => pointWaitMs(points, k, (p) => stepMs(p, 1), boardDistance, first)) / 1000
   const hp = hover >= 0 ? points[hover] : null
   const share = () => {
@@ -228,10 +232,7 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
             ))}
           </div>
         )}
-        <div className="replay-when">
-          <span className="replay-rec">▶ 기록 재생 중{s.issue ? ` · #${s.issue.n}` : ''}</span>
-          <span className="replay-date" aria-hidden="true">{dateText}</span>
-        </div>
+        {s.issue ? <IssueChip n={s.issue.n} points={points} /> : <DayPicker compact={compact} when={when} flip={s.flip} />}
         <button type="button" className="replay-btn" onClick={() => replay.close()}>
           지금으로 <span aria-hidden="true">⏭</span>
         </button>
@@ -248,7 +249,10 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
           </button>
         </div>
       )}
-      {line && !hp ? (
+      <div className={`replay-fade${s.fade ? ' on' : ''}`} aria-hidden="true" />
+      {s.ended ? (
+        <EndCard />
+      ) : line && !hp ? (
         <div className="replay-subtitle" data-seat={String(line.seat)} data-line="" aria-hidden="true">
           <span className="who">{line.who}</span>
           {line.text}
@@ -328,6 +332,127 @@ function Tip({ point: p, x, wrap }: { point: Point; x: number; wrap: HTMLDivElem
         </span>
         {p.secret && <span className="meta">{SECRET_NOTE}</span>}
       </div>
+    </div>
+  )
+}
+
+/** the middle of the top strip (timelapse.md 10.2): [‹] 11.07 토 ▾ [›] 14:32 — the day, the previous / next day that has points, the calendar */
+function DayPicker({ compact, when, flip }: { compact: boolean; when: string; flip: string | null }) {
+  const s = useReplay()
+  const [open, setOpen] = useState(false)
+  const button = useRef<HTMLButtonElement>(null)
+  const prev = replay.adjacent(-1)
+  const next = replay.adjacent(1)
+  const shown = flip ?? when
+  const label = shown.slice(5, 12)
+  const time = shown.slice(13)
+  const close = useCallback(() => {
+    setOpen(false)
+    button.current?.focus({ preventScroll: true })
+  }, [])
+  const nav = (dir: 1 | -1, to: typeof prev) => (
+    <button
+      type="button"
+      className="day-nav"
+      aria-label={to ? navLabel(dir, to) : dir < 0 ? '이전 날 없음' : '다음 날 없음'}
+      aria-disabled={!to}
+      onClick={() => {
+        setOpen(false)
+        if (to) replay.goDay(dir)
+      }}
+    >
+      <span aria-hidden="true">{dir < 0 ? '‹' : '›'}</span>
+    </button>
+  )
+  return (
+    <div className="replay-day">
+      {nav(-1, prev)}
+      <div className="day-mid">
+        <button
+          ref={button}
+          type="button"
+          className="day-btn"
+          data-day-button=""
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-label={`날짜 고르기, 지금 ${dayText(s.day ?? '0000-00-00')}`}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <span className="replay-date" aria-hidden="true">{label}</span> <span aria-hidden="true">▾</span>
+        </button>
+        <span className="day-time" aria-hidden="true">{time}</span>
+      </div>
+      {nav(1, next)}
+      {!compact && <span className="replay-rec">▶ 기록 재생 중</span>}
+      {open && s.day && (
+        <DayCalendar
+          days={replay.days}
+          selected={s.day}
+          sheet={compact}
+          onPick={(id) => {
+            setOpen(false)
+            button.current?.focus({ preventScroll: true })
+            replay.selectDay(id)
+          }}
+          onClose={close}
+        />
+      )}
+    </div>
+  )
+}
+
+/** an issue's span instead of the day picker (timelapse.md 10.6): `#67 · 11.07 – 11.08 · 점 9개 [×]` */
+function IssueChip({ n, points }: { n: number; points: readonly Point[] }) {
+  const a = points.length ? dayLabel(atMs(points[0])).slice(0, 5) : ''
+  const b = points.length ? dayLabel(atMs(points[points.length - 1])).slice(0, 5) : ''
+  return (
+    <div className="replay-day">
+      <span className="replay-rec">▶ 기록 재생 중</span>
+      <span className="issue-chip">
+        #{n} · {a === b ? a : `${a} – ${b}`} · 점 {points.length}개
+        <button type="button" aria-label="이슈만 보기 끝내기" onClick={() => replay.endIssue()}>×</button>
+      </span>
+    </div>
+  )
+}
+
+/** the card at the end of a day or an issue (timelapse.md 10.7): it stops here, the viewer decides */
+function EndCard() {
+  const s = useReplay()
+  const first = useRef<HTMLButtonElement>(null)
+  // a keyboard user lands on the first button (Enter = the next day); a mouse user's focus stays where it was
+  useEffect(() => {
+    if (usedKeyboard) first.current?.focus({ preventScroll: true, focusVisible: true })
+  }, [])
+  const info = replay.days.find((d) => d.id === s.day)
+  const next = replay.adjacent(1)
+  const live = (ref?: React.Ref<HTMLButtonElement>) => (
+    <button type="button" ref={ref} className="replay-btn" onClick={() => replay.close()}>
+      지금으로 <span aria-hidden="true">⏭</span>
+    </button>
+  )
+  return (
+    <div className="replay-subtitle replay-end" role="group" aria-label="끝">
+      <span className="end-text">{s.issue ? `#${s.issue.n} 끝 · 점 ${s.count}개` : info ? endText(info) : ''}</span>
+      <span className="end-btns">
+        {s.issue ? (
+          <>
+            <button type="button" ref={first} className="replay-btn" onClick={() => replay.play()}>이슈 처음부터</button>
+            {live()}
+          </>
+        ) : (
+          <>
+            {next ? (
+              <button type="button" ref={first} className="replay-btn" onClick={() => replay.goDay(1, { play: true })}>
+                다음 날 {dayText(next.id)} <span aria-hidden="true">→</span>
+              </button>
+            ) : (
+              live(first)
+            )}
+            <button type="button" className="replay-btn" onClick={() => replay.play()}>처음부터 다시</button>
+          </>
+        )}
+      </span>
     </div>
   )
 }
