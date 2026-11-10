@@ -10,6 +10,7 @@ import { loadOffice, stubCanvas } from './glbLoad'
 import { buildRig } from './rig'
 import { solveContacts } from './grip'
 import { GRIP_OFFSETS } from './gripFit.data'
+import './loungeActs' // registers the lounge's grips (record, pillow, fridge door, door lever) in GRIPS
 import { composeOffset, contactsInHand, fitFingers, resolveTarget, type GripTarget } from './gripTargets'
 
 stubCanvas()
@@ -22,6 +23,7 @@ const OBJECTS: [string, string, 'l' | 'r'][] = [
   ['prop_marker_0', 'marker', 'r'], ['prop_marker_1', 'marker', 'r'], ['prop_marker_2', 'marker', 'r'],
   ['prop_tablet_pen', 'tablet_pen', 'r'],
   ['prop_book', 'book', 'l'], ['prop_book', 'book', 'r'],
+  ['prop_record', 'record', 'r'],
   ['desk_0_mouse', 'mouse', 'r'], ['desk_1_mouse', 'mouse', 'r'], ['desk_3_mouse', 'mouse', 'r'], ['desk_4_mouse', 'mouse', 'r'],
 ]
 const LOG = process.env.FIT_LOG

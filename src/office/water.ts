@@ -63,8 +63,8 @@ export const REACH = 0.75
 export const STAND_BLOCKERS: Record<string, string[]> = { plant_desk: ['desk_side_0'], plant_hang_1: ['chat_0'] }
 /**
  * A plant whose stand cannot be reached while another agent rests at one of these spots (the way there runs past it). Empty since #280 (the lounge acts):
- * plant_desk used to wait for the memo seat (work_0) to be free, because the north lane past it left 0.41 m beside a seated body; with the wider window strip
- * the day simulation (traffic.day.test.ts) runs the whole day without it (no wait over 60 s, the longest 16.4 s, every errand done), so the plant is watered whoever sits there.
+ * plant_desk used to wait for the memo seat (work_0) to be free, because the north lane past it left 0.41 m beside a seated body; the day simulation
+ * (traffic.day.test.ts) runs the whole day without the entry (no wait over 60 s, the longest 16.4 s, every errand done), so the plant is watered whoever sits there.
  */
 export const PATH_BLOCKERS: Record<string, string[]> = {}
 /** the plants the schedule waters (the floor plants; the desk succulent is left to its owner) */

@@ -51,7 +51,7 @@ import type { AgentStatus } from './status'
 import { musicGlow, speakerCone, speakerOn } from '../audio/speaker'
 
 /** the poses of the play schedule (play.ts PlayKind): what "resting" means (sound.md 5) */
-const RESTING_POSES: ReadonlySet<string> = new Set(['pingpong', 'boardgame', 'coffee', 'sofa', 'water', 'books'])
+const RESTING_POSES: ReadonlySet<string> = new Set(['pingpong', 'boardgame', 'coffee', 'sofa', 'water', 'books', 'fridge', 'dispenser', 'record'])
 /** the walk (#329): cruising from traffic.ts CRUISE; acceleration, the corner speed and the turn rate keep their proportions to it (tuned at 0.75) */
 const PACE = CRUISE / CRUISE_TUNED
 const SPEED = CRUISE // m/s cruising

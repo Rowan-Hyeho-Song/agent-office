@@ -59,6 +59,9 @@ export const requestOf = (goal: Goal, pace: number, notBefore?: number): Request
 const PROP_POSES = new Set<Pose>(['coffee', 'books', 'pingpong', 'boardgame'])
 const PUT_AWAY_MS = 800
 
+/** the needle has been down at least this long (ms) before the end of the break sends somebody to lift the arm (speaker.ts holds a state 8 s; this is well past it) */
+const LIFT_AFTER_MS = 25_000
+
 /** how long a face-to-face talk lasts, how long to wait for both to arrive */
 const TALK_MS = 6000
 const GATHER_MS = 30000
@@ -102,6 +105,8 @@ export class Director {
   private actDone: Record<string, number> = {}
   /** the turntable: a record is on the platter, the needle is down (set as the agent's hands get there) */
   private deck = { recordOn: false, needle: false }
+  /** when the needle went down (office ms): the arm is not lifted for the break being over until it has been down a while */
+  private needleAt = 0
   /** what each agent's goal was last frame, and the departure its goal was held back to (putAway) */
   private lastPose: Record<string, { pose: Pose; spot: string }> = {}
   private leaving: Record<string, { spot: string; depart: number }> = {}
@@ -173,8 +178,13 @@ export class Director {
   /** ?debug=1: send an agent to a lounge act right now */
   forceAct(agent: string, kind: ActKind, now: number, mode?: RecordMode) {
     for (const k of Object.keys(this.acts)) delete this.acts[k]
+    delete this.waters[agent]
     this.acts[agent] = startAct(kind, blockOf(Math.floor(now / 60000)), kind === 'record' ? (mode ?? (this.deck.needle ? 'lift' : 'put')) : undefined, this.deck.recordOn)
     this.actDone[agent] = this.acts[agent].block
+  }
+
+  clearActs() {
+    for (const k of Object.keys(this.acts)) delete this.acts[k]
   }
 
   clearWater() {
@@ -303,7 +313,7 @@ export class Director {
       } else this.waters[a] = r.run
     }
     if (!Object.keys(this.waters).length) {
-      const a = this.agents.find((x) => resting(x) && play[x]?.kind === 'water' && this.waterDone[x] !== block)
+      const a = this.agents.find((x) => resting(x) && !this.acts[x] && play[x]?.kind === 'water' && this.waterDone[x] !== block)
       if (a) {
         // the scheduled plant, or the next one whose stand is not taken by somebody resting beside it (water.ts STAND_BLOCKERS)
         const names = WATER_PLANTS.map((p) => p.name)
@@ -325,7 +335,10 @@ export class Director {
       if (r.run.t0 !== null && run.kind === 'record') {
         const d = deckAfter(r.run, actU(r.run, now))
         this.deck.recordOn = d.recordOn
-        if (d.needle !== null) this.deck.needle = d.needle
+        if (d.needle !== null) {
+          if (d.needle && !this.deck.needle) this.needleAt = now
+          this.deck.needle = d.needle
+        }
       }
       if (r.done) delete this.acts[a]
       else this.acts[a] = r.run
@@ -337,13 +350,16 @@ export class Director {
       this.actDone[a] = block
     }
     // the break music is due and nobody has put the record on: whoever rests, agent_4 (echo) first; the break is over and the needle is still down: somebody lifts it
-    if (opts.wantsBreak !== undefined && opts.wantsBreak !== this.deck.needle && !Object.values(this.acts).some((r) => r.kind === 'record')) {
+    const wishes = opts.wantsBreak === undefined ? null : opts.wantsBreak ? !this.deck.needle : this.deck.needle && now - this.needleAt >= LIFT_AFTER_MS
+    if (wishes && !Object.values(this.acts).some((r) => r.kind === 'record')) {
       const free = this.agents.filter((x) => resting(x) && !this.acts[x] && !this.waters[x])
       const a = free.includes('agent_4') ? 'agent_4' : free[0]
       if (a) beginAct(a, 'record')
     }
     for (const a of this.agents) {
       const k = play[a]?.kind
+      // the break music is on and the needle is down: the schedule does not send anybody to lift the arm (that is for the end of the break, above)
+      if (k === 'record' && opts.wantsBreak && this.deck.needle) continue
       if (k && isAct(k) && resting(a) && !this.acts[a] && !this.waters[a] && this.actDone[a] !== block) beginAct(a, k)
     }
     // whoever is on an errand is not free for the schedule's other plays (a game partner left alone goes to a solo)

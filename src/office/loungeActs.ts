@@ -109,6 +109,7 @@ export class LoungeActs {
   // the door lever
   private lever?: { node: Object3D; base: Quaternion; press: { axis: string; sign: number; deg: number; press_s: number; release_s: number } }
   private leverT: Map<string, number> = new Map()
+  private leverAng = 0
   // events: the last `u` of each act, who stood on the mat, who sat
   private lastU = new Map<string, number>()
   private mat = new Map<string, boolean>()
@@ -131,7 +132,11 @@ export class LoungeActs {
     const open = this.door?.userData.open as { axis?: 'x' | 'y' | 'z'; sign?: number } | undefined
     this.doorOpen = { axis: open?.axis ?? 'y', sign: open?.sign ?? 1 }
     const handle = scene.getObjectByName('fridge_door_grip')
-    if (handle) handle.name = 'fridge_door_grip_r'
+    if (handle) {
+      handle.name = 'fridge_door_grip_r'
+      // the grip empty is a top-level node of the model: hung on the door (keeping its place) it swings with it
+      if (this.door) this.door.attach(handle)
+    }
     // the door lever and its grip
     const lever = nodes.door_lever
     const press = lever?.userData.press as { axis: string; sign: number; deg: number; press_s: number; release_s: number } | undefined
@@ -181,7 +186,7 @@ export class LoungeActs {
 
   /** the lever angle (for tests and the debug panel) */
   leverDeg() {
-    return this.lever ? new Vector3().setFromEuler(this.lever.node.rotation).z / DEG : 0
+    return this.leverAng / DEG
   }
   doorDeg() {
     return this.deg
@@ -393,6 +398,7 @@ export class LoungeActs {
       for (const id in inp.rigs) if (inp.rigs[id].arrived === 'door' && this.leverT.has(id)) u = Math.max(u, this.leverT.get(id)!)
       for (const id of [...this.leverT.keys()]) if (inp.rigs[id].arrived !== 'door') this.leverT.delete(id)
       const ang = u >= 0 ? leverAngle(u, press) * DEG : 0
+      this.leverAng = ang
       node.quaternion.copy(base).multiply(new Quaternion().setFromAxisAngle(press.axis === 'x' ? new Vector3(1, 0, 0) : press.axis === 'y' ? UP : new Vector3(0, 0, 1), ang))
     }
     // the mat and the sofa

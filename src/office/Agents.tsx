@@ -13,7 +13,7 @@ import { sideArea } from './sidePanel/store'
 import { requestOf, type Goal } from './director'
 import { TrafficPlanner, type Request, type Sample } from './traffic'
 import { syncFridgeHold } from './lounge'
-import { musicWantsBreak, recordComing } from '../audio/speaker'
+import { musicWantsBreak, recordComing, resetDeck } from '../audio/speaker'
 import { demoRequest } from './trafficDemo'
 import { checkNav, edgeKey } from './navcheck'
 import { rasterFootprint } from './floorMask'
@@ -335,7 +335,10 @@ export function Agents({ world }: { world: OfficeWorld }) {
       // a seek is a jump: the drawn bodies snap with it
       if (drawnSeen.current !== replay.landings) {
         drawnSeen.current = replay.landings
-        if (replay.landedVia === 'seek') drawn.reset()
+        if (replay.landedVia === 'seek') {
+          drawn.reset()
+          resetDeck() // a seek forgets the turntable (speaker.ts)
+        }
       }
       const speed = replay.getSnapshot().speed
       const tauTotal = steps.reduce((a, s) => a + s.dt, 0)
