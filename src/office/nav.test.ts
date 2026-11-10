@@ -187,8 +187,8 @@ describe('facing', () => {
     const close: string[] = []
     for (let i = 0; i < dests.length; i++)
       for (let j = i + 1; j < dests.length; j++) if (dist(dests[i], dests[j]) < 0.6) close.push(`${dests[i].id}/${dests[j].id}`)
-    // the east entrance stands beside seat 2 (0.56 m, #341: the 0.75 m east gap leaves it no further out)
-    expect(close.sort()).toEqual(['board_tray/whiteboard', 'sofa_0/sofa_1', 'sofa_1/sofa_2', 'sofa_2/sofa_in_e'])
+    // the seats now sit a pitch of 0.665 m apart (>= two bodies); only the east entrance stands 0.56 m from seat 1 (the zone's east gap leaves it no further out, #280)
+    expect(close.sort()).toEqual(['board_tray/whiteboard', 'sofa_1/sofa_in_e'])
   })
 })
 

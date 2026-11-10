@@ -80,7 +80,7 @@ export const EDGES: [string, string][] = [
   // lounge (the front aisle hall_front - hall_lounge runs below the ping-pong table)
   ['hall_front', 'pingpong_a'],
   ['hall_front', 'game_b'],
-  // the L-sofa (#280 2단계): seats sofa_0..2 along the south wall, sofa_3 the chaise (lie-down), the beanbag west of the low table. The low table
+  // the L-sofa (#280 2단계): seats sofa_0..2 along the south wall, sofa_3 the chaise (lie-down). The low table
   // is in front of the seats, so they are entered from the side-step spots: sofa_in_w (west end, seats 0..) and sofa_in_e (north of seat 2 / the chaise)
   ['hall_front', 'sofa_in_w'],
   ['sofa_in_w', 'sofa_0'],
@@ -91,7 +91,6 @@ export const EDGES: [string, string][] = [
   ['sofa_in_e', 'sofa_2'],
   ['sofa_in_e', 'sofa_3'],
   ['sofa_2', 'sofa_3'],
-  ['hall_front', 'beanbag'],
   ['hall_front', 'hall_lounge'],
   ['hall_lounge', 'pingpong_b'],
   ['hall_lounge', 'hall_ne'],

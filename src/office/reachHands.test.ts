@@ -73,8 +73,8 @@ describe('reaching hands (#255)', () => {
       let sp: { x: number; z: number; ry: number } = SPOTS.find((s) => s.id === spot)!
       let extra: Partial<Goal> = {}
       if (prop === 'book') {
-        // the high shelf (#199): where the grip demo stands (debugPlay.ts BOOK)
-        const BOOK = { stand: { x: 1.15, z: 3.3 }, face: { x: 1.95, z: 3.28 } }
+        // the low table by the sofa (#280): where the grip demo stands, north of sofa seat 0 (debugPlay.ts BOOK)
+        const BOOK = { stand: { x: 2.81, z: 2.88 }, face: { x: 2.85, z: 2.55 } }
         extra = { face: BOOK.face, ...standSlot(BOOK) }
         sp = { x: BOOK.stand.x, z: BOOK.stand.z, ry: Math.atan2(-(BOOK.face.x - BOOK.stand.x), -(BOOK.face.z - BOOK.stand.z)) }
       }
