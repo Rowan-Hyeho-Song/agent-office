@@ -9,6 +9,7 @@ import {
   previewsOnRelease,
   getPanel,
   getTurntableBox,
+  openedByKey,
   outsideClosesPanel,
   placePopover,
   subscribePanel,
@@ -64,7 +65,7 @@ export function SoundPanel() {
 
   // focus goes to 전체 on open
   useEffect(() => {
-    if (open) firstRef.current?.focus({ preventScroll: true })
+    if (open) (firstRef.current?.focus as (o: object) => void)?.call(firstRef.current, { preventScroll: true, focusVisible: openedByKey() })
     else setReset(false)
   }, [open])
   useEffect(
@@ -111,7 +112,10 @@ export function SoundPanel() {
     let prefer: 'right' | 'left' = 'right'
     if (getPanel().from === 'hud') {
       const b = document.querySelector('[data-sound-opener="hud"]')?.getBoundingClientRect()
-      target = b ? { left: b.left, top: b.top, right: b.right, bottom: b.bottom } : null
+      // right edge = dock left - 8 - tail 10; the tail sits at the button's vertical centre
+      const dock = document.querySelector('.corner-dock')?.getBoundingClientRect()
+      const edge = dock ? Math.min(dock.left, b?.left ?? dock.left) - 8 : b?.left
+      target = b && edge !== undefined ? { left: edge, top: b.top, right: b.right, bottom: b.bottom } : null
       prefer = 'left'
     }
     if (!target) return

@@ -73,7 +73,7 @@ export function SoundButton() {
             title="소리 세부 설정"
             aria-haspopup="dialog"
             aria-expanded={detailOpen}
-            onClick={(e) => togglePanel('hud', e.currentTarget)?.focus()}
+            onClick={(e) => togglePanel('hud', e.currentTarget, e.detail === 0)?.focus()}
           >
             <svg viewBox="0 0 16 16" aria-hidden>
               <path d="M2 3.5 H14 M2 8 H14 M2 12.5 H14" fill="none" stroke="currentColor" strokeWidth="1.2" />

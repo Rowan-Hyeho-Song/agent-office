@@ -25,6 +25,9 @@ export const valueText = (label: string, v: number) => `${label} ${toPct(v)}%`
 export type Panel = { open: boolean; from: PanelFrom | null }
 let panel: Panel = { open: false, from: null }
 let returnTo: HTMLElement | null = null
+let keyOpen = false
+/** opened from the keyboard (the focus ring shows) or by pointer (it does not) */
+export const openedByKey = () => keyOpen
 const listeners = new Set<() => void>()
 export const getPanel = () => panel
 export const subscribePanel = (fn: () => void) => {
@@ -37,8 +40,9 @@ const set = (p: Panel) => {
 }
 
 /** open from `from`; `back` is where focus goes on close (the HUD button, or the canvas for the turntable) */
-export function openPanel(from: PanelFrom, back: HTMLElement | null = null) {
+export function openPanel(from: PanelFrom, back: HTMLElement | null = null, byKey = false) {
   returnTo = back
+  keyOpen = byKey
   set({ open: true, from })
 }
 /** close, and hand back the element to focus (null when it was not open) */
@@ -50,9 +54,9 @@ export function closePanel(): HTMLElement | null {
   return back
 }
 /** a second press on the same opener closes (the turntable, the HUD button); a different opener moves it */
-export function togglePanel(from: PanelFrom, back: HTMLElement | null = null): HTMLElement | null {
+export function togglePanel(from: PanelFrom, back: HTMLElement | null = null, byKey = false): HTMLElement | null {
   if (panel.open && panel.from === from) return closePanel()
-  openPanel(from, back)
+  openPanel(from, back, byKey)
   return null
 }
 
