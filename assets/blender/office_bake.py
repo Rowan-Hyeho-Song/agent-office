@@ -105,6 +105,7 @@ Node contract (the app reads glTF extras):
   door_lever                       live "bot" (#280 3): the door's lever, pivot on its axle (local z = out of the
                                    door); extras press {axis z, sign -1, deg 30, press_s, release_s}; child empty
                                    door_lever_grip (grip_for l, pose wrap)
+  hit_turntable                    (#353) empty: the turntable's click box (extras hit, size [0.46, 0.16, 0.36]), axes = the room's
   pp_net                           live "bot" (#280 3): the net's navy 1 cm lattice (static; the posts, clamps and white
                                    band are in the lounge atlas)
   nav_<id>                         empties: where agents go and which way they face (navigation); nav_meet_center_*
@@ -177,14 +178,14 @@ ATLAS_GAIN = {"work": float(next((a.split("=")[1] for a in sys.argv if a.startsw
 MEET_RING, MEET_R, MEET_RY = 0.9, 1.16, math.radians(-3.0)
 CHAT_SPOTS = (_c(-1.45, -3.35), _c(-0.45, -3.35))  # the second conversation: two spots by the window, facing each other
 RUG_WORK = (*_c(-2.50, -0.92), 2.46, 4.24)  # x, z, width, depth (desks.md 2.1.5)
-RUG_LOUNGE = (*_c(3.54, 2.855), 2.52, 2.29)  # #280: x 2.28..4.8, z 1.71..4.0 (old origin)
+RUG_LOUNGE = (3.275, 2.655, 2.45, 2.29)  # #280 3 (lounge-props.md 3.1): x 2.05..4.5, z 1.51..3.8 (its west end 7 cm in)
 RUG_MEET_D = 2.92
 CAN_STAND = _c(4.85, 0.95)  # #185 / #280: the watering can's stand, north of the fig on the east wall (designer)
 DOOR_Z = _c(0, 2.6)[1]
 PINGPONG = _c(1.9, 0.9)
 # #280 PR 1: the old 1.9 m sofa along the south wall, its east end at the L sofa's (PR 2 makes it the L), 0.12 off the wall
 SOFA = _c(4.03, 3.7375)  # #280 PR 1 only (the old sofa); PR 2 builds SOFA_L / CHAISE (build_lounge2)
-LAMP = _c(2.25, 4.05)  # the floor lamp, behind the book table  (#341: 0.05 south with the book table)
+LAMP = (2.05, 3.80)  # #280 3 (user, lounge-props.md 3.1): just past the sofa's west arm (the book table is gone)
 GAME_TABLE = _c(-1.6, 2.6)
 SIDE_TABLE, SIDE_R = _c(2.15, 3.535), 0.21  # #280: the book table at the long sofa's west end (#341: 0.10 west, 0.055 south: the west way in, clear of nav_sofa_in_w)
 COUNTER = (HX - 0.32, _c(0, 0.3)[1], math.pi)  # against the right wall, its front (local +x) facing the room
@@ -2975,18 +2976,8 @@ def build_lounge():
                           (cx + 0.10 * math.cos(a), 0.335, cz + 0.10 * math.sin(a)), 0.004, wood_s, G, verts=8, r2=0.006))
     p += st
     fp("can_stand", st, "decor")
-    # small round side table in the open front middle (#109): an empty top and a basket for now
-    sx2, sz2 = SIDE_TABLE
-    # #280: the book table (r 0.21) at the long sofa's west end; the basket is gone (the book lies on it)
-    # #280 3 (room-280.md 6.2): a 5 mm chamfer round the top's edges, a collar where the column meets the top and the foot
-    top_ = add_bevel(cyl("side_top", SIDE_R, 0.03, (sx2, 0.55, sz2), plastic("#c9b89a", 0.55, 0, 0.35, "desk_top"), G, 32), 0.005, 1, angle=50)
-    st = [top_,
-          cyl("side_col", 0.025, 0.52, (sx2, 0.27, sz2), metal, G, 12),
-          cyl("side_foot", 0.15, 0.02, (sx2, 0.01, sz2), metal, G, 24),
-          cyl("side_collar", 0.036, 0.02, (sx2, 0.525, sz2), metal, G, 16, bev=0.003),
-          cyl("side_collar", 0.034, 0.018, (sx2, 0.029, sz2), metal, G, 16, bev=0.003)]
-    fp("side_table", st, "floor")
-    p += st
+    # #280 3 (user, lounge-props.md 3.1): the small book table is gone, its place left empty; the book rests on the
+    # low table (table_low_slot_2)
     lounge = join("lounge", p)
     return lounge, apply_all(shade), (lx, 1.55, lz)
 
@@ -3096,12 +3087,11 @@ BOOK_HALVES = []  # live bot: prop_book_l, prop_book_r
 
 
 def build_book(G):
-    """the book on the side table (#135)"""
-    sx2, sz2 = SIDE_TABLE
+    """the book (#135); #280 3 (user, lounge-props.md 3.1): it rests on the low table, centred on table_low_slot_2"""
     T = 0.025
-    # #280: on the 0.21 book table, its spine 0.13 west of the centre (corners within 0.19 of it)
-    return make_book("prop_book", 0.15, 0.22, T, "#2f6f9f", (sx2 - 0.13, 0.565 + T / 2, sz2 + 0.03), (0.0, 0.15, 0.0), G,
-                     ribbon=True)
+    bx, bz, ry = TABLE_LOW[0] + 0.24, TABLE_LOW[1] + 0.14, 0.15  # the slot (2.85, 2.55); the book turned 0.15 like before
+    ox, oz = bx - 0.075 * math.cos(ry), bz + 0.075 * math.sin(ry)  # the frame's origin = the spine axis, 7.5 cm from the centre
+    return make_book("prop_book", 0.15, 0.22, T, "#2f6f9f", (ox, 0.40 + T / 2, oz), (0.0, ry, 0.0), G, ribbon=True)
 
 
 def turning_page(name, W_, H_, H, paper, G):
@@ -4497,8 +4487,8 @@ L2 = "lounge2"
 L2_NODES = []  # (baked object, texel density)
 SOFA_L = _c(3.78, 3.745)  # the south row's centre: 2.4 x 0.87 (its front at z 3.11, 0.42 off the low table)
 CHAISE = (4.245, 2.6775)  # #280 3 (user: a corner sofa from scratch): the east row past the corner, 0.87 x 0.865 (its front at x 3.81)
-TABLE_LOW = _c(2.91, 2.615)  # #341 (designer, lounge-props.md 3): 0.25 west of 3.16 (the east way in >= 0.75), 0.42 off the long side
-TABLE_W, TABLE_D = 0.9, 0.55  # was 1.0 x 0.6
+TABLE_LOW = (2.61, 2.41)  # #280 3 (user, lounge-props.md 3.1): the knee row 0.45, the east way in 0.80 (was #341 (2.61, 2.415) 0.9 x 0.55)
+TABLE_W, TABLE_D = 0.80, 0.50  # a track shape: half circles r 0.25 at both ends (was 0.9 x 0.55 box)
 SHELF_REC = _c(0.93, 4.05)  # 0.12 west of the table's 1.05: the monstera (moved 0.1 north in PR 1) took 2 cm of it
 BEANBAG = _c(1.95, 2.025)  # #341: 0.325 north (the west way in >= 0.90 to the book table; 0.10 off the ping-pong slot)
 FRIDGE_Z, DISP_Z = -0.73, -1.15  # centred room, on the east wall north of the counter, 0.2 off it (the open door clears the coffee spot)
@@ -4623,7 +4613,7 @@ def build_sofa_l():
     z_["ry"] = 0.0  # along the long side (web x)
     z_["size_x"], z_["size_z"] = round(rx1 - rx0, 4), round(zf - rz0, 4)
     NODES.append({"obj": z_})
-    for nm, (ax, az), ry, seats in (("sofa_in_w", (rx0 - 0.04, rzc), -math.pi / 2, [0, 1]),
+    for nm, (ax, az), ry, seats in (("sofa_in_w", (rx0 - 0.13, rzc), -math.pi / 2, [0, 1]),  # #280 3: (2.08, 2.885) (designer)
                                     ("sofa_in_e", ((rx1 + cx0) / 2, rzc), math.pi, [2, 3])):
         n_ = nav(nm, round(ax, 4), az, ry, "sofa_in")
         n_["seats"] = seats
@@ -4648,21 +4638,25 @@ def pillow(name, hexc, home_pos, home_rot):
 
 
 def build_table_low():
-    """2: the low oak table 1.0 x 0.6 x 0.40, a 3 cm top chamfered 5 mm, a shelf 0.15 up, four 4 cm graphite legs,
-    magazines on the shelf; slots for two mugs, a book and a pillow (table_low_slot_0..3)"""
+    """2: the low oak table; #280 3 (user, lounge-props.md 3.1): a track shape 0.80 x 0.50 x 0.40 (both ends half
+    circles r 0.25), a 3 cm top chamfered 5 mm, a shelf of the same shape 3 cm in, 0.15 up, four 4 cm graphite legs,
+    magazines on the shelf; slots: the book at the east half (the book rests there), two mugs and a pillow in the
+    west half, 2 cm apart (table_low_slot_0..3)"""
     tx, tz = TABLE_LOW
     oak = lounge_oak()
     gra = plastic("#3a3f48", 0.5, 0.3, 0.1, "table_leg")
     tw, td = TABLE_W, TABLE_D
-    p = [box("table_low_top", (tw, 0.03, td), (tx, 0.385, tz), oak, L2, bev=0.005, seg=1),
-         box("table_low_shelf", (tw - 0.08, 0.02, td - 0.08), (tx, 0.15, tz), oak, L2, bev=0.003, seg=1)]
+    p = [rounded_slab("table_low_top", tw, 0.03, td, td / 2 - 0.0005, (tx, 0.385, tz), oak, L2, seg=12, edge=0.005),
+         rounded_slab("table_low_shelf", tw - 0.06, 0.02, td - 0.06, (td - 0.06) / 2 - 0.0005, (tx, 0.15, tz), oak, L2, seg=12, edge=0.003)]
     for sx in (-1, 1):
         for sz in (-1, 1):
-            p.append(box("table_low_leg", (0.04, 0.37, 0.04), (tx + sx * (tw / 2 - 0.03), 0.185, tz + sz * (td / 2 - 0.03)), gra, L2, bev=0.003, seg=1))
+            p.append(box("table_low_leg", (0.04, 0.37, 0.04), (tx + sx * 0.2, 0.185, tz + sz * 0.15), gra, L2, bev=0.003, seg=1))
     for k, (c, rot) in enumerate((("#c9b28a", 0.05), ("#7f95a8", -0.12), ("#efe8d8", 0.2))):  # magazines
-        p.append(box("magazine", (0.21, 0.006, 0.28), (tx - 0.2 + k * 0.01, 0.163 + k * 0.0065, tz + 0.02), plastic(c, 0.7, 0, 0.2, f"magazine_{k}"), L2, rot_y=rot))
+        p.append(box("magazine", (0.21, 0.006, 0.28), (tx - 0.1 + k * 0.01, 0.163 + k * 0.0065, tz + 0.0), plastic(c, 0.7, 0, 0.2, f"magazine_{k}"), L2, rot_y=rot))
     fp("table_low", p, "floor")
-    for k, (dx, dz, kind) in enumerate(((-0.3, -0.12, "mug"), (0.3, -0.12, "mug"), (0.0, 0.1, "book"), (0.32, 0.12, "pillow"))):
+    # mugs on the north edge of the west half 18 cm apart, the pillow south of them (2.9 cm clear; it overhangs the
+    # south edge 9 cm), the book on the east half (designer: (2.85, 2.55))
+    for k, (dx, dz, kind) in enumerate(((-0.30, -0.15, "mug"), (-0.12, -0.15, "mug"), (0.24, 0.14, "book"), (-0.20, 0.13, "pillow"))):
         child_empty(None, f"table_low_slot_{k}", Mx((tx + dx, 0.40, tz + dz)), {"slot_on": "table_low", "for": kind})
     return l2("table_low", p)
 
@@ -4719,6 +4713,8 @@ def build_records():
            cyl("tt_arm_rest", 0.004, 0.035, (bx + 0.17, top + 0.1175, bz - 0.06), metal, L2, 8)]
     p += tt
     out = [l2("shelf_records", p, 1.6)]
+    # #353 (office-ui.md 11.4): the click box over the base, platter and tonearm (pick.ts hitBox), centred on the body
+    hit("turntable", "turntable", Mx((bx, top + 0.08, bz)), (0.46, 0.16, 0.36))
     pt = top + 0.1
     P = Mx((bx - 0.07, pt, bz))
     platter = [cyl("tt_platter", 0.15, 0.02, (0, 0.01, 0), metal, "export", 48, bev=0.002),
