@@ -25,6 +25,8 @@ const OBJECTS: [string, string, 'l' | 'r'][] = [
   // the five shelf books held open for reading (#231): the same reading grip, built from each book's own size
   ...[0, 1, 2, 3, 4].flatMap((k) => ([['prop_shelfbook_' + k, 'book', 'l'], ['prop_shelfbook_' + k, 'book', 'r'], ['prop_shelfbook_' + k, 'leaf', 'r']] as [string, string, 'l' | 'r'][])),
   ['prop_record', 'record', 'r'],
+  // the loose sheet held by its long sides for reading (#374): the grip empties of the lower half
+  ['prop_paper_a', 'paper_side', 'l'], ['prop_paper_a', 'paper_side', 'r'],
   ['desk_0_mouse', 'mouse', 'r'], ['desk_1_mouse', 'mouse', 'r'], ['desk_3_mouse', 'mouse', 'r'], ['desk_4_mouse', 'mouse', 'r'],
 ]
 const LOG = process.env.FIT_LOG

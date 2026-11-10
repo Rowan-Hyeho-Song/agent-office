@@ -59,12 +59,13 @@ const AXIS_X = new Vector3(1, 0, 0)
 
 /**
  * Put the sheet at a world pose with its fold angle (0 = flat, PI = folded in half, text inside): the halves ride on the node.
- * The a half turns +angle and the b half -angle about local x, so folding `angle` turns a up over b (the baked signs), b stays.
+ * The far half b turns -angle about local x and folds up over the near half a, which stays on the node (#374: the hands hold a by its long edges, so
+ * they do not turn with the fold); the baked signs (a +1, b -1) are the same fold seen from the other half.
  */
 export function placePaper(p: PaperProp, pos: Vector3, quat: Quaternion, fold: number) {
   p.node.position.copy(pos)
   p.node.quaternion.copy(quat)
-  for (const [h, sign] of [[p.a, 1], [p.b, 0]] as const) {
+  for (const [h, sign] of [[p.a, 0], [p.b, -1]] as const) {
     h.position.copy(pos)
     FOLD.setFromAxisAngle(AXIS_X, sign * fold)
     h.quaternion.copy(quat).multiply(FOLD)
