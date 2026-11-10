@@ -88,6 +88,13 @@ const HAND_OMEGA = 12
  */
 const WALK = { hz: 0.8, hzMin: 0.5, hzMax: 1.0, cruise: CRUISE_TUNED, amp: 0.05, ampMax: 0.07, arc: 0.012, inward: 0.01, wristDeg: 10, startS: 0.4, stillV: 0.1, stillBand: 0.1, settleS: 0.5, bobS: 0.3, attachS: 0.25, attachNear: 0.15, carryShare: 0.6, heldBob: 0.006, canBob: 0.01 } as const
 // #329 (designer): the swing keeps its 0.75 m/s reference, so the faster 1.0 m/s cruise swings faster and wider: 0.8 x sqrt(1 / 0.75) = 0.92 Hz, +-6.7 cm (agents.md 2.5)
+/**
+ * The hand tuck (lounge-props.md 3, rule 3: "자는 몸 쪽 손은 몸 쪽으로 당긴다", #280): within rangeM of a body resting on a sofa seat (or dozing on the chaise) the free
+ * hand on the sitter's side is pulled inM toward its own body (a smaller lateral offset), fully inside nearM and fading out to rangeM, blended at rate (1/s) so
+ * it never jumps; the other hand is untouched. A hand that holds something is not tucked.
+ */
+const TUCK = { rangeM: 0.7, nearM: 0.5, inM: 0.05, rate: 8 } as const
+
 interface Swing {
   dx: number
   dy: number
@@ -1135,6 +1142,7 @@ export class AgentRig {
       ;(pool.material as MeshBasicMaterial).opacity = FLOOR_POOL.opacity * (1 - up * 0.45)
     }
 
+    this.stepTuck(dt, g, others)
     this.updateHands(dt, t, pose, reduced, others)
     this.updateCards(goal.carry ?? 0, goal.pose === 'write')
     this.updateRole(dt, t, status, reduced)
@@ -1647,6 +1655,32 @@ export class AgentRig {
     return out.normalize()
   }
 
+  /** how much each hand is tucked now (0 .. 1) */
+  private tuck = { l: 0, r: 0 }
+
+  /** the tuck amount of a hand (0 .. 1); the pull toward the body is TUCK.inM times this */
+  tuckAmount(side: 'l' | 'r') {
+    return this.tuck[side]
+  }
+
+  /** the hand on the side of a nearby sitter (a body resting on a seat of the sofa, kind 'sofa' in the nav graph) is wanted tucked */
+  private stepTuck(dt: number, g: NavGraph, others: Record<string, AgentRig>) {
+    const want = { l: 0, r: 0 }
+    const h = this.heading
+    for (const id in others) {
+      const o = others[id]
+      if (o === this || !o.visible || !o.at || o.speed > 0.05 || g.spots[o.at]?.kind !== 'sofa') continue
+      const dx = o.x - this.x
+      const dz = o.z - this.z
+      const d = Math.hypot(dx, dz)
+      if (d >= TUCK.rangeM) continue
+      // the sitter's side: right of the heading is (cos h, -sin h)
+      const side = dx * Math.cos(h) - dz * Math.sin(h) > 0 ? 'r' : 'l'
+      want[side] = Math.max(want[side], 1 - smooth01(MathUtils.clamp((d - TUCK.nearM) / (TUCK.rangeM - TUCK.nearM), 0, 1)))
+    }
+    for (const side of ['l', 'r'] as const) this.tuck[side] = damp(this.tuck[side], want[side], TUCK.rate, dt)
+  }
+
   private tmpTip = new Vector3()
   private tmpQuat2 = new Quaternion()
   private tmpPos = new Vector3()
@@ -1669,6 +1703,9 @@ export class AgentRig {
         p.pos.z += swing.dz
         p.turn = new Quaternion().setFromAxisAngle(AXIS_X, swing.wrist).multiply(p.turn)
       }
+      // the tuck: the free hand on a sitter's side comes in toward the body (the walking place and the standing rest place only)
+      const tk = this.tuck[side] * (1 - this.heldAmount(side))
+      if (tk > 0.001 && (p.walk || p.rest)) p.pos.x -= (side === 'l' ? -1 : 1) * TUCK.inM * tk
       if (this.forced[side]) p.curl = this.forced[side]!
       const sp = this.spring[side]
       if (sp) {

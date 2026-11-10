@@ -8,11 +8,14 @@ export const VERSION = 1
 export type OfficeMessage =
   | { type: 'ready'; room: 'office' }
   | { type: 'exit'; room: 'office'; via: 'door' | 'esc' }
-  | { type: 'audio'; room: 'office'; muted: boolean; volume: number }
+  | { type: 'audio'; room: 'office'; muted: boolean; volume: number; music: number; sfx: number }
 /** desk -> office (`audio` is read by parseDeskAudio) */
 export type DeskMessageType = 'entered' | 'leaving'
-/** the shared sound setting, desk -> office: on `entered` and whenever it changes */
-export type DeskAudio = { muted: boolean; volume: number }
+/**
+ * the shared sound setting, desk -> office: on `entered` and whenever it changes. `music` / `sfx` (#353) only when the
+ * desk sends them: a desk from before #353 sends { muted, volume } and the office keeps its own levels.
+ */
+export type DeskAudio = { muted: boolean; volume: number; music?: number; sfx?: number }
 
 /** the desk site's origins: its deployment today, and the custom domain once it's attached (either may embed the office) */
 export const DEFAULT_PARENT_ORIGINS = 'https://rowansong-dev.vercel.app,https://rowansong.dev'
@@ -62,10 +65,21 @@ export function parseDeskMessage(ev: Incoming, parent: unknown, allowed: string[
   return m.type === 'entered' || m.type === 'leaving' ? m.type : null
 }
 
-/** the desk's sound setting: only `muted` (boolean) and `volume` (number, clamped 0–1); other fields are dropped */
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v))
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+
+/**
+ * the desk's sound setting: `muted` (boolean) and `volume` (number) required; `music` / `sfx` (#353) kept only when they
+ * are finite numbers; all clamped 0–1, other fields dropped
+ */
 export function parseDeskAudio(ev: Incoming, parent: unknown, allowed: string[]): DeskAudio | null {
   const m = fromDesk(ev, parent, allowed)
   if (!m || m.type !== 'audio') return null
-  if (typeof m.muted !== 'boolean' || typeof m.volume !== 'number' || !Number.isFinite(m.volume)) return null
-  return { muted: m.muted, volume: Math.min(1, Math.max(0, m.volume)) }
+  if (typeof m.muted !== 'boolean' || !finite(m.volume)) return null
+  return {
+    muted: m.muted,
+    volume: clamp01(m.volume),
+    ...(finite(m.music) ? { music: clamp01(m.music) } : {}),
+    ...(finite(m.sfx) ? { sfx: clamp01(m.sfx) } : {}),
+  }
 }
