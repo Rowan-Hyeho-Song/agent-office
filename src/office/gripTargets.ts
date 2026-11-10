@@ -273,7 +273,13 @@ export function fingerPenetration(t: GripTarget, hand: Hand, offset: Matrix4, fi
  */
 export function solveTarget(t: GripTarget, hand: Hand): Solved {
   const contacts = contactsInHand(t, hand)
-  if (!t.solids) return solveContacts(contacts)
+  if (!t.solids) {
+    // an object without solids: the plain search; when a tip is left more than 2.9 mm off, once more with scattered starts (the better of the two)
+    const first = solveContacts(contacts)
+    if (first.worst <= 0.0029) return first
+    const again = solveContacts(contacts, 0.02, undefined, 24)
+    return again.worst < first.worst ? again : first
+  }
   const rest = GRIPS[t.kind][t.side]?.hold
   let best: { sol: Solved; inside: number } | null = null
   // the last try also scatters 20 more starts of the hand: for a hand that cannot make it (the baked spots out of its reach) it is the best the search finds, and a local minimum is left
