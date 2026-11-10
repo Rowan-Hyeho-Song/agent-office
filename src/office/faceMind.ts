@@ -33,6 +33,8 @@ export interface BaseIn {
   night?: 'sleep' | 'duty'
   /** how long it has been idle, ms */
   idleMs?: number
+  /** the late hour before this agent dozes (duty.ts isLateHour) */
+  late?: boolean
   /** the omok thinker's hand at the chin */
   chin?: boolean
 }
@@ -48,6 +50,7 @@ export function baseExpression(i: BaseIn): Expression {
     if (i.activity === 'edit' || i.activity === 'test' || i.activity === 'build') return 'focused'
     return 'neutral'
   }
+  if (i.late && i.state !== 'wrapping') return 'sleepy'
   if (i.state === 'idle' && i.pose === 'idle' && (i.idleMs ?? 0) > BORED_AFTER_MS) return 'bored'
   return 'neutral'
 }
@@ -320,5 +323,42 @@ export class FaceMind {
     p.age = this.ageQ / 10
     p.from = this.from
     p.blend = this.from ? this.blendQ / 4 : 1
+  }
+}
+
+/** the owner has just connected: the approvals role went from something else to 'owner' (not when it was already owner when watching began) */
+export const ownerConnected = (prev: string | null, next: string) => prev !== null && prev !== 'owner' && next === 'owner'
+
+/** a rest this long (ms) before a prompt makes the prompt a call out of the blue (#314); the same length of non-work re-arms it */
+export const CALLED_AFTER_MS = 2 * 60_000
+
+/**
+ * "Called suddenly" (#314): an agent that had no work for over 2 minutes gets a user prompt (state working, activity `think`, the hook's
+ * UserPromptSubmit). Fires once; it fires again only after the agent has been non-working for over 2 minutes again. Pure: feed it each frame.
+ */
+export class CallTracker {
+  private restSince: number | null = null
+  private working = false
+  private armed = true
+  private seen = false
+
+  /** `working`: working or wrapping; `since` the status's own start (ms); returns true on the frame the call happens */
+  step(working: boolean, activity: string | undefined, since: number, nowMs: number): boolean {
+    let fire = false
+    if (!working) {
+      if (this.restSince === null) this.restSince = this.seen ? nowMs : since
+      if (nowMs - this.restSince > CALLED_AFTER_MS) this.armed = true
+    } else if (!this.working && this.seen) {
+      // the frame work begins
+      const rested = this.restSince !== null && since - this.restSince > CALLED_AFTER_MS
+      if (activity === 'think' && this.armed && rested) {
+        fire = true
+        this.armed = false
+      }
+      this.restSince = null
+    } else if (!this.seen) this.restSince = null
+    this.working = working
+    this.seen = true
+    return fire
   }
 }

@@ -30,7 +30,8 @@ import { replayDoorLine } from '../replay/scene'
 import { DrawnTrack, lineMode, Stage } from '../replay/stage'
 import { setLineSub, type LineSub } from '../replay/lineSub'
 import { STAMP_MS } from './props'
-import { ANXIOUS_AFTER_MS } from './faceMind'
+import { ANXIOUS_AFTER_MS, ownerConnected } from './faceMind'
+import { isLateHour } from './duty'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
 import type { RootState } from '@react-three/fiber'
 
@@ -147,6 +148,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
   world.rigs = rigs
   // the scene clock of the last frame: the faces' events (messages, decisions) start on it
   const sceneT = useRef(0)
+  const lateAt = useRef(-1)
   for (const id in rigs) {
     const seat = Number(id.split('_')[1])
     const path = graph.spots.whiteboard ? shortestPath(graph, `work_${seat}`, 'whiteboard') : null
@@ -173,6 +175,17 @@ export function Agents({ world }: { world: OfficeWorld }) {
       }),
     [world, rigs],
   )
+  // the owner connects (the approvals role becomes 'owner'): every robot is glad to see them (반가움, 2 s)
+  useEffect(() => {
+    const src = world.approvals
+    if (!src) return
+    let prev: string | null = src.role()
+    return src.subscribe(() => {
+      const next = src.role()
+      if (ownerConnected(prev, next)) for (const id in rigs) rigs[id].faceEvent('greeting', sceneT.current)
+      prev = next
+    })
+  }, [world, rigs])
   // the owner decided an approval: its requester is proud (뿌듯); the seats that stopped waiting
   const waitingBefore = useRef<number[]>([])
 
@@ -260,6 +273,12 @@ export function Agents({ world }: { world: OfficeWorld }) {
         if (fresh) planner.place(id, r.req, sim.current, Number(id.split('_')[1]))
       }
     world.goals = goals
+    // the late hour (KST, the debug clock counts): worked out twice a second, not per frame
+    const lateKey = Math.floor(now / 500)
+    if (lateKey !== lateAt.current) {
+      lateAt.current = lateKey
+      for (const id in rigs) rigs[id].lateHour = isLateHour(now, Number(id.split('_')[1]))
+    }
     // approvals (#64): a request waiting over 30 minutes worries its agent; one that is gone makes the requester proud
     if (!st) {
       const extra = world.props.getSnapshot()

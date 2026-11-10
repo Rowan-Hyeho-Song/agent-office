@@ -3,12 +3,21 @@
 // (lights going off one seat at a time) and one agent, picked from the night's date, stays up on night duty.
 // Pure functions plus a StatusSource wrapper that applies them.
 
-import { isNight, minutesIntoNight, nightDate } from './kst'
+import { isNight, kstMinutes, minutesIntoNight, nightDate, NIGHT_START_MIN } from './kst'
 import type { AgentStatus, OfficeMessage, StatusMap, StatusSource } from './status'
 
 export const NIGHT = {
   /** the desks go dark one by one: seat N dims this many minutes × N after 23:00 */
   staggerMin: 3,
+  /** the late hour (#193, robots.md 4 졸림): an agent is sleepy this many minutes before its own desk goes dark */
+  sleepyLeadMin: 30,
+}
+
+/** whether it is the sleepy window of this seat at `ms` (KST, so the debug clock counts): [dozeStart - 30 min, dozeStart), dozeStart = 23:00 + 3 min x seat */
+export function isLateHour(ms: number, seat: number): boolean {
+  const start = NIGHT_START_MIN + seat * NIGHT.staggerMin
+  const m = kstMinutes(ms)
+  return m >= start - NIGHT.sleepyLeadMin && m < start
 }
 
 function hash(s: string) {

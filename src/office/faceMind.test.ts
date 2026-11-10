@@ -1,7 +1,7 @@
 // The expression state machine (#193 2/2, robots.md 4-5): priority, durations, the blink that hides a change, Echo's blend,
 // the random blinks, the talking mouth, reduced motion, x16, and the redraw budget.
 import { describe, expect, it } from 'vitest'
-import { ANXIOUS_AFTER_MS, baseExpression, FaceMind, newInput, type FaceInput } from './faceMind'
+import { ANXIOUS_AFTER_MS, baseExpression, FaceMind, newInput, ownerConnected, CallTracker, type FaceInput } from './faceMind'
 import { newParams } from './faceModel'
 
 /** runs the mind at 60 fps from t0 for `s` seconds, calling `f` every frame; returns the last time */
@@ -375,5 +375,87 @@ describe('the redraw budget', () => {
       }
     })
     expect(n).toBeLessThanOrEqual(65)
+  })
+})
+
+describe('the late hour and the owner (#193)', () => {
+  it('sleepy in the 30 minutes before the seat dozes, never while working', () => {
+    expect(baseExpression({ pose: 'idle', state: 'idle', late: true })).toBe('sleepy')
+    expect(baseExpression({ pose: 'idle', state: 'off', late: true })).toBe('sleepy')
+    expect(baseExpression({ pose: 'type', state: 'working', activity: 'edit', late: true })).toBe('focused')
+    expect(baseExpression({ pose: 'doze', state: 'off', late: true })).toBe('asleep')
+  })
+  it('owner connect fires on the change to owner only', () => {
+    expect(ownerConnected('visitor', 'owner')).toBe(true)
+    expect(ownerConnected('other', 'owner')).toBe(true)
+    expect(ownerConnected('owner', 'owner')).toBe(false)
+    expect(ownerConnected(null, 'owner')).toBe(false)
+    expect(ownerConnected('owner', 'visitor')).toBe(false)
+  })
+  it('a greeting lasts 2 s for everyone', () => {
+    for (let a = 0; a < 5; a++) {
+      const { m, i } = mk(a)
+      run(m, i, 0, 1)
+      m.fire('greeting', 1)
+      let on = 0
+      run(m, i, 1, 4, () => {
+        if (m.shown === 'greeting') on += 1 / 60
+      })
+      expect(on).toBeGreaterThan(1.8)
+      expect(on).toBeLessThan(2.2)
+    }
+  })
+})
+
+describe('called suddenly (#314)', () => {
+  const MIN = 60_000
+  it('a prompt after over 2 minutes of rest fires once', () => {
+    const c = new CallTracker()
+    const t0 = 1_000_000
+    expect(c.step(false, undefined, t0, t0)).toBe(false)
+    expect(c.step(false, undefined, t0, t0 + 3 * MIN)).toBe(false)
+    expect(c.step(true, 'think', t0 + 3 * MIN + 1000, t0 + 3 * MIN + 1000)).toBe(true)
+  })
+  it('a short break (under 2 minutes) does not', () => {
+    const c = new CallTracker()
+    const t0 = 1_000_000
+    c.step(false, undefined, t0, t0)
+    c.step(false, undefined, t0, t0 + 10 * MIN)
+    c.step(true, 'edit', t0 + 10 * MIN, t0 + 10 * MIN) // some work: re-arm is needed afterwards
+    expect(c.step(false, undefined, t0 + 11 * MIN, t0 + 11 * MIN)).toBe(false)
+    expect(c.step(true, 'think', t0 + 11 * MIN + 60_000, t0 + 11 * MIN + 60_000)).toBe(false)
+  })
+  it('prompts back to back do not fire again; after another 2 minutes of rest they do', () => {
+    const c = new CallTracker()
+    const t0 = 1_000_000
+    c.step(false, undefined, t0, t0)
+    expect(c.step(true, 'think', t0 + 5 * MIN, t0 + 5 * MIN)).toBe(true)
+    // it keeps working, a moment of idle, a new prompt
+    expect(c.step(false, undefined, t0 + 6 * MIN, t0 + 6 * MIN)).toBe(false)
+    expect(c.step(true, 'think', t0 + 6 * MIN + 20_000, t0 + 6 * MIN + 20_000)).toBe(false)
+    c.step(false, undefined, t0 + 7 * MIN, t0 + 7 * MIN)
+    c.step(false, undefined, t0 + 7 * MIN, t0 + 10 * MIN)
+    expect(c.step(true, 'think', t0 + 10 * MIN + 1, t0 + 10 * MIN + 1)).toBe(true)
+  })
+  it('work that is not a prompt (an approval, another activity) does not count; a page that opens while working does not fire', () => {
+    const c = new CallTracker()
+    const t0 = 1_000_000
+    expect(c.step(true, 'think', t0 - 10 * MIN, t0)).toBe(false)
+    const d = new CallTracker()
+    d.step(false, undefined, t0, t0)
+    expect(d.step(true, 'edit', t0 + 5 * MIN, t0 + 5 * MIN)).toBe(false)
+  })
+  it('waking from asleep: surprised, then a nod, then the state, with one blink behind each change', () => {
+    const { m, i } = mk(1)
+    i.base = 'asleep'
+    let t = run(m, i, 0, 1)
+    m.fire('surprised', t, 1.2)
+    m.nod(t + 1.2, 1)
+    i.base = 'thinking'
+    const seen: string[] = []
+    run(m, i, t, 4, () => {
+      if (seen[seen.length - 1] !== m.shown) seen.push(m.shown)
+    })
+    expect(seen).toEqual(['surprised', 'nodding', 'thinking'])
   })
 })

@@ -22,7 +22,7 @@ import type { Goal } from './director'
 import { aimPose, planGesture, type AimPose, type Plan } from './aim'
 import { DOZE } from './doze'
 import { FaceScreen } from './faceScreen'
-import { baseExpression, FaceMind, newInput, type FaceInput } from './faceMind'
+import { baseExpression, CallTracker, FaceMind, newInput, type FaceInput } from './faceMind'
 import type { Expression } from './faceModel'
 import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
 import { GLOW } from './nodes'
@@ -646,6 +646,13 @@ const PROP_FOR: Record<string, { kind: string; side: 'l' | 'r' }> = {
   boardgame: { kind: 'piece', side: 'r' },
 }
 
+/**
+ * 메시's orbiting cube must not cover the face screen (#193, designer): the orbit's axis leans so the front of the circle rises, and the whole
+ * orbit sits a little higher, so the cube passes above the screen in front and beside the head's sides, then dips behind the head.
+ */
+export const ORBIT_TILT = (30 * Math.PI) / 180
+export const ORBIT_LIFT = 0.08
+
 export class AgentRig {
   readonly id: string
   readonly parts: RigParts
@@ -701,11 +708,14 @@ export class AgentRig {
   private faceIn: FaceInput = newInput()
   private seenResult = 0
   private wasOnline: boolean | null = null
+  private called = new CallTracker()
   private yieldAt = -99
   /** set by the scene each frame: this agent's own bubble is being typed, and the one it listens to is speaking (meetings, desk talks) */
   faceTalk = { speaking: false, listening: false }
   /** an approval of this agent has waited over 30 minutes (#64): the worried face one second in four */
   anxious = false
+  /** the late hour before it dozes (#193): set by the scene from the office's KST clock */
+  lateHour = false
   /** the giver's face (#262): 'yield' or 'happy' until `until` (scene time); side = +1 when the receiver is on the viewer's right */
   private giveFace: { mood: 'yield' | 'happy'; until: number; side: number; fired: boolean } | null = null
   giverFace(mood: 'yield' | 'happy', until: number, side: number) {
@@ -808,6 +818,13 @@ export class AgentRig {
     this.phase = index * 1.7
     // one screen per face node: StrictMode builds the rigs twice, and both must draw on the texture that's shown
     const face = parts.face
+    const orbit = parts.orbit
+    if (orbit && !orbit.userData.orbitTilted) {
+      // once per node: StrictMode builds the rigs twice
+      orbit.userData.orbitTilted = true
+      orbit.rotation.x = ORBIT_TILT
+      orbit.position.y += ORBIT_LIFT
+    }
     this.mind = new FaceMind(index)
     this.face = face ? (face.userData.faceScreen ??= new FaceScreen(color, index)) : null
     if (face && this.face && (face.material as MeshBasicMaterial).map !== this.face.texture) {
@@ -1918,6 +1935,12 @@ export class AgentRig {
     const online = !!status && status.state !== 'off'
     if (this.wasOnline === false && online) mind.fire('greeting', t) // coming to work
     this.wasOnline = online
+    // called out of the blue (#314): a prompt after over two minutes without work: surprised, then a nod
+    if (status && this.called.step(status.state === 'working' || status.state === 'wrapping', status.activity, status.since, Date.now())) {
+      const s = Math.max(1.2, this.gestureMin)
+      mind.fire('surprised', t, s)
+      mind.nod(t + s, 1)
+    }
     // a yield on the road (#138): a smile and the arrow, once per cue
     const cue = this.track?.cue
     if (cue && cue.kind === 'yield' && cue.gesture) {
@@ -1928,7 +1951,7 @@ export class AgentRig {
     i.t = t
     i.reduced = reduced
     i.fast = this.gestureMin > 0 && this.ambient === 0
-    i.base = baseExpression({ pose, state: status?.state, activity: status?.activity, night: status?.night, idleMs: status ? Date.now() - status.since : 0, chin: this.chin })
+    i.base = baseExpression({ pose, state: status?.state, activity: status?.activity, night: status?.night, idleMs: status ? Date.now() - status.since : 0, chin: this.chin, late: this.lateHour })
     i.talk = this.faceTalk.listening ? 'nodding' : null
     i.speaking = this.faceTalk.speaking
     i.anxious = this.anxious
