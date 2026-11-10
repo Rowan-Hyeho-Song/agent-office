@@ -12,6 +12,8 @@ import { buildGrid, cellAt, centre } from './grid'
 import { sideArea } from './sidePanel/store'
 import { requestOf, type Goal } from './director'
 import { TrafficPlanner, type Request, type Sample } from './traffic'
+import { syncFridgeHold } from './lounge'
+import { musicWantsBreak, recordComing, resetDeck } from '../audio/speaker'
 import { demoRequest } from './trafficDemo'
 import { checkNav, edgeKey } from './navcheck'
 import { rasterFootprint } from './floorMask'
@@ -73,12 +75,21 @@ export function Agents({ world }: { world: OfficeWorld }) {
   const graph = useMemo(() => {
     // ?debug=1&nav=… tries spots before they are re-baked into the model
     const tryout = world.debug ? (new URLSearchParams(location.search).get('nav') ?? '') : ''
-    return buildGraph(patchSpots(spots, tryout))
-  }, [world, spots])
+    const g = buildGraph(patchSpots(spots, tryout))
+    // a lying-down seat (nav extras `lie` + `head`, #280): the head's floor point rides on the spot
+    for (const id in g.spots) {
+      const ud = scene.getObjectByName(`nav_${id}`)?.userData as { lie?: boolean; head?: number[] } | undefined
+      if (ud?.lie && ud.head) g.spots[id].head = { x: ud.head[0], z: ud.head[1] }
+    }
+    return g
+  }, [world, spots, scene])
   // the walkable floor and the traffic plan (#138): built once from the model's furniture and the nav spots
   const furniture = useMemo(() => Object.values(nodes).filter((m) => m.userData.atlas).flatMap(meshesOf), [nodes])
   const planner = useMemo(() => new TrafficPlanner(buildGrid(rasterFootprint(furniture, 0.05, scene), graph), graph), [furniture, graph, scene])
   const sim = useRef(0)
+  // who holds the fridge door's swing in the planner (lounge.ts syncFridgeHold), and whether the speakers were told a record is on its way (speaker.ts recordComing)
+  const fridgeHold = useRef({ user: null as string | null, from: 0 })
+  const comingSent = useRef(false)
   // a meeting departure (office ms) as planner seconds, fixed once per goal: the planner treats a drifting value as a new request (#141)
   const departs = useRef(new Map<string, number>())
   const rigs = useMemo(
@@ -245,7 +256,13 @@ export function Agents({ world }: { world: OfficeWorld }) {
       goals = st.goals
     } else {
       replayNow.current = null
-      goals = world.director.goals(now, Math.floor(now / 60000), world.source.getSnapshot(), (a) => rigs[a].arrived, { reduced })
+      goals = world.director.goals(now, Math.floor(now / 60000), world.source.getSnapshot(), (a) => rigs[a].arrived, { reduced, wantsBreak: musicWantsBreak() })
+      // the break music waits for the record that is on its way (sound.md 4.4)
+      const coming = world.director.recordComing()
+      if (coming !== comingSent.current) {
+        comingSent.current = coming
+        recordComing(coming)
+      }
       // a replayed meeting calls its agents in (plan 6.4); the director's goals are the fallback for everyone else
       world.replay?.tick()
       const door = graph.spots.door
@@ -316,7 +333,10 @@ export function Agents({ world }: { world: OfficeWorld }) {
       // a seek is a jump: the drawn bodies snap with it
       if (drawnSeen.current !== replay.landings) {
         drawnSeen.current = replay.landings
-        if (replay.landedVia === 'seek') drawn.reset()
+        if (replay.landedVia === 'seek') {
+          drawn.reset()
+          resetDeck() // a seek forgets the turntable (speaker.ts)
+        }
       }
       const speed = replay.getSnapshot().speed
       const tauTotal = steps.reduce((a, s) => a + s.dt, 0)
@@ -336,6 +356,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
           r.update(step.dt, step.anim, graph, rigs, reduced, status[id])
         }
     } else {
+      // the fridge door's swing is held for the one at the fridge: the others' plans keep clear of it (traffic.ts reserve)
+      syncFridgeHold(planner, fridgeHold.current, world.director.fridgeUser(), sim.current)
       for (const id in rigs) {
         rigs[id].pace = 1
         rigs[id].gestureMin = 0

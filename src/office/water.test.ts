@@ -134,7 +134,7 @@ describe('where the watering agent stands (#184)', () => {
 })
 
 const PLANTS_FOR_STANDS = (scene: Parameters<typeof plantsFrom>[0]) => plantsFrom(scene).filter((p) => p.name in STANDS_KEYS)
-const STANDS_KEYS: Record<string, true> = { plant_corner: true, plant_sofa: true, plant_desk: true, succulent: true, vine: true }
+const STANDS_KEYS: Record<string, true> = { plant_corner: true, plant_sofa: true, plant_desk: true, succulent: true, plant_hang_0: true, plant_hang_1: true, vine: true }
 
 describe('the can\'s own stand (#228)', () => {
   it('a walkable floor cell the planner reaches, in arm\'s reach of the can, with the can behind it; the stands another agent can block are named', async () => {

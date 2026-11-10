@@ -1,9 +1,10 @@
+import { ACT_LABEL, ACT_PLACE, type ActKind } from './lounge'
 import { WATER_PLANTS, standOf } from './water'
 
 // Deterministic play: who does what during free time, from the clock alone. Every visitor computes the same
 // scene for the same minute, so the office looks shared without a server. Pure: no three.js, no Date.
 
-export type PlayKind = 'pingpong' | 'boardgame' | 'coffee' | 'sofa' | 'water' | 'books'
+export type PlayKind = 'pingpong' | 'boardgame' | 'coffee' | 'sofa' | 'water' | 'books' | ActKind
 
 interface PlayDef {
   kind: PlayKind
@@ -22,9 +23,13 @@ export const PLAYS: PlayDef[] = [
   { kind: 'pingpong', label: '탁구', spots: ['pingpong_a', 'pingpong_b'], pair: true, weight: 3 },
   { kind: 'boardgame', label: '보드게임', spots: ['game_a', 'game_b'], pair: true, weight: 3 },
   { kind: 'coffee', label: '커피', spots: ['coffee'], weight: 2 },
-  { kind: 'sofa', label: '소파에서 낮잠', spots: ['sofa_0', 'sofa_1', 'sofa_2'], weight: 2 },
+  // the seats in the order they are taken: the east seat (3, lying, head on the north armrest) before the corner (2, nav `last`: the one chosen last, lounge-props.md 1)
+  { kind: 'sofa', label: '소파에서 낮잠', spots: ['sofa_0', 'sofa_1', 'sofa_3', 'sofa_2'], weight: 2 },
   // one of the floor plants (water.ts), chosen per block, watered from its own stand beside the pot
   { kind: 'water', label: '화분 물 주기', spots: ['hall_lounge'], weight: 1 },
+  // the lounge acts (#280, lounge.ts): a short errand each, started when the agent has reached its stand; the fridge and the dispenser share the bar's spot, so only one
+  // of them is on at a time. The Director runs them like the watering (an act, then back to the desk until the block ends)
+  ...(['fridge', 'dispenser', 'record'] as const).map((k): PlayDef => ({ kind: k, label: ACT_LABEL[k], spots: [ACT_PLACE[k].spot], weight: 1, face: ACT_PLACE[k].face, stand: ACT_PLACE[k].stand })),
   // the book on the low table by the sofa (the model's only book prop), picked standing north of sofa seat 0 facing slot 2. PAUSED below: the designer's reading is seated
   // (taken from the table, read on sofa seat 0, else seat 1, put back; lounge-props.md, #341), which comes with the lounge behaviours and #231's
   // open book. This stand stays for the debug close-up and the grip tests only

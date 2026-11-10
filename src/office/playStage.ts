@@ -40,6 +40,7 @@ import { type Place, SEQ, ease, followWeight, habitOf, placeSequence, swingTilt,
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
 import { Typist } from './typist'
+import { LoungeActs } from './loungeActs'
 
 const UP = new Vector3(0, 1, 0)
 const DEG = Math.PI / 180
@@ -57,6 +58,9 @@ const LIFT_S = 0.35
 const REACH_KINDS = new Set(['book', 'marker', 'paddle'])
 /** carrying a prop back to where it rests, s */
 const PUT_S = 0.4
+/** a go stone is carried within this far of the player's spot (m); farther, the body leans in, by at most LEAN_MAX_M */
+const STONE_COMFORT_M = 0.7
+const LEAN_MAX_M = 0.08
 
 export interface StageIn {
   /** office time, ms */
@@ -166,6 +170,8 @@ export class PlayStage {
   private bookHalves: { l: Object3D; r: Object3D } | null = null
 
   private sceneRef: Object3D
+  /** the lounge's acts, drawn (#280, loungeActs.ts): the fridge door, the dispenser, the turntable, the pillow, the lever, the mat */
+  readonly lounge: LoungeActs
 
   constructor(
     scene: Object3D,
@@ -175,6 +181,15 @@ export class PlayStage {
     this.sceneRef = scene
     scene.updateMatrixWorld(true)
     this.typist = new Typist(nodes)
+    this.lounge = new LoungeActs(scene, nodes, props, {
+      grip: (rig, side, kind, objName, want, held, inp, prefer) => this.grip(rig, side, kind, objName, want, held, inp, prefer),
+      partner: (rig, kind, side, objName, primary) => {
+        const tgt = this.target(objName, kind, side)
+        if (tgt) this.partner(rig, kind, side, tgt, this.lastObjPose, primary)
+      },
+      button: (rig, name, u, inp, holdS, depth) => this.button(rig, name, u, inp, holdS, depth),
+      arrivedAt: (id) => this.arrivedAt.get(id),
+    })
     this.tableNode = scene.getObjectByName('pp_table') ?? undefined
     const ex = this.tableNode?.userData as { size?: number[]; net_h?: number } | undefined
     if (ex?.size) this.dims = dimsOf(ex.size, ex.net_h ?? 0.15)
@@ -391,6 +406,7 @@ export class PlayStage {
     this.forced.clear()
     this.typed.clear()
     this.tag = null
+    this.lounge.begin()
     for (const id in inp.rigs) {
       const r = inp.rigs[id]
       r.drive = { l: null, r: null }
@@ -429,6 +445,7 @@ export class PlayStage {
       inp.rigs[id].applyDrive('l', inp.t, inp.reduced)
       inp.rigs[id].applyDrive('r', inp.t, inp.reduced)
     }
+    this.lounge.update(inp)
     this.book(inp)
     this.water(inp)
   }
@@ -771,6 +788,9 @@ export class PlayStage {
     const zs = new Vector3().crossVectors(xs, ys)
     const rollQ = new Quaternion().setFromAxisAngle(xs, p.roll)
     const centre = bottom.clone().addScaledVector(UP, STONE_H / 2)
+    // a cell farther than an arm from the player's spot (the far corners of the board): the body leans over it by the difference, up to LEAN_MAX_M (water.ts REACH is 0.75)
+    const over = Math.min(LEAN_MAX_M, Math.max(0, Math.hypot(centre.x - rig.x, centre.z - rig.z) - STONE_COMFORT_M))
+    if (over > 0) rig.leanOver(fwd.x * over, fwd.z * over)
     // 휴 rolls the stone about the finger axis through its centre
     const stoneWorld = frame(xs, ys, zs, centre)
     if (p.roll) stoneWorld.premultiply(new Matrix4().makeTranslation(-centre.x, -centre.y, -centre.z)).premultiply(new Matrix4().makeRotationFromQuaternion(rollQ)).premultiply(new Matrix4().makeTranslation(centre.x, centre.y, centre.z))
@@ -871,6 +891,8 @@ export class PlayStage {
     void og
     // the watering errand: first, so nothing else (the stamp) takes the right hand while it carries the can
     if (goal.pose === 'water') return this.errand(rig, goal, inp)
+    // the lounge acts (fridge, dispenser, turntable), the pillow on the sofa, the door lever (loungeActs.ts)
+    if (this.lounge.solo(rig, goal, inp)) return
     // the planner's stamp (the owner decided something)
     if (inp.stamp && seat === 0) {
       const home = this.props.info(rig, 'stamp')
@@ -1059,7 +1081,7 @@ export class PlayStage {
   }
 
   /** the coffee machine's button: the index fingertip on its contact point, pressed 0.1 s */
-  private button(rig: AgentRig, name: string, u: number, inp: StageIn) {
+  private button(rig: AgentRig, name: string, u: number, inp: StageIn, holdS = 0.1, depth = 0.012) {
     const contact = this.sceneRef.getObjectByName(`${name}_contact_index`)
     if (!contact) return
     const clock = this.clock(`${rig.id}:r:button`)
@@ -1071,13 +1093,14 @@ export class PlayStage {
     const m = contact.matrixWorld
     const P = new Vector3().setFromMatrixPosition(m)
     const n = contactNormal(this.sceneRef, contact) // out of the button, toward the hand
-    const press = u > 0.5 && u < 0.6 ? 0.012 : 0
+    const pressed = u > 0.5 && u < 0.5 + holdS
+    const press = pressed ? depth : 0
     // the hand points in along −n, palm down
     const y = n.clone().negate()
     const z = UP.clone().negate()
     const x = new Vector3().crossVectors(y, z).normalize()
     z.crossVectors(x, y)
-    const c1 = spec.hold[0] + (u > 0.5 && u < 0.6 ? 0.07 : 0)
+    const c1 = spec.hold[0] + (pressed ? 0.07 : 0)
     const tip = tipAt(idx, c1, 0)
     const basis = new Matrix4().makeBasis(x, y, z)
     const origin = P.clone().addScaledVector(n, press).sub(tip.clone().applyMatrix4(new Matrix4().extractRotation(basis)))
@@ -1110,6 +1133,9 @@ export class PlayStage {
     const p = this.pouring
     this.pouring = null
     if (!dr) return
+    // the water dispenser's tap pours the same way (loungeActs.ts; its own sound is the cue dispenser.pour)
+    const tap = this.lounge.stream()
+    if (!p?.on && tap) return this.drops_(dr, tap.tip, tap.dir, tap.soilY, inp)
     if (!p?.on || !this.spoutLocal) {
       dr.count = 0
       this.sounds.water(false, inp.t, null)
@@ -1118,7 +1144,11 @@ export class PlayStage {
     // drops leave the spout (placed from the can's pose of this frame) and are gone where they reach the soil
     const { tip, dir } = spoutOf(p.held, this.spoutLocal!)
     this.sounds.water(true, inp.t, tip)
-    const hit = landing(tip, dir, p.soilY)
+    this.drops_(dr, tip, dir, p.soilY, inp)
+  }
+
+  private drops_(dr: InstancedMesh, tip: Vector3, dir: Vector3, soilY: number, inp: StageIn) {
+    const hit = landing(tip, dir, soilY)
     const m = new Matrix4()
     const pos = new Vector3()
     const life = hit ? hit.tau : 0.4
