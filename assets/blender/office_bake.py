@@ -2826,11 +2826,12 @@ def build_pingpong(G, metal):
     navy = plastic("#1d2a4a", 0.9, 0, 0.0, "pp_net")
     y0, y1 = th + 0.004, th + 0.135
     cords = []
-    n = round(2 * zr / 0.01)
+    zl = td / 2 + 0.033  # the cords end inside the posts (at their ends a shared face with the post showed after meshopt)
+    n = round(2 * zl / 0.01)
     for k in range(n + 1):
-        cords.append(box("cord", (0.0016, y1 - y0, 0.0016), (tx, (y0 + y1) / 2, tz - zr + k * 2 * zr / n), navy, "prop"))
+        cords.append(box("cord", (0.0016, y1 - y0, 0.0016), (tx, (y0 + y1) / 2, tz - zl + k * 2 * zl / n), navy, "prop"))
     for j in range(round((y1 - y0) / 0.01) + 1):
-        cords.append(box("cord", (0.001, 0.0015, 2 * zr), (tx, y0 + j * 0.01, tz), navy, "prop"))
+        cords.append(box("cord", (0.001, 0.0015, 2 * zl), (tx, y0 + j * 0.01, tz), navy, "prop"))
     PP_LIVE.append(join("pp_net", cords))
     return p
 
@@ -4494,14 +4495,14 @@ BEANBAG = _c(1.95, 2.025)  # #341: 0.325 north (the west way in >= 0.90 to the b
 FRIDGE_Z, DISP_Z = -0.73, -1.15  # centred room, on the east wall north of the counter, 0.2 off it (the open door clears the coffee spot)
 
 
-def lounge_oak():
+def lounge_oak(c0="#8d7e6b", c1="#978875", name="lounge_oak"):
     """#280 designer: the desk oak, darker for the lounge light (its baked top #c1ad8b-#cdb894 like the desks; the work
     atlas reaches that by ATLAS_GAIN 0.27, lounge2 has none)"""
     m = KIT.oak()
-    m.name = "lounge_oak"
+    m.name = name
     ramp = next(n for n in m.node_tree.nodes if n.type == "VALTORGB")
-    ramp.color_ramp.elements[0].color = rgba("#8d7e6b")  # measured: the lounge light lifts this oak ~2x (linear)
-    ramp.color_ramp.elements[1].color = rgba("#978875")
+    ramp.color_ramp.elements[0].color = rgba(c0)  # measured: the lounge light lifts this oak ~2x (linear)
+    ramp.color_ramp.elements[1].color = rgba(c1)
     return m
 
 
@@ -4643,7 +4644,9 @@ def build_table_low():
     magazines on the shelf; slots: the book at the east half (the book rests there), two mugs and a pillow in the
     west half, 2 cm apart (table_low_slot_0..3)"""
     tx, tz = TABLE_LOW
-    oak = lounge_oak()
+    # #280 3: the track table (its new place, closer under the lounge light) baked 1.37x brighter (linear) than the
+    # approved box table (#d0b18c measured): its albedo x 0.73
+    oak = lounge_oak("#7a6d5c", "#837665", "table_oak")
     gra = plastic("#3a3f48", 0.5, 0.3, 0.1, "table_leg")
     tw, td = TABLE_W, TABLE_D
     p = [rounded_slab("table_low_top", tw, 0.03, td, td / 2 - 0.0005, (tx, 0.385, tz), oak, L2, seg=12, edge=0.005),
