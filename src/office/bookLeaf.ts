@@ -19,6 +19,9 @@ const smooth = (a: number, b: number, x: number) => {
   return k * k * (3 - 2 * k)
 }
 
+/** how far the landed leaf is lifted off where the bake puts it: 0.4 mm under the left paper → 1 mm over it, m */
+export const LAND_LIFT = 0.0014
+
 /** the leaf's angle about the spine, from the right page's face (φ = 0; the node itself is turned LIFT + φ), at `tau` s from the start of the turn proper (tau < 0: the corner being lifted for the pinch) */
 export function leafAngle(tau: number, dur = TURN_S, lead = 0.2): number {
   if (tau <= -lead) return 0
@@ -41,7 +44,9 @@ export function pinchArc(k: number, out: Vector3): Vector3 {
   const s = Math.sin(Math.PI * Math.min(1, Math.max(0, k)))
   const early = s ** 0.4
   const late = s * s
-  return out.set(PINCH_ARC.x * early, PINCH_ARC.y * late, PINCH_ARC.z * late)
+  // "off the fore-edge" runs along the lifted right half (15° up), not along the flat book x: a thumb sliding out on the paper must not run into the rising page
+  const along = PINCH_ARC.x * early
+  return out.set(along * Math.cos(LIFT), along * Math.sin(LIFT) + PINCH_ARC.y * late, PINCH_ARC.z * late)
 }
 
 /**
@@ -142,6 +147,10 @@ export class LeafBend {
   set(theta: number) {
     this.theta = theta
     this.node.rotation.z = LIFT + theta
+    // the leaf is baked 0.4 mm over the right page; turned over it would lie 0.4 mm under the left one. Over the last 50° it is lifted along its own normal so that it rests 1 mm above the left paper (grips.md)
+    const d = LAND_LIFT * smooth(OPEN_ANGLE - (50 * Math.PI) / 180, OPEN_ANGLE, theta)
+    const turn = LIFT + theta
+    this.node.position.set(Math.sin(turn) * d, -Math.cos(turn) * d, 0)
     const k = bendAmount(theta)
     this.bend = k
     const C = this.cols

@@ -116,8 +116,8 @@ export function distToBook(p: Vector3, boxes: readonly BookBox[]): { d: number; 
 const FINGER_PITCH = 0.02
 /** how far each finger reaches along the cover beyond the common line (m, toward the spine): the middle finger is longest, the little one shortest */
 const REACH = [0, 0.004, -0.003, -0.012]
-/** the thumb lands this far inside the paper block's fore-edge, m (grips.md: within 1.5 cm) */
-const THUMB_IN = 0.008
+/** the thumb lands 25 mm in from the cover's outer edge, i.e. this far inside the paper block's fore-edge (cover edge − 4 mm), m (grips.md, designer 2026-11-10: contact at x = W − 0.025) */
+const THUMB_IN = 0.021
 /** how far above the paper's top the right thumb rests when a leaf lies there (its two sheets stand 0.4 mm proud), m */
 const LEAF_ON_PAGE = 0.0004
 /** every pad is aimed this far off its surface (0.5 mm; the fit adds its own 0.3 mm skin): well inside the spec's "within 1 mm", and a joint that dips a fraction of a millimetre is still not inside the book */
@@ -136,7 +136,7 @@ export const PAD_DISC = 0.006
 /**
  * Where each finger lands when a hand holds the open book (spec): the four fingers on the cover's outer face (normal −y) in the lower
  * third of the page, side by side, their tips `inward` of the fore-edge; the thumb alone comes round to the paper's top (normal +y) within
- * 1.5 cm of the fore-edge, on the index side (nearest the page's top). `side` = which half the hand holds: l = the left one (x < 0).
+ * 25 mm of the cover's outer edge, on the index side (nearest the page's top). `side` = which half the hand holds: l = the left one (x < 0).
  */
 export function readingContacts(d: BookDims, side: 'l' | 'r', lift = LIFT): BookContact[] {
   const sx = side === 'l' ? -1 : 1

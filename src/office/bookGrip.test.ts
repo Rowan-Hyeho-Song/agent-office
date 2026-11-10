@@ -4,7 +4,7 @@
 //  2. reading grip, from the bake's own grip / contact empties (<book>_l|r_grip, <book>_l|r_contact_*): for every book (the table one and the five
 //     shelf books) and agent, with the stored hand offsets and the fitted fingers, no sampled point of any finger's centre line is inside a cover
 //     board or a paper block (≥ −0.1 mm), each pad is within 1 mm of its surface, the four fingers are on the cover's outer face and only the
-//     thumb is on the paper, within 1.5 cm of its fore-edge;
+//     thumb is on the paper, 25 mm in from the cover's outer edge (grips.md);
 //  3. the turn: the hand's whole path (to the corner along the arc, with the corner through the turn, back along the arc) stays out of the book;
 //  4. the leaf: the outer third lags 25° at mid-turn, it is straight flat and landed, 16 segments, the vertices change in place.
 // The numbers are appended to FIT_LOG when set (the PR's table).
@@ -91,7 +91,7 @@ describe('the open book as geometry', () => {
     expect(halfAngle('l') - halfAngle('r')).toBeCloseTo(OPEN_ANGLE, 9)
   })
 
-  it("the bake's grip and contact empties: four fingers on the cover face, the thumb alone on the paper within 1.5 cm of the fore-edge (all six books, both halves)", async () => {
+  it("the bake's grip and contact empties: four fingers on the cover face, the thumb alone on the paper 25 mm in from the cover's outer edge (all six books, both halves)", async () => {
     const { scene } = await loadOffice()
     for (const name of BOOKS) {
       const d = bookDimsOf(scene.getObjectByName(name + '_l')!, scene.getObjectByName(name + '_r')!)
@@ -110,7 +110,7 @@ describe('the open book as geometry', () => {
           if (c.finger === 'thumb') {
             expect(box.name.startsWith('paper'), `${name} ${side} thumb on the paper`).toBe(true)
             expect(nb.y, `${name} ${side} thumb's normal out of the paper`).toBeCloseTo(side === 'r' ? 1 : -1, 5)
-            expect(d.W - 0.004 - Math.abs(pb.x), `${name} ${side} thumb from the fore-edge`).toBeLessThanOrEqual(0.015)
+            expect(d.W - Math.abs(pb.x), `${name} ${side} thumb from the cover's outer edge`).toBeCloseTo(0.025, 3)
             expect(c.p.z).toBeGreaterThan(0)
           } else {
             expect(box.name, `${name} ${side} ${c.finger} on the cover`).toBe('cover')
@@ -314,6 +314,34 @@ describe('the leaf', () => {
       const C = lf.corner(new Matrix4(), PINCH_LIFT)
       const ref = cornerOf(PINCH_LIFT, 0.003, lf.width, lf.zEnd)
       for (let q = 0; q < 16; q++) expect(C.elements[q]).toBeCloseTo(ref.elements[q], 4)
+    }
+  })
+
+  it('the landed leaf rests about 1 mm above the left paper, not under it (grips.md); it is on the right page, 0.3 mm over it, before the turn', async () => {
+    const { scene } = await loadOffice()
+    for (const name of BOOKS) {
+      const lf = new LeafBend(scene.getObjectByName(name + '_page')!)
+      const mesh = firstMesh(lf.node)
+      const pos = mesh.geometry.getAttribute('position')
+      // height of the leaf's lowest paper vertex over a half's paper plane (book frame; the half turned by its angle, paper top = its closed-frame y = 0 plane)
+      const lowest = (half: 'l' | 'r') => {
+        const R = new Matrix4().makeRotationZ(halfAngle(half))
+        const n = new Vector3(0, half === 'r' ? 1 : -1, 0).transformDirection(R)
+        let mn = Infinity
+        const v = new Vector3()
+        for (let i = 0; i < pos.count; i++) mn = Math.min(mn, v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld).dot(n))
+        return mn
+      }
+      // as the stage has it: the page attached to the book (no baked home turn of its own)
+      lf.node.rotation.set(0, 0, 0)
+      lf.set(0)
+      lf.node.updateMatrixWorld(true)
+      expect(lowest('r'), `${name} before the turn`).toBeGreaterThan(0.0002)
+      expect(lowest('r')).toBeLessThan(0.0005)
+      lf.set(OPEN_ANGLE)
+      lf.node.updateMatrixWorld(true)
+      expect(lowest('l'), `${name} landed`).toBeGreaterThan(0.0009)
+      expect(lowest('l')).toBeLessThan(0.0013)
     }
   })
 
