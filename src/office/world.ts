@@ -173,7 +173,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
   // the fake only under ?debug=1 (and not &live): the shipped page never gets it
   const fakeApprovals = debug && !(live && supabase) ? new FakeApprovalSource() : null
   const approvals = fakeApprovals ?? (supabase ? supabaseSource(supabase) : null)
-  const signal = approvals ? createSignalHub(fakeApprovals || !supabase ? null : supabaseSignalWire(supabase)) : null
+  const signal = approvals ? createSignalHub(fakeApprovals || !supabase ? null : supabaseSignalWire(supabase), { skipFirstJoinCatchUp: ['docs'] }) : null
   if (fakeApprovals) {
     fakeApprovals.openPanel = openApprovalBox
     fakeApprovals.onChange = () => signal?.receive({ table: 'approvals' })

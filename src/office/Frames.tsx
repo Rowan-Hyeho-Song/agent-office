@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { CanvasTexture, MeshBasicMaterial, NearestFilter, SRGBColorSpace, type Object3D } from 'three'
+import { afterFirstScreen } from './atlases'
 import { containRect, frameOfNode, posterOf } from './framePosters'
 import { meshesOf } from './nodes'
 
@@ -8,7 +9,7 @@ const FACE_BG = '#05080b'
 const FACE_W = 512
 
 /**
- * The posters on the three wall frames (lounge-props.md 6): loaded once the office is up (after the first frame, they are not needed to draw it), painted
+ * The posters on the three wall frames (lounge-props.md 6): loaded after the first screen has been shown (#402: ~35 KB that the first screen does not need; the faces are dark until they arrive), painted
  * onto a canvas of the face's own aspect (letterboxed, no stretching, nearest). A poster that fails to load leaves its face dark.
  */
 export function Frames({ nodes }: { nodes: Record<string, Object3D> }) {
@@ -16,7 +17,7 @@ export function Frames({ nodes }: { nodes: Record<string, Object3D> }) {
     let dead = false
     const made: CanvasTexture[] = []
     const base = import.meta.env.BASE_URL ?? '/'
-    const id = window.setTimeout(() => {
+    const cancel = afterFirstScreen(() => {
       for (const [name, node] of Object.entries(nodes)) {
         const k = frameOfNode(name, node.userData)
         const file = k === null ? null : posterOf(k)
@@ -54,10 +55,10 @@ export function Frames({ nodes }: { nodes: Record<string, Object3D> }) {
         img.onerror = () => {}
         img.src = `${base}posters/${file}.png`
       }
-    }, 0)
+    })
     return () => {
       dead = true
-      window.clearTimeout(id)
+      cancel()
       for (const t of made) t.dispose()
     }
   }, [nodes])
