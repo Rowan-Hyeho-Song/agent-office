@@ -1,7 +1,7 @@
 // Navigation graph over the glb's nav_* empties (office_bake.py build_nav): agents glide from spot to spot
 // along these edges only, so they never teleport and never cross furniture. Pure: no three.js.
 
-export type NavKind = 'work' | 'stand' | 'sofa' | 'stool' | 'play' | 'meet' | 'meet_center' | 'chat' | 'door' | 'hall'
+export type NavKind = 'work' | 'stand' | 'sofa' | 'sofa_in' | 'stool' | 'play' | 'meet' | 'meet_center' | 'chat' | 'door' | 'hall'
 
 /** one nav_<id> empty: floor position (web meters, y = 0) and the way an agent faces there */
 export interface NavSpot {
@@ -80,12 +80,19 @@ export const EDGES: [string, string][] = [
   // lounge (the front aisle hall_front - hall_lounge runs below the ping-pong table)
   ['hall_front', 'pingpong_a'],
   ['hall_front', 'game_b'],
-  ['hall_front', 'sofa_0'],
-  // (no hall_front–sofa_1: the ray crosses the sofa / side table; sofa_1 is reached via sofa_0 or sofa_2)
-  ['hall_front', 'hall_lounge'],
+  // the L-sofa (#280 2단계): seats sofa_0..2 along the south wall, sofa_3 the chaise (lie-down), the beanbag west of the low table. The low table
+  // is in front of the seats, so they are entered from the side-step spots: sofa_in_w (west end, seats 0..) and sofa_in_e (north of seat 2 / the chaise)
+  ['hall_front', 'sofa_in_w'],
+  ['sofa_in_w', 'sofa_0'],
   ['sofa_0', 'sofa_1'],
   ['sofa_1', 'sofa_2'],
-  ['hall_lounge', 'sofa_2'],
+  ['hall_lounge', 'sofa_in_e'],
+  ['sofa_in_e', 'sofa_1'],
+  ['sofa_in_e', 'sofa_2'],
+  ['sofa_in_e', 'sofa_3'],
+  ['sofa_2', 'sofa_3'],
+  ['hall_front', 'beanbag'],
+  ['hall_front', 'hall_lounge'],
   ['hall_lounge', 'pingpong_b'],
   ['hall_lounge', 'hall_ne'],
   ['hall_ne', 'pingpong_b'],

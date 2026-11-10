@@ -9,15 +9,20 @@
 //     nearest free cell, until the corridor is free;
 //   - waiting > 3 s in a row -> the stretch is replanned with the cells ahead blocked (another route);
 //   - destination occupied -> wait beside it (0.66-0.9 m) until it is free (a replan follows any goal change);
+//   - the sofa's knee row (sofaRow.ts, optional): one standing body at a time (a reservation over the row's cells like any other,
+//     the others wait outside its mouth), slow, facing the sofa; an entering body comes from the entrance nearest its seat;
 //   - the cell path is smoothed in time (moving average) so the walk is round, and the result is verified against
 //     everyone ahead and the furniture (the raw stair-step path is the fallback).
 // Time is the caller's simulation clock (seconds), never frame dependent. Pure: no three.js, no Date.
 
 import { cellAt, centre, distanceField, findPath, nearestWalkable, step, type Grid } from './grid'
 import { DESK_SIDES, dist, type NavGraph, type NavSpot } from './nav'
+import { inSofaRow, rowApproach, rowLocal, seatedPair, SOFA_ROW, type RowApproach, type SofaRow } from './sofaRow'
 
 /** how near its goal a walker is allowed the relaxed clearance to a neighbour resting on a designed pair spot (m): the arrival zone (0.45 m, the day sim's own) plus half a grid cell. It was 0.75; with the sofa against the south wall and the fig beside it (#280) a walker coming from the north-west cut in to 0.39 m from the sleeper from that far out */
 const EXEMPT_ZONE = 0.5
+/** how many points of the next SOFA_ROW.turnLeadS are checked for the sofa row (0.1 s apart): a body turns to the sofa before it steps in */
+const LEAD_STEPS = 10
 /**
  * The agents' cruising walk, m/s (#329: 0.75 -> 1.0, the user found them slow). The one number for the planner (TRAFFIC.cruise) and the
  * rig (rig.ts SPEED, and its acceleration, corner speed and turn rate, which scale with it).
@@ -88,6 +93,17 @@ export const TRAFFIC = {
     destTapEveryS: 1.5,
     destTapCurl: 0.15,
   },
+}
+
+/** sorted, overlapping spans joined */
+function mergeSpans(spans: [number, number][]): [number, number][] {
+  const out: [number, number][] = []
+  for (const s of [...spans].sort((p, q) => p[0] - q[0])) {
+    const last = out[out.length - 1]
+    if (last && s[0] <= last[1] + 1e-9) last[1] = Math.max(last[1], s[1])
+    else out.push([s[0], s[1]])
+  }
+  return out
 }
 
 export type CueKind = 'yield' | 'pass' | 'wide' | 'tilt' | 'dest'
@@ -179,6 +195,8 @@ interface Ctx {
   lanePull: number
   /** an agent that starts closer to someone than the planning clearance (a sofa pair) may leave: no closer than it starts */
   startLim?: Map<Traj, { lim: number; from: number }>
+  /** the sofa row (#341): the times somebody else stands in it (padded); the row's cells are unsafe then */
+  rowBusy?: [number, number][]
 }
 
 interface SNode {
@@ -206,6 +224,7 @@ export class TrafficPlanner {
   private met = new Map<string, number>()
   private fields = new Map<string, Float64Array>()
   private avoidCells = new Map<string, Uint8Array>()
+  private unions = new Map<string, Uint8Array>()
   private dirty = false
   private thr = 2 * TRAFFIC.bodyR + TRAFFIC.planGap
   private thrV = 2 * TRAFFIC.bodyR + TRAFFIC.verifyGap
@@ -213,12 +232,15 @@ export class TrafficPlanner {
   readonly exemptPairs: [string, string][] = []
   /** how many searches ran / expanded (for the timing report) */
   stats = { searches: 0, expanded: 0 }
+  /** the sofa's knee row (#341), if the scene has one: its cells, the slow stretch round it, the seat spots, a way in per seat */
+  private row?: { zone: SofaRow; cells: number[]; slow: Uint8Array; seats: NavSpot[]; entrances: NavSpot[]; approach: RowApproach; bans: Map<string, { key: string; set: Uint8Array } | null> }
 
   constructor(
     readonly grid: Grid,
     graph: NavGraph,
   ) {
     this.spots = { ...graph.spots }
+    if (grid.zone) this.row = this.buildRow(grid, grid.zone, graph)
     const ids = Object.keys(this.spots).sort()
     ids.forEach((id) => this.name(id))
     for (let i = 0; i < ids.length; i++) {
@@ -238,6 +260,20 @@ export class TrafficPlanner {
         }
       }
     }
+  }
+
+  private buildRow(g: Grid, zone: SofaRow, graph: NavGraph) {
+    const cells: number[] = []
+    const slow = new Uint8Array(g.w * g.h)
+    for (let c = 0; c < slow.length; c++) {
+      const p = centre(g, c)
+      if (inSofaRow(zone, p.x, p.z, SOFA_ROW.approachM)) slow[c] = 1
+      if (inSofaRow(zone, p.x, p.z) && !g.blocked[c]) cells.push(c)
+    }
+    const all = Object.values(graph.spots).sort((a, b) => (a.id < b.id ? -1 : 1))
+    const seats = all.filter((s) => s.kind === 'sofa')
+    const entrances = all.filter((s) => s.kind === 'sofa_in')
+    return { zone, cells, slow, seats, entrances, approach: rowApproach(zone, entrances, seats), bans: new Map<string, { key: string; set: Uint8Array } | null>() }
   }
 
   private name(id: string): number {
@@ -317,12 +353,26 @@ export class TrafficPlanner {
     return {
       x: p.x,
       z: p.z,
-      heading: speed > 0.05 ? Math.atan2(-vx, -vz) : null,
+      heading: speed > 0.05 ? (this.facesSofa(tr, now, p) ? this.row!.zone.face : Math.atan2(-vx, -vz)) : null,
       speed,
       moving: speed > 0.02,
       arrived,
       cue: cue ? { kind: cue.kind, age: now - cue.t0, dur: cue.t1 - cue.t0, gesture: cue.gesture, toward } : null,
     }
+  }
+
+  /** in the sofa row, or about to enter it: the body side-steps facing the sofa instead of along its way (the turn is done at the edge) */
+  private facesSofa(tr: Traj, now: number, p: { x: number; z: number }): boolean {
+    const row = this.row
+    if (!row) return false
+    if (inSofaRow(row.zone, p.x, p.z)) return true
+    // anywhere in the next turnLeadS, not only its end: at 1.0 m/s (#337) the point 1 s ahead was already past the row on the seat, and the
+    // body turned only as it stepped in (20° off the sofa for the first steps)
+    for (let k = 1; k <= LEAD_STEPS; k++) {
+      const ahead = this.px(tr, now + (SOFA_ROW.turnLeadS * k) / LEAD_STEPS)
+      if (inSofaRow(row.zone, ahead.x, ahead.z)) return true
+    }
+    return false
   }
 
   /** the planned position at a time (any time; before / after the stored span it clamps) */
@@ -447,7 +497,10 @@ export class TrafficPlanner {
           this.px(ta, tt, A)
           this.px(tb, tt, B)
           const d = Math.hypot(A.x - B.x, A.z - B.z)
+          // one standing body in the sofa row at a time (#341)
+          if (this.row && this.standsInRow(A.x, A.z) && this.standsInRow(B.x, B.z)) return { early: seq[i], late: seq[j] }
           let lim = 2 * TRAFFIC.bodyR
+          if (this.row && seatedPair(this.row.approach, A.x, A.z, B.x, B.z)) lim = SOFA_ROW.seatedM - 0.03
           if (d0 < lim && tt < t + 1.5) lim = d0 - 0.05
           if (d >= lim) continue
           const ia = Math.max(0, Math.min(ta.n - 1, Math.round((tt - ta.t0) / TRAFFIC.sampleDt)))
@@ -481,15 +534,99 @@ export class TrafficPlanner {
     return { t0: t, n, x, z, at: new Int16Array(n).fill(-1), endT: t + TRAFFIC.ghostS, reached: false, finAt: null, path: [], ghost: true }
   }
 
-  private fieldFor(goalCell: number, avoid: boolean, own = ''): Float64Array {
-    const key = `${goalCell}|${avoid ? 1 : 0}|${own}`
+  private fieldFor(goalCell: number, avoid: boolean, own = '', ban: { key: string; set: Uint8Array } | null = null): Float64Array {
+    const key = `${goalCell}|${avoid ? 1 : 0}|${own}|${ban?.key ?? ''}`
     let f = this.fields.get(key)
     if (!f) {
-      f = distanceField(this.grid, goalCell, avoid ? this.avoidSet(own) : undefined)
+      f = distanceField(this.grid, goalCell, this.blockedFor(avoid, own, ban))
       if (this.fields.size > 64) this.fields.clear()
       this.fields.set(key, f)
     }
     return f
+  }
+
+  /** the cells a route may not use: the desk sides (night duty) and the row's far end (the entrance rule) */
+  private blockedFor(avoid: boolean, own: string, ban: { key: string; set: Uint8Array } | null): Uint8Array | undefined {
+    const base = avoid ? this.avoidSet(own) : undefined
+    if (!ban) return base
+    if (!base) return ban.set
+    const key = `${own}|${ban.key}`
+    let u = this.unions.get(key)
+    if (!u) {
+      u = new Uint8Array(base.length)
+      for (let c = 0; c < u.length; c++) u[c] = base[c] | ban.set[c]
+      this.unions.set(key, u)
+    }
+    return u
+  }
+
+  /**
+   * The entrance rule (#341): a body goes in to a seat of the row by the entrance nearest that seat, and a body getting up from one goes out
+   * by it. So the cells beyond the seat (further from the entrance than the seat plus a little) are shut for its route: the row itself and
+   * the strip of sofa floor on the far side of it (else the way round along the seats would be the shortcut to the far end). None for a slide
+   * from seat to seat, for goals / starts that have nothing to do with a seat of the row, and when the entrance is not at one end of the row.
+   */
+  private entranceBan(spot: string, here: { x: number; z: number }): { key: string; set: Uint8Array } | null {
+    const row = this.row
+    const goal = this.spots[spot]
+    if (!row || !goal || !row.entrances.length) return null
+    const from = row.seats.find((q) => Math.hypot(q.x - here.x, q.z - here.z) < 0.3)
+    let seat: NavSpot
+    if (goal.kind === 'sofa') {
+      // in: from outside the row only
+      if (from || inSofaRow(row.zone, here.x, here.z, SOFA_ROW.approachM)) return null
+      seat = goal
+    } else if (from) seat = from
+    else return null
+    let ban = row.bans.get(seat.id)
+    if (ban !== undefined) return ban
+    ban = null
+    const z = row.zone
+    const sl = rowLocal(z, seat.x, seat.z)
+    // a seat along the sofa side of this row, not the chaise or a beanbag somewhere else
+    if (Math.abs(sl.u) <= z.sizeX / 2 + 0.2 && Math.abs(sl.v) <= z.sizeZ / 2 + SOFA_ROW.stripM) {
+      let best: NavSpot | null = null
+      for (const e of row.entrances) if (!best || dist(e, seat) < dist(best, seat) - 1e-9) best = e
+      const du = sl.u - rowLocal(z, best!.x, best!.z).u
+      if (Math.abs(du) > SOFA_ROW.overshootM) {
+        const set = new Uint8Array(this.grid.w * this.grid.h)
+        for (let c = 0; c < set.length; c++) {
+          const p = centre(this.grid, c)
+          const q = rowLocal(z, p.x, p.z)
+          // the row, and the sofa-side strip (the seats' docks run along it)
+          const inRow = Math.abs(q.u) <= z.sizeX / 2 && Math.abs(q.v) <= z.sizeZ / 2
+          const strip = Math.abs(q.u) <= z.sizeX / 2 + SOFA_ROW.stripM && q.v > z.sizeZ / 2 && q.v <= z.sizeZ / 2 + SOFA_ROW.stripM && Math.sign(sl.v) === 1
+          if ((inRow || strip) && Math.sign(du) * (q.u - sl.u) > SOFA_ROW.overshootM) set[c] = 1
+        }
+        ban = { key: seat.id, set }
+      }
+    }
+    row.bans.set(seat.id, ban)
+    return ban
+  }
+
+  /** a body standing (not resting on a seat) in the row */
+  private standsInRow(x: number, z: number): boolean {
+    const row = this.row
+    return !!row && inSofaRow(row.zone, x, z) && !row.seats.some((s) => Math.hypot(s.x - x, s.z - z) < SOFA_ROW.seatEps)
+  }
+
+  /** the times (padded by gapS, merged) somebody ahead stands in the row: the row's cells are shut then (one body at a time) */
+  private rowBusyOf(reserved: Traj[]): [number, number][] {
+    if (!this.row) return []
+    const gap = SOFA_ROW.gapS
+    const raw: [number, number][] = []
+    const tmp = { x: 0, z: 0 }
+    for (const r of reserved) {
+      for (let tt = r.t0; tt <= r.endT + 1e-9; tt += 0.1) {
+        this.px(r, tt, tmp)
+        if (this.standsInRow(tmp.x, tmp.z)) raw.push([tt - 0.05 - gap, tt + 0.05 + gap])
+      }
+      // resting for good in the row (a ghost is gone afterwards)
+      this.px(r, r.endT, tmp)
+      if (!r.ghost && this.standsInRow(tmp.x, tmp.z)) raw.push([r.endT - gap, Infinity])
+    }
+    return mergeSpans(raw)
   }
 
   /**
@@ -527,8 +664,9 @@ export class TrafficPlanner {
     const avoid = !!req.avoid
     // standing at a desk side (a night talk at a working desk): that side is not avoided for the way out
     const own = avoid ? ([...DESK_SIDES].find((id) => this.spots[id] && Math.hypot(here.x - this.spots[id].x, here.z - this.spots[id].z) < 0.6) ?? '') : ''
-    const field = this.fieldFor(goalCell, avoid, own)
-    const extra = avoid ? this.avoidSet(own) : undefined
+    const ban = this.entranceBan(req.spot, here)
+    const field = this.fieldFor(goalCell, avoid, own, ban)
+    const extra = this.blockedFor(avoid, own, ban)
     const V = TRAFFIC.cruise * req.pace
     let t0 = t
     let pre: Way | null = null
@@ -544,7 +682,7 @@ export class TrafficPlanner {
       const d = Math.hypot(q.x - here.x, q.z - here.z)
       if (d < this.thr) startLim.set(r, { lim: d - 0.02, from: t })
     }
-    const ctx: Ctx = { V, field, extra, reserved, goalCell, gx: goal.x, gz: goal.z, goalIdx, near: false, ref, lanePull, startLim }
+    const ctx: Ctx = { V, field, extra, reserved, goalCell, gx: goal.x, gz: goal.z, goalIdx, near: false, ref, lanePull, startLim, rowBusy: this.rowBusyOf(reserved) }
     // the destination is held for good by someone resting on it: go straight to waiting beside it
     const blockedForever = !this.restClear(goal.x, goal.z, 1e12, ctx)
     let ways: Way[] | null = null
@@ -573,7 +711,7 @@ export class TrafficPlanner {
     if (reached) {
       const last = ways[ways.length - 1]
       const d = Math.hypot(goal.x - last.x, goal.z - last.z)
-      if (d > 1e-6) ways.push({ t: last.t + d / V, x: goal.x, z: goal.z, c: goalCell })
+      if (d > 1e-6) ways.push({ t: last.t + d / (V * this.speedScale(goalCell)), x: goal.x, z: goal.z, c: goalCell })
     }
     if (pre) ways.unshift(pre)
     return this.bake(a, t, here, ways, reached, reached ? req.spot : null, rerouteAt, goal, reserved)
@@ -612,6 +750,13 @@ export class TrafficPlanner {
 
   /** the clearance two agents need now: 2R, relaxed only for a goal spot designed next to the other's resting spot */
   private limit(ctx: Ctx, x: number, z: number, o: Traj, i: number, gap: number): number {
+    const base = this.limitBase(ctx, x, z, o, i, gap)
+    // a seated body of the sofa row and one in its approach area: seatedM (less the grid's rounding while searching, as the designed pair below)
+    if (this.row && seatedPair(this.row.approach, x, z, o.x[i], o.z[i])) return Math.min(base, SOFA_ROW.seatedM - (gap > 0.05 ? 0.05 : 0.03))
+    return base
+  }
+
+  private limitBase(ctx: Ctx, x: number, z: number, o: Traj, i: number, gap: number): number {
     if (ctx.goalIdx >= 0) {
       const oa = o.at[i]
       if (oa >= 0) {
@@ -627,7 +772,18 @@ export class TrafficPlanner {
     return 2 * TRAFFIC.bodyR + gap
   }
 
+  /** one of the two rests on a seat of the sofa row and the other is in its approach area (sofaRow.ts): the pair that may be SOFA_ROW.seatedM apart */
+  isSeatedPair(x1: number, z1: number, x2: number, z2: number): boolean {
+    return !!this.row && seatedPair(this.row.approach, x1, z1, x2, z2)
+  }
+
+  /** the share of its cruise a body keeps on this cell: slow in the sofa row and on its approach (#341) */
+  private speedScale(c: number): number {
+    return this.row?.slow[c] ? SOFA_ROW.speedScale : 1
+  }
+
   private pairOk(ctx: Ctx, x: number, z: number, t: number, tmp: { x: number; z: number }): boolean {
+    if (ctx.rowBusy?.length && this.row && inSofaRow(this.row.zone, x, z) && ctx.rowBusy.some(([a, b]) => t >= a && t <= b)) return false
     for (const r of ctx.reserved) {
       if (r.ghost && t > r.endT) continue
       this.px(r, t, tmp)
@@ -673,8 +829,9 @@ export class TrafficPlanner {
     const mark = (c: number, a: number, b: number) => {
       let l = map.get(c)
       if (!l) map.set(c, (l = []))
+      // joined (and sorted) once all are in: a span that starts before the last one listed (another trajectory's) must not be folded into it
       const last = l[l.length - 1]
-      if (last && a <= last[1] + 1e-9) last[1] = Math.max(last[1], b)
+      if (last && a >= last[0] && a <= last[1] + 1e-9) last[1] = Math.max(last[1], b)
       else l.push([a, b])
     }
     const tmp = { x: 0, z: 0 }
@@ -695,6 +852,7 @@ export class TrafficPlanner {
             let lim = this.thr
             if (sl && tt < sl.from + TRAFFIC.startEaseS) lim = this.easeLim(sl, tt)
             else if (ex !== undefined && Math.hypot(p.x - ctx.gx, p.z - ctx.gz) < EXEMPT_ZONE) lim = ex - 0.2
+            if (this.row && seatedPair(this.row.approach, p.x, p.z, tmp.x, tmp.z)) lim = Math.min(lim, SOFA_ROW.seatedM - 0.05)
             if (Math.hypot(p.x - tmp.x, p.z - tmp.z) < lim) mark(c, from, to)
           }
         }
@@ -703,6 +861,18 @@ export class TrafficPlanner {
       // resting for good from here on
       if (!r.ghost) sample(end, end - 0.05, Infinity, r.n - 1)
     }
+    // the sofa row holds one standing body at a time: its cells are shut for whoever else would be in it then
+    if (this.row && ctx.rowBusy?.length) {
+      for (const c of this.row.cells) {
+        const l = map.get(c) ?? []
+        for (const [a, b] of ctx.rowBusy) if (b > t0) l.push([a, b])
+        map.set(c, l)
+      }
+    }
+    // every reserved trajectory marked its own spans in time order, so a cell's list is only sorted per trajectory: the safe intervals
+    // (search) read it in order, and a span that starts before the last one listed was folded into it, so a body could wait through
+    // someone else's pass (#341, the 0.9 m west gap)
+    for (const [c, l] of map) map.set(c, mergeSpans(l))
     return map
   }
 
@@ -806,7 +976,7 @@ export class TrafficPlanner {
         if (nc < 0 || !Number.isFinite(field[nc])) continue
         const q = centre(g, nc)
         const len = d < 4 ? g.cell : g.cell * Math.SQRT2
-        const dur = len / V
+        const dur = len / (V * Math.min(this.speedScale(n.c), this.speedScale(nc)))
         const lat = this.lateral(ctx.ref, q.x, q.z)
         const pen = ctx.lanePull * Math.abs(lat - T.lane) * (len / g.cell)
         const ivs = safeOf(nc)

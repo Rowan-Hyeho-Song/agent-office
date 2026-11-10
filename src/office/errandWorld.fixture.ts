@@ -250,7 +250,16 @@ export function runErrand(w: World, agent: string, plant: string, guard: Guard, 
   for (let k = 0; k < 10; k++) walk.step(dt, guard) // standing at the desks first
   walk.status[agent] = { state: 'idle', since: 0 }
   // a plant whose way in runs past a seat (water.ts PATH_BLOCKERS): the seat's owner is away (the schedule only sends the errand then)
-  for (const spot of PATH_BLOCKERS[plant] ?? []) walk.status[`agent_${spot.split('_')[1]}`] = { state: 'idle', since: 0 }
+  const owners = (PATH_BLOCKERS[plant] ?? []).map((spot) => `agent_${spot.split('_')[1]}`).filter((id) => id !== agent)
+  for (const id of owners) walk.status[id] = { state: 'idle', since: 0 }
+  // it goes where the schedule sends it but takes nothing there: what this checks is the errand's hands, and a cup or a paddle the schedule
+  // happened to hand the owner (#341: books off the schedule reshuffled it to coffee) would be counted as the errand's
+  const goals = walk.director.goals.bind(walk.director)
+  walk.director.goals = ((...a: Parameters<typeof goals>) => {
+    const g = goals(...a)
+    for (const id of owners) if (g[id]) g[id] = { ...g[id], pose: 'idle' }
+    return g
+  }) as typeof goals
   walk.director.forceWater(agent, plant, walk.t0 + walk.t * 1000, opts.reduced ?? false)
   const stages: WaterStage[] = []
   const at: Record<string, { t: number; x: number; z: number }> = {}
@@ -270,11 +279,13 @@ export function runErrand(w: World, agent: string, plant: string, guard: Guard, 
       break
     }
   }
-  // back to the desk, the hand lets go and settles
-  walk.status[agent] = { state: 'working', activity: 'test', since: 0 }
+  // back to the desk, the hand lets go and settles; so does the seat owner sent away from the path (it played meanwhile: a cup still in its
+  // hand would be taken as the cup's home by the next errand's guard in the same world, #341)
+  for (const id of IDS) walk.status[id] = { state: 'working', activity: 'test', since: 0 }
   for (let k = 0; k < 20 / dt; k++) {
     walk.step(dt, guard)
-    if (w.rigs[agent].arrived === `work_${agent.split('_')[1]}` && k > 1 / dt) break
+    const home = IDS.every((id) => w.rigs[id].arrived === `work_${id.split('_')[1]}` && !w.rigs[id].want?.attached)
+    if (home && k > 1 / dt) break
   }
   return { walk, stages, at, ended }
 }

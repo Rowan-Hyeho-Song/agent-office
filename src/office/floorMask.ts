@@ -6,6 +6,7 @@
 import { BufferGeometry, Vector3, type Mesh, type Object3D } from 'three'
 import { ROOM } from './room'
 import type { Footprint } from './grid'
+import { readSofaRow } from './sofaRow'
 
 /** the body spans roughly this height band (pod to head); furniture entirely above or below it is ignored */
 export const BAND = { lo: 0.15, hi: 1.05 }
@@ -119,5 +120,5 @@ export function rasterFootprint(meshes: Mesh[], cell = 0.05, root?: Object3D): F
     visit(i, j - 1)
   }
   for (let k = 0; k < w * h; k++) out[k] = seen[k] ? 0 : 1
-  return { cell, minX, minZ, w, h, bits: out }
+  return { cell, minX, minZ, w, h, bits: out, zone: (root && readSofaRow(root)) || undefined }
 }

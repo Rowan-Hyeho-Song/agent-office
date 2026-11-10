@@ -18,7 +18,7 @@ export const PLANTS: Plant[] = [
   { name: 'plant_corner', x: 4.5, z: 1.35, soilY: 0.02 + 0.36 - 0.015 + 0.003, r: 0.19 - 0.006 }, // fiddle-leaf fig
   { name: 'plant_sofa', x: 1.3, z: 3.65, soilY: 0.02 + 0.26 - 0.015 + 0.003, r: 0.14 - 0.006 }, // monstera
   { name: 'plant_desk', x: -4.05, z: -3.8, soilY: 0.28 + 0.22 - 0.015 + 0.003, r: 0.12 - 0.006 }, // sansevieria on its stand, at the window's west end since #195
-  { name: 'succulent', x: -4.62, z: -1.56, soilY: 0.74 + 0.05 - 0.015 + 0.003, r: 0.04 - 0.006 }, // 휴's desk
+  { name: 'succulent', x: -2.93, z: -1.17, soilY: 0.778, r: 0.034 }, // 휴's desk; the estimate is the model's soil_succulent empty (plantsFrom reads the real one)
 ]
 
 /** the plant the first test and the debug tools use */
@@ -31,9 +31,9 @@ export const WATERED = PLANTS[0]
  */
 export const STANDS: Record<string, { x: number; z: number }> = {
   plant_corner: { x: 4.1, z: 0.95 }, // 0.57 m, north-west of the fig (the east wall is 0.3 m behind it), between it and the can: the can's own stand too (#280 footprint scan)
-  plant_sofa: { x: 1.3, z: 3.15 }, // 0.50 m, in front (north) of the pot, the monstera stands at the south wall (#280)
+  plant_sofa: { x: 0.87, z: 3.27 }, // 0.57 m, north-west of the pot, outside the west mouth of the sofa's way in: standing in the 0.9 m gap closed it to one lane for the whole pour (#341, lounge-props.md: no stay on the mouths or between them)
   plant_desk: { x: -4.03, z: -3.33 }, // 0.45 m, in front of the stand (found by scanning the walkable footprint, stream error < 0.6 soil radius)
-  succulent: { x: -4.22, z: -1.41 }, // 0.43 m, at HUE's desk side
+  succulent: { x: -3.33, z: -1.37 }, // 0.45 m, west of the desk: soil_succulent moved with the desk pod (#280); scanned on the walkable footprint, stream error 0
   // the can's own stand (#228, #259): where the agent takes the can up and puts it back. Since #259 the can rests on its low stand in front of the
   // fig (CAN_HOME), 0.49 m from the can and 0.57 m from the fig since #280 (the same stand as the fig's), within arm's reach of both (watering.md 1.1). So watering the fig is turning
   // to the can, lifting it, turning back to the pot, pouring and putting it back without a step; for the other plants it is taken from here

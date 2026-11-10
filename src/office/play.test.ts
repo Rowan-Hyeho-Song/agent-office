@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BLOCK_MINUTES, NIGHT_PLAYS, PLAYS, blockOf, playAt, soloAt } from './play'
+import { BLOCK_MINUTES, NIGHT_PLAYS, PAUSED, PLAYS, blockOf, playAt, soloAt } from './play'
 
 const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
 const ALL_SPOTS = new Set(PLAYS.flatMap((p) => p.spots))
@@ -156,6 +156,16 @@ describe('likes (#28)', () => {
   })
 })
 
+describe('paused plays (#341)', () => {
+  it('are never handed out, day or night', () => {
+    const FIVE = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
+    for (let b = 0; b < 2000; b++) {
+      for (const o of Object.values(playAt(b * BLOCK_MINUTES, FIVE))) expect(PAUSED.has(o.kind), `block ${b}: ${o.kind}`).toBe(false)
+      expect(PAUSED.has(soloAt(b * BLOCK_MINUTES, 'agent_2').kind), `night block ${b}`).toBe(false)
+    }
+  })
+})
+
 describe('soloAt (night duty, #110)', () => {
   it('is quiet and alone, and stable per minute block', () => {
     for (let m = 0; m < 300; m += BLOCK_MINUTES) {
@@ -194,7 +204,8 @@ describe('five agents (#193)', () => {
   })
 })
 
-describe('reading and ping-pong never share a block (#193)', () => {
+// reading is off the schedule while it becomes seated (PAUSED, #341): these two hold again when it is back
+describe.skipIf(PAUSED.has('books'))('reading and ping-pong never share a block (#193)', () => {
   it('the side-table reader closes the aisle to the sofa and the lounge: with five agents no block has both', () => {
     const FIVE = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
     let books = 0
@@ -212,7 +223,7 @@ describe('reading and ping-pong never share a block (#193)', () => {
   })
 })
 
-describe('no head-on change of places between the sofa and the side table (#193)', () => {
+describe.skipIf(PAUSED.has('books'))('no head-on change of places between the sofa and the side table (#193)', () => {
   it('nobody goes from the sofa to the book the block after somebody else read', () => {
     const FIVE = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
     let readers = 0
