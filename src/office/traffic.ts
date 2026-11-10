@@ -16,6 +16,8 @@
 import { cellAt, centre, distanceField, findPath, nearestWalkable, step, type Grid } from './grid'
 import { DESK_SIDES, dist, type NavGraph, type NavSpot } from './nav'
 
+/** how near its goal a walker is allowed the relaxed clearance to a neighbour resting on a designed pair spot (m): the arrival zone (0.45 m, the day sim's own) plus half a grid cell. It was 0.75; with the sofa against the south wall and the fig beside it (#280) a walker coming from the north-west cut in to 0.39 m from the sleeper from that far out */
+const EXEMPT_ZONE = 0.5
 export const TRAFFIC = {
   /** body radius, m: two agents are never closer than 2 x this */
   bodyR: 0.3,
@@ -604,7 +606,7 @@ export class TrafficPlanner {
       const oa = o.at[i]
       if (oa >= 0) {
         const e = this.exempt.get(ctx.goalIdx * KEY + oa)
-        if (e !== undefined && Math.hypot(x - ctx.gx, z - ctx.gz) < 0.75) {
+        if (e !== undefined && Math.hypot(x - ctx.gx, z - ctx.gz) < EXEMPT_ZONE) {
           // a pair at least two bodies apart gives up the extra gap and the grid's rounding (the search tests cell centres, up
           // to half a cell diagonal, 0.11 m, from the spot; the agent stands on the spot itself, e apart)
           if (e >= 2 * TRAFFIC.bodyR) return Math.min(2 * TRAFFIC.bodyR + gap, e - 0.12)
@@ -682,7 +684,7 @@ export class TrafficPlanner {
             const p = centre(g, c)
             let lim = this.thr
             if (sl && tt < sl.from + TRAFFIC.startEaseS) lim = this.easeLim(sl, tt)
-            else if (ex !== undefined && Math.hypot(p.x - ctx.gx, p.z - ctx.gz) < 0.75) lim = ex - 0.2
+            else if (ex !== undefined && Math.hypot(p.x - ctx.gx, p.z - ctx.gz) < EXEMPT_ZONE) lim = ex - 0.2
             if (Math.hypot(p.x - tmp.x, p.z - tmp.z) < lim) mark(c, from, to)
           }
         }

@@ -146,6 +146,6 @@ describe('the baked sheet (#262, #310)', () => {
     }
     expect(shown).toBeGreaterThan(100)
     expect(nodes.some((n) => n.visible)).toBe(false)
-    expect(nodes[0].position.distanceTo(new Vector3(-2.94, 0.835, -1.972))).toBeLessThan(0.001)
+    expect(nodes[0].position.distanceTo(new Vector3(-3.24, 0.835, -2.172))).toBeLessThan(0.001)
   })
 })

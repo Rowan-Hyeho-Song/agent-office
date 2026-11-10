@@ -34,7 +34,9 @@ export const EDGES: [string, string][] = [
   ['work_1', 'desk_side_1'],
   ['work_2', 'desk_side_2'],
   ['desk_side_2', 'desk_side_0'],
-  ['desk_side_0', 'chat_0'],
+  // the passage behind the head seat (#280): hall_memo_back is the middle of the 0.98 m window strip behind it; desk_side_0 and chat_0 are joined through it, not by the straight line across the seat's back
+  ['desk_side_0', 'hall_memo_back'],
+  ['hall_memo_back', 'chat_0'],
   ['desk_side_1', 'hall_west'],
   ['work_3', 'hall_work'],
   ['work_4', 'hall_mid'],

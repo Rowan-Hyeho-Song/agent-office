@@ -10,6 +10,7 @@
 //    `t` = the moment the key reaches its actuation point (the 2 mm of 4, typing.md 5; this is the moment the sound plays),
 //    `hold` = how long the finger keeps it down (overlapping presses = the next key goes down before this one is released),
 //  - mouse: down / up / wheel events of the episodes where the right hand is on the mouse, with the episode windows,
+//  - slides: how the hand moves the mouse body in those episodes (cursor moves 1-4 cm in 0.15-0.35 s, a drag while a button is held, back to rest at the end; the wheel rolls with the body still),
 //  - events: the above flattened and sorted by time (key, keyUp, mouse) for the input bus (inputEvents.ts).
 
 export type KeyKind = 'char' | 'space' | 'enter' | 'backspace' | 'mod'
@@ -149,6 +150,20 @@ export interface MouseAct {
   ticks?: number
   dir?: 1 | -1
 }
+/**
+ * The mouse body moves (#305): a slide of the body across its pad, by (dx, dz) from where it is (metres in the body's rest frame, x right, z
+ * toward the typist), `home` = back to where it rests. Not an input event (the bus only knows down / up / wheel): a drag is a `down`, a slide
+ * with `drag`, an `up`. The body's real offset is these integrated and clamped to the pad (mouseBody.ts slideTargets).
+ */
+export interface MouseSlide {
+  t0: number
+  t1: number
+  dx: number
+  dz: number
+  home?: boolean
+  /** made while a button is held */
+  drag?: boolean
+}
 export interface Episode {
   /** the right hand starts for the mouse / is let go, scene s */
   t0: number
@@ -172,6 +187,8 @@ export interface Chunk {
   /** each hand's presses by finger (0 … 4), in time order */
   byFinger: Record<Hand, KeyPress[][]>
   mouse: MouseAct[]
+  /** the body's slides, in time order; every episode that has any ends with one `home` */
+  slides: MouseSlide[]
   episodes: Episode[]
   events: SchedEvent[]
   /** the stops of the typing longer than 1.5 s (a thinking pause, a rest), and what the free hand does in some of them */
@@ -400,6 +417,93 @@ function mouseEpisode(b: Builder, o: { len: number; clicks: number; wheel: numbe
   b.at = t1 + 0.1
 }
 
+/** a cursor move's length range, m, and duration range, s */
+const SLIDE_LEN = [0.01, 0.04] as const
+const SLIDE_S = [0.15, 0.35] as const
+/** how far from rest the wandering cursor is pulled back */
+const SLIDE_ROAM = 0.05
+
+/**
+ * The slides of the episodes, in the chunk's unit time, from their own random stream (so they never move a key or a click): a cursor move in each
+ * gap between the acts that is long enough, a drag-slide inside every held button, nothing while the index is on the wheel (the wheel rolls
+ * under the finger, the body still), and the last slide of an episode is the way home.
+ */
+function planSlides(b: Builder, rng: () => number): MouseSlide[] {
+  const out: MouseSlide[] = []
+  for (const ep of b.episodes) {
+    const acts = b.mouse.filter((m) => m.t >= ep.t0 && m.t <= ep.t1)
+    const blocked: [number, number][] = []
+    const drags: [number, number][] = []
+    const wheels = acts.filter((m) => m.kind === 'wheel')
+    for (const a of acts) {
+      if (a.kind !== 'down') continue
+      const up = acts.find((m) => m.kind === 'up' && m.button === a.button && m.t > a.t)
+      const end = up ? up.t : a.t + 0.1
+      blocked.push([a.t - 0.05, end + 0.05])
+      if (end - a.t >= 0.45) drags.push([a.t, end])
+    }
+    // the index goes to the wheel 0.4 s before its first notch and leaves 0.45 s after the last
+    if (wheels.length) blocked.push([wheels[0].t - 0.45, wheels[wheels.length - 1].t + 0.5])
+    blocked.sort((p, q) => p[0] - q[0])
+    const gaps: [number, number][] = []
+    let at = ep.t0 + 0.55
+    for (const [s, e] of blocked) {
+      if (s > at) gaps.push([at, s])
+      at = Math.max(at, e)
+    }
+    if (ep.t1 - 0.15 > at) gaps.push([at, ep.t1 - 0.15])
+    // where the cursor wanders now (rest frame), so it is pulled back toward rest past SLIDE_ROAM
+    let px = 0
+    let pz = 0
+    const make = (t0: number, dur: number, drag: boolean): MouseSlide => {
+      let a = rng() * Math.PI * 2
+      const len = SLIDE_LEN[0] + (SLIDE_LEN[1] - SLIDE_LEN[0]) * rng()
+      if (Math.hypot(px + Math.cos(a) * len, pz + Math.sin(a) * len) > SLIDE_ROAM) a = Math.atan2(-pz, -px) + (rng() - 0.5) * 1.2
+      const dx = +(Math.cos(a) * len).toFixed(4)
+      const dz = +(Math.sin(a) * len).toFixed(4)
+      px += dx
+      pz += dz
+      return { t0, t1: t0 + dur, dx, dz, ...(drag ? { drag: true } : {}) }
+    }
+    // the windows first (a drag-slide inside each held button, a cursor move in each long enough gap), then the moves in time order
+    const wins: { t0: number; dur: number; drag: boolean }[] = []
+    // (a drag ends before the index sets off for the wheel)
+    const wheelFrom = wheels.length ? wheels[0].t - 0.45 : Infinity
+    for (const [d, u] of drags) {
+      const dur = Math.min(SLIDE_S[1], Math.min(u - 0.08, wheelFrom) - (d + 0.12))
+      if (dur >= SLIDE_S[0]) wins.push({ t0: d + 0.12, dur, drag: true })
+    }
+    for (const [g0, g1] of gaps) {
+      if (g1 - g0 < SLIDE_S[0] + 0.1) continue
+      if (rng() < 0.15) continue
+      const dur = Math.min(SLIDE_S[0] + (SLIDE_S[1] - SLIDE_S[0]) * rng(), g1 - g0 - 0.06)
+      wins.push({ t0: g0 + 0.03 + rng() * (g1 - g0 - dur - 0.06), dur, drag: false })
+    }
+    wins.sort((p, q) => p.t0 - q.t0)
+    const mine = wins.map((w) => make(w.t0, w.dur, w.drag))
+    // the episode ends with the body at rest: a slide home after the last one if there is room before the hand lets go; else the last one itself
+    // comes home (when the walk has others); a lone slide with no room to come back is dropped
+    while (mine.length) {
+      const last = mine[mine.length - 1]
+      // the first free moment after it: not while a button is down, not while the index is on the wheel
+      let from = last.t1 + 0.03
+      for (let k = 0; k < blocked.length; k++) if (from < blocked[k][1] && from + 0.2 > blocked[k][0]) from = blocked[k][1] + 0.01
+      const room = ep.t1 - 0.15 - from
+      if (room >= 0.2) {
+        mine.push({ t0: from, t1: from + Math.min(0.3, room), dx: 0, dz: 0, home: true })
+        break
+      }
+      if (mine.length >= 2) {
+        mine[mine.length - 1] = { ...last, home: true }
+        break
+      }
+      mine.pop()
+    }
+    out.push(...mine)
+  }
+  return out
+}
+
 /** the plan of a chunk in its unit time (typing.md 4) */
 function plan(b: Builder, mode: Mode, mouse: boolean) {
   const { rng, p } = b
@@ -483,6 +587,8 @@ export function makeChunk(agent: string, index: number, activity: string | undef
   }
   const keys = b.keys.map((k) => ({ ...k, t: at(k.t), hold: k.hold * d, fid: `${k.hand}${k.finger}${k.code}` }))
   const mice = b.mouse.map((m) => ({ ...m, t: at(m.t) }))
+  // the body's slides: their own random stream too
+  const slides = planSlides(b, rngOf(seedOf(`${agent}|${index}|${mode}|${mouse ? 'm' : 'k'}|slide`))).map((s) => ({ ...s, t0: at(s.t0), t1: at(s.t1) }))
   const episodes = b.episodes.map((e) => ({ ...e, t0: at(e.t0), t1: at(e.t1) }))
   const byFinger: Chunk['byFinger'] = { l: [[], [], [], [], []], r: [[], [], [], [], []] }
   for (const k of keys) byFinger[k.hand][k.finger].push(k)
@@ -493,7 +599,7 @@ export function makeChunk(agent: string, index: number, activity: string | undef
   }
   for (const m of mice) events.push({ t: m.t, type: 'mouse', kind: m.kind, button: m.button, ...(m.kind === 'wheel' ? { ticks: m.ticks ?? 1, dir: m.dir ?? 1 } : {}) })
   events.sort((a, c) => a.t - c.t)
-  return { agent, index, mode, dilation: d, t0, t1: t0 + CHUNK_S * d, keys, byFinger, mouse: mice, episodes, events, pauses: longPauses.map((q) => ({ t0: at(q.t0), t1: at(q.t1) })), gestures }
+  return { agent, index, mode, dilation: d, t0, t1: t0 + CHUNK_S * d, keys, byFinger, mouse: mice, slides, episodes, events, pauses: longPauses.map((q) => ({ t0: at(q.t0), t1: at(q.t1) })), gestures }
 }
 
 export const chunkIndexAt = (t: number, dilation = 1) => Math.floor(t / (CHUNK_S * Math.max(1, dilation)))

@@ -26,7 +26,7 @@ export const PLAYS: PlayDef[] = [
   // one of the floor plants (water.ts), chosen per block, watered from its own stand beside the pot
   { kind: 'water', label: '화분 물 주기', spots: ['hall_lounge'], weight: 1 },
   // the book on the side table by the sofa (the model's only book prop): read standing in front of that table, put back after (#184)
-  { kind: 'books', label: '책 고르기', spots: ['shelf'], weight: 1, face: { x: 0.065, z: 2.66 }, stand: { x: 0.07, z: 2.0 } },
+  { kind: 'books', label: '책 고르기', spots: ['shelf'], weight: 1, face: { x: 1.95, z: 3.28 }, stand: { x: 1.93, z: 2.62 } },
 ]
 
 /**

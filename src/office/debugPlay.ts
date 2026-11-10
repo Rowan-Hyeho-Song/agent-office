@@ -31,7 +31,7 @@ export interface GripDemo {
   goal: Partial<Goal>
 }
 
-const BOOK = { stand: { x: 0.07, z: 2.0 }, face: { x: 0.065, z: 2.66 } }
+const BOOK = { stand: { x: 1.93, z: 2.62 }, face: { x: 1.95, z: 3.28 } }
 // the grip demo takes the can where it rests: from its own stand
 const waterGoal = (): Partial<Goal> => ({ spot: 'water_can', face: CAN_HOME, ...standSlot({ stand: canStand(), face: CAN_HOME }) })
 

@@ -18,6 +18,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { assetUrl } from '../room/base'
 import type { NavKind, NavSpot } from './nav'
+import { rigMouseBodies } from './mouseBody'
 import { setRoomFromExtras } from './room'
 import { prepareView } from './walls'
 
@@ -158,6 +159,7 @@ export function prepare(scene: Object3D, atlases: Texture[]): OfficeNodes {
     })
     for (const o of gone) o.removeFromParent()
   }
+  rigMouseBodies(scene, nodes) // the mouse bodies take their buttons, wheel, contacts and shadow (#305)
   return nodes
 }
 

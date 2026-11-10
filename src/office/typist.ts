@@ -22,6 +22,7 @@ import { DIP_K, POSES, blendAngles, toVec } from './handPose'
 import { clampJoints, tipAtJoints, type FingerModel } from './grip'
 import { fingerModelOf, palmDown, type AgentRig, type HandDrive } from './rig'
 import { emitInput, hasInputListeners } from './inputEvents'
+import { offsetAt, padOf, slideTargets, type MousePad } from './mouseBody'
 import {
   ChunkCache,
   FINGERING,
@@ -56,6 +57,8 @@ const YAW_MAX = 20
 const RAMP_S = 0.3
 const KEYS = 87
 /** the button's press about its local x, degrees (the glb: pivot on the hinge line) */
+/** a body that has to catch up (a clock jump, the hand left it displaced) moves at most this fast, m/s; the schedule's own slides peak at about 0.4 */
+const BODY_MAX_SPEED = 1
 const BUTTON_DEG = -2
 const WHEEL_NOTCH_DEG = 18
 
@@ -314,7 +317,23 @@ interface SeatState {
   /** the common keys are all fitted (warm() has nothing left to do): normal / reduced */
   warmed: [boolean, boolean]
   /** the mouse: the buttons and the wheel (null at a desk without one) */
-  mouse: { l: Object3D; r: Object3D; wheel: Object3D; restL: Quaternion; restR: Quaternion; restW: Quaternion } | null
+  mouse: {
+    l: Object3D
+    r: Object3D
+    wheel: Object3D
+    restL: Quaternion
+    restR: Quaternion
+    restW: Quaternion
+    /** the live body the buttons hang under (null in a model without it: the mouse stays where it is) */
+    body: Object3D | null
+    restPos: Vector3
+    restQ: Quaternion
+    pad: MousePad
+    /** the chunk whose slides `targets` were integrated for */
+    slides: { chunk: Chunk | null; targets: Float64Array }
+    /** where the body is now, rest frame x / z, m */
+    off: { x: number; z: number }
+  } | null
   /** the wheel's angle now / wanted, rad */
   wheel: { now: number; want: number }
   /** the wheel's index fit: the joints with the index tip on the wheel, for the hand of the mouse grip (null until it was computed) */
@@ -375,6 +394,7 @@ export class Typist {
   /** ?debug=1: the schedule time an agent is held at (a still for close-ups; the grip stages go on with the real clock) */
   frozen: Record<string, number | undefined> = {}
   private readonly v1 = new Vector3()
+  private readonly off = { x: 0, z: 0 }
   private readonly v2 = new Vector3()
   private readonly q1 = new Quaternion()
   private readonly q2 = new Quaternion()
@@ -427,6 +447,7 @@ export class Typist {
     const wheel = this.nodes[`desk_${seat}_mouse_wheel`]
     const bl = this.nodes[`desk_${seat}_mouse_l`]
     const br = this.nodes[`desk_${seat}_mouse_r`]
+    const body = this.nodes[`desk_${seat}_mouse`]
     s = {
       kb,
       hands: { l, r },
@@ -434,7 +455,23 @@ export class Typist {
       fits: new Map(),
       fitsReduced: new Map(),
       warmed: [false, false],
-      mouse: wheel && bl && br ? { l: bl, r: br, wheel, restL: bl.quaternion.clone(), restR: br.quaternion.clone(), restW: wheel.quaternion.clone() } : null,
+      mouse:
+        wheel && bl && br
+          ? {
+              l: bl,
+              r: br,
+              wheel,
+              restL: bl.quaternion.clone(),
+              restR: br.quaternion.clone(),
+              restW: wheel.quaternion.clone(),
+              body: body ?? null,
+              restPos: body ? body.position.clone() : new Vector3(),
+              restQ: body ? body.quaternion.clone() : new Quaternion(),
+              pad: padOf(body?.userData.pad),
+              slides: { chunk: null, targets: new Float64Array(0) },
+              off: { x: 0, z: 0 },
+            }
+          : null,
       wheel: { now: 0, want: 0 },
       wheelFit: null,
       wheelErr: 0,
@@ -534,7 +571,7 @@ export class Typist {
         if (ge) this.gesture(rig, s, a, side, ge, t, d, o.reduced)
       }
     }
-    if (s.mouse) this.mouseVisual(s, chunk, t, o.dt, live)
+    if (s.mouse) this.mouseVisual(s, chunk, t, o.dt, live, live && hasMouse && !o.reduced, jump)
     let mouseWant = false
     if (live && hasMouse && !o.reduced) for (let i = 0; i < chunk.episodes.length; i++) if (t >= chunk.episodes[i].t0 && t <= chunk.episodes[i].t1) mouseWant = true
     a.drive.l.w = a.drive.l.wc = a.drive.r.w = a.drive.r.wc = a.ramp
@@ -819,8 +856,46 @@ export class Typist {
 
   // ------------------------------------------------------------------------------------------------------------- mouse
 
-  private mouseVisual(s: SeatState, chunk: Chunk, t: number, dt: number, live: boolean) {
+  /**
+   * The body slides about its pad with the schedule's slides (the buttons, wheel and shadow ride with it): a function of the chunk and the clock,
+   * clamped to the pad. When the clock jumps, or the body has to come back from where it was left, it moves at most BODY_MAX_SPEED, never a jump.
+   */
+  private moveBody(s: SeatState, chunk: Chunk, t: number, dt: number, on: boolean, snap: boolean) {
     const m = s.mouse!
+    if (!m.body) return
+    let x = 0
+    let z = 0
+    if (on && chunk.slides.length) {
+      if (m.slides.chunk !== chunk) {
+        m.slides.chunk = chunk
+        m.slides.targets = slideTargets(chunk.slides, m.pad)
+      }
+      offsetAt(chunk.slides, m.slides.targets, t, this.off)
+      x = this.off.x
+      z = this.off.z
+    }
+    const cur = m.off
+    if (!snap && dt > 0 && dt < 0.2) {
+      const dx = x - cur.x
+      const dz = z - cur.z
+      const d = Math.hypot(dx, dz)
+      const lim = BODY_MAX_SPEED * dt
+      if (d > lim) {
+        x = cur.x + (dx / d) * lim
+        z = cur.z + (dz / d) * lim
+      }
+    }
+    if (x === cur.x && z === cur.z) return
+    cur.x = x
+    cur.z = z
+    this.v1.set(x, 0, z).applyQuaternion(m.restQ).add(m.restPos)
+    m.body.position.copy(this.v1)
+    m.body.updateMatrixWorld(true)
+  }
+
+  private mouseVisual(s: SeatState, chunk: Chunk, t: number, dt: number, live: boolean, slide: boolean, snap: boolean) {
+    const m = s.mouse!
+    this.moveBody(s, chunk, t, dt, slide, snap)
     // a button is down from its `down` event to the `up` after it, in 40 ms and out in 60 ms
     let pl = 0
     let pr = 0
