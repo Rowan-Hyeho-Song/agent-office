@@ -57,6 +57,8 @@ export const TRAFFIC = {
   /** moving average over this many s, and the blend that joins a replan to where the agent is */
   smoothS: 0.5,
   blendS: 0.5,
+  /** the most the join of a replan to where the body is may add to its speed, as a share of its pace (#339) */
+  joinSpeed: 0.04,
   /** the lane a walker keeps, m to the right of its route, and the pull towards it (s per m) */
   lane: 0.3,
   lanePull: 0.004,
@@ -1184,7 +1186,9 @@ export class TrafficPlanner {
         if (nc < 0 || !Number.isFinite(field[nc])) continue
         const q = centre(g, nc)
         const len = d < 4 ? g.cell : g.cell * Math.SQRT2
-        const dur = len / (V * Math.min(this.speedScale(n.c), this.speedScale(nc)))
+        // the first step leaves from where the body stands, not from its cell's centre: if that is the longer way it takes the time of that real distance (the
+        // nominal one let a start 0.1 m off centre cover 0.32 m in the time of 0.22, a push of up to 1.5 x the cruise, #339). A shorter one keeps the nominal time
+        const dur = (n === root ? Math.max(len, Math.hypot(q.x - px, q.z - pz)) : len) / (V * Math.min(this.speedScale(n.c), this.speedScale(nc)))
         const lat = this.lateral(ctx.ref, q.x, q.z)
         const pen = ctx.lanePull * Math.abs(lat - T.lane) * (len / g.cell)
         const ivs = safeOf(nc)
@@ -1261,6 +1265,8 @@ export class TrafficPlanner {
     const old = a.traj
     const endMove = ways[ways.length - 1].t
     const half = Math.round(T.smoothS / 2 / dt)
+    const fromRest = this.speedAt(old, t) < 0.05
+    const V0 = T.cruise * a.req!.pace
     const nOut = Math.max(2, Math.ceil((endMove - t) / dt) + half + 2)
     // raw samples from t - half*dt (the old trajectory) to the end + padding
     const raw = new Float64Array((nOut + 2 * half + 1) * 2)
@@ -1296,12 +1302,14 @@ export class TrafficPlanner {
         let sx = 0
         let sz = 0
         if (useFilter) {
-          for (let k = -half; k <= half; k++) {
+          // from rest the window is cut to what lies in the new plan (symmetric about i): the first sample is where the body stands, so the join below has nothing to pull
+          const hw = fromRest ? Math.min(half, i) : half
+          for (let k = -hw; k <= hw; k++) {
             sx += raw[(i + half + k) * 2]
             sz += raw[(i + half + k) * 2 + 1]
           }
-          sx /= 2 * half + 1
-          sz /= 2 * half + 1
+          sx /= 2 * hw + 1
+          sz /= 2 * hw + 1
         } else {
           sx = raw[(i + half) * 2]
           sz = raw[(i + half) * 2 + 1]
@@ -1312,8 +1320,10 @@ export class TrafficPlanner {
       // join to where the agent is: no jump, no teleport
       const ex = here.x - xs[0]
       const ez = here.z - zs[0]
+      // the offset is worked off no faster than it adds joinSpeed to the walk (#339): a blend of e metres in blendS seconds is a push of 1.5 e / blendS m/s on top of the cruise
+      const blend = Math.max(T.blendS, (1.5 * Math.hypot(ex, ez)) / (T.joinSpeed * V0))
       for (let i = 0; i < nOut; i++) {
-        const u = Math.min(1, (i * dt) / T.blendS)
+        const u = Math.min(1, (i * dt) / blend)
         const w = 1 - u * u * (3 - 2 * u)
         xs[i] += ex * w
         zs[i] += ez * w

@@ -108,6 +108,9 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
     exempt.some(([s1, s2]) => ((near(a, s1) && near(b, s2)) || (near(a, s2) && near(b, s1))) && Math.hypot(a.x - b.x, a.z - b.z) >= Math.hypot(GRAPH.spots[s1].x - GRAPH.spots[s2].x, GRAPH.spots[s1].z - GRAPH.spots[s2].z) - 0.06)
   const worst: { t: number; d: number; who: string; goals: string; at: string }[] = []
   const planMs: number[] = []
+  // the fastest any body moves (#339): every 50 ms sample's speed, and where the walk goes over the cap
+  let maxSpeed = 0
+  const fast: { t: number; who: string; v: number }[] = []
   const departs = new Map<string, number>()
   // the watering errands (#228): how many entered each stage, and whether two agents ever had one at once
   const errands: Record<string, number> = { fetch: 0, lift: 0, carry: 0, pour: 0, return: 0, put: 0, done: 0 }
@@ -193,6 +196,10 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
       const tt = t + k * 0.05
       const s = AGENTS.map((a) => planner.sample(a, tt))
       samples++
+      s.forEach((q, i) => {
+        if (q.speed > maxSpeed) maxSpeed = q.speed
+        if (q.speed > TRAFFIC.cruise * 1.1) fast.push({ t: tt, who: AGENTS[i], v: q.speed })
+      })
       AGENTS.forEach((a, i) => {
         const spot = GRAPH.spots[goals[a].spot]
         if (!spot || spot.kind !== 'sofa') seatHeld[a] = undefined
@@ -216,5 +223,5 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
     t += step
   }
   planMs.sort((a, b) => a - b)
-  return { min, minExempt, minSeated, minSeatRest, maxSeatDrift, seatPassM: planner.seatPassM, replans, worst, samples, planMs, stats: planner.stats, mismatch: mism, frames, maxWait, longWaits, errands, errandsAtOnce }
+  return { min, minExempt, minSeated, minSeatRest, maxSeatDrift, seatPassM: planner.seatPassM, replans, worst, samples, planMs, maxSpeed, fast, stats: planner.stats, mismatch: mism, frames, maxWait, longWaits, errands, errandsAtOnce }
 }

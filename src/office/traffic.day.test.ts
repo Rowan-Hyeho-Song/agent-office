@@ -37,6 +37,15 @@ describe('a whole day through the planner', () => {
     expect(r.maxSeatDrift).toBeLessThanOrEqual(0.02)
   }, 120_000)
 
+  // #339: no walker is ever pushed past 1.1 x the cruise (replan joins used to give up to 1.5 x)
+  it('nobody walks faster than 1.1 x the cruise', () => {
+    const r = wholeDay()
+    console.log(`day sim (#339): fastest sample ${r.maxSpeed.toFixed(3)} m/s (cruise ${TRAFFIC.cruise}); samples over 1.1 x cruise: ${r.fast.length}`)
+    if (r.fast.length) console.log(JSON.stringify(r.fast.slice(0, 8)))
+    expect(r.fast).toEqual([])
+    expect(r.maxSpeed).toBeLessThanOrEqual(1.1 * TRAFFIC.cruise)
+  }, 120_000)
+
   // #186: what an agent shows is what its body does (one decision in the director), and nobody waits for a spot another holds
   it('shown state and behaviour never disagree; nobody waits more than 60 s for a goal', () => {
     const r = wholeDay()
