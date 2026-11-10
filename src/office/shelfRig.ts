@@ -1,16 +1,16 @@
-// The library's binders in the 3D bookshelf (#65; node table of the Blender PR #73, one row of 21 since #280, room-280.md 9.2). The glb carries 21 binders
-// (3 zones x 7, extras shelf / slot / group) each with a spine band, a label window and a SECRET stamp; the app shows one per filed issue:
-//   shelf_r0_b<k>          body: `binder_cover` cloned per binder (navy; manila when SECRET), `binder_ring` untouched
-//   shelf_r0_b<k>_band     spine colour band = the file's first topic badge colour (+ a little emissive), 15% darker when done
-//   shelf_r0_b<k>_label    window onto one cell (extras cell) of a shared "spines" canvas (extras grid / px): the issue number
-//   shelf_r0_b<k>_secret   stamp: visible on SECRET binders; falls when the document is approved
-//   screen_shelf_r0_g<g>   the zone's name plate (the project); the '+N' tag of a zone with more files than slots is drawn on it
+// The library's binders in the 3D bookshelf (#65; node table of the Blender PR #73, three rows of 21, one row per project, #280, room-280.md 9.2).
+// The glb carries 3 x 21 binders (extras shelf = row r / slot k) each with a spine band, a label window and a SECRET stamp; the app shows one per filed issue:
+//   shelf_r<r>_b<k>        body: `binder_cover` cloned per binder (navy; manila when SECRET), `binder_ring` untouched
+//   shelf_r<r>_b<k>_band     spine colour band = the file's first topic badge colour (+ a little emissive), 15% darker when done
+//   shelf_r<r>_b<k>_label    window onto one cell (extras cell) of a shared "spines" canvas (extras grid / px): the issue number
+//   shelf_r<r>_b<k>_secret   stamp: visible on SECRET binders; falls when the document is approved
+//   screen_shelf_r<r>      the row's name plate (the project; '<name> (이어서)' on a row that carries on); the '+N' of a project with more files than its rows hold is drawn on it
 // In progress: the binder is pulled 3 cm out of the row; awaiting approval: an amber tag (made here, the glb has no node for it) stands on the spine.
-// The last binder of a zone with empty slots to its right leans -8 deg about world z around the body's pivot (its bottom right front corner).
-// Counts, zones and label cells are read from the nodes' extras (library.ts has the defaults); layout and the maths are pure (src/docs/library.ts).
+// The last binder of a row with empty slots to its right leans -8 deg about world z around the body's pivot (its bottom right front corner).
+// Counts, rows and label cells are read from the nodes' extras (library.ts has the defaults); layout and the maths are pure (src/docs/library.ts).
 
 import { BoxGeometry, CanvasTexture, MathUtils, Mesh, MeshBasicMaterial, MeshStandardMaterial, Quaternion, SRGBColorSpace, Vector3, type Material, type Object3D } from 'three'
-import { GROUP_SLOTS, LABEL_GRID, LEAN_DEG, labelCell, type Binder, type ShelfLayout } from '../docs/library'
+import { LABEL_GRID, LEAN_DEG, labelCell, type Binder, type ShelfLayout } from '../docs/library'
 import { meshesOf } from './nodes'
 import { AGENT_INFO } from './world'
 
@@ -35,9 +35,9 @@ interface Slot {
   band: Object3D | null
   label: Object3D | null
   stamp: Object3D | null
-  /** the zone and the place in it, as the glb says */
-  group: number
-  i: number
+  /** the row and the slot along it, as the glb says */
+  r: number
+  k: number
   /** this label's cell in the spines canvas */
   cell: { k: number; r: number }
   /** the amber tag standing on the spine (made here) */
@@ -83,10 +83,10 @@ const num = (v: unknown): number | null => (v !== undefined && v !== null && Num
 
 export class ShelfRig {
   private slots = new Map<string, Slot>()
-  /** the slot of each zone's place: zones[group][i] */
-  private zones: Slot[][] = []
+  /** the slot of each row's place: rows[r][k] */
+  private rows: Slot[][] = []
   private grid = LABEL_GRID
-  /** the plate of each zone (index = group) */
+  /** the plate of each row (index = r) */
   private plates: (Plate | undefined)[] = []
   private labels: { ctx: CanvasRenderingContext2D; texture: CanvasTexture } | null = null
   private drops: Drop[] = []
@@ -100,36 +100,32 @@ export class ShelfRig {
   private tagMaterial = new MeshBasicMaterial({ color: TAG.color, toneMapped: false })
 
   constructor(nodes: Record<string, Object3D>) {
-    // every binder body in the model, shelf_r<r>_b<k>: the zone is its extras group (else k div 7), the slot its extras slot (else k)
+    // every binder body in the model, shelf_r<r>_b<k>: the row is its extras shelf (else the name's r), the slot its extras slot (else the name's k)
     const found = Object.keys(nodes)
-      .map((name) => /^shelf_r(\d+)_b(\d+)$/.exec(name))
+      .map((name) => /^shelf_r([0-9]+)_b([0-9]+)$/.exec(name))
       .filter((m): m is RegExpExecArray => !!m)
       .map((m) => {
         const u = nodes[m[0]].userData
-        const k = num(u.slot) ?? Number(m[2])
-        return { stem: m[0], r: Number(m[1]), k, group: num(u.group) ?? Math.floor(k / GROUP_SLOTS) }
+        return { stem: m[0], r: num(u.shelf) ?? Number(m[1]), k: num(u.slot) ?? Number(m[2]) }
       })
       .sort((a, b) => a.r - b.r || a.k - b.k)
     this.grid = gridOf(
       nodes,
       found.map((f) => `${f.stem}_label`),
     )
-    const placeIn = new Map<number, number>()
     for (const f of found) {
       const stem = f.stem
-      const i = placeIn.get(f.group) ?? 0
-      placeIn.set(f.group, i + 1)
       const label = nodes[`${stem}_label`] ?? null
       const c = label?.userData.cell
-      const cell = Array.isArray(c) && num(c[0]) !== null && num(c[1]) !== null ? { k: Number(c[0]), r: Number(c[1]) } : { k: f.k, r: 0 }
+      const cell = Array.isArray(c) && num(c[0]) !== null && num(c[1]) !== null ? { k: Number(c[0]), r: Number(c[1]) } : { k: f.k, r: f.r }
       const slot: Slot = {
         stem,
         body: nodes[stem] ?? null,
         band: nodes[`${stem}_band`] ?? null,
         label,
         stamp: nodes[`${stem}_secret`] ?? null,
-        group: f.group,
-        i,
+        r: f.r,
+        k: f.k,
         cell,
         tag: null,
         covers: [],
@@ -160,17 +156,15 @@ export class ShelfRig {
       slot.coverColor = slot.covers[0] ? `#${slot.covers[0].color.getHexString()}` : NAVY_FALLBACK
       this.hideAll(slot)
       this.slots.set(stem, slot)
-      ;(this.zones[f.group] ??= [])[i] = slot
+      ;(this.rows[f.r] ??= [])[f.k] = slot
     }
     this.setupLabels()
-    // the plates: screen_shelf_r0_g<g> (extras group), or the old screen_shelf_r<r> read as zone r
+    // the plates: screen_shelf_r<r>, one per row
     for (const name of Object.keys(nodes)) {
-      const m = /^screen_shelf_r(\d+)(?:_g(\d+))?$/.exec(name)
+      const m = /^screen_shelf_r([0-9]+)$/.exec(name)
       if (!m) continue
-      const u = nodes[name].userData
-      const group = num(u.group) ?? (m[2] !== undefined ? Number(m[2]) : Number(m[1]))
-      const aspect = num(u.aspect)
-      this.plates[group] = this.setupPlate(nodes[name], aspect !== null && aspect > 0 ? aspect : 7.1429)
+      const aspect = num(nodes[name].userData.aspect)
+      this.plates[Number(m[1])] = this.setupPlate(nodes[name], aspect !== null && aspect > 0 ? aspect : 8.5714)
     }
   }
 
@@ -194,19 +188,19 @@ export class ShelfRig {
     if (s.tag) s.tag.visible = false
   }
 
-  /** the binder's slot as the glb has it: zone and place, nothing for a place the model does not have */
-  private slotOf(group: number, i: number): Slot | undefined {
-    return this.zones[group]?.[i]
+  /** the binder's slot as the glb has it: row and slot, nothing for a place the model does not have */
+  private slotOf(r: number, k: number): Slot | undefined {
+    return this.rows[r]?.[k]
   }
 
-  /** what the glb holds: the places of each zone (for the tests) */
+  /** what the glb holds: the places of each row (for the tests) */
   get shape(): number[] {
-    return this.zones.map((z) => z.filter(Boolean).length)
+    return this.rows.map((z) => z.filter(Boolean).length)
   }
 
-  /** the node name a binder of this zone and place goes to (for the tests) */
-  stemOf(group: number, i: number): string | undefined {
-    return this.slotOf(group, i)?.stem
+  /** the node name a binder of this row and slot goes to (for the tests) */
+  stemOf(r: number, k: number): string | undefined {
+    return this.slotOf(r, k)?.stem
   }
 
   // ---- labels: one shared canvas, one shared material -------------------------------------------------------------
@@ -243,7 +237,7 @@ export class ShelfRig {
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     for (const b of binders) {
-      const slot = this.slotOf(b.group, b.i)
+      const slot = this.slotOf(b.r, b.k)
       if (!b.label || !slot) continue
       const cell = labelCell(slot.cell.k, slot.cell.r, this.grid)
       const size = b.label.length <= 3 ? 26 : b.label.length === 4 ? 20 : 16
@@ -253,13 +247,13 @@ export class ShelfRig {
     texture.needsUpdate = true
   }
 
-  // ---- zone name plates -------------------------------------------------------------------------------------------
+  // ---- row name plates -------------------------------------------------------------------------------------------
 
   private setupPlate(node: Object3D | undefined, aspect: number): Plate | undefined {
     const mesh = node && meshesOf(node)[0]
     if (!mesh) return undefined
     const c = document.createElement('canvas')
-    c.width = 1024 // 0.25 x 0.035 m at 1024 px/m is 256 px wide; drawn at 4x for a crisp edge
+    c.width = 1024 // 0.30 x 0.035 m at 1024 px/m is 307 px wide; drawn at 4x for a crisp edge
     c.height = Math.max(1, Math.round(1024 / aspect))
     const texture = new CanvasTexture(c)
     texture.flipY = false
@@ -314,10 +308,10 @@ export class ShelfRig {
 
   apply(layout: ShelfLayout, animate = true) {
     this.lastLayout = layout
-    // a binder goes where the glb has a place for its zone and index; a place the model lacks is simply not shown
+    // a binder goes where the glb has a place for its row and slot; a place the model lacks is simply not shown
     const want = new Map<Slot, Binder>()
     for (const b of layout.binders) {
-      const slot = this.slotOf(b.group, b.i)
+      const slot = this.slotOf(b.r, b.k)
       if (slot) want.set(slot, b)
     }
     const nowSecret = new Set(layout.binders.filter((b) => b.secret).map((b) => b.fileKey))
@@ -437,7 +431,7 @@ export class ShelfRig {
   }
 }
 
-/** the plate's text: the project name, and '+N' when the zone holds more files than it has slots (the glb has no divider node to tag) */
+/** the plate's text: the project name, and '+N' when the project has more files than its rows hold */
 export function plateText(name: string, more: number): string {
   return name && more > 0 ? `${name} +${more}` : name
 }

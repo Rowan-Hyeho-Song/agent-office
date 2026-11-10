@@ -119,3 +119,71 @@
 /* the way back to the desk stays above the letterbox (the strip leaves 216px for it) */
 .desk-link { z-index: 25; }
 @media (max-width: 640px) { .desk-link { z-index: auto; } }
+
+/* #362: a day at a time (timelapse.md 10) */
+.replay-day { position: relative; margin: 0 auto; display: flex; align-items: center; gap: var(--space-2); }
+.replay-day .replay-rec { margin-left: var(--space-2); }
+.day-mid { display: flex; align-items: baseline; gap: var(--space-3); }
+.day-btn { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text); background: none; border: 1px solid transparent; padding: 2px var(--space-2); cursor: pointer; line-height: 1.2; white-space: nowrap; }
+.day-btn:hover { border-color: var(--color-cyan); color: var(--color-cyan); }
+.day-btn .replay-date { font-size: var(--font-size-2); }
+.day-time { font-family: var(--font-pixel); font-size: 16px; color: var(--color-text-muted); }
+.day-nav { position: relative; width: 32px; height: 32px; display: grid; place-items: center; padding: 0; font-family: var(--font-pixel); font-size: var(--font-size-2); line-height: 1; color: var(--color-text); background: var(--color-surface-alpha); border: 1px solid var(--color-line); cursor: pointer; clip-path: polygon(0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%); }
+.day-nav:hover:not([aria-disabled='true']) { border-color: var(--color-cyan); color: var(--color-cyan); }
+.day-nav[aria-disabled='true'] { color: var(--color-text-faint); border-color: var(--color-text-faint); cursor: default; }
+.issue-chip { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text); border: 1px solid var(--color-line); background: var(--color-surface-alpha); display: inline-flex; align-items: center; gap: var(--space-2); padding: 0 0 0 var(--space-3); height: 32px; white-space: nowrap; }
+.issue-chip button { width: 32px; height: 30px; font-family: var(--font-pixel); background: none; color: var(--color-text-muted); border: 0; border-left: 1px solid var(--color-line); cursor: pointer; }
+.issue-chip button:hover { color: var(--color-cyan); }
+
+/* the dim over the office picture (between the strips) while the day changes: down in 160 ms, back in 200 ms */
+.replay-fade { position: absolute; left: 0; right: 0; top: var(--replay-top-h); bottom: var(--replay-bottom-h); background: #000; opacity: 0; pointer-events: none !important; transition: opacity 200ms ease-out; }
+.replay-fade.on { opacity: 0.6; transition-duration: 160ms; transition-timing-function: ease-in; }
+:root[data-motion='reduce'] .replay-fade { display: none; }
+@media (prefers-reduced-motion: reduce) { :root:not([data-motion='full']) .replay-fade { display: none; } }
+
+.replay-end { pointer-events: auto !important; display: flex; flex-direction: column; align-items: center; gap: 6px; white-space: normal; padding: 8px 14px; }
+.replay-end .end-text { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text); }
+.replay-end .end-btns { display: flex; gap: var(--space-2); flex-wrap: wrap; justify-content: center; }
+.replay.compact .replay-end { white-space: normal; display: flex; }
+.replay.compact .replay-end .end-btns { flex-wrap: nowrap; }
+.replay.compact .replay-end .replay-btn { padding: 0 var(--space-2); font-size: 11px; }
+
+/* the calendar popover (below the date button) and, on a phone, the bottom sheet */
+.replay-cal { position: fixed; z-index: 6; top: calc(var(--replay-top-h) + 10px); left: 50%; transform: translateX(-50%); width: 296px; background: var(--color-surface-alpha); border: 1px solid var(--color-line); padding: var(--space-2); color: var(--color-text); }
+.replay-cal::before { content: ''; position: absolute; top: -6px; left: calc(50% - 5px); width: 10px; height: 10px; background: var(--color-surface-alpha); border-left: 1px solid var(--color-line); border-top: 1px solid var(--color-line); transform: rotate(45deg); }
+.replay-cal .cal-head { display: flex; align-items: center; gap: var(--space-1); margin-bottom: var(--space-1); }
+.replay-cal h2 { flex: 1; margin: 0; font-family: var(--font-pixel); font-weight: 400; font-size: var(--font-size-1); }
+.replay-cal .cal-nav { width: 32px; height: 32px; font-family: var(--font-pixel); font-size: var(--font-size-2); line-height: 1; color: var(--color-text); background: none; border: 1px solid var(--color-line); cursor: pointer; }
+.replay-cal .cal-nav:hover:not([aria-disabled='true']) { border-color: var(--color-cyan); color: var(--color-cyan); }
+.replay-cal .cal-nav[aria-disabled='true'] { color: var(--color-text-faint); border-color: var(--color-text-faint); cursor: default; }
+.replay-cal table { border-collapse: collapse; table-layout: fixed; width: 100%; }
+.replay-cal th { height: 24px; font-family: var(--font-pixel); font-weight: 400; font-size: 11px; color: var(--color-text-muted); }
+.replay-cal td { padding: 0; }
+.replay-cal .cal-day { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 40px; padding: 0; font-family: var(--font-pixel); font-size: var(--font-size-1); line-height: 1.2; background: none; border: 1px solid transparent; color: var(--color-text-faint); cursor: default; }
+.replay-cal .cal-day.has { color: var(--color-text); cursor: pointer; }
+.replay-cal .cal-day.has:hover { border-color: var(--color-cyan); }
+.replay-cal .cal-day .c { font-size: 11px; color: var(--color-text-muted); }
+.replay-cal .cal-day .bar { position: absolute; left: 6px; right: 6px; bottom: 1px; background: var(--color-text-muted); }
+.replay-cal .cal-day.today { border-color: var(--color-text); }
+.replay-cal .cal-day.on { background: var(--color-text); color: var(--color-ink); }
+.replay-cal .cal-day.on .c { color: var(--color-ink); }
+.replay-cal .cal-day.on .bar { background: var(--color-ink); }
+.replay-cal .cal-day:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 1px; }
+.replay-cal.sheet { top: 48px; bottom: 0; left: 0; right: 0; width: auto; transform: none; overflow: auto; border-width: 1px 0 0; padding: var(--space-3); background: var(--color-surface); }
+.replay-cal.sheet::before { display: none; }
+.replay-cal.sheet table { width: 308px; margin: 0 auto; }
+.replay-cal.sheet .cal-day { height: 44px; }
+.replay-cal.sheet .cal-nav { width: 44px; height: 44px; }
+.replay.compact .day-mid { flex-direction: column; align-items: center; gap: 0; }
+.replay.compact .day-time { font-size: 11px; }
+.replay.compact .day-btn .replay-date { font-size: 16px; }
+.replay.compact .replay-fade { top: 48px; bottom: 124px; }
+.replay.compact .day-nav::before { content: ''; position: absolute; inset: -6px; }
+.replay.compact .day-nav { clip-path: none; }
+
+/* the list's day header: the button to watch that day in the office, and the mark where the office was */
+.replay-list .day-head { display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border-bottom: 1px solid var(--color-line); }
+.replay-list .day-head h3 { background: none; border: 0; flex: 1; }
+.replay-list .day-head .watch { font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); background: none; border: 0; padding: 0 var(--space-3); height: 32px; cursor: pointer; white-space: nowrap; }
+.replay-list .day-head .watch:hover { color: var(--color-cyan); }
+.replay-list .day.mark .day-head { box-shadow: inset 3px 0 0 var(--color-text); }

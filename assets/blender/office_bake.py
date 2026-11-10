@@ -106,6 +106,9 @@ Node contract (the app reads glTF extras):
                                    door); extras press {axis z, sign -1, deg 30, press_s, release_s}; child empty
                                    door_lever_grip (grip_for l, pose wrap)
   hit_turntable                    (#353) empty: the turntable's click box (extras hit, size [0.46, 0.16, 0.36]), axes = the room's
+  prop_paper_grip_side_l|r         empties (#280, paper-pass.md 5): children of prop_paper_a, the long edges 1.5 cm in, 45%
+                                   up from the near edge (grip_for l|r, pose side_read); _contact_thumb (writing face) |
+                                   _contact_index (back), also children of prop_paper_a
   pp_net                           live "bot" (#280 3): the net's navy 1 cm lattice (static; the posts, clamps and white
                                    band are in the lounge atlas)
   nav_<id>                         empties: where agents go and which way they face (navigation); nav_meet_center_*
@@ -1286,10 +1289,10 @@ def place_desk_live(F, entries):
 # (an issue). Each slot is live so the app shows as many binders as there are files, paints the spine band (the
 # agents' colors) and the cover (manila when SECRET), writes the issue number on the label, and drops the SECRET
 # stamp when the owner makes a file public. Rows r0..r2 = shelves 1..3 from the bottom, slots k0..k9 from the left.
-LIB_ROWS = (2,)  # #280 3 (room-280.md 9.2): one full binder shelf, the middle one (y 0.92); was (1, 2, 3)
-LIB_N = 21  # three groups of LIB_GROUP, a graphite divider between them (was 10)
-LIB_GROUP = 7
-SHELFBOOK_ROWS = ((1, 3), (3, 2))  # #280 3: the five books to take, at the right ends of shelves 1 and 3 (2 is all binders)
+LIB_ROWS = (1, 2, 3)  # #280 (user, room-280.md 9.2): three recent projects, one full shelf each; r 0..2 = shelves 1 . 2 . 3
+LIB_N = 21  # a full shelf (was 10, then one shelf of 3 x 7)
+LIB_GROUP = LIB_N  # one project per shelf: no dividers
+SHELFBOOK_ROWS = ((1, 3), (3, 2))  # #280: the five books to take, on the second bookcase (shelf_2), right ends of shelves 1 and 3
 BINDER = (0.045, 0.30, 0.26)  # spine width, height, depth
 BINDER_GAP = 0.004
 LABEL = (0.035, 0.07)  # spine label window = one 64 x 128 px cell of the shared "spines" canvas
@@ -1308,7 +1311,7 @@ def shelf_top(s):
 
 def binder_x(k):
     """left edge of slot k (from the inner face of the shelf's left side)"""
-    return SHELF_X - SHELF_W / 2 + 0.015 + 0.008 + k * (BINDER[0] + BINDER_GAP) + 0.008 * (k // LIB_GROUP)  # + a divider gap per group
+    return SHELF_X - SHELF_W / 2 + 0.015 + 0.008 + k * (BINDER[0] + BINDER_GAP)
 
 
 def rect_ring(name, w, h, t, material, group):
@@ -1368,7 +1371,6 @@ def build_library():
                             torus("ring", 0.009, 0.0016, (cx, y + 0.055, z + 0.0008), ring_m, G, axis="z", seg=10, rseg=3)])
             body = pivot(body, P)
             body["shelf"], body["slot"] = r, k
-            body["group"] = k // LIB_GROUP  # #280 3: the project group (a divider between groups; the app reads it)
             band = pivot(apply_all(box(f"{n}_band", (w + 0.001, 0.03, 0.002), (cx, y + 0.27, z + 0.001), bands[(k + r) % 4], G)), P)
             lab = quad(f"{n}_label", LABEL[0], LABEL[1], label_m, G)
             uv = lab.data.uv_layers[0]
@@ -1382,19 +1384,17 @@ def build_library():
             M = Mx((cx, y + 0.165, z + 0.0025), rz=math.radians(-84))
             st = pivot(apply_all(place(secret_stamp(f"{n}_secret", ink), M)[0]), M)
             out += [(body, "bot"), (band, "bot"), (lab, "bot"), (st, "bot")]
-        # a name plate per group on the shelf's front lip, under its binders (the app writes the project name);
-        # #280 3: screen_shelf_r<r>_g<g> (coder), 0.25 wide under the group's seven
-        for g_ in range(LIB_N // LIB_GROUP):
-            x0, x1 = binder_x(g_ * LIB_GROUP), binder_x(g_ * LIB_GROUP + LIB_GROUP - 1) + w
-            plate = quad(f"screen_shelf_r{r}_g{g_}", 0.25, 0.035, screen_mat(f"shelf_plate_{r}_{g_}", "#efe6d2", 0.25), G)
-            plate = slot(apply_all(place(plate, Mx(((x0 + x1) / 2, 0.08 + s * 0.42 - 0.004, -HZ + 0.01 + SHELF_D + 0.0012)))[0]), 0.25, 0.035)
-            plate["group"] = g_
-            out.append((plate, "screen"))
+        # the project's name plate on the shelf's front lip, in the middle under its binders (the app writes the
+        # name); #280 (room-280.md 9.2): one per shelf again, screen_shelf_r<r> (#67), 0.30 x 0.035
+        x0, x1 = binder_x(0), binder_x(LIB_N - 1) + w
+        plate = quad(f"screen_shelf_r{r}", 0.30, 0.035, screen_mat(f"shelf_plate_{r}", "#efe6d2", 0.25), G)
+        plate = slot(apply_all(place(plate, Mx(((x0 + x1) / 2, 0.08 + s * 0.42 - 0.004, -HZ + 0.01 + SHELF_D + 0.0012)))[0]), 0.30, 0.035)
+        out.append((plate, "screen"))
     return out
 
 
 def library_statics(shelf_m):
-    """baked: per binder shelf, a thin graphite divider between the groups (#280 3, room-280.md 9.2: the row is full,
+    """baked: per binder shelf, a thin graphite divider between the groups (none since one project fills a shelf, #280;
     the old bookend and the books lying flat past it are gone)"""
     G = "wall"
     metal = plastic("#2a2c31", 0.35, 0.8, 0.03, "bookend")
@@ -1589,7 +1589,7 @@ def build_bookcase2(shelf_m):
               box("doc_box_label", (0.12, 0.05, 0.001), (cx, shelf_top(0) + 0.1, zf_ + 0.0005), plastic("#efe6d2", 0.8, 0, 0.05, "doc_box_label"), G),
               box("doc_box_hole", (0.07, 0.02, 0.001), (cx, shelf_top(0) + 0.2, zf_ + 0.0005), hole, G, bev=0.0004, seg=1)]
     # 1: books
-    p += books(1, xl, xr)
+    p += books(1, xl, xr - 0.135)  # #280: the three books to take stand at the right end (prop_shelfbook_0..2)
     # 2: a few records standing at the left, books at the right
     rec_cols = ["#3b4a5a", "#6b3f3a", "#4a5a3f", "#5a4a6b", "#7a6a4a", "#2f3a40", "#8a5a4a", "#4a6a6a"]
     x = xl
@@ -1601,7 +1601,7 @@ def build_bookcase2(shelf_m):
     # 3: a small pothos in the middle (its own plant stream), books either side
     vine = pothos("vine2", sx, shelf_top(3), sz - 0.03, sz + sd / 2, G)  # in the middle: its leaves stay inside the sides
     p += plant_tris("vine2", vine)
-    p += books(3, xl, sx - 0.13) + books(3, sx + 0.13, xr)
+    p += books(3, xl, sx - 0.13) + books(3, sx + 0.13, xr - 0.09)  # #280: prop_shelfbook_3 . 4 at the right end
     # 4: books, then three lying flat at the right
     p += books(4, xl, xr - 0.24)
     yy = shelf_top(4) + 0.0005
@@ -1671,7 +1671,7 @@ def build_wall_items():
             bh = RNG.uniform(0.22, 0.34)
             bd = RNG.uniform(0.2, 0.28)
             col = RNG.choice(book_cols)  # drawn even where the binders stand: the rest of the room keeps its randomness
-            book_room = SHELF_X + SHELF_W / 2 - 0.015 - {1: 0.14, 3: 0.10}.get(s, 0.0)  # #280 3: the books to take stand past it
+            book_room = SHELF_X + SHELF_W / 2 - 0.015  # #280: shelves 1 . 2 . 3 are all binders; the books to take moved to shelf_2
             if s not in LIB_ROWS and x + bw <= book_room:
                 p.append(box("book", (bw, bh, bd), (x + bw / 2, y0 + 0.0125 + bh / 2, sz + 0.02), plastic(col, 0.7, 0, 0.2, "book"), G))
                 p += spine_marks(x + bw / 2, y0 + 0.0125, bw, bh, sz + 0.02 + bd / 2, col)
@@ -3493,7 +3493,7 @@ def build_props():
     # and the front cover (+y) toward -x. A little lean on the outer one
     SBRNG = random.Random(199)
     COVERS = SBRNG.sample(["#c0392b", "#2c3e50", "#16a085", "#8e44ad", "#d4a017", "#34495e", "#e67e22"], 5)
-    right = SHELF_X + SHELF_W / 2 - 0.015 - 0.004  # the shelf's inner right face, a gap
+    right = SHELF2_X + SHELF2_W / 2 - 0.015 - 0.004  # #280 (room-280.md 9.2): the second bookcase's inner right face, a gap
     k = 0
     for row, n in SHELFBOOK_ROWS:  # #280 3: shelves 1 and 3 (3 . 2); shelf 2 is all binders
         x = right
@@ -3507,6 +3507,7 @@ def build_props():
             o = make_book(f"prop_shelfbook_{k}", W_, H_, T, col, pos, (-math.pi / 2, 0.0, math.pi / 2), G)
             o["size"], o["spine"], o["cover"] = [round(W_, 3), round(H_, 3), round(T, 3)], "z", col
             o["shelf_row"], o["shelf_slot"] = row, n - 1 - slot  # from the left among the right-end books
+            o["shelf"] = 2  # #280: on the second bookcase (shelf_2)
             out.append(o)
             x -= T / 2 + 0.002
             k += 1
@@ -3620,6 +3621,18 @@ def build_hands():
         contact(o, "thumb", (0, PAPER[2] / 2, z), (0, 1, 0), nm)
         contact(o, "index", (0, -PAPER[2] / 2, z), (0, -1, 0), nm)
     contact(o, "palm", (0, -PAPER[2] / 2, 0), (0, -1, 0))
+    # #280 (paper-pass.md 5, user: hold it by the sides to read): prop_paper_grip_side_l | _r on the long edges 1.5 cm
+    # in, 45% up from the near short edge (1.5 cm under the fold), children of the near half prop_paper_a (they fold
+    # with it). The reader stands at the near edge facing +z: their right is -x. Thumb on the writing face, index
+    # behind; the fingers reach into the sheet, palm as the other paper grips
+    pa = bpy.data.objects["prop_paper_a"]
+    zs_ = -PAPER[1] / 2 + 0.45 * PAPER[1]
+    for s_, sx in (("r", -1), ("l", 1)):
+        x_ = sx * (PAPER[0] / 2 - 0.015)
+        nm = f"prop_paper_grip_side_{s_}"
+        child_empty(pa, nm, pa.matrix_world @ grip_frame((x_, 0, zs_), (-sx, 0, 0), (0, -1, 0), s_), {"grip_for": s_, "pose": "side_read"})
+        for part, y_, n_ in (("thumb", PAPER[2] / 2, 1), ("index", -PAPER[2] / 2, -1)):
+            child_empty(pa, f"{nm}_contact_{part}", pa.matrix_world @ Matrix.Translation(W(x_, y_, zs_)) @ web_z_along((0, n_, 0)), {"contact": part})
     # paper plane (OK pinch): index and thumb 2 cm from the tail (+z), on the top and bottom faces
     o = O["prop_plane"]
     lo, hi = [min(v.co[k] for v in o.data.vertices) for k in range(3)], [max(v.co[k] for v in o.data.vertices) for k in range(3)]
@@ -4930,7 +4943,9 @@ def build_entry():
     band_m = plastic("#5e4630", 0.98, 0, 0.9, "door_mat_band")
     mx_ = -HX + 0.32
     p += [rounded_slab("door_mat", 0.5, 0.015, 0.8, 0.03, (mx_, 0.0075, DOOR_Z), coir, L2, seg=2),
-          text("door_mat_txt", "AGENT OFFICE", 0.06, (mx_, 0.0158, DOOR_Z), band_m, L2, facing="up", extrude=0.0, rot=math.pi / 2)]
+          # along the mat's long side (by the wall), read from the default camera (user, #280): reading north (-z),
+          # the letters' tops to the wall (-x). rot pi/2 about the vertical (text() used to ignore rot); 7 cm letters
+          text("door_mat_txt", "AGENT OFFICE", 0.07, (mx_, 0.0158, DOOR_Z), band_m, L2, facing="up", extrude=0.0, rot=math.pi / 2)]
     if not _font and os.path.exists(FONT_PATH):  # the pixel letters (lounge-props.md 8): Galmuri, as the stamp
         _font.append(bpy.data.fonts.load(FONT_PATH))
     if _font:
@@ -5276,6 +5291,7 @@ if PREVIEW:
         "lib_row2": ((3.25, 1.05, -2.85), (3.45, 0.95, -3.95)),
         "frames": ((-2.7, 1.6, -0.4), (-4.8, 1.5, -1.0)),
         "door_lever": ((-4.25, 1.2, 3.15), (-4.65, 1.03, 2.85)),
+        "door_mat": ((-3.85, 1.7, 3.25), (-4.48, 0.0, 2.4)),  # #280: the mat from the south-east (as the default camera)
         "wb_close": ((1.55, 1.45, -2.75), (0.8, 1.4, -4.1)),  # #280 3: the whiteboard
         "wb_corner": ((1.8, 1.2, -3.55), (1.55, 1.0, -4.06)),
         "esp_close": ((3.78, 1.32, 0.5), (4.42, 1.1, 0.2)),  # #280 3: the espresso machine (counter at x 4.48, z 0.1, front -x)
@@ -5338,13 +5354,13 @@ if PREVIEW:
     # 1b) the library as the app will show it (#67): rows of 7 / 10 / 4 files, a short row's last binder leaning 8° into
     #     the gap, four SECRET (manila cover + stamp); the others without the stamp. And the IN tray = approval box.
     manila = plastic(MANILA, 0.6, 0, 0.15, "binder_manila")
-    # #280 3: one row of three groups (7 slots each): 6 / 7 / 4 files shown
-    secret = {(0, 2), (0, 9), (0, 15)}
-    shown = (6, 7, 4)
+    # #280: three shelves, one project each: 18 / 21 / 9 files shown
+    secret = {(0, 2), (1, 5), (1, 8), (2, 1)}
+    shown = (18, 21, 9)
     for r in range(len(LIB_ROWS)):
         for k in range(LIB_N):
             parts = [bpy.data.objects[f"shelf_r{r}_b{k}{x}"] for x in ("", "_band", "_label", "_secret")]
-            n = shown[k // LIB_GROUP]
+            n = shown[r]
             if k % LIB_GROUP >= n:
                 for o in parts:
                     o.hide_render = True

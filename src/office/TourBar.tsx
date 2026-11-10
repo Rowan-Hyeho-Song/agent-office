@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { activityLabel, clip, taskOf, taskText, type AgentStatus } from './status'
 import { TOUR } from './tour'
-import { registerTourFade, tour, useTour } from './tourStore'
+import { registerTourFade, tour, useTour, viewAnnouncement } from './tourStore'
 import { AGENT_INFO, type OfficeWorld } from './world'
 
 // The tour's bar (#207, office-ui.md 10.4): bottom centre, 40 px tall, max 480 px: back, who is shown + what they are on,
@@ -62,6 +62,17 @@ export function TourBar({ world }: { world: OfficeWorld }) {
     setSaid(spoken)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, seq])
+
+  // the view toggle (10.6): a mode change is read once; it counts as an announcement for the 5 s rule
+  const firstMode = useRef(true)
+  useLayoutEffect(() => {
+    if (firstMode.current) {
+      firstMode.current = false
+      return
+    }
+    lastSaid.current = Date.now()
+    setSaid(viewAnnouncement(active))
+  }, [active])
 
   const color = cut?.type === 'agent' ? AGENT_INFO[cut.agents[0]]?.color : undefined
   return (

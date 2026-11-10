@@ -376,6 +376,7 @@ button.secret-cover:hover .bar { background: var(--color-line); }
   .dock-label { display: none; }
   .dock-badge { display: grid; }
 }
+@media (max-width: 640px) { body:has(.replay) .desk-link, body:has(.replay) .hud { display: none; } }
 body:has(.replay) .corner-dock, html[data-side='sheet'] .corner-dock { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 160ms ease, visibility 0s 160ms; }
 @media (prefers-reduced-motion: reduce) { .corner-dock { transition: none; } }
 html[data-motion='reduce'] .corner-dock { transition: none; }
@@ -622,6 +623,13 @@ html[data-motion='reduce'] .side-panel, html[data-motion='reduce'] .side-body > 
 @media (pointer: coarse), (max-width: 640px) { .sound-volume { display: none; } .dock-btn.sound-toggle { width: 44px; height: 44px; } }
 @media (prefers-reduced-motion: reduce) { .dock-btn.sound-toggle.flash { animation: none; box-shadow: inset 0 0 0 2px var(--color-cyan); } .sound-volume { transition: none; } }
 html[data-motion='reduce'] .dock-btn.sound-toggle.flash { animation: none; box-shadow: inset 0 0 0 2px var(--color-cyan); }
+/* view toggle (#368, office-ui.md 10.6): top of the dock, the sound button's size and look; free view (pressed) fills the icon ivory */
+.dock-slot#dock-camera { justify-content: flex-end; }
+.dock-btn.view-toggle { flex: none; width: 34px; height: 34px; padding: 0; justify-content: center; background: var(--color-surface-alpha); color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-line); }
+.dock-btn.view-toggle svg { width: 16px; height: 16px; fill: currentColor; }
+.dock-btn.view-toggle[aria-pressed='true'] { color: var(--ivory-dot); }
+.dock-btn.view-toggle:hover, .dock-btn.view-toggle[aria-pressed='true']:hover { box-shadow: inset 0 0 0 1px var(--color-cyan); color: var(--color-cyan); }
+@media (pointer: coarse), (max-width: 640px) { .dock-btn.view-toggle { width: 44px; height: 44px; } }
 /* ?debug=1 sound panel (#194): top left, scrolls on its own */
 .sound-debug { position: fixed; z-index: 40; left: var(--space-4); top: 56px; width: min(380px, calc(100vw - 32px)); max-height: 72vh; overflow: auto;
   padding: var(--space-2) var(--space-3); background: var(--color-surface-alpha); color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-line); font-size: 12px; }

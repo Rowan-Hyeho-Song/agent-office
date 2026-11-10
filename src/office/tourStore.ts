@@ -11,9 +11,11 @@ export interface TourState {
   canBack: boolean
   /** bumps at every cut (the bar keys its announcement on it) */
   seq: number
+  /** the stop button / view toggle was used: no automatic start again until the page is reloaded (in memory, not stored) */
+  autoOff: boolean
 }
 
-let state: TourState = { active: false, cut: null, canBack: false, seq: 0 }
+let state: TourState = { active: false, cut: null, canBack: false, seq: 0, autoOff: false }
 const listeners = new Set<() => void>()
 
 export const getTourState = () => state
@@ -46,10 +48,35 @@ export const tour = {
   stop: (why: 'button' | 'input' = 'input') => commands?.stop(why),
 }
 
-/** the stop button was used: no automatic start again until the page is reloaded (in memory, not stored) */
-let autoOff = false
-export const setTourAutoOff = (b: boolean) => void (autoOff = b)
-export const tourAutoOff = () => autoOff
+/** the stop button / view toggle was used: no automatic start again (lives in the store so the dock button can show it) */
+export const setTourAutoOff = (b: boolean) => setTourState({ autoOff: b })
+export const tourAutoOff = () => state.autoOff
+
+// The dock's view toggle (#368, office-ui.md 10.6): the icon shows the CURRENT mode, the label names the mode a press goes to.
+export interface ViewToggleModel {
+  icon: 'camera' | 'cursor'
+  label: string
+  title: string
+  /** aria-pressed: true in free view */
+  pressed: boolean
+  description?: string
+}
+export function viewToggleModel(s: Pick<TourState, 'active' | 'autoOff'>): ViewToggleModel {
+  if (s.active) return { icon: 'camera', label: '자유 시점으로 둘러보기', title: '자유 시점', pressed: false }
+  if (s.autoOff) {
+    const t = '둘러보기 시작 (이 탭에서는 자동 꺼 둠)'
+    return { icon: 'cursor', label: '둘러보기 시작', title: t, pressed: true, description: t }
+  }
+  return { icon: 'cursor', label: '둘러보기 시작', title: '둘러보기', pressed: true }
+}
+/** pressing it: during a tour it stops in place like the bar's stop (and the tab does not restart it); in free view it starts at once and clears that flag */
+export function pressViewToggle() {
+  if (state.active) return tour.stop('button')
+  setTourAutoOff(false)
+  tour.start()
+}
+/** the line the live region reads after the mode changes */
+export const viewAnnouncement = (active: boolean) => (active ? '둘러보기 시작' : '자유 시점')
 
 /** the black for the 0.3 s fade cut: the bar component owns the element, the rig sets its opacity */
 let fadeEl: HTMLElement | null = null
