@@ -37,6 +37,8 @@ export interface BaseIn {
   late?: boolean
   /** the omok thinker's hand at the chin */
   chin?: boolean
+  /** the wrap-up's piece decides the face (writing: focused, tapping the pen / thinking at the board: thinking) */
+  wrap?: Expression
 }
 
 /** the state expression (the lowest tier) */
@@ -45,6 +47,7 @@ export function baseExpression(i: BaseIn): Expression {
   if (i.night === 'sleep') return 'asleep'
   if (i.night === 'duty') return 'sleepy'
   if (i.chin) return 'thinking'
+  if (i.wrap) return i.wrap
   if (i.state === 'working') {
     if (i.activity === 'think') return 'thinking'
     if (i.activity === 'edit' || i.activity === 'test' || i.activity === 'build') return 'focused'
