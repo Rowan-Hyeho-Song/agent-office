@@ -27,7 +27,6 @@ export const DEG = Math.PI / 180
 // ---- when it starts and ends --------------------------------------------------------------------------------------
 
 export const TOUR = {
-  idleMs: 45_000,
   /** the cut that is on keeps running at least this long before an event may cut in */
   interruptAfterMs: 4000,
   eventWindowMs: 15_000,

@@ -1,17 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { pressViewToggle, registerTour, setTourAutoOff, setTourState, tour, tourAutoOff, viewAnnouncement, viewToggleModel } from './tourStore'
+import { pressViewToggle, registerTour, setTourState, tour, tourTick, viewAnnouncement, viewToggleModel } from './tourStore'
 
 const fake = () => {
   const c = {
     start: vi.fn(() => setTourState({ active: true })),
     next: vi.fn(),
     prev: vi.fn(),
-    // like TourRig.stopTour: the button reason sets the no-restart flag
-    stop: vi.fn((why?: 'button' | 'input') => {
-      if (why === 'button') setTourAutoOff(true)
-      setTourState({ active: false })
-    }),
+    stop: vi.fn(() => setTourState({ active: false })),
   }
   registerTour(c)
   return c
@@ -19,22 +15,17 @@ const fake = () => {
 
 afterEach(() => {
   registerTour(null)
-  setTourState({ active: false, autoOff: false })
+  setTourState({ active: false })
 })
 
 describe('view toggle label and icon (office-ui.md 10.6)', () => {
   it('touring: camera icon, names free view, not pressed', () => {
-    expect(viewToggleModel({ active: true, autoOff: false })).toEqual({ icon: 'camera', label: '자유 시점으로 둘러보기', title: '자유 시점', pressed: false })
+    expect(viewToggleModel({ active: true })).toEqual({ icon: 'camera', label: '자유 시점으로 둘러보기', title: '자유 시점', pressed: false })
   })
   it('free view: cursor icon, names the tour, pressed', () => {
-    const m = viewToggleModel({ active: false, autoOff: false })
+    const m = viewToggleModel({ active: false })
     expect(m).toMatchObject({ icon: 'cursor', label: '둘러보기 시작', title: '둘러보기', pressed: true })
     expect(m.description).toBeUndefined()
-  })
-  it('free view with the tab flag: the title and description say why it does not start by itself', () => {
-    const m = viewToggleModel({ active: false, autoOff: true })
-    expect(m.title).toBe('둘러보기 시작 (이 탭에서는 자동 꺼 둠)')
-    expect(m.description).toBe(m.title)
   })
   it('announcements', () => {
     expect(viewAnnouncement(true)).toBe('둘러보기 시작')
@@ -43,36 +34,61 @@ describe('view toggle label and icon (office-ui.md 10.6)', () => {
 })
 
 describe('pressing it', () => {
-  it('during a tour: stops like the bar stop and the tab does not restart it', () => {
+  it('during a tour: stops like the bar stop', () => {
     const c = fake()
     setTourState({ active: true })
     pressViewToggle()
-    expect(c.stop).toHaveBeenCalledWith('button')
+    expect(c.stop).toHaveBeenCalledTimes(1)
     expect(c.start).not.toHaveBeenCalled()
-    expect(tourAutoOff()).toBe(true)
-    expect(viewToggleModel({ active: false, autoOff: tourAutoOff() }).icon).toBe('cursor')
+    expect(viewToggleModel({ active: false }).icon).toBe('cursor')
   })
-  it('in free view: starts the tour at once and clears the flag', () => {
+  it('in free view: starts the tour at once', () => {
     const c = fake()
-    setTourAutoOff(true)
     pressViewToggle()
     expect(c.start).toHaveBeenCalledTimes(1)
-    expect(tourAutoOff()).toBe(false)
-    expect(viewToggleModel({ active: true, autoOff: false }).icon).toBe('camera')
-  })
-  it('an input-ended tour leaves no flag (the 45 s restart stays)', () => {
-    fake()
-    setTourState({ active: true })
-    tour.stop('input')
-    expect(tourAutoOff()).toBe(false)
+    expect(viewToggleModel({ active: true }).icon).toBe('camera')
   })
   it('can go off and on again in a row', () => {
-    fake()
+    const c = fake()
     setTourState({ active: true })
     pressViewToggle()
     pressViewToggle()
     pressViewToggle()
-    expect(tourAutoOff()).toBe(true)
+    expect(c.stop).toHaveBeenCalledTimes(2)
+    expect(c.start).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('the tour never starts by itself (#427)', () => {
+  it('two minutes without any input: the 0.4 s clock never starts it; the view toggle and an agent name do', () => {
+    const c = fake()
+    // TourRig's clock: every 0.4 s it asks tourTick, which only stops a tour that has to give way
+    for (let t = 0; t <= 120_000; t += 400) {
+      const s = tourTick({ active: false, controls: true, busy: false, panel: false })
+      expect(s).toBeNull()
+      if (s === 'stop') tour.stop()
+    }
+    expect(c.start).not.toHaveBeenCalled()
+    // the dock's view toggle
+    pressViewToggle()
+    expect(c.start).toHaveBeenCalledTimes(1)
+    setTourState({ active: false })
+    // an agent's name in the list (AgentList: tour.start(agent))
+    tour.start('agent_2')
+    expect(c.start).toHaveBeenLastCalledWith('agent_2')
+  })
+  it('a running tour still gives way: no controls, the door animation, a side panel', () => {
+    expect(tourTick({ active: true, controls: true, busy: false, panel: false })).toBeNull()
+    expect(tourTick({ active: true, controls: false, busy: false, panel: false })).toBe('stop')
+    expect(tourTick({ active: true, controls: true, busy: true, panel: false })).toBe('stop')
+    expect(tourTick({ active: true, controls: true, busy: false, panel: true })).toBe('stop')
+    expect(tourTick({ active: false, controls: false, busy: true, panel: true })).toBeNull()
+  })
+  it('no idle wait left in the code that could start it', () => {
+    const rig = readFileSync(new URL('./TourRig.tsx', import.meta.url), 'utf8')
+    expect(rig).not.toMatch(/idleMs|lastInput|tourIdle/)
+    const tourTs = readFileSync(new URL('./tour.ts', import.meta.url), 'utf8')
+    expect(tourTs).not.toMatch(/idleMs/)
   })
 })
 
