@@ -7,7 +7,7 @@
 // the meeting), asks the traffic planner for them and replans. The ticks depend only on the replay's own state, never on the
 // frame length, so x1 and x16 run the identical sequence and agree on every position and pose at the same tau.
 
-import type { Goal } from '../office/director'
+import { Director, type Goal } from '../office/director'
 import type { MeetingRunner } from '../office/meetingRun'
 import type { DocMeta } from '../docs/library'
 import { requestOf } from '../office/director'
@@ -19,7 +19,8 @@ import { replayGoals, scriptFor } from './scene'
 import { minutesLoading } from './minutesInfo'
 import type { ReplayStore } from './store'
 import { HOLD_CAP_MS, MINUTES_HOLD_CAP_MS } from './store'
-import { REPLAY_PACE, stageSpot, WALK_HOLD_MS } from './walk'
+import { atMs } from './engine'
+import { REPLAY_PACE, stageSpot, WALK_HOLD_MS, WALK_MPS } from './walk'
 
 /** the longest piece of replay time one tick covers, ms */
 export const TICK_MS = 50
@@ -37,7 +38,18 @@ export interface StageEnv {
   spot?: (id: string) => { x: number; z: number } | null
   /** a 1:1 row of a minutes point starts: hand a paper from one agent to the other (the scene's PaperPlanes, paper-pass.md) */
   pass?: (from: string, to: string) => void
+  /** the replay's own day (errands, play, rest: a Director that only this stage feeds); one is made when none is given */
+  life?: Director
 }
+
+/** a walk is judged by the straight line times this (a route is longer than the line) */
+const ROUTE_FACTOR = 1.3
+/**
+ * The longest a walk to a new schedule spot may take before the body is put there instead, replay ms (timelapse.md 12.2). The bodies walk on the replay
+ * clock, so a walk takes the same replay time at x1, x4 and x16 (the speed only runs that clock faster): "the walk would not end before the next point"
+ * does not depend on the speed here, and the room has no route near this long, so in practice only the x16 / reduced-motion rules put a body down.
+ */
+const WALK_CAP_MS = 30_000
 
 const seatOf = (id: string) => Number(id.split('_')[1])
 
@@ -52,10 +64,15 @@ export class Stage {
   private speed: number
   /** the pass row that was handed over last (one pass per row) */
   private passed = ''
+  private life: Director
+  /** what each body's goal was last tick: its place, whether a meeting steered it, whether it was at the board */
+  private last = new Map<string, { key: string; meet: boolean; board: boolean }>()
+  private placedNow: string[] = []
 
   constructor(private env: StageEnv) {
     env.store.hold = this.holdCap
     this.speed = env.store.getSnapshot().speed
+    this.life = env.life ?? new Director([...env.ids])
   }
 
   get planner() {
@@ -82,6 +99,17 @@ export class Stage {
   /** the replay time the screen shows: the committed clock plus what the current frame has not spent yet, ms */
   get now() {
     return this.env.store.clock + this.pending
+  }
+  /** the replay's KST time at the shown clock, ms: the point's own time plus what has passed since the playhead landed on it (the one clock the scene follows, 12.1) */
+  get time() {
+    const p = this.env.store.point
+    return p ? atMs(p) + Math.max(0, this.now - this.env.store.landedClock) : 0
+  }
+  /** the bodies that were put at their new place this tick (a schedule change at x16 and the like): the scene blurs each for 0.15 s. Read once */
+  takePlaced(): string[] {
+    const out = this.placedNow
+    this.placedNow = []
+    return out
   }
   /** the committed clock (what the last tick computed), ms */
   get clock() {
@@ -140,15 +168,31 @@ export class Stage {
 
   private arrivedAt = (id: string, tau: number) => (this.env.planner.has(id) ? this.env.planner.sample(id, tau / 1000).arrived : null)
 
+  /** the new schedule spot is too far to walk to (see WALK_CAP_MS) */
+  private tooFar(id: string, g: Goal, tau: number): boolean {
+    const { planner } = this.env
+    const to = g.slot ?? this.env.spot?.(g.spot)
+    const from = planner.has(id) ? planner.position(id, tau / 1000) : null
+    if (!to || !from) return false
+    return ((Math.hypot(to.x - from.x, to.z - from.z) * ROUTE_FACTOR) / WALK_MPS) * 1000 > WALK_CAP_MS
+  }
+
   /** the goals at the clock, and the planner's requests for them (`place` = stand there at once) */
   private evaluate(snap: boolean) {
     const { store, planner, meeting, ids, door } = this.env
     const scene = store.scene()
     if (!scene) return
     const tau = store.clock
+    const reduced = this.env.reduced()
+    const T = atMs(scene.point) + Math.max(0, tau - store.landedClock)
     const spots: Record<string, string> = {}
-    for (const id of ids) spots[id] = this.env.reduced() ? `work_${seatOf(id)}` : stageSpot(scene.point, seatOf(id))
-    const goals = replayGoals(scene.status, spots)
+    for (const id of ids) spots[id] = reduced ? `work_${seatOf(id)}` : stageSpot(scene.point, seatOf(id))
+    // the day at the replay's own time (12.1): the schedule of the live day run on the replay's clock, the replay's own statuses, nothing live
+    const life = this.life.goals(T, Math.floor(T / 60_000), scene.status, (a) => this.arrivedAt(a, tau), { reduced })
+    // the director's departures are in its own clock (the replay's time); the planner's are in tau
+    for (const id of ids) if (life[id]?.depart !== undefined) life[id] = { ...life[id], depart: life[id].depart! - T + tau }
+    const goals = replayGoals(life, spots)
+    const base = { ...goals }
     const place = { at: (a: string) => (planner.has(a) ? planner.position(a, tau / 1000) : null), spot: (sp: string) => this.env.spot?.(sp) ?? null }
     // a minutes point is timed for the speed it plays at (timelapse.md 11.4): a change of speed times the rest of its rows again
     const speed = store.getSnapshot().speed
@@ -170,8 +214,17 @@ export class Stage {
       if (!g || g.pose === 'leave') continue
       // a staggered departure is in replay ms, the planner runs on replay seconds
       const req = requestOf(g, REPLAY_PACE, g.depart !== undefined ? g.depart / 1000 : undefined)
-      if (snap) planner.place(id, req, tau / 1000, seatOf(id))
-      else planner.request(id, req, tau / 1000, seatOf(id))
+      const key = g.slot ? `${g.spot}|${g.slot.x.toFixed(2)},${g.slot.z.toFixed(2)}` : g.spot
+      const now = { key, meet: goals[id] !== base[id], board: g.spot === 'whiteboard' }
+      const was = this.last.get(id)
+      this.last.set(id, now)
+      // a change of the schedule (rest, play, work, night) is walked at x1 / x4 and put down at x16, with reduced motion, or when the walk would not end before the
+      // schedule moves on (12.2); a meeting's and the board's movements are events and always walk
+      const schedule = !!was && was.key !== key && !was.meet && !now.meet && !was.board && !now.board
+      if (snap || (schedule && (speed >= 16 || reduced || this.tooFar(id, g, tau)))) {
+        planner.place(id, req, tau / 1000, seatOf(id))
+        if (!snap) this.placedNow.push(id)
+      } else planner.request(id, req, tau / 1000, seatOf(id))
     }
     planner.update(tau / 1000)
     this.goals = goals

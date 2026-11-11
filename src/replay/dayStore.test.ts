@@ -11,7 +11,6 @@ import { dayId } from './days'
 import { atMs, issueRange, prepare } from './engine'
 import { Stage } from './stage'
 import { FADE_OUT_MS, ReplayStore } from './store'
-import { stageSpot } from './walk'
 
 const OFFICE = 'Rowan-Hyeho-Song/agent-office'
 const HUB = 'Rowan-Hyeho-Song/rowansong.dev'
@@ -168,12 +167,11 @@ describe('the fade hides the change (timelapse.md 10.4)', () => {
 describe('teleport: nobody walks in when the replay opens or the day changes', () => {
   const planner = () => new TrafficPlanner(buildGrid(decodeFootprint(FOOTPRINT_DATA), GRAPH), GRAPH)
   const IDS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
-  const standingAtScene = (stage: Stage, s: ReplayStore) => {
-    const scene = s.scene()!
+  const standingAtScene = (stage: Stage) => {
+    // timelapse.md 12: the scene's place for a body is its goal at that time (the schedule's, not always its desk), and it stands on it
     for (const id of IDS) {
-      const seat = Number(id.split('_')[1])
       const sample = stage.sample(id)
-      expect(sample.arrived).toBe(stageSpot(scene.point, seat))
+      expect(sample.arrived).toBe(stage.goals[id].spot)
       expect(sample.moving).toBe(false)
     }
   }
@@ -183,7 +181,7 @@ describe('teleport: nobody walks in when the replay opens or the day changes', (
     const stage = new Stage({ store: s, planner: planner(), meeting: new MeetingRunner(), ids: IDS, reduced: () => false, spot: (id) => GRAPH.spots[id] ?? null })
     expect(s.getSnapshot().playing).toBe(true)
     stage.begin()
-    standingAtScene(stage, s)
+    standingAtScene(stage)
   })
   it('a day change is a seek landing: the stage puts everyone at the new scene in the same frame', async () => {
     const s = await opened({ project: 'all', day: '2026-11-07' })
@@ -194,7 +192,7 @@ describe('teleport: nobody walks in when the replay opens or the day changes', (
       s.selectDay(day)
       expect(s.landedVia).toBe('seek')
       stage.frame(16)
-      standingAtScene(stage, s)
+      standingAtScene(stage)
     }
   })
 })

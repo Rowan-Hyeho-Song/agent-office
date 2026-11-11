@@ -125,7 +125,12 @@ interface Cur {
   end: number
   /** the rows play where everyone is (a 1:1 or a lone agent of the timelapse's minutes, timelapse.md 11): no gathering, no dispersal */
   inPlace: boolean
+  /** a walking 1:1 (timelapse.md 12.3): the sender stands beside the receiver for the rows, then goes back to what the schedule says */
+  walk: { from: number; to: number; stand: { spot: string; slot?: Slot } | null } | null
 }
+
+/** how far beside the receiver the walking sender stands, m (timelapse.md 12.3; the desk-side spots are about this far from the seat) */
+export const WALK_BESIDE_M = 0.8
 
 export class MeetingRunner {
   private cur: Cur | null = null
@@ -170,8 +175,11 @@ export class MeetingRunner {
     const trimmed = script.minutes ? trimMinutes(script, script.seats.filter(here)) : trimScript(script, script.seats.filter(here))
     const owner = trimmed.lines.some((l) => l.from === 'owner')
     if (!trimmed.lines.length || trimmed.seats.length + (owner ? 1 : 0) < 2 || trimmed.seats.length < 1) return false
-    const inPlace = !!trimmed.minutes && trimmed.minutes.mode !== 'gather'
-    this.cur = { script: trimmed, phase: inPlace ? 'lines' : 'gather', since: now, t0: now, postAt: null, pinnedAt: null, plan: null, leave: new Map(), end: Infinity, inPlace }
+    const mode = trimmed.minutes?.mode
+    const inPlace = !!trimmed.minutes && mode !== 'gather' && mode !== 'walk'
+    const first = trimmed.lines.find((l) => typeof l.from === 'number')
+    const walk = mode === 'walk' && first && typeof first.from === 'number' ? { from: first.from, to: trimmed.seats.find((x) => x !== first.from) ?? first.from, stand: null } : null
+    this.cur = { script: trimmed, phase: inPlace ? 'lines' : 'gather', since: now, t0: now, postAt: null, pinnedAt: null, plan: null, leave: new Map(), end: Infinity, inPlace, walk }
     return true
   }
 
@@ -257,6 +265,7 @@ export class MeetingRunner {
     if (!c) return
     const { script } = c
     if (c.inPlace) return this.applyInPlace(c, now, goals, door)
+    if (c.walk) return this.applyWalk(c, c.walk, now, arrivedAt, goals, place)
     const plan = this.planOf(c, goals, place)
     const planner = this.status[id(PLANNER)] && this.status[id(PLANNER)].state !== 'off' ? PLANNER : null
     const there = (seat: number) => arrivedAt(id(seat)) === seatLabel(seat)
@@ -347,6 +356,43 @@ export class MeetingRunner {
       const l = goals[id(seat)]?.label
       if (l && MEET_SET.has(l)) this.shownWords[id(seat)] = l
     }
+  }
+
+  /**
+   * A 1:1 of several rows (timelapse.md 12.3): the first row's sender walks to the receiver (its desk side, else 0.8 m from where the schedule has it), the
+   * two speak their rows there, and when the rows are over the sender is handed back to the schedule, which walks it home. The receiver stops what it was
+   * doing (a play pose is put down) and turns to the sender.
+   */
+  private applyWalk(c: Cur, w: NonNullable<Cur['walk']>, now: number, arrivedAt: (agent: string) => string | null, goals: Record<string, Goal>, place?: Place) {
+    const { script } = c
+    const me = id(w.from)
+    const you = id(w.to)
+    if (!goals[me] || !goals[you] || me === you) return this.finish(now)
+    const rg = goals[you]
+    const atDesk = rg.spot === `work_${w.to}`
+    if (!w.stand) {
+      let stand: { spot: string; slot?: Slot } = { spot: `desk_side_${w.to}` }
+      if (!atDesk) {
+        // the receiver is at a play / rest spot: stand 0.8 m from it, on the side of the circle (the planner finds the free cell nearest)
+        const at = rg.slot ?? place?.spot(rg.spot)
+        const toward = place?.spot('meet_center') ?? { x: 0, z: 0 }
+        if (at) {
+          const d = Math.hypot(toward.x - at.x, toward.z - at.z) || 1
+          const x = at.x + ((toward.x - at.x) / d) * WALK_BESIDE_M
+          const z = at.z + ((toward.z - at.z) / d) * WALK_BESIDE_M
+          stand = { spot: `beside_${w.to}`, slot: { x, z, ry: Math.atan2(-(at.x - x), -(at.z - z)) } }
+        }
+      }
+      w.stand = stand
+    }
+    const stand = w.stand
+    if (c.phase === 'gather' && (arrivedAt(me) === stand.spot || now - c.since > GATHER_MS)) this.go('lines', now)
+    if (c.phase === 'lines' && now - c.t0 >= script.linesMs) return this.finish(now)
+    const frame = c.phase === 'lines' ? frameAt(script, now - c.t0) : null
+    const speaking = (seat: number) => !!frame && frame.speaker === seat
+    goals[you] = { ...rg, pose: rg.pose === 'doze' ? 'doze' : atDesk ? 'listen' : 'idle', gaze: me, label: speaking(w.to) ? MEET_WORDS.talk : MEET_WORDS.listen }
+    goals[me] = { spot: stand.spot, ...(stand.slot ? { slot: stand.slot } : {}), pose: frame ? 'talk' : 'idle', gaze: you, label: !frame ? MEET_WORDS.gather : speaking(w.from) ? MEET_WORDS.talk : MEET_WORDS.listen }
+    for (const k of [me, you]) this.shownWords[k] = goals[k].label
   }
 
   /** the rows of a minutes point that does not gather: everyone stays at their seat, the speaker's receiver turns to it (or to the door) */

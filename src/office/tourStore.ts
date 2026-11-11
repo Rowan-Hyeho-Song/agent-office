@@ -11,11 +11,9 @@ export interface TourState {
   canBack: boolean
   /** bumps at every cut (the bar keys its announcement on it) */
   seq: number
-  /** the stop button / view toggle was used: no automatic start again until the page is reloaded (in memory, not stored) */
-  autoOff: boolean
 }
 
-let state: TourState = { active: false, cut: null, canBack: false, seq: 0, autoOff: false }
+let state: TourState = { active: false, cut: null, canBack: false, seq: 0 }
 const listeners = new Set<() => void>()
 
 export const getTourState = () => state
@@ -34,8 +32,7 @@ export interface TourCommands {
   start(agent?: string): void
   next(): void
   prev(): void
-  /** `button`: the stop button, which also keeps the tour from starting by itself again in this tab */
-  stop(why?: 'button' | 'input'): void
+  stop(): void
 }
 let commands: TourCommands | null = null
 export const registerTour = (c: TourCommands | null) => void (commands = c)
@@ -45,12 +42,17 @@ export const tour = {
   start: (agent?: string) => commands?.start(agent),
   next: () => commands?.next(),
   prev: () => commands?.prev(),
-  stop: (why: 'button' | 'input' = 'input') => commands?.stop(why),
+  stop: () => commands?.stop(),
 }
 
-/** the stop button / view toggle was used: no automatic start again (lives in the store so the dock button can show it) */
-export const setTourAutoOff = (b: boolean) => setTourState({ autoOff: b })
-export const tourAutoOff = () => state.autoOff
+/**
+ * What the tour's clock (TourRig, every 0.4 s) does (#427): it only ever ENDS a running tour that has to give way (no controls, the door's
+ * animation, a side panel). It never starts one: the tour starts from the dock's view toggle or an agent's name in the list, nothing else
+ * (no start after a quiet spell any more).
+ */
+export function tourTick(s: { active: boolean; controls: boolean; busy: boolean; panel: boolean }): 'stop' | null {
+  return s.active && (!s.controls || s.busy || s.panel) ? 'stop' : null
+}
 
 // The dock's view toggle (#368, office-ui.md 10.6): the icon shows the CURRENT mode, the label names the mode a press goes to.
 export interface ViewToggleModel {
@@ -61,18 +63,13 @@ export interface ViewToggleModel {
   pressed: boolean
   description?: string
 }
-export function viewToggleModel(s: Pick<TourState, 'active' | 'autoOff'>): ViewToggleModel {
+export function viewToggleModel(s: Pick<TourState, 'active'>): ViewToggleModel {
   if (s.active) return { icon: 'camera', label: '자유 시점으로 둘러보기', title: '자유 시점', pressed: false }
-  if (s.autoOff) {
-    const t = '둘러보기 시작 (이 탭에서는 자동 꺼 둠)'
-    return { icon: 'cursor', label: '둘러보기 시작', title: t, pressed: true, description: t }
-  }
   return { icon: 'cursor', label: '둘러보기 시작', title: '둘러보기', pressed: true }
 }
-/** pressing it: during a tour it stops in place like the bar's stop (and the tab does not restart it); in free view it starts at once and clears that flag */
+/** pressing it: during a tour it stops in place like the bar's stop; in free view it starts at once */
 export function pressViewToggle() {
-  if (state.active) return tour.stop('button')
-  setTourAutoOff(false)
+  if (state.active) return tour.stop()
   tour.start()
 }
 /** the line the live region reads after the mode changes */
