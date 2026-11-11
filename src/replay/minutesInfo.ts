@@ -60,3 +60,12 @@ export function minutesExtraMs(p: Point, speed: number): number {
   }
   return Math.max(0, ms - MINUTES_MS)
 }
+
+/**
+ * A minutes point whose library document is on its way (#414 review): the playhead waits on it like on a meeting (the meeting starts
+ * when the document is there), so a slow library does not let the point pass as a plain 3 s one. Cleared when the meeting starts or
+ * the playhead moves on.
+ */
+let loading: Point | null = null
+export const setMinutesLoading = (p: Point | null) => void (loading = p)
+export const minutesLoading = () => loading

@@ -5,7 +5,7 @@ import { setClockClick, setClockTime } from '../office/clock'
 import { prefersReducedMotion, type OfficeWorld } from '../office/world'
 import { atMs } from './engine'
 import type { Point } from '../timeline/types'
-import { noteMinutes } from './minutesInfo'
+import { noteMinutes, setMinutesLoading } from './minutesInfo'
 import { minutesDocOf, scriptFor } from './scene'
 import { startMinutes } from './stage'
 import { replay } from './store'
@@ -66,22 +66,48 @@ export function ReplayDriver({ world }: { world: OfficeWorld }) {
       return { meta, convs }
     }
     // the rows of this day's minutes points are counted ahead (the remaining time includes them, timelapse.md 11.4)
+    // (tableOf reads the library's list first when it is not there yet, so a late library still counts these rows)
     let preloaded: readonly Point[] | null = null
     const preload = (win: readonly Point[]) => {
-      if (win === preloaded || !world.library?.getSnapshot().metas) return
+      if (win === preloaded || !world.library) return
       preloaded = win
       void (async () => {
         for (const p of win.filter((q) => q.kind === 'minutes').slice(0, 40)) {
           const { meta, convs } = await tableOf(p)
           if (replay.points !== win) return
-          noteMinutes(p, scriptFor(p, meta, convs, false))
+          if (meta) noteMinutes(p, scriptFor(p, meta, convs, false))
         }
       })()
     }
+
+    // the meeting of a minutes point (timelapse.md 11): its rows, from the clock it starts at. The playhead waits on the point while the
+    // document loads (minutesLoading), so however the point was reached and however slow the library, it plays as rows, not as 3 s
+    let startedFor: Point | null = null
+    const playMinutes = (p: Point, at: number) => {
+      startedFor = p
+      setMinutesLoading(p)
+      void (async () => {
+        // a failed read plays the point's fallback scene (no document) instead of holding the playhead
+        const { meta, convs } = await tableOf(p).catch(() => ({ meta: undefined, convs: null }))
+        // the playhead moved on while the document was loading
+        if (replay.point !== p) return
+        setMinutesLoading(null)
+        // reduced motion: the rows are bubbles at the seats, nobody gathers or passes (timelapse.md 11.4)
+        const reduced = prefersReducedMotion()
+        if (meta) noteMinutes(p, scriptFor(p, meta, convs, false))
+        startMinutes(world.meeting, p, meta, convs, at, replay.scene()!.status, replay.getSnapshot().speed, reduced)
+      })()
+    }
+
     let was = replay.getSnapshot().mode
+    let wasPlaying = replay.getSnapshot().playing
     let lastPoint: unknown = null
     const sync = () => {
       const s = replay.getSnapshot()
+      // pressing play on a minutes point the playhead was put on (a share link, the day view, a seek): its rows play from here
+      const p = replay.point
+      if (s.mode === 'office' && s.playing && !wasPlaying && p?.kind === 'minutes' && startedFor !== p && !world.meeting.busy) playMinutes(p, replay.clock)
+      wasPlaying = s.playing
       if (s.mode === 'office') {
         preload(replay.points)
         world.board.lock(replay.scene()?.board ?? null)
@@ -99,20 +125,13 @@ export function ReplayDriver({ world }: { world: OfficeWorld }) {
     const off = [
       replay.subscribe(sync),
       replay.onPoint((p, via) => {
-        // seeking (drag, keys) only changes the state; a scene starts when the replay plays the point (design 8)
+        // seeking (drag, keys) only changes the state; a scene starts when the replay plays the point (design 8), or when play is pressed on it (sync)
         world.meeting.stop()
+        startedFor = null
+        setMinutesLoading(null)
         if (via !== 'play' || p.kind !== 'minutes') return
         // the meeting starts at the clock of the landing, however long its body takes to load
-        const at = replay.landedClock
-        void (async () => {
-          const { meta, convs } = await tableOf(p)
-          // the playhead moved on while the body was loading
-          if (replay.point !== p) return
-          // reduced motion: the rows are bubbles at the seats, nobody gathers or passes (timelapse.md 11.4)
-          const reduced = prefersReducedMotion()
-          noteMinutes(p, scriptFor(p, meta, convs, false))
-          startMinutes(world.meeting, p, meta, convs, at, replay.scene()!.status, replay.getSnapshot().speed, reduced)
-        })()
+        playMinutes(p, replay.landedClock)
       }),
     ]
     // debug only: window.__replay.open({ project, t }) / .seek(i) / .points / .scene() for screenshot scripts

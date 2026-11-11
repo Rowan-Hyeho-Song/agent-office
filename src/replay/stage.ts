@@ -16,6 +16,7 @@ import { TrafficPlanner, type Sample } from '../office/traffic'
 import type { Point } from '../timeline/types'
 import { passOf } from '../office/minutes'
 import { replayGoals, scriptFor } from './scene'
+import { minutesLoading } from './minutesInfo'
 import type { ReplayStore } from './store'
 import { HOLD_CAP_MS, MINUTES_HOLD_CAP_MS } from './store'
 import { REPLAY_PACE, stageSpot, WALK_HOLD_MS } from './walk'
@@ -66,7 +67,17 @@ export class Stage {
   }
 
   /** how long the next point may wait (replay ms): for a meeting, or briefly for walkers */
-  holdCap = () => (this.env.meeting.busy ? (this.env.meeting.script?.minutes ? MINUTES_HOLD_CAP_MS : HOLD_CAP_MS) : this.walking ? WALK_HOLD_MS : 0)
+  holdCap = () =>
+    this.env.meeting.busy
+      ? this.env.meeting.script?.minutes
+        ? MINUTES_HOLD_CAP_MS
+        : HOLD_CAP_MS
+      : // a minutes point whose document is still loading waits for its meeting (ReplayDriver starts it when the document is there)
+        minutesLoading()
+        ? MINUTES_HOLD_CAP_MS
+        : this.walking
+          ? WALK_HOLD_MS
+          : 0
 
   /** the replay time the screen shows: the committed clock plus what the current frame has not spent yet, ms */
   get now() {
