@@ -1347,7 +1347,8 @@ export class AgentRig {
       case 'books':
         return { pitch: this.goal?.read ? (this.goal.read.stage === 'read' ? -0.3 : -0.1) : 0.2, yaw: 0, roll: 0 }
       case 'pingpong':
-        return { pitch: -0.05, yaw: s(5.5) * 0.12, roll: 0 }
+        // no ball to follow without a game: a slow look across the table instead of the rally's quick turns (#416 ②)
+        return { pitch: -0.05, yaw: s(0.6) * 0.08, roll: 0 }
       default:
         return idle
     }
@@ -1560,9 +1561,10 @@ export class AgentRig {
       case 'post':
         return side === 'r' ? at(0.12, 1.42 + s(2.5) * 0.03, -0.32, this.reachAt(side, v(0.12, 1.42, -0.32), v(0, 0, -1)), HOLD_POSE) : at(rest.x, rest.y, rest.z)
       case 'pingpong':
-        return side === 'r'
-          ? at(0.26 + s(5.5) * 0.12, 0.92, -0.3 - Math.cos(t * 5.5 + this.phase) * 0.1 * m, qy(s(5.5) * 0.6), HOLD_POSE)
-          : at(-0.24, 0.88, -0.12)
+        // waiting at the table, the hands still and open (#416 ②): the strokes are the paddle grip's, drawn by PlayStage only while a game
+        // runs (rallyAt); this pose used to swing the empty fist like one and showed whenever there was no game (the partner not there
+        // yet, the timelapse)
+        return side === 'r' ? at(0.24, 0.9, -0.26) : at(-0.24, 0.88, -0.12)
       case 'boardgame': {
         const reach = Math.max(0, s(1.4)) ** 4
         return side === 'r'
