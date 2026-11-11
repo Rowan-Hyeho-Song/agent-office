@@ -44,6 +44,17 @@ export function rowsOf(script: MeetingScript): RowBase[] {
   return script.lines.map(({ startMs: _s, typeMs: _t, holdMs: _h, pass: _p, gap: _g, readAt: _r, ...l }) => l)
 }
 
+/**
+ * The library's document of a minutes point (#414): the minutes of that issue filed from the same comment, which the library dates
+ * with the comment's time, as the point is. An issue with several minutes comments has one document each: matching by the issue
+ * alone played the first one's rows for every point. undefined when the library has none (a point with no issue, or not loaded).
+ */
+export function minutesDocOf(metas: readonly DocMeta[] | null | undefined, p: Point): DocMeta | undefined {
+  if (p.issue === null || !metas) return undefined
+  const at = Date.parse(p.at)
+  return metas.find((m) => m.kind === 'minutes' && m.repo === p.project && m.folder === p.issue && Math.abs(Date.parse(m.created_at) - at) < 1000)
+}
+
 /** the cover of a minutes point when the library has no such document: an invented scene, the words as bars */
 export function coverMeta(p: Point): DocMeta {
   let id = 0

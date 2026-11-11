@@ -18,7 +18,7 @@ import type { Point } from '../timeline/types'
 import agentOffice from '../timeline/fixtures/agent-office.json'
 import { atMs } from './engine'
 import { minutesExtraMs, noteMinutes, progressText } from './minutesInfo'
-import { scriptFor } from './scene'
+import { minutesDocOf, scriptFor } from './scene'
 import { Stage, startMinutes } from './stage'
 import { ReplayStore } from './store'
 
@@ -322,5 +322,45 @@ describe('a 1:1 row hands a paper over on the stage', () => {
     expect(passOf(s, 0)).toEqual({ key: '41:1-1', from: 1, to: 2 })
     expect(passOf(s, 5)).toBeNull()
     expect(passOf(scriptFor(point, meta(), three, false), 0)).toBeNull()
+  })
+})
+
+describe('which document a minutes point plays (#414 review: the words came out as bars)', () => {
+  const at = (p: Point, t: string, issue = 414): Point => ({ ...p, project: 'o/r', issue, at: t })
+  const docs = [
+    meta({ id: 1, created_at: '2026-11-10T01:00:00Z' }),
+    meta({ id: 2, created_at: '2026-11-10T05:30:00Z' }),
+    meta({ id: 3, folder: 999, created_at: '2026-11-10T05:30:00Z' }),
+    meta({ id: 4, kind: 'plan', created_at: '2026-11-10T05:30:00Z' }),
+  ]
+
+  it('the minutes filed from the same comment: same issue, same time (an issue has one document per minutes comment)', () => {
+    expect(minutesDocOf(docs, at(point, '2026-11-10T05:30:00Z'))?.id).toBe(2)
+    expect(minutesDocOf(docs, at(point, '2026-11-10T01:00:00Z'))?.id).toBe(1)
+    // the old match took the issue's first minutes for every point of it
+    expect(minutesDocOf(docs, at(point, '2026-11-10T09:00:00Z'))).toBeUndefined()
+    expect(minutesDocOf(null, at(point, '2026-11-10T05:30:00Z'))).toBeUndefined()
+    expect(minutesDocOf(docs, { ...at(point, '2026-11-10T05:30:00Z'), issue: null })).toBeUndefined()
+  })
+
+  it('a public, approved document plays its real words (not bars), in bubbles, on the door and in the caption', () => {
+    const p = at(point, '2026-11-10T05:30:00Z')
+    const s = scriptFor(p, minutesDocOf(docs, p), three, false)
+    expect(s.masked).toBe(false)
+    expect(s.lines.some((l) => /█/.test(l.text))).toBe(false)
+    expect(s.lines[0].text).toBe('타임랩스 회의록을 줄마다 보여 주자.')
+    const l = s.lines[2]
+    expect(frameAt(s, l.startMs + l.typeMs + 1).door!.text).toBe('> 주인 → 휴: 진행해 주세요')
+    expect(scriptFor(p, minutesDocOf(docs, p), two(2), false, 16).lines.every((x) => !x.masked)).toBe(true)
+  })
+
+  it('a document the library holds back (SECRET: in review, waiting for the owner): the rows when this viewer can read them (the owner), the words as bars; a visitor gets no rows: an invented scene of bars', () => {
+    const p = at(point, '2026-11-10T05:30:00Z')
+    const review = meta({ id: 2, created_at: '2026-11-10T05:30:00Z', grade: 'review', approved: false, readable: true })
+    const owner = scriptFor(p, minutesDocOf([review], p), three, false)
+    expect(owner.lines.map((l) => l.from)).toEqual([1, 2, 'owner', 3, 3])
+    expect(owner.lines.every((l) => l.masked)).toBe(true)
+    const visitor = scriptFor(p, minutesDocOf([{ ...review, readable: false }], p), null, false)
+    expect(visitor.lines.every((l) => /^[█ ]+$/.test(l.text))).toBe(true)
   })
 })

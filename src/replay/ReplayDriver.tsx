@@ -6,7 +6,7 @@ import { prefersReducedMotion, type OfficeWorld } from '../office/world'
 import { atMs } from './engine'
 import type { Point } from '../timeline/types'
 import { noteMinutes } from './minutesInfo'
-import { scriptFor } from './scene'
+import { minutesDocOf, scriptFor } from './scene'
 import { startMinutes } from './stage'
 import { replay } from './store'
 
@@ -53,7 +53,7 @@ export function ReplayDriver({ world }: { world: OfficeWorld }) {
     // the library's document of a minutes point and its table's rows (null rows: SECRET / private, or not loaded)
     const tableOf = async (p: Point) => {
       const lib = world.library
-      const meta = p.issue === null ? undefined : lib?.getSnapshot().metas?.find((m) => m.kind === 'minutes' && m.repo === p.project && m.folder === p.issue)
+      const meta = minutesDocOf(lib?.getSnapshot().metas, p)
       let convs = null
       if (meta && meta.readable && meta.grade !== 'private') {
         await lib!.ensure([meta.id])
