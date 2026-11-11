@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Point } from '../timeline/types'
 import officeFile from '../timeline/fixtures/agent-office.json'
-import hubFile from '../timeline/fixtures/rowansong.dev.json'
+import hubFile from '../timeline/fixtures/test/rowansong.dev.2026-11-08.json'
 import { ALL, approvalsAt, deployTitle, describe as describePoint, whoKind, daybreakMs, doorFor, flipText, indexAt, isDaybreak, issueRange, laneOf, layoutX, prepare, projectFrom, remainingMs, sceneAt, shelfAt, statusAt, stepMs, valueText, whenText } from './engine'
 
 const OFFICE = 'Rowan-Hyeho-Song/agent-office'

@@ -70,7 +70,7 @@ export interface TaskConfig {
 }
 export const DEFAULT_TASK_CONFIG: TaskConfig = {
   repos: ['Rowan-Hyeho-Song/agent-office', 'Rowan-Hyeho-Song/rowansong.dev'],
-  publicRepos: ['Rowan-Hyeho-Song/agent-office'],
+  publicRepos: ['Rowan-Hyeho-Song/agent-office', 'Rowan-Hyeho-Song/rowansong.dev'],
 }
 export const MAX_ISSUE = 1_000_000
 
