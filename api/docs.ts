@@ -7,7 +7,7 @@ import { signals } from '../src/server/signal.js'
 // Environment (Vercel → Project → Settings → Environment Variables; see docs/deploy.md):
 //   SUPABASE_URL, SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY)   same as /api/events
 //   OFFICE_DOCS_TOKEN      long random string; the Action sends it as "Authorization: Bearer …"
-//   OFFICE_PUBLIC_REPOS    comma separated "owner/name" whose documents are public (default: this repo)
+//   OFFICE_PUBLIC_REPOS    comma separated "owner/name" whose documents are public (default: this repo and rowansong.dev, #424)
 //   OFFICE_BANNED_WORDS    comma separated words to hide (company names …); kept out of the repo
 // Tables: supabase/docs.sql
 
@@ -20,7 +20,7 @@ const list = (v: string | undefined) =>
     .filter(Boolean)
 const cfg = {
   token: process.env.OFFICE_DOCS_TOKEN ?? '',
-  publicRepos: list(process.env.OFFICE_PUBLIC_REPOS ?? 'Rowan-Hyeho-Song/agent-office'),
+  publicRepos: list(process.env.OFFICE_PUBLIC_REPOS ?? 'Rowan-Hyeho-Song/agent-office,Rowan-Hyeho-Song/rowansong.dev'),
   banned: list(process.env.OFFICE_BANNED_WORDS),
 }
 

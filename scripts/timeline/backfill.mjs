@@ -2,7 +2,7 @@
 //
 //   GITHUB_TOKEN=$(gh auth token) node scripts/timeline/backfill.mjs <owner/name> [--dry-run] [--out file | --send]
 //   env  GITHUB_TOKEN (or the gh CLI's login; never printed or written)
-//        OFFICE_PUBLIC_REPOS   comma separated public repos (default: this one); everything else is review
+//        OFFICE_PUBLIC_REPOS   comma separated public repos (default: this one and rowansong.dev, #424); everything else is review
 //        OFFICE_PRIVATE_REPOS  comma separated private repos: nothing is collected
 //        OFFICE_BANNED_WORDS   words to hide, same as /api/docs
 //   --dry-run  only the summary (points per kind, attribution), no file
@@ -31,7 +31,7 @@ if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo) || (args.includes('--out') && !out
 }
 const list = (v) => (v ?? '').split(',').map((s) => s.trim()).filter(Boolean)
 const cfg = {
-  publicRepos: list(process.env.OFFICE_PUBLIC_REPOS ?? 'Rowan-Hyeho-Song/agent-office'),
+  publicRepos: list(process.env.OFFICE_PUBLIC_REPOS ?? 'Rowan-Hyeho-Song/agent-office,Rowan-Hyeho-Song/rowansong.dev'),
   privateRepos: list(process.env.OFFICE_PRIVATE_REPOS),
   banned: list(process.env.OFFICE_BANNED_WORDS),
 }

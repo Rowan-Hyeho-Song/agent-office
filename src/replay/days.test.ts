@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import agentOffice from '../timeline/fixtures/agent-office.json'
-import hub from '../timeline/fixtures/rowansong.dev.json'
+import hub from '../timeline/fixtures/test/rowansong.dev.2026-11-08.json'
 import type { Point } from '../timeline/types'
 import { adjacentDay, announceText, barHeight, cellName, dayId, dayText, daysOf, endText, hourTicks, monthRange, monthWeeks, moveFocus, navLabel, openingDay, pickDay, shiftMonth } from './days'
 import { atMs, prepare } from './engine'

@@ -41,7 +41,7 @@ SQL Editor에서 **이 순서로** 한 번씩 실행합니다. 모두 다시 실
 | `SUPABASE_SECRET_KEY` | 서버 키 | 같음(브라우저에 안 감) |
 | `OFFICE_HOOK_TOKEN` | 0단계 값 | `/api/events`, `/api/approvals`(결재 훅) |
 | `OFFICE_DOCS_TOKEN` | 0단계 값 | `/api/docs` |
-| `OFFICE_PUBLIC_REPOS` | `Rowan-Hyeho-Song/agent-office` (기본값과 같아 생략 가능) | `/api/docs` 등급 |
+| `OFFICE_PUBLIC_REPOS` | `Rowan-Hyeho-Song/agent-office,Rowan-Hyeho-Song/rowansong.dev` (기본값과 같아 생략 가능. #424: rowansong.dev 저장소는 비공개지만 사무실에서는 공개로 보임) | `/api/docs` · `/api/timeline` · `/api/events` 등급 |
 | `OFFICE_BANNED_WORDS` | 가릴 낱말을 쉼표로(회사 이름 등). 없으면 비움 | `/api/docs` 필터 |
 | `OFFICE_OWNER_GITHUB_ID` | 내 GitHub 숫자 ID | `/api/approve` 주인 확인 |
 | `GITHUB_ISSUES_TOKEN` | 0단계 세분화 토큰 | `/api/approve` 결재 댓글 |
