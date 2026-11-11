@@ -31,10 +31,12 @@ import { atMs } from '../replay/engine'
 import { boardDistance, REPLAY_PACE } from '../replay/walk'
 import { replayDoorLine } from '../replay/scene'
 import { DrawnTrack, lineMode, Stage } from '../replay/stage'
+import { landingFaces } from '../replay/faces'
 import { setLineSub, type LineSub } from '../replay/lineSub'
 import { setMinutesProgress } from '../replay/minutesInfo'
 import { STAMP_MS } from './props'
-import { ANXIOUS_AFTER_MS, ownerConnected } from './faceMind'
+import { ANXIOUS_AFTER_MS } from './faceMind'
+import { greetsOwner, questionFaceFor } from './liveFace'
 import { isLateHour } from './duty'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
 import { groundAt, readRugs, type Rug } from './ground'
@@ -167,6 +169,9 @@ export function Agents({ world }: { world: OfficeWorld }) {
   world.rigs = rigs
   // the scene clock of the last frame: the faces' events (messages, decisions) start on it
   const sceneT = useRef(0)
+  /** the landing whose face cues were fired (a replay's own events), and until when (real s) each body put down at once is blurred */
+  const faceSeen = useRef(-1)
+  const blurUntil = useRef<Record<string, number>>({})
   const lateAt = useRef(-1)
   for (const id in rigs) {
     const seat = Number(id.split('_')[1])
@@ -183,7 +188,9 @@ export function Agents({ world }: { world: OfficeWorld }) {
         // the timelapse's papers are its own (the minutes rows); a live handoff does not fly among the replayed bodies
         if (!stage.current) planes.receive(m)
         // a talk asked of someone who is busy at work: the one who asked stands there puzzled (robots.md 4, 의문)
-        if (m.kind === 'talk' && world.source.getSnapshot()[m.to]?.state === 'working') rigs[m.from]?.faceEvent('question', sceneT.current)
+        // (nothing live touches the replayed bodies: no live question face while the timelapse plays, #428)
+        const asker = questionFaceFor(!!stage.current, m, world.source.getSnapshot())
+        if (asker) rigs[asker]?.faceEvent('question', sceneT.current)
       }),
     [world, planes, rigs],
   )
@@ -202,7 +209,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
     let prev: string | null = src.role()
     return src.subscribe(() => {
       const next = src.role()
-      if (ownerConnected(prev, next)) for (const id in rigs) rigs[id].faceEvent('greeting', sceneT.current)
+      if (greetsOwner(!!stage.current, prev, next)) for (const id in rigs) rigs[id].faceEvent('greeting', sceneT.current)
       prev = next
     })
   }, [world, rigs])
@@ -310,7 +317,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
     const lateKey = Math.floor(now / 500)
     if (lateKey !== lateAt.current) {
       lateAt.current = lateKey
-      for (const id in rigs) rigs[id].lateHour = isLateHour(now, Number(id.split('_')[1]))
+      // the replay's faces come from its own statuses (night: asleep / sleepy), not from the live clock
+      for (const id in rigs) rigs[id].lateHour = !st && isLateHour(now, Number(id.split('_')[1]))
     }
     // approvals (#64): a request waiting over 30 minutes worries its agent; one that is gone makes the requester proud
     if (!st) {
@@ -321,7 +329,18 @@ export function Agents({ world }: { world: OfficeWorld }) {
       }
       for (const seat of waitingBefore.current) if (!extra.waitingSeats.includes(seat)) rigs[`agent_${seat}`]?.faceEvent('proud', t)
       waitingBefore.current = extra.waitingSeats
-    } else for (const id in rigs) rigs[id].anxious = false
+    } else for (const id in rigs) rigs[id].anxious = !!scene?.waitingSeats.includes(Number(id.split('_')[1]))
+    // the timelapse's faces (#428, timelapse.md 12.4): the rig reads only the replay's own state, and the point that just landed fires its events
+    for (const id in rigs) rigs[id].replayFace = !!st
+    if (st && scene && faceSeen.current !== replay.landings) {
+      faceSeen.current = replay.landings
+      for (const c of landingFaces(scene.point)) rigs[`agent_${c.seat}`]?.faceEvent(c.expr, t, c.dur)
+    }
+    if (st) {
+      // a schedule change put down at once (x16, reduced motion, too far to walk): that body alone blurs for 0.15 s
+      for (const id of st.takePlaced()) blurUntil.current[id] = t + 0.15
+      for (const id in rigs) rigs[id].blur = (blurUntil.current[id] ?? 0) > t
+    } else for (const id in rigs) if (blurUntil.current[id]) (blurUntil.current[id] = 0), (rigs[id].blur = false)
     const desk = scene
       ? deskProps({
           ...world.props.getSnapshot(),
@@ -388,7 +407,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
     }
     // the hands: play from the office clock (nothing of it in the timelapse), grips on everything that is held or touched
     playStage.update({
-      now,
+      // the replay's games run on the replay's own time (the schedule at that KST time, 12.1), never the live clock
+      now: st ? st.time : now,
       t: st ? st.now / 1000 : t,
       dt: Math.min(dt, 0.1),
       reduced,
@@ -493,7 +513,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
     const anchors: Record<string, Anchor> = {}
     const tags: TagItem[] = []
     // the replay shows the past: no live night / duty state (sleepers' z, status tags) reaches the bubble layer
-    const status = replaying ? {} : world.source.getSnapshot()
+    const status = replaying ? (replay.scene()?.status ?? {}) : world.source.getSnapshot()
     for (const id in rigs) {
       const rig = rigs[id]
       head.set(rig.group.position.x, rig.parts.head.position.y + 0.3, rig.group.position.z).project(state.camera)

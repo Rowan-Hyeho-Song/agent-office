@@ -754,6 +754,12 @@ export class AgentRig {
   anxious = false
   /** the late hour before it dozes (#193): set by the scene from the office's KST clock */
   lateHour = false
+  /**
+   * The timelapse (#428, timelapse.md 12.4): the face is decided by the replayed office alone. The statuses it gets are the replay's; nothing is read from the
+   * wall clock (a rest that lasted days would be "bored" for good, a "prompt after two idle minutes" would fire on every landing), the live results, the
+   * coming to work, the road's yield and the giver's yield / smile do not fire, and a private point's work shows as the work it is.
+   */
+  replayFace = false
   /** the giver's face (#262): 'yield' or 'happy' until `until` (scene time); side = +1 when the receiver is on the viewer's right */
   private giveFace: { mood: 'yield' | 'happy'; until: number; side: number; fired: boolean } | null = null
   giverFace(mood: 'yield' | 'happy', until: number, side: number) {
@@ -930,8 +936,11 @@ export class AgentRig {
     return this.path.length === 0 && this.at !== EXIT ? this.at : null
   }
 
+  /** the timelapse puts this body down at once: it is not drawn for the 0.15 s of the blur (timelapse.md 12.2) */
+  blur = false
+
   get hidden() {
-    return this.at === EXIT
+    return this.at === EXIT || this.blur
   }
 
   /** the remaining route as floor points, for the debug overlay */
@@ -2043,13 +2052,13 @@ export class AgentRig {
     const gf = this.giveFace
     if (gf && !gf.fired) {
       gf.fired = true
-      this.mind.fire(gf.mood === 'yield' ? 'yielding' : 'joy', t, Math.max(0, gf.until - t))
+      if (!this.replayFace) this.mind.fire(gf.mood === 'yield' ? 'yielding' : 'joy', t, Math.max(0, gf.until - t))
     }
     if (!this.face) return
     const i = this.faceIn
     const mind = this.mind
     // events from what the statuses say
-    const lr = status?.lastResult
+    const lr = this.replayFace ? undefined : status?.lastResult
     if (lr && lr.at !== this.seenResult) {
       this.seenResult = lr.at
       if (Date.now() - lr.at < 8_000) {
@@ -2058,17 +2067,17 @@ export class AgentRig {
       }
     }
     const online = !!status && status.state !== 'off'
-    if (this.wasOnline === false && online) mind.fire('greeting', t) // coming to work
+    if (this.wasOnline === false && online && !this.replayFace) mind.fire('greeting', t) // coming to work
     this.wasOnline = online
     // called out of the blue (#314): a prompt after over two minutes without work: surprised, then a nod
-    if (status && this.called.step(status.state === 'working' || status.state === 'wrapping', status.activity, status.since, Date.now())) {
+    if (!this.replayFace && status && this.called.step(status.state === 'working' || status.state === 'wrapping', status.activity, status.since, Date.now())) {
       const s = Math.max(1.2, this.gestureMin)
       mind.fire('surprised', t, s)
       mind.nod(t + s, 1)
     }
     // a yield on the road (#138): a smile and the arrow, once per cue
     const cue = this.track?.cue
-    if (cue && cue.kind === 'yield' && cue.gesture) {
+    if (!this.replayFace && cue && cue.kind === 'yield' && cue.gesture) {
       const start = t - cue.age
       if (Math.abs(start - this.yieldAt) > 0.5) mind.fire('yielding', t, cue.dur)
       this.yieldAt = start
@@ -2084,7 +2093,17 @@ export class AgentRig {
       if (!reduced && wb?.kind === 'strike') mind.fire('question', t, 0.6)
       if (!reduced && wb?.kind === 'final') mind.fire('proud', t, 1)
     }
-    i.base = baseExpression({ pose, state: status?.state, activity: status?.activity, night: status?.night, idleMs: status ? Date.now() - status.since : 0, chin: this.chin, late: this.lateHour, wrap: wrapFace })
+    const rp = this.replayFace
+    i.base = baseExpression({
+      pose,
+      state: status?.state,
+      activity: rp && status?.activity === 'private' ? 'edit' : status?.activity,
+      night: status?.night,
+      idleMs: rp || !status ? 0 : Date.now() - status.since,
+      chin: this.chin,
+      late: !rp && this.lateHour,
+      wrap: wrapFace,
+    })
     i.talk = this.faceTalk.listening ? 'nodding' : null
     i.speaking = this.faceTalk.speaking
     i.anxious = this.anxious
