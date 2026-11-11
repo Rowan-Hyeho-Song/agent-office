@@ -1,23 +1,84 @@
-# DRAFT (#81): new timelapse points on every push to dev / main (docs/plan.md 6.7). Not enabled: it only runs by
-# hand (workflow_dispatch) and sends nothing until the office is deployed. At deployment: uncomment the push
-# trigger, add scripts/timeline/event.mjs (pushed commits -> build.mjs `collect` -> POST { points } to
-# OFFICE_TIMELINE_URL; the server filters again, like /api/docs) and the secrets OFFICE_TIMELINE_URL and
-# OFFICE_DOCS_TOKEN.
-name: office timeline (draft)
+# Timelapse points (#81, #413, docs/plan.md 6.7) → /api/timeline, like the documents (docs.yml).
+#   push to dev    its commits → work points (+ the decision rows of the docs it touched)
+#   push to main   its commits that are not on dev → deploy points
+#   issues         opened / edited → the plan point
+#   issue_comment  created / edited on an issue → minutes (+ decisions) or an approval point
+# The server filters again (author, tier, words) and keys are stable, so a point sent twice stays one. Uses only the
+# docs secrets: OFFICE_DOCS_TOKEN, and OFFICE_DOCS_URL whose sibling …/api/timeline is the address (scripts/timeline/send.mjs).
+# Without them the job does nothing and succeeds.
+name: office timeline
 
 on:
+  push:
+    branches: [dev, main]
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
+  # by hand only (needs write access): re-collect the whole history (#413, scripts/timeline/backfill.mjs --send)
   workflow_dispatch:
-  # push:
-  #   branches: [dev, main]
+    inputs:
+      dry_run:
+        description: 'dry run (send nothing, print the counts)'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
-  pull-requests: read
   issues: read
+  pull-requests: read
+
+concurrency:
+  group: office-timeline-${{ github.event.issue.number || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    # the same gate as docs.yml (#38: this repo is public): an issue or comment only from the owner / collaborators, not on a
+    # PR; a push needs write access already. event-points.mjs and /api/timeline check the author again.
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'issues' &&
+        contains(fromJSON('["OWNER","COLLABORATOR"]'), github.event.issue.author_association)) ||
+      (github.event_name == 'issue_comment' && !github.event.issue.pull_request &&
+        contains(fromJSON('["OWNER","COLLABORATOR"]'), github.event.comment.author_association))
     timeout-minutes: 5
     steps:
-      - run: echo "draft - nothing is sent"
+      - uses: actions/checkout@v4
+        with:
+          # always the default branch's scripts: a pushed branch must not run its own edited copy with the secrets
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: |
+            scripts/timeline
+            scripts/docs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/timeline/event.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OFFICE_DOCS_URL: ${{ secrets.OFFICE_DOCS_URL }}
+          OFFICE_DOCS_TOKEN: ${{ secrets.OFFICE_DOCS_TOKEN }}
+
+  # the whole history, run by hand (#413, like docs.yml's #400 backfill): the same builder and filter, the default branch's
+  # scripts only, nothing but the existing secrets. dry_run (default on) prints the counts and what would be left out.
+  backfill:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: |
+            scripts/timeline
+            scripts/docs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/timeline/backfill.mjs "$GITHUB_REPOSITORY" ${{ inputs.dry_run && '--dry-run' || '--send' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OFFICE_DOCS_URL: ${{ secrets.OFFICE_DOCS_URL }}
+          OFFICE_DOCS_TOKEN: ${{ secrets.OFFICE_DOCS_TOKEN }}

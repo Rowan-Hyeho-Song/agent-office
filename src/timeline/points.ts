@@ -3,8 +3,10 @@
 
 import { redact } from '../docs/filter.js'
 import { sha256Hex } from './sha256.js'
-import { POINT_KINDS, type Point, type PointInput } from './types.js'
+import { POINT_KINDS, type Point, type PointInput, type Seat } from './types.js'
 
+/** every seat (types.ts Seat; supabase/timeline.sql checks 0-4): #413 the sound engineer's seat 4 was refused here */
+const SEATS: readonly Seat[] = [0, 1, 2, 3, 4]
 export const TRUSTED = ['OWNER', 'COLLABORATOR']
 export const APPROVERS = ['OWNER']
 const TITLE_MAX = 200
@@ -46,7 +48,7 @@ export function toPoint(p: PointInput, cfg: PointConfig): Point | null {
     project: p.project,
     at: new Date(p.at).toISOString().replace(/\.\d{3}Z$/, 'Z'),
     kind: p.kind,
-    agent: p.agent === 0 || p.agent === 1 || p.agent === 2 || p.agent === 3 ? p.agent : null,
+    agent: SEATS.includes(p.agent as Seat) ? p.agent : null,
     title: secret ? '' : t.text,
     secret,
     additions: count(p.additions),
@@ -78,7 +80,7 @@ export function parsePointInput(x: unknown): PointInput | null {
   if (typeof p.key !== 'string' || p.key.length > 300 || !p.key.toLowerCase().startsWith(`https://github.com/${p.project.toLowerCase()}/`)) return null
   if (!isDate(p.at)) return null
   if (!(POINT_KINDS as readonly unknown[]).includes(p.kind)) return null
-  if (!(p.agent === null || p.agent === 0 || p.agent === 1 || p.agent === 2 || p.agent === 3)) return null
+  if (!(p.agent === null || SEATS.includes(p.agent as Seat))) return null
   if (typeof p.title !== 'string' || p.title.length > 400) return null
   if (![p.additions, p.deletions, p.files, p.issue, p.pr].every(nullable)) return null
   if (p.result !== undefined && p.result !== true) return null
