@@ -34,6 +34,13 @@ describe('/api/timeline handler', () => {
     expect(rows[0]).toMatchObject({ tier: 'public', secret: false, title: 'feat: 하나 (#1)', agent: 3 })
     expect(rows[0]).not.toHaveProperty('author')
   })
+  it('every seat 0-4 is stored, the sound seat 4 included (#413: it was refused and took its batch down)', async () => {
+    const { post, rows } = setup()
+    const res = await post([0, 1, 2, 3, 4].map((s) => input({ key: `https://github.com/${PUB}/commit/s${s}`, agent: s as never })))
+    expect(res.status).toBe(200)
+    expect(rows.map((r) => r.agent)).toEqual([0, 1, 2, 3, 4])
+    expect((await post([input({ agent: 5 as never })])).status).toBe(400)
+  })
   it('review repo: no title, no address, no numbers, secret; sizes stay', async () => {
     const { post, rows } = setup()
     await post([input({ project: REV, key: `https://github.com/${REV}/commit/abc`, title: 'secret plan C:\\x\\y.ts' })])
