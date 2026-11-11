@@ -458,7 +458,7 @@ export class PlayStage {
     }
     const ids = Object.keys(inp.rigs)
     const busy = new Set(ids.filter((a) => inp.status[a]?.state === 'working' || inp.status[a]?.state === 'off' || inp.status[a]?.night === 'duty'))
-    const sessions = inp.forcedSessions?.length ? inp.forcedSessions : inp.replaying ? [] : sessionsAt(inp.now, ids, busy)
+    const sessions = inp.forcedSessions?.length ? inp.forcedSessions : sessionsAt(inp.now, ids, busy)
     let pp: PlaySession | null = null
     let og: PlaySession | null = null
     for (const s of sessions) {

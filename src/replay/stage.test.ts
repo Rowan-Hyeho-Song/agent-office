@@ -49,14 +49,19 @@ async function run(speed: Speed, checkpoints: number[], fps = 60) {
   let lag = 0
   let meetings = 0
   let walked = 0
+  let placedCount = 0
   for (const until of checkpoints) {
     while (stage.clock < until) {
       const adv = stage.frame(dt, until)
       frames++
       const cur = IDS.map((id) => stage.sample(id))
+      // a schedule change put down at once (x16, timelapse.md 12.2) is the one jump that is meant; it is counted, not measured
+      const placed = stage.takePlaced()
+      placedCount += placed.length
       if (adv > 0) {
         // the shown time moves by what the frame spent; nobody jumps further than they can walk meanwhile
         cur.forEach((c, k) => {
+          if (placed.includes(IDS[k])) return
           const d = Math.hypot(c.x - prev[k].x, c.z - prev[k].z)
           maxStep = Math.max(maxStep, d)
           maxRate = Math.max(maxRate, d / ((dt * speed) / 1000))
@@ -85,16 +90,18 @@ async function run(speed: Speed, checkpoints: number[], fps = 60) {
       }),
     }
   }
-  return { snaps, maxStep, maxRate, excess, drawnRate, lag, frames, meetings, walked, store }
+  return { snaps, maxStep, maxRate, excess, drawnRate, lag, frames, meetings, walked, placedCount, store }
 }
 
 const CHECK = [5000, 12_000, 20_000, 31_000, 45_000, 70_000, 100_000]
 
 describe('the replay stage', () => {
-  it('plays x1 and x16 to the same positions and poses at the same replay time, and nobody teleports', async () => {
+  // timelapse.md 12.2 replaces "x1 and x16 agree on every position": x1 and x4 walk the schedule's changes, x16 puts the body down at once, so the walkers
+  // are compared at x1 and x4 (the same replay clock, only run faster), and x16 on what it still promises (the meeting is walked, the screen cap, no big jump)
+  it('plays x1 and x4 to the same positions and poses at the same replay time, and nobody teleports', async () => {
     const a = await run(1, CHECK)
-    const b = await run(16, CHECK)
-    console.log(`stage: x1 ${a.frames} frames, max step ${a.maxStep.toFixed(3)} m (${a.excess.toFixed(3)} m over a walker), ${a.walked} moving samples, ${a.meetings} meeting frames; x16 ${b.frames} frames, max step ${b.maxStep.toFixed(3)} m (${b.excess.toFixed(3)} m over a walker), ${b.walked} moving samples, ${b.meetings} meeting frames`)
+    const b = await run(4, CHECK)
+    console.log(`stage: x1 ${a.frames} frames, max step ${a.maxStep.toFixed(3)} m (${a.excess.toFixed(3)} m over a walker), ${a.walked} moving samples, ${a.meetings} meeting frames; x4 ${b.frames} frames, max step ${b.maxStep.toFixed(3)} m (${b.excess.toFixed(3)} m over a walker), ${b.walked} moving samples, ${b.meetings} meeting frames`)
     for (const until of CHECK) {
       const x = a.snaps[until] as { i: number; meeting: string | null; agents: { x: number; z: number; arrived: string | null; spot: string; pose: string }[] }
       const y = b.snaps[until] as typeof x
@@ -111,7 +118,7 @@ describe('the replay stage', () => {
     // the drawn position never moves faster than the screen cap, and follows (no teleport to catch up)
     expect(a.drawnRate).toBeLessThanOrEqual(SCREEN_MPS + 1e-9)
     expect(b.drawnRate).toBeLessThanOrEqual(SCREEN_MPS + 1e-9)
-    console.log(`drawn: x1 max ${a.drawnRate.toFixed(2)} m/s, lag ${a.lag.toFixed(2)} m; x16 max ${b.drawnRate.toFixed(2)} m/s, lag ${b.lag.toFixed(2)} m`)
+    console.log(`drawn: x1 max ${a.drawnRate.toFixed(2)} m/s, lag ${a.lag.toFixed(2)} m; x4 max ${b.drawnRate.toFixed(2)} m/s, lag ${b.lag.toFixed(2)} m`)
     // both speeds walked and held the meeting
     expect(a.walked).toBeGreaterThan(0)
     expect(b.walked).toBeGreaterThan(0)
@@ -120,6 +127,19 @@ describe('the replay stage', () => {
     // no teleport: per frame nobody moves further than a walker could (cruise x replay pace), plus a few cm of replan shift
     expect(a.excess).toBeLessThan(REPLAN_SLACK_M)
     expect(b.excess).toBeLessThan(REPLAN_SLACK_M)
+    // x1 and x4 walk every schedule change: nobody is put down
+    expect(a.placedCount).toBe(0)
+    expect(b.placedCount).toBe(0)
+  }, 120_000)
+
+  it('x16 walks the meeting but puts a schedule change down at once, and the drawn bodies still obey the screen speed cap', async () => {
+    const c = await run(16, CHECK)
+    expect(c.meetings).toBeGreaterThan(0)
+    expect(c.walked).toBeGreaterThan(0)
+    expect(c.drawnRate).toBeLessThanOrEqual(SCREEN_MPS + 1e-9)
+    // nobody who walks jumps further than a walker (the put-down bodies are not measured)
+    expect(c.excess).toBeLessThan(REPLAN_SLACK_M)
+    expect(c.placedCount).toBeGreaterThan(0)
   }, 120_000)
 
   it('lands the playhead on the same clock at any speed', async () => {

@@ -41,7 +41,8 @@ export interface ScriptLine {
   readAt?: number
 }
 
-export type MinutesMode = 'gather' | 'pair' | 'seat'
+/** gather = 3+ at the circle; walk = a 1:1 of several rows, the sender walks to the receiver; pair = a 1:1 of one row, passed from the desk; seat = one agent and the owner */
+export type MinutesMode = 'gather' | 'walk' | 'pair' | 'seat'
 export type RowBase = Omit<ScriptLine, 'startMs' | 'typeMs' | 'holdMs' | 'pass' | 'gap' | 'readAt'>
 
 /** what a timelapse minutes script is made of (src/office/minutes.ts plans it): every table row, untimed, and how it plays */

@@ -45,10 +45,10 @@ export function participants(rows: readonly Pick<RowBase, 'from' | 'to'>[]): num
   return out
 }
 
-/** 3+ agents gather, exactly 2 pass papers, fewer stay where they are (11.1) */
+/** 3+ agents gather; exactly 2 with several rows: the sender walks to the receiver (12.3); one row: a paper passed from the desk; fewer stay where they are (11.1) */
 export const modeOf = (rows: readonly Pick<RowBase, 'from' | 'to'>[]): MinutesMode => {
   const n = participants(rows).length
-  return n >= 3 ? 'gather' : n === 2 ? 'pair' : 'seat'
+  return n >= 3 ? 'gather' : n === 2 ? (rows.length >= 2 ? 'walk' : 'pair') : 'seat'
 }
 
 interface Planned {
@@ -114,9 +114,11 @@ export function planScript(script: MeetingScript, opts: PlanOptions = {}): Meeti
   const tier: Tier = reduced ? 1 : tierOf(speed)
   const mode: MinutesMode = reduced ? 'seat' : modeOf(info.rows)
   const seats = participants(info.rows)
-  const passes = mode === 'pair' && tier < 16
-  const all = info.rows.map((b, i) => ({ ...plain(b, passes && typeof b.from === 'number' && b.to.some((s) => s !== b.from), tier, reduced), n: i + 1 }))
-  const budget = MINUTES_CAP_MS - (mode === 'gather' ? GATHER_RESERVE_MS : 0)
+  // a one-row 1:1 passes its paper from the desk; a walking 1:1 hands the paper over with its last row only (12.3); x16 has no passes
+  const passable = (b: RowBase) => typeof b.from === 'number' && b.to.some((s) => s !== b.from)
+  const passRow = tier < 16 ? (mode === 'pair' ? -2 : mode === 'walk' ? info.rows.reduce((k, b, i) => (passable(b) ? i : k), -1) : -1) : -1
+  const all = info.rows.map((b, i) => ({ ...plain(b, passable(b) && (passRow === -2 || passRow === i), tier, reduced), n: i + 1 }))
+  const budget = MINUTES_CAP_MS - (mode === 'gather' || mode === 'walk' ? GATHER_RESERVE_MS : 0)
   let rows: (Planned & { n?: number })[] = all
   let f = shrinkTo(all, budget)
   if (f === null) {

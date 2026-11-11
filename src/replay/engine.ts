@@ -6,6 +6,7 @@
 
 import { foldBoard, type BoardState } from '../board/state'
 import { guessProgress, shelfLayout, type DocFile, type DocFolder, type ShelfLayout } from '../docs/library'
+import { applyDuty } from '../office/duty'
 import type { AgentStatus, StatusMap } from '../office/status'
 import type { Point, PointKind, Seat } from '../timeline/types'
 
@@ -201,6 +202,36 @@ export function statusAt(p: Point): StatusMap {
   return out
 }
 
+/** an agent with a point in the previous 10 minutes (replay time) is at work (timelapse.md 12.1) */
+export const WORK_WINDOW_MS = 10 * 60_000
+const AGENTS = [0, 1, 2, 3, 4]
+
+/**
+ * The agents' statuses at point `i` (timelapse.md 12.1): decided by the replay time alone (the point's own KST time), never by the live office. An agent
+ * with a working point (work, plan, decision, an approval request) in the 10 minutes up to that time is working; the others are idle, and the night
+ * rules of the live day (duty.ts: going home, the night shift) apply at that time. `since` is the time the state began as far as the record says
+ * (the point's time), so nothing reads the wall clock against it.
+ */
+export function lifeStatusAt(points: readonly Point[], i: number): StatusMap {
+  const point = points[i]
+  const t = atMs(point)
+  const raw: StatusMap = {}
+  for (const seat of AGENTS) {
+    let found: Point | undefined
+    for (let k = i; k >= 0 && atMs(points[k]) > t - WORK_WINDOW_MS; k--) {
+      const q = points[k]
+      if (q.agent === seat && q.kind in ACTIVITY && !(q.kind === 'approval' && q.result)) {
+        found = q
+        break
+      }
+    }
+    raw[`agent_${seat}`] = found
+      ? ({ state: 'working', activity: found.secret ? 'private' : ACTIVITY[found.kind], since: atMs(found) } satisfies AgentStatus)
+      : ({ state: 'idle', since: t } satisfies AgentStatus)
+  }
+  return applyDuty(raw, Object.keys(raw), t)
+}
+
 /** the approval tray after the points up to `i`: requests minus results, oldest answered first */
 export function approvalsAt(points: readonly Point[], i: number): { pending: number; seats: number[] } {
   const waiting: Point[] = []
@@ -267,7 +298,7 @@ export function sceneAt(points: readonly Point[], i: number): Scene {
     pending,
     waitingSeats: seats,
     stamped: point.kind === 'approval' && point.result === true,
-    status: statusAt(point),
+    status: lifeStatusAt(points, index),
     door: doorFor(point),
     meeting: point.kind === 'minutes',
   }

@@ -1,25 +1,19 @@
 // What the office does at the playhead (#82), as plain values the 3D scene reads each frame.
 
 import type { Goal } from '../office/director'
-import type { StatusMap } from '../office/status'
-import { activityLabel } from '../office/status'
 import { replay } from './store'
 
 /** a deploy's mark stays on the door this long; the terminal line types at one character per this */
 export const DEPLOY_MARK_MS = 2000
 export const TYPE_MS = 40
 
-/** every agent at their own desk: the one working types, the others sit (no play while replaying); `spots` puts one on the whiteboard to post a card */
-export function replayGoals(status: StatusMap, spots: Record<string, string> = {}): Record<string, Goal> {
-  const out: Record<string, Goal> = {}
-  for (const [id, s] of Object.entries(status)) {
-    const seat = Number(id.split('_')[1])
-    if (spots[id] === 'whiteboard') {
-      out[id] = { spot: 'whiteboard', pose: 'post', label: '작업 카드 붙이는 중' }
-      continue
-    }
-    out[id] = s.state === 'working' ? { spot: `work_${seat}`, pose: 'type', label: activityLabel(s.activity) } : { spot: `work_${seat}`, pose: 'idle', label: '자리에서 기록을 보는 중' }
-  }
+/**
+ * The goals of the replayed office (timelapse.md 12.1): the day's own (the working ones at their desks typing, the others on the play / rest / night
+ * schedule at the replay time: `life`, from a Director of the replay's own) with `spots` putting a plan point's agent on the whiteboard to post a card.
+ */
+export function replayGoals(life: Record<string, Goal>, spots: Record<string, string> = {}): Record<string, Goal> {
+  const out: Record<string, Goal> = { ...life }
+  for (const id of Object.keys(life)) if (spots[id] === 'whiteboard') out[id] = { spot: 'whiteboard', pose: 'post', label: '작업 카드 붙이는 중' }
   return out
 }
 
