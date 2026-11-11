@@ -326,9 +326,11 @@ describe('each pass method\'s grip sequence (#374)', () => {
 })
 
 describe('one hand busy (#374, paper-pass.md 5 "한 손")', () => {
+  // (#416 ①: the receiving hand is the free one in all three methods, the first grab as well as the reading)
+  for (const method of ['hand', 'slide', 'toss'] as const)
   for (const [busy, free] of [['r', 'l'], ['l', 'r']] as const) {
-    it(`${busy} hand holds a mug: only the ${free} hand holds the sheet, by its ${free === 'l' ? 'left' : 'right'} long edge, and the sheet is in front of the body's centre`, async () => {
-      const r = await play('hand', { busy })
+    it(`${method}: ${busy} hand holds a mug: only the ${free} hand holds the sheet, by its ${free === 'l' ? 'left' : 'right'} long edge, and the sheet is in front of the body's centre`, async () => {
+      const r = await play(method, { busy })
       const fr = r.frames
       expect(fr.some((f) => grips(f, busy).length > 0), `the busy ${busy} hand is left alone`).toBe(false)
       const held = fr.filter((f) => f.opacity === 1 && f.holder.to && holding(f, free))
