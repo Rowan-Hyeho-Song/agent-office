@@ -6,7 +6,7 @@ import { handle, type TimelineStore } from '../src/timeline/ingest.js'
 // Environment (same as /api/docs; see docs/deploy.md):
 //   SUPABASE_URL, SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY)
 //   OFFICE_DOCS_TOKEN       the Action sends it as "Authorization: Bearer …"
-//   OFFICE_PUBLIC_REPOS     comma separated "owner/name" whose points are public (default: this repo)
+//   OFFICE_PUBLIC_REPOS     comma separated "owner/name" whose points are public (default: this repo and rowansong.dev, #424)
 //   OFFICE_PRIVATE_REPOS    comma separated repos that are never collected
 //   OFFICE_BANNED_WORDS     comma separated words to hide
 
@@ -19,7 +19,7 @@ const list = (v: string | undefined) =>
     .filter(Boolean)
 const cfg = {
   token: process.env.OFFICE_DOCS_TOKEN ?? '',
-  publicRepos: list(process.env.OFFICE_PUBLIC_REPOS ?? 'Rowan-Hyeho-Song/agent-office'),
+  publicRepos: list(process.env.OFFICE_PUBLIC_REPOS ?? 'Rowan-Hyeho-Song/agent-office,Rowan-Hyeho-Song/rowansong.dev'),
   privateRepos: list(process.env.OFFICE_PRIVATE_REPOS),
   banned: list(process.env.OFFICE_BANNED_WORDS),
 }

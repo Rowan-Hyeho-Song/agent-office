@@ -4,6 +4,7 @@ import { BubbleLayer, type Anchor, type TagItem } from './bubbleLayer'
 import { statusTag, type BubbleItem } from './bubbles'
 import { openDocs } from './docs/panel'
 import { seatName } from './meeting'
+import { captionOf } from './minutes'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BufferGeometry, CanvasTexture, Color, Float32BufferAttribute, Group, Line, LineBasicMaterial, LineLoop, LineSegments, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace, Vector3 } from 'three'
@@ -31,6 +32,7 @@ import { boardDistance, REPLAY_PACE } from '../replay/walk'
 import { replayDoorLine } from '../replay/scene'
 import { DrawnTrack, lineMode, Stage } from '../replay/stage'
 import { setLineSub, type LineSub } from '../replay/lineSub'
+import { setMinutesProgress } from '../replay/minutesInfo'
 import { STAMP_MS } from './props'
 import { ANXIOUS_AFTER_MS, ownerConnected } from './faceMind'
 import { isLateHour } from './duty'
@@ -178,7 +180,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
     () =>
       world.source.onMessage((m) => {
         world.director.receive(m)
-        planes.receive(m)
+        // the timelapse's papers are its own (the minutes rows); a live handoff does not fly among the replayed bodies
+        if (!stage.current) planes.receive(m)
         // a talk asked of someone who is busy at work: the one who asked stands there puzzled (robots.md 4, 의문)
         if (m.kind === 'talk' && world.source.getSnapshot()[m.to]?.state === 'working') rigs[m.from]?.faceEvent('question', sceneT.current)
       }),
@@ -218,7 +221,9 @@ export function Agents({ world }: { world: OfficeWorld }) {
     if (wantReplay && !stage.current) {
       const door = graph.spots.door
       const replayPlanner = new TrafficPlanner(planner.grid, graph)
-      const st = new Stage({ store: replay, planner: replayPlanner, meeting: world.meeting, ids: Object.keys(rigs), door: door ? { x: door.x, z: door.z } : undefined, reduced: () => reducedRef.current, spot: (id) => graph.spots[id] ?? null })
+      const st = new Stage({ store: replay, planner: replayPlanner, meeting: world.meeting, ids: Object.keys(rigs), door: door ? { x: door.x, z: door.z } : undefined, reduced: () => reducedRef.current, spot: (id) => graph.spots[id] ?? null, pass: (from, to) => planes.pass(from, to) })
+      // the papers run on the replay clock from here on: a live one in the air is dropped
+      planes.reset()
       st.begin()
       stage.current = st
       rigTau.current = st.now
@@ -228,6 +233,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
       // back to live: everyone stands where the replay left them and walks to their live goal from there
       stage.current.dispose()
       stage.current = null
+      planes.reset()
       for (const id in rigs) if (rigs[id].visible) planner.place(id, standingAt(rigs[id], graph), sim.current, Number(id.split('_')[1]))
     }
     const st = stage.current
@@ -406,7 +412,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
       }
     }
     // a paper handed / slid / tossed (#262) sets who holds it (rig.want) after the stage reset it, before the bank reads it
-    planes.update(state.clock.elapsedTime, graph, rigs, reduced)
+    planes.update(st ? st.now / 1000 : state.clock.elapsedTime, graph, rigs, reduced)
     props.hold(new Map(Object.values(rigs).map((r) => [r, r.want])))
     props.update(Math.min(dt, 0.1))
     desks.update(desk, t, Math.min(dt, 0.1), reduced)
@@ -436,11 +442,16 @@ export function Agents({ world }: { world: OfficeWorld }) {
       const lines = meet.script.lines
       const line = lines[k]
       if (line) {
-        mode = lineMode(replay.getSnapshot().speed, (lines[k + 1]?.startMs ?? meet.script.linesMs) - line.startMs)
-        if (mode === 'subtitle' && typeof line.from === 'number') sub = { seat: line.from, who: seatName(line.from), text: line.private ? '(비공개)' : line.text }
+        mode = lineMode(reduced ? 1 : replay.getSnapshot().speed, (lines[k + 1]?.startMs ?? meet.script.linesMs) - line.startMs)
+        // the caption reads `메시 → 휴 — 내용`: instead of a bubble, and while the receiver of a 1:1 pass reads (timelapse.md 11.2)
+        if (mode === 'subtitle' || (line.pass && meet.t - line.startMs >= (line.readAt ?? 0))) sub = captionOf(line)
       }
     }
     setLineSub(sub)
+    // the day view: `회의 4/9줄` while the rows of a minutes point play
+    let row = 0
+    if (replaying && meet?.script.minutes) for (let j = meet.frame.index; j >= 0 && !row; j--) row = meet.script.lines[j]?.row ?? 0
+    setMinutesProgress(row ? { row, total: meet!.script.minutes!.rows.length } : null)
     if (meet && mode !== 'subtitle') {
       for (const b of meet.frame.bubbles) {
         const id = `agent_${b.seat}`
@@ -449,7 +460,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
           key: b.key,
           seat: b.seat,
           kind: b.kind,
-          label: b.kind === 'private' ? '비공개' : '회의',
+          label: b.kind === 'private' ? '비공개' : (b.tag ?? '회의'),
           text: b.text,
           typed: mode === 'full' ? [...b.text].length : b.typed,
           log: b.log,

@@ -33,14 +33,14 @@ export const WATERED = PLANTS[0]
  * Found by scanning the floor around each pot, room side first, then around to the opposite side.
  */
 export const STANDS: Record<string, { x: number; z: number }> = {
-  plant_corner: { x: 4.1, z: 0.95 }, // 0.57 m, north-west of the fig (the east wall is 0.3 m behind it), between it and the can: the can's own stand too (#280 footprint scan)
+  plant_corner: { x: 4.025, z: 1.0 }, // #416: moved with the can's stand (3.5 cm west): the nearest walkable cell, 0.59 m north-west of the fig (the east wall is 0.3 m behind it), between it and the can: the can's own stand too (#280 footprint scan)
   plant_sofa: { x: 0.87, z: 3.27 }, // 0.57 m, north-west of the pot, outside the west mouth of the sofa's way in: standing in the 0.9 m gap closed it to one lane for the whole pour (#341, lounge-props.md: no stay on the mouths or between them)
   plant_desk: { x: -4.03, z: -3.33 }, // 0.45 m, in front of the stand (found by scanning the walkable footprint, stream error < 0.6 soil radius)
   succulent: { x: -3.33, z: -1.37 }, // 0.45 m, west of the desk: soil_succulent moved with the desk pod (#280); scanned on the walkable footprint, stream error 0
   // the can's own stand (#228, #259): where the agent takes the can up and puts it back. Since #259 the can rests on its low stand in front of the
-  // fig (CAN_HOME), 0.49 m from the can and 0.57 m from the fig since #280 (the same stand as the fig's), within arm's reach of both (watering.md 1.1). So watering the fig is turning
+  // fig (CAN_HOME), 0.55 m from the can and 0.59 m from the fig since #416 (the same stand as the fig's), within arm's reach of both (watering.md 1.1). So watering the fig is turning
   // to the can, lifting it, turning back to the pot, pouring and putting it back without a step; for the other plants it is taken from here
-  watering_can: { x: 4.1, z: 0.95 },
+  watering_can: { x: 4.025, z: 1.0 },
   // the hanging planters (lounge-props.md 5): 0.55 m west of each pot's soil, in the window strip north of the pod, facing east (found by scanning the walkable floor: the stream lands on the soil centre, the can's forward offset 0.26 m)
   plant_hang_0: { x: -3.45, z: -3.75 },
   plant_hang_1: { x: -2.05, z: -3.75 },
@@ -48,7 +48,7 @@ export const STANDS: Record<string, { x: number; z: number }> = {
 }
 export const standOf = (p: Plant) => STANDS[p.name]
 /** where the watering can rests (office_bake.py: prop_watering_can; docs/design/watering.md) and the stand to take it from / put it back on */
-export const CAN_HOME = { x: 4.55, z: 0.75, y: 0.595 } // on its stand in front of the fig, spout south-west (#259, office.glb prop_watering_can)
+export const CAN_HOME = { x: 4.515, z: 0.75, y: 0.595 } // on its stand in front of the fig, spout north-east since #416 (the stand 3.5 cm west so the spout clears the east wall; office.glb prop_watering_can)
 export const canStand = () => STANDS.watering_can
 /**
  * How far from its body an agent can take hold of or carry something (m, horizontal, from the body's centre). The hands' own poses

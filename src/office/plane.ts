@@ -9,7 +9,7 @@
 import { Box3, MathUtils, Matrix4, MeshStandardMaterial, Quaternion, Raycaster, Vector3, type Mesh, type Object3D } from 'three'
 import { cue } from '../audio/cues'
 import type { NavGraph } from './nav'
-import { PaperPasses } from './paperRun'
+import { PaperPasses, handsOf } from './paperRun'
 import type { Method } from './paperPass'
 import type { AgentRig, PropBank } from './rig'
 import type { OfficeMessage } from './status'
@@ -44,7 +44,13 @@ const DESK_IN = 0.33
 /** look for the desk's surface (its keyboard, papers, …) from this height down: below the monitor and lamp heads */
 const PROBE_Y = 1.0
 
-type Phase = 'fold' | 'fly' | 'held' | 'landed'
+/** a plane that lies on the desk of a receiver whose hands are both busy waits this long for a hand, then fades where it lies (paper-pass.md 3) */
+const LAY_MAX_S = 40
+/** a free hand goes down to the plane on the desk this long (the plane stays), then lifts it to the reading place this long */
+const PICK_S = 0.45
+const LIFT_UP_S = 0.45
+
+type Phase = 'fold' | 'fly' | 'held' | 'landed' | 'pick' | 'lift'
 
 interface Flight {
   from: string
@@ -62,6 +68,10 @@ interface Flight {
   toHand: boolean
   /** landed: where it was put down from (the catching hand), eased onto the desk; null = already lying there */
   downFrom: { pos: Vector3; quat: Quaternion } | null
+  /** the receiver's hand that catches it: the right one, or the left one when the right is busy (paper-pass.md 3 "받는 손 고르기") */
+  side: 'l' | 'r'
+  /** both of the receiver's hands are busy: it lands on its desk and lies there until a hand is free, then it is picked up (pick, lift) */
+  lay: boolean
 }
 
 export class PaperPlanes {
@@ -147,9 +157,9 @@ export class PaperPlanes {
    * the plane pinched in the receiver's right hand: the pinch spot where the index and thumb tips meet, nose 30°
    * up from where the fingers point, wings level; `since` = when it was caught (the wobble)
    */
-  private pinched(rig: AgentRig, t: number, since: number | null, reduced: boolean, pos: Vector3, quat: Quaternion) {
-    const at = rig.pinchPoint('r', this.p)
-    const fwd = rig.fingerDir('r', this.s)
+  private pinched(rig: AgentRig, t: number, since: number | null, reduced: boolean, pos: Vector3, quat: Quaternion, side: 'l' | 'r' = 'r') {
+    const at = rig.pinchPoint(side, this.p)
+    const fwd = rig.fingerDir(side, this.s)
     // nose = forward tipped up; the plane's −z is its nose, +x along the wings (kept level)
     this.az.copy(fwd).multiplyScalar(-Math.cos(NOSE_UP)).addScaledVector(this.up, -Math.sin(NOSE_UP))
     this.ax.crossVectors(this.up, this.az).normalize()
@@ -192,6 +202,15 @@ export class PaperPlanes {
     }
   }
 
+  /** the clock changes (the timelapse runs the papers on the replay clock): whatever is in the air is dropped */
+  reset() {
+    this.queue.length = 0
+    this.forced.clear()
+    this.flight = null
+    if (this.plane) this.plane.node.visible = false
+    this.passes.reset()
+  }
+
   /** ?debug=1: a pass between two agents now, by a method of your choice (else paper-pass.md 1's) */
   pass(from: string, to: string, method?: Method) {
     this.receive({ id: `dbg-${this.debugN++}`, kind: 'handoff', from, to, at: Date.now() }, method)
@@ -224,6 +243,24 @@ export class PaperPlanes {
     return out.set(seat.x - Math.sin(seat.ry) * DESK_IN, DESK_Y, seat.z - Math.cos(seat.ry) * DESK_IN)
   }
 
+  /**
+   * The message to play next: the first one that is not waiting for a free hand (paper-pass.md 3: a hand-over or a slide to a receiver whose hands are
+   * both busy is started again when a hand is free; it stays in the queue and the others go on). -1: none.
+   */
+  private nextIndex(rigs: Record<string, AgentRig>, reduced: boolean) {
+    for (let i = 0; i < this.queue.length; i++) {
+      const m = this.queue[i]
+      const s = rigs[m.from]
+      const r = rigs[m.to]
+      if (s && r && this.passes.paper && PaperPasses.ready(s, r)) {
+        const method = this.forced.get(m.id) ?? this.passes.choose(s, r, rigs).method
+        if (PaperPasses.deferred(r, method, reduced)) continue
+      }
+      return i
+    }
+    return -1
+  }
+
   update(t: number, graph: NavGraph, rigs: Record<string, AgentRig>, reduced: boolean) {
     // a paper being handed, slid or tossed (#262): one pass at a time, and the plane waits for it
     if (this.passes.busy) {
@@ -231,8 +268,9 @@ export class PaperPlanes {
       return
     }
     const plane = this.plane
-    if (!this.flight && this.passes.paper && this.queue.length) {
-      const next = this.queue[0]
+    const idx = !this.flight && this.queue.length ? this.nextIndex(rigs, reduced) : -1
+    if (idx >= 0 && this.passes.paper) {
+      const next = this.queue[idx]
       const sender = rigs[next.from]
       const receiver = rigs[next.to]
       if (sender && receiver && PaperPasses.ready(sender, receiver)) {
@@ -243,7 +281,7 @@ export class PaperPlanes {
           // the lane / arc of the chosen method (a forced method gets its own geometry)
           const c = method === 'slide' && !choice.lane ? { ...choice, lane: this.passes.laneFor(sender, receiver) } : choice
           if (method !== 'slide' || c.lane) {
-            this.queue.shift()
+            this.queue.splice(idx, 1)
             this.flown++
             this.passes.start(next, method, c, sender, receiver, t, reduced)
             this.passes.update(t, rigs, reduced)
@@ -254,33 +292,39 @@ export class PaperPlanes {
     }
     if (!plane) return
     if (!this.flight) {
-      const next = this.queue.shift()
+      const next = idx >= 0 ? this.queue.splice(idx, 1)[0] : undefined
       if (!next) return
       const sender = rigs[next.from]
       const receiver = rigs[next.to]
       if (!sender || !receiver) return
       this.flown++
-      const toHandNow = !reduced && receiver.visible
+      // the receiver's hands (paper-pass.md 3): the free one catches (the right unless it holds something); with both busy it lands on the desk and waits
+      const hs = handsOf(receiver)
+      const lay = receiver.visible && hs.both
+      const side = hs.busy === 'r' ? 'l' : 'r'
+      const toHandNow = !reduced && receiver.visible && !lay
       this.flight = {
         from: next.from,
         to: next.to,
         // reduced motion: no flight; it appears in the receiver's hand (or on its desk when it isn't in)
-        phase: reduced ? (receiver.visible ? 'held' : 'landed') : sender.visible ? 'fold' : 'fly',
+        phase: reduced ? (receiver.visible && !lay ? 'held' : 'landed') : sender.visible ? 'fold' : 'fly',
         since: t,
         flyFor: 1,
         foldFor: 0,
         aimAt: toHandNow ? new Vector3(receiver.x, AIM_Y, receiver.z) : this.restPoint(graph, next.to, new Vector3()),
         // a sender that isn't in: from its own desk (never from the planner's tray)
         start: this.restPoint(graph, next.from, new Vector3()),
-        toHand: !reduced && receiver.visible,
+        toHand: toHandNow,
         downFrom: null,
+        side,
+        lay,
       }
       plane.node.position.copy(this.flight.start)
       plane.node.visible = true
       if (sender.visible) this.flight.foldFor = sender.startGesture('throw', t, this.flight.aimAt, { reduced }).plan!.times.release
       // reduced motion: the plane is in the receiver's hand at once; the heads turn to it (information, not movement)
-      if (reduced && receiver.visible) {
-        receiver.startGesture('catch', t, plane.node.position, { reduced: true, holdS: HOLD_S })
+      if (reduced && receiver.visible && !lay) {
+        receiver.startGesture('catch', t, plane.node.position, { reduced: true, holdS: HOLD_S, side, oneHand: hs.busy !== null })
         if (receiver.gesture?.kind === 'catch') receiver.gesture.caught = true
         receiver.paperReaction('surprise', t, true)
       }
@@ -304,7 +348,7 @@ export class PaperPlanes {
         break
       case 'fly': {
         // an arc from the release point to the receiver's hand (followed as it moves) or its desk
-        const end = f.toHand && receiver.visible ? this.pinched(receiver, t, null, reduced, this.end, this.q) : this.restPoint(graph, f.to, this.end)
+        const end = f.toHand && receiver.visible ? this.pinched(receiver, t, null, reduced, this.end, this.q, f.side) : this.restPoint(graph, f.to, this.end)
         const k = Math.min(age / f.flyFor, 1)
         const span = f.start.distanceTo(end)
         const apex = 0.3 + span * 0.15
@@ -324,14 +368,42 @@ export class PaperPlanes {
         }
         break
       }
+      case 'pick': {
+        // the free hand goes down to the plane on the desk (it stays where it lies); then the fingers close on it and it is lifted
+        this.restPoint(graph, f.to, plane.node.position)
+        plane.node.quaternion.copy(f.downFrom!.quat)
+        if (age >= PICK_S) {
+          f.phase = 'lift'
+          f.since = t
+          f.downFrom = { pos: plane.node.position.clone(), quat: plane.node.quaternion.clone() }
+          if (receiver.gesture?.kind === 'catch') {
+            receiver.gesture.pick = false
+            receiver.gesture.caught = true
+          }
+        }
+        break
+      }
+      case 'lift': {
+        // from the desk into the hand (the hand is already on the way up with it), then looked at as any caught plane
+        const k = reduced ? 1 : MathUtils.smoothstep(age / LIFT_UP_S, 0, 1)
+        this.pinched(receiver, t, null, reduced, this.end, this.q, f.side)
+        plane.node.position.lerpVectors(f.downFrom!.pos, this.end, k)
+        plane.node.quaternion.slerpQuaternions(f.downFrom!.quat, this.q, k)
+        if (k >= 1) {
+          f.phase = 'held'
+          f.since = t
+          receiver.paperReaction('surprise', t, reduced)
+        }
+        break
+      }
       case 'held': {
         // in the receiver's hand: looked at for LOOK_S, then it fades out there. It never travels anywhere (#267)
-        this.pinched(receiver, t, f.since, reduced, plane.node.position, plane.node.quaternion)
+        this.pinched(receiver, t, f.since, reduced, plane.node.position, plane.node.quaternion, f.side)
         // looked at (paper-pass.md 5, #273): turned over 0.3 s so its side faces the face, nose 25 degrees up
         const head = receiver.parts.head
         if (head) {
           const k = reduced ? 1 : Math.min(1, age / TURN_TO_FACE_S)
-          const at = receiver.pinchPoint('r', this.p)
+          const at = receiver.pinchPoint(f.side, this.p)
           const face = head.getWorldPosition(this.s)
           this.ax.set(face.x - at.x, 0, face.z - at.z)
           if (this.ax.lengthSq() > 1e-8) {
@@ -350,11 +422,24 @@ export class PaperPlanes {
         break
       }
       case 'landed': {
-        // only when the receiver isn't in: it glided onto its desk, lies there, then fades out where it lies
+        // when the receiver isn't in, or both its hands are busy: it glided onto its desk, lies there, then fades out where it lies
         this.restPoint(graph, f.to, plane.node.position)
         plane.node.quaternion.setFromAxisAngle(this.up, (graph.spots[`work_${f.to.split('_')[1]}`]?.ry ?? 0) + 0.4)
         plane.node.visible = true
-        const stay = reduced ? REDUCED_S : LAND_S
+        if (f.lay && receiver.visible) {
+          const hs = handsOf(receiver)
+          if (!hs.both) {
+            // a hand is free: it is picked up (a hand goes down to it, takes it by the keel, lifts it to be looked at)
+            f.side = hs.busy === 'r' ? 'l' : 'r'
+            f.phase = reduced ? 'lift' : 'pick'
+            f.since = t
+            f.downFrom = { pos: plane.node.position.clone(), quat: plane.node.quaternion.clone() }
+            receiver.startGesture('catch', t, plane.node.position, { reduced, flyFor: PICK_S, holdS: HOLD_S + PICK_S + LIFT_UP_S, oneHand: hs.busy !== null, side: f.side, pick: !reduced })
+            if (reduced && receiver.gesture) receiver.gesture.caught = true
+            break
+          }
+        }
+        const stay = f.lay ? LAY_MAX_S : reduced ? REDUCED_S : LAND_S
         this.setOpacity(1 - Math.max(0, Math.min(1, (age - stay) / FADE_S)))
         if (age >= stay + FADE_S) this.finish()
         break
@@ -365,7 +450,7 @@ export class PaperPlanes {
   private beginFlight(t: number, graph: NavGraph, rigs: Record<string, AgentRig>) {
     const f = this.flight!
     const receiver = rigs[f.to]
-    const end = f.toHand && receiver.visible ? this.pinched(receiver, t, null, false, this.end, this.q) : this.restPoint(graph, f.to, this.end)
+    const end = f.toHand && receiver.visible ? this.pinched(receiver, t, null, false, this.end, this.q, f.side) : this.restPoint(graph, f.to, this.end)
     f.flyFor = Math.min(1.8, Math.max(0.9, f.start.distanceTo(end) / 2.2))
     f.phase = 'fly'
     f.since = t
@@ -374,7 +459,7 @@ export class PaperPlanes {
     // catches one-handed) and keeps looking until it has been looked at (#224)
     const sender = rigs[f.from]
     if (sender.visible && sender.gesture?.kind === 'throw' && this.plane) sender.gesture.at = this.plane.node.position
-    if (f.toHand && this.plane) receiver.startGesture('catch', t, this.plane.node.position, { flyFor: f.flyFor, holdS: HOLD_S, oneHand: receiver.id === 'agent_3' })
+    if (f.toHand && this.plane) receiver.startGesture('catch', t, this.plane.node.position, { flyFor: f.flyFor, holdS: HOLD_S, oneHand: receiver.id === 'agent_3' || handsOf(receiver).busy !== null, side: f.side })
   }
 
   /** gone: it does not travel anywhere (#224, #267) */

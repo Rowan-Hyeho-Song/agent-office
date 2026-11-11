@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Point } from '../timeline/types'
 import officeFile from '../timeline/fixtures/agent-office.json'
-import hubFile from '../timeline/fixtures/rowansong.dev.json'
+import hubFile from '../timeline/fixtures/test/rowansong.dev.2026-11-08.json'
 import { ALL, approvalsAt, deployTitle, describe as describePoint, whoKind, daybreakMs, doorFor, flipText, indexAt, isDaybreak, issueRange, laneOf, layoutX, prepare, projectFrom, remainingMs, sceneAt, shelfAt, statusAt, stepMs, valueText, whenText } from './engine'
 
 const OFFICE = 'Rowan-Hyeho-Song/agent-office'
@@ -25,6 +25,13 @@ describe('prepare / indexAt', () => {
     expect(indexAt(ps, t(1) - 1)).toBe(0)
     expect(indexAt(ps, t(9))).toBe(2)
     expect(indexAt([], 0)).toBe(-1)
+  })
+  it('points of the same instant: the first of them (a link to a minutes point lands on it, not on its decision filed at the same time, #414)', () => {
+    const at = '2026-11-07T02:00:00Z'
+    const ps = prepare([pt(1), { ...pt(2), key: 'm', kind: 'minutes', at }, { ...pt(2), key: 'm#decision', kind: 'decision', at }, pt(3)])
+    expect(ps.map((p) => p.key)).toEqual(['k1', 'm', 'm#decision', 'k3'])
+    expect(indexAt(ps, Date.parse(at))).toBe(1)
+    expect(indexAt(ps, Date.parse(at) + 1000)).toBe(1)
   })
   it('reads a project from an address', () => {
     expect(projectFrom('agent-office', [OFFICE])).toBe(OFFICE)
