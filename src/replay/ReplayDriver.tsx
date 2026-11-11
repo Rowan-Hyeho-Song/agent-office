@@ -53,6 +53,9 @@ export function ReplayDriver({ world }: { world: OfficeWorld }) {
     // the library's document of a minutes point and its table's rows (null rows: SECRET / private, or not loaded)
     const tableOf = async (p: Point) => {
       const lib = world.library
+      // the library's list not read yet (the timelapse opened first): read it now, or the point would fall back to the invented scene of
+      // bars (#414 review). A failed read leaves it null: the bars then, as for a point the library does not have
+      if (lib && !lib.getSnapshot().metas) await lib.refresh().catch(() => {})
       const meta = minutesDocOf(lib?.getSnapshot().metas, p)
       let convs = null
       if (meta && meta.readable && meta.grade !== 'private') {
