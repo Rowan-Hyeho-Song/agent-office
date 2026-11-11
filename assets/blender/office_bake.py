@@ -184,7 +184,7 @@ CHAT_SPOTS = (_c(-1.45, -3.35), _c(-0.45, -3.35))  # the second conversation: tw
 RUG_WORK = (*_c(-2.50, -0.92), 2.46, 4.24)  # x, z, width, depth (desks.md 2.1.5)
 RUG_LOUNGE = (3.275, 2.655, 2.45, 2.29)  # #280 3 (lounge-props.md 3.1): x 2.05..4.5, z 1.51..3.8 (its west end 7 cm in)
 RUG_MEET_D = 2.92
-CAN_STAND = _c(4.85, 0.95)  # #185 / #280: the watering can's stand, north of the fig on the east wall (designer)
+CAN_STAND = _c(4.85 - 0.035, 0.95)  # #185 / #280: the watering can's stand, north of the fig on the east wall (designer); #416: 3.5 cm west (the turned can's spout cleared the wall)
 DOOR_Z = _c(0, 2.6)[1]
 PINGPONG = _c(1.9, 0.9)
 # #280 PR 1: the old 1.9 m sofa along the south wall, its east end at the L sofa's (PR 2 makes it the L), 0.12 off the wall
@@ -3467,9 +3467,9 @@ def build_props():
     objs, rose_at, rose_dir = can_parts(G)
     # #185: on its stand in front of the fig (designer); the handle toward
     # the fig's stand spot
-    # #416: turned 180° (spout north-east), so the hand takes and sets it down without turning it; 3.5 cm west on
-    # the stand top (r 0.13), or the spout's rose crossed the east wall by 5 mm
-    can = prop("prop_watering_can", "watering_can", objs, (CAN_STAND[0] - 0.035, 0.36 - CAN_Y_BOTTOM, CAN_STAND[1]), (0.0, math.pi / 4, 0.0))
+    # #416: turned 180° (spout north-east), so the hand takes and sets it down without turning it; the stand moved
+    # 3.5 cm west with it (CAN_STAND), or the spout's rose crossed the east wall by 5 mm
+    can = prop("prop_watering_can", "watering_can", objs, (CAN_STAND[0], 0.36 - CAN_Y_BOTTOM, CAN_STAND[1]), (0.0, math.pi / 4, 0.0))
     out.append(can)
     # the spout's end (#135): where the water starts, local +z = along the spout (the app tilts the can to pour)
     a = math.atan2(0.10, 0.13)
