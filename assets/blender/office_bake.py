@@ -3465,9 +3465,11 @@ def build_props():
     # watering can (#156, designer: an indoor 1.5 L metal can): origin at the middle of the handle's top run (the grip),
     # the oval body below, the long spout from low on the front, a brass rose. Home on the floor by the corner plant
     objs, rose_at, rose_dir = can_parts(G)
-    # #185: on its stand in front of the fig (designer): spout north-west (to the room and the aisle), the handle toward
+    # #185: on its stand in front of the fig (designer); the handle toward
     # the fig's stand spot
-    can = prop("prop_watering_can", "watering_can", objs, (CAN_STAND[0], 0.36 - CAN_Y_BOTTOM, CAN_STAND[1]), (0.0, -3 * math.pi / 4, 0.0))  # spout south-west
+    # #416: turned 180° (spout north-east), so the hand takes and sets it down without turning it; 3.5 cm west on
+    # the stand top (r 0.13), or the spout's rose crossed the east wall by 5 mm
+    can = prop("prop_watering_can", "watering_can", objs, (CAN_STAND[0] - 0.035, 0.36 - CAN_Y_BOTTOM, CAN_STAND[1]), (0.0, math.pi / 4, 0.0))
     out.append(can)
     # the spout's end (#135): where the water starts, local +z = along the spout (the app tilts the can to pour)
     a = math.atan2(0.10, 0.13)
