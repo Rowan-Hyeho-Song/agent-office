@@ -73,6 +73,11 @@ SQL Editor에서 **이 순서로** 한 번씩 실행합니다. 모두 다시 실
 - 그 댓글을 고치면 같은 행의 `updated_at`만 바뀜(새 행 없음)
 - (가능하면) 다른 GitHub 계정으로 댓글을 달면 Action이 건너뜀(#38)
 
+**타임랩스 점(#413)**은 같은 두 secret을 씁니다. 주소는 `OFFICE_DOCS_URL`의 `/api/docs`를 `/api/timeline`으로 바꾼 것입니다(따로 정하려면 `OFFICE_TIMELINE_URL`). 새 secret은 필요 없습니다.
+
+- [ ] 지난 기록 채우기: Actions → "office timeline" → Run workflow. `dry_run` 켜고 한 번(점 개수, 서버가 받지 않을 점 0인지 확인) → 끄고 한 번. 같은 키는 덮어써서 두 번 돌려도 중복이 없습니다
+- 확인: dev에 push하면 몇 분 안에 "office timeline"이 초록이고, 로그에 `work N → stored N`. 이슈를 열거나 협의 기록 · 결재 댓글을 달아도 점이 하나 들어옵니다
+
 ## 4. 내 PC 훅 (신호 #1·#34, 결재 #25)
 
 - [ ] `~/.agent-office/hook.json`:
