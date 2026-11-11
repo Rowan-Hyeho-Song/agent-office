@@ -66,6 +66,9 @@ export function indexAt(points: readonly Point[], t: number): number {
     if (atMs(points[mid]) <= t) lo = mid
     else hi = mid - 1
   }
+  // points of the same instant (a minutes point and the decisions filed from it): the first of them, so a link to the minutes' time
+  // lands on the minutes and plays its rows, not past them on its decision (#414 review)
+  while (lo > 0 && atMs(points[lo - 1]) === atMs(points[lo])) lo--
   return lo
 }
 

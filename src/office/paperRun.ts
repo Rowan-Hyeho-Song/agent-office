@@ -187,6 +187,14 @@ export class PaperPasses {
     return !!this.pass || this.homing || !!this.lying
   }
 
+  /** drop a pass in progress (the clock it runs on changed): the paper goes home */
+  reset() {
+    this.pass = null
+    this.lying = null
+    this.homing = false
+    if (this.paper) this.hide()
+  }
+
   /**
    * A pass that has to wait for the receiver (paper-pass.md 3): with both hands busy (nothing can be put down in this scope) a hand-over or a slide is
    * started again when a hand is free; a toss lands on the desk instead (with reduced motion it waits as well). The caller keeps the message.

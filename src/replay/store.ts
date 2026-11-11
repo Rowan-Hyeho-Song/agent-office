@@ -54,6 +54,8 @@ export const FADE_OUT_MS = 160
 export const FADE_BACK_MS = 200
 /** a meeting never holds the next point longer than this (replay ms) */
 export const HOLD_CAP_MS = 45_000
+/** a minutes point plays all its table rows: it may hold the next point this long (timelapse.md 11.4; src/office/minutes.ts plans the rows to fit) */
+export const MINUTES_HOLD_CAP_MS = 60_000
 
 const INITIAL: ReplayState = { mode: 'off', project: ALL, projects: [], i: 0, count: 0, playing: false, speed: 1, flip: null, ended: false, loaded: false, issue: null, day: null, fade: false }
 
@@ -437,7 +439,7 @@ export class ReplayStore {
       this.elapsed = dur
       this.prog = 1
       if (this.phase === 'step') {
-        const cap = Math.min(HOLD_CAP_MS, this.hold())
+        const cap = Math.min(MINUTES_HOLD_CAP_MS, this.hold())
         if (this.held < cap) {
           // wait here; the rest of this advance is spent waiting (the hold is released the moment its cap is used up)
           const wait = Math.min(dTau, cap - this.held)
