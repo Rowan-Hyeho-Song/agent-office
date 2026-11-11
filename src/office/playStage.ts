@@ -35,13 +35,14 @@ import { noteTourEvent } from './tourEvents'
 import { meshesOf } from './nodes'
 import type { StatusMap } from './status'
 import { gameAt, N, type OmokView } from '../play/omok'
-import { rallyAt, type Dims, type Rally } from '../play/pingpong'
+import { rallyAt, type Dims, type Rally, type V3 } from '../play/pingpong'
 import { CARRY_HOLD, HOLD_DEFAULT, PLANTS, POUR_TILT, canPose, dropAt, landing, lerpHold, plantsFrom, pourAt, solvePour, spoutOf, type Plant } from './water'
 import { WATER_S } from './waterRun'
 import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFor, shakeAt, type HabitKind } from './waterFx'
 import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
-import { type Place, SEQ, ease, followWeight, habitOf, placeSequence, swingTilt, swingTravel } from '../play/choreo'
+import { type Place, SEQ, ease, habitOf, placeSequence } from '../play/choreo'
+import { strokeAt } from '../play/stroke'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
 import { Typist } from './typist'
@@ -154,7 +155,6 @@ export class PlayStage {
   private ball: Object3D | undefined
   private ballHome = new Vector3()
   private shadow: Mesh
-  private paddlePos = new Map<string, Vector3>()
   /** the 2 s score tag; null when none */
   tag: Tag | null = null
 
@@ -528,40 +528,27 @@ export class PlayStage {
       const rig = inp.rigs[s.players[side]]
       const dir = side === 0 ? 1 : -1
       const planeX = -dir * (d.L! / 2 + d.reach!)
-      const ready = new Vector3(planeX + dir * 0.12, 0.2, 0)
-      const key = `${s.players[side]}`
-      let st = this.paddlePos.get(key)
-      if (!st) this.paddlePos.set(key, (st = ready.clone()))
-      const pos = new Vector3()
-      let tilt = 0
-      const sw = rally.swing && rally.swing.side === side ? rally.swing : null
-      const b = playing && rally.ballPos ? rally.ballPos : null
-      let w = 0
-      const goal = ready.clone()
-      if (sw) {
-        w = 1
-        goal.set(sw.at[0] - dir * FACE_GAP, sw.at[1], sw.at[2])
-      } else if (b && rally.hitter !== side) {
-        w = followWeight(Math.abs(b[0] - planeX))
-        goal.set(b[0] - dir * FACE_GAP, b[1], b[2])
-      }
-      goal.y = Math.max(goal.y, 0.08)
-      goal.z = Math.max(-d.W! / 2 - 0.3, Math.min(d.W! / 2 + 0.3, goal.z))
-      if (w > 0.001) {
-        pos.copy(st).lerp(goal, w)
-        st.copy(pos)
-      } else {
-        st.lerp(ready, 1 - Math.exp(-8 * inp.dt))
-        pos.copy(st)
-      }
-      if (sw) {
-        pos.x += dir * swingTravel(sw.t01)
-        tilt = swingTilt(sw.t01)
-      }
-      // the face looks along the hit direction, tipped up a little (and over the swing)
-      const z = new Vector3(dir, 0.12 + tilt * 0.3, 0).normalize()
+      const ready: V3 = [planeX + dir * 0.12, 0.2, 0]
+      // read the ball, take the paddle there while it flies, wait drawn back, swing so the face meets it (#416 ③, play.md 7)
+      const sp = strokeAt(
+        rally.contacts.filter((c) => c.side === side),
+        playing ? tMs : -Infinity,
+        ready,
+        dir,
+        FACE_GAP,
+      )
+      const pos = new Vector3(sp.pos[0], Math.max(sp.pos[1], 0.08), Math.max(-d.W! / 2 - 0.3, Math.min(d.W! / 2 + 0.3, sp.pos[2])))
+      // the face looks along the hit direction, tipped up a little; the wrist turns it about the vertical: drawn back toward the paddle
+      // hand's side while ready, through the ball at contact (mirrored on the backhand side, where the blade is turned over)
+      const hand = (sp.backhand ? -1 : 1) * dir // the paddle hand's side along z (the right hand: +z facing +x)
+      const z = new Vector3(dir * Math.cos(sp.wrist), 0.12, -hand * Math.sin(sp.wrist)).normalize()
       const y = UP.clone().addScaledVector(z, -UP.dot(z)).normalize()
       const x = new Vector3().crossVectors(y, z)
+      if (sp.backhand) {
+        // the other face to the ball: the blade turned half round its handle
+        x.negate()
+        z.negate()
+      }
       const worldBlade = this.tableWorld([pos.x, pos.y, pos.z])
       const held = frame(x, y, z, worldBlade.addScaledVector(y, -BLADE_Y))
       this.grip(rig, 'r', 'paddle', `prop_paddle_${side === 0 ? 'a' : 'b'}`, true, held, inp, `prop_paddle_${side === 0 ? 'a' : 'b'}`)

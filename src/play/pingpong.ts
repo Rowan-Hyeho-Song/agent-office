@@ -15,6 +15,7 @@
 // is a whiff: the returned shot is the incoming ball continuing as a miss (`whiff: true`). Set `state.human` so balls
 // to the human are never pre-decided as 'miss'; the AI side keeps rolling its skill on the same model.
 
+import type { Contact } from './stroke'
 import { LIKES, hash, rng } from '../office/play'
 
 export type V3 = [number, number, number]
@@ -308,6 +309,12 @@ export interface Rally {
   winner?: 0 | 1
   /** index of the game being played (0 based) */
   game: number
+  /**
+   * the contacts around now, both sides (#416 ③, play.md 7): the last one before now and the next ones, each with the time its
+   * player may start moving for it (the opponent's hit it answers, or the serve's toss). A ball that wins the point is
+   * whiffed at the moment it crosses the receiver's hitting plane. Empty in discrete mode.
+   */
+  contacts: Contact[]
 }
 
 /**
@@ -369,11 +376,25 @@ export function rallyAt(seed: number, players: [string, string], tMs: number, di
     if (swing) hitter = swing.side
   }
 
+  const contacts: Contact[] = []
+  if (!discrete && tMs >= 0) {
+    for (let k = Math.max(0, lo - 1); k <= Math.min(recs.length - 1, lo + 1); k++) {
+      const r = recs[k]
+      const sh = r.shot
+      // a serve: from the start of its toss; a return: from the opponent's hit before it (the previous record of the point)
+      const from = r.tStart < sh.t0 ? r.tStart : k > 0 ? recs[k - 1].shot.t0 : sh.t0 - 1000
+      contacts.push({ side: sh.hitter, t: sh.t0, at: sh.p0, miss: false, from })
+      const plane = sh.outcome === 'miss' ? ballAt(sh, dm, sh.tPlaneS) : null
+      if (plane) contacts.push({ side: opp(sh.hitter), t: sh.t0 + sh.tPlaneS * 1000, at: plane, miss: true, from: sh.t0 })
+    }
+  }
+
   const out: Rally = {
     ballPos: discrete ? null : ballPos,
     phase,
     hitter,
     swing,
+    contacts,
     score: [score[0], score[1]],
     server: decided ? rec.serverAfter : rec.server,
     game: rec.game,
