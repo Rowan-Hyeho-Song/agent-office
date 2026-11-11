@@ -828,7 +828,7 @@ export class AgentRig {
   private cueMem: { kind: NonNullable<Sample['cue']>['kind']; dur: number; gesture: boolean; toward: { x: number; z: number } | null; startT: number } | null = null
   private cueT = 0
   /** a short gesture set by the paper plane (#51): until = the scene clock time it ends */
-  gesture: { kind: 'throw' | 'catch'; until: number; oneHand?: boolean; caught?: boolean; t0?: number; at?: Vector3; plan?: Plan; calm?: boolean; handsOff?: boolean } | null = null
+  gesture: { kind: 'throw' | 'catch'; until: number; oneHand?: boolean; side?: 'l' | 'r'; pick?: boolean; caught?: boolean; t0?: number; at?: Vector3; plan?: Plan; calm?: boolean; handsOff?: boolean } | null = null
   /** this frame's look-and-turn of a gesture (aim.ts); null without one */
   aim: AimPose | null = null
   private stance = { seated: false, still: true }
@@ -838,7 +838,7 @@ export class AgentRig {
    * Begin a throw or a catch (#224): look at `at` (a point the caller keeps moving, e.g. the plane), turn as aim.ts says.
    * Returns the gesture; `until` is when everything is back at the desk.
    */
-  startGesture(kind: 'throw' | 'catch', t: number, at: Vector3, o: { reduced?: boolean; flyFor?: number; holdS?: number; oneHand?: boolean; calm?: boolean } = {}) {
+  startGesture(kind: 'throw' | 'catch', t: number, at: Vector3, o: { reduced?: boolean; flyFor?: number; holdS?: number; oneHand?: boolean; calm?: boolean; side?: 'l' | 'r'; pick?: boolean } = {}) {
     const theta = Math.hypot(at.x - this.x, at.z - this.z) > 0.05 ? wrap(Math.atan2(-(at.x - this.x), -(at.z - this.z)) - this.heading) : 0
     const plan = planGesture(kind, theta, {
       seated: this.stance.seated,
@@ -849,7 +849,7 @@ export class AgentRig {
       flyFor: o.flyFor,
       holdS: o.holdS,
     })
-    return (this.gesture = { kind, until: t + plan.times.end, oneHand: o.oneHand, t0: t, at, plan, calm: o.calm })
+    return (this.gesture = { kind, until: t + plan.times.end, oneHand: o.oneHand, side: o.side, pick: o.pick, t0: t, at, plan, calm: o.calm })
   }
 
   constructor(id: string, index: number, parts: RigParts, color: string) {
@@ -1408,7 +1408,9 @@ export class AgentRig {
     const sit = this.seat
     const rest = this.parts.hands[side].restPos
     // once caught only the pinching (right) hand holds it; the other one rests (paper-pass.md 5, #273)
-    const gesturing = g.kind === 'throw' ? side === 'r' : g.caught ? side === 'r' : side === 'r' || !g.oneHand
+    // the catching hand is the right one unless that is busy (paper-pass.md 3 "받는 손 고르기": g.side)
+    const gs = g.side ?? 'r'
+    const gesturing = g.kind === 'throw' ? side === 'r' : g.caught ? side === gs : side === gs || !g.oneHand
     // seated at a desk the hands never go below the desk top + 5 cm (designer, #226 ④): the throw's follow-through stops there
     const floor = this.stance.seated ? DESK_HAND_MIN : -Infinity
     const lift = (p: Vector3) => ((p.y = Math.max(p.y, floor)), p)
@@ -1425,12 +1427,16 @@ export class AgentRig {
       curl = a.phase === 'follow' || a.phase === 'back' ? REST_POSE : HOLD_POSE
     } else {
       // the usual catching place in front, drifting to the plane's side as the angle grows
-      const caught = side === 'r' && g.caught
+      const caught = side === gs && g.caught
       if (caught) {
         // looking at what was caught (paper-pass.md 5, #273): in front of the face screen and below it, so neither the hand
         // nor the plane covers the screen: 0.22 ahead, 0.10 down, 0.06 to the holding hand's side, in the head's frame
         target = this.readingPlace(side)
         curl = PINCH_POSE
+      } else if (g.pick && g.at) {
+        // picking up what lies on the desk: the hand goes down to it, palm down, a finger's breadth above (paper-pass.md 3)
+        target = this.parts.root.worldToLocal(this.tmpAt.copy(g.at)).add(v(0, 0.06, 0))
+        curl = WAVE_POSE
       } else {
         // the usual catching place in front, drifting to the plane's side as the angle grows
         const front = v(sx * 0.16, 1.32 + sit, -0.32)
@@ -1443,7 +1449,7 @@ export class AgentRig {
     }
     // #255: the hand points along the reach (shoulder -> target); a catching hand's palm faces the plane (toward it from the hand), a throwing one has no object
     let palm: Vector3 | null = null
-    if (g.kind === 'catch' && !g.caught && g.at) {
+    if (g.kind === 'catch' && !g.caught && !g.pick && g.at) {
       palm = this.parts.root.worldToLocal(this.tmpAt.copy(g.at)).sub(target)
       if (palm.lengthSq() < 1e-6) palm = null
     }
@@ -1482,9 +1488,9 @@ export class AgentRig {
       const k = MathUtils.clamp(1 - (g.until - t) / GESTURE_S.throw, 0, 1) // 0 → 1 over the gesture
       return at(0.2, 1.05 + sit + Math.sin(k * Math.PI) * 0.2, -0.15 - k * 0.35, NONE, HOLD_POSE)
     }
-    if (g?.kind === 'catch' && (side === 'r' || !g.oneHand)) {
+    if (g?.kind === 'catch' && (side === (g.side ?? 'r') || !g.oneHand)) {
       // once caught, the pinching hand moves out a little so it doesn't cover the face screen (its reaction shows)
-      const caught = side === 'r' && g.caught
+      const caught = side === (g.side ?? 'r') && g.caught
       return at(sx * (0.16 + (caught ? CAUGHT_OUT : 0)), 1.32 + sit, -0.32, this.reachAt(side, v(sx * (0.16 + (caught ? CAUGHT_OUT : 0)), 1.32 + sit, -0.32), v(0, 0.2, -1)), caught ? PINCH_POSE : WAVE_POSE)
     }
     // the yield gesture: the hand on the passer's side opens palm up in front and sweeps toward them ("after you")
