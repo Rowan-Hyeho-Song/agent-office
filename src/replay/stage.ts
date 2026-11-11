@@ -14,9 +14,10 @@ import { requestOf } from '../office/director'
 import type { StatusMap } from '../office/status'
 import { TrafficPlanner, type Sample } from '../office/traffic'
 import type { Point } from '../timeline/types'
+import { passOf } from '../office/minutes'
 import { replayGoals, scriptFor } from './scene'
 import type { ReplayStore } from './store'
-import { HOLD_CAP_MS } from './store'
+import { HOLD_CAP_MS, MINUTES_HOLD_CAP_MS } from './store'
 import { REPLAY_PACE, stageSpot, WALK_HOLD_MS } from './walk'
 
 /** the longest piece of replay time one tick covers, ms */
@@ -33,6 +34,8 @@ export interface StageEnv {
   reduced: () => boolean
   /** a nav spot's floor position (the meeting's formation is laid out around the talk circles) */
   spot?: (id: string) => { x: number; z: number } | null
+  /** a 1:1 row of a minutes point starts: hand a paper from one agent to the other (the scene's PaperPlanes, paper-pass.md) */
+  pass?: (from: string, to: string) => void
 }
 
 const seatOf = (id: string) => Number(id.split('_')[1])
@@ -45,9 +48,13 @@ export class Stage {
   private pending = 0
   private seen = -1
   private ready = false
+  private speed: number
+  /** the pass row that was handed over last (one pass per row) */
+  private passed = ''
 
   constructor(private env: StageEnv) {
     env.store.hold = this.holdCap
+    this.speed = env.store.getSnapshot().speed
   }
 
   get planner() {
@@ -59,7 +66,7 @@ export class Stage {
   }
 
   /** how long the next point may wait (replay ms): for a meeting, or briefly for walkers */
-  holdCap = () => (this.env.meeting.busy ? HOLD_CAP_MS : this.walking ? WALK_HOLD_MS : 0)
+  holdCap = () => (this.env.meeting.busy ? (this.env.meeting.script?.minutes ? MINUTES_HOLD_CAP_MS : HOLD_CAP_MS) : this.walking ? WALK_HOLD_MS : 0)
 
   /** the replay time the screen shows: the committed clock plus what the current frame has not spent yet, ms */
   get now() {
@@ -132,7 +139,21 @@ export class Stage {
     for (const id of ids) spots[id] = this.env.reduced() ? `work_${seatOf(id)}` : stageSpot(scene.point, seatOf(id))
     const goals = replayGoals(scene.status, spots)
     const place = { at: (a: string) => (planner.has(a) ? planner.position(a, tau / 1000) : null), spot: (sp: string) => this.env.spot?.(sp) ?? null }
+    // a minutes point is timed for the speed it plays at (timelapse.md 11.4): a change of speed times the rest of its rows again
+    const speed = store.getSnapshot().speed
+    if (speed !== this.speed) {
+      this.speed = speed
+      meeting.replan(speed, tau)
+    }
     meeting.apply(tau, (a) => this.arrivedAt(a, tau), goals, door, place)
+    // a 1:1 row hands a paper over when it begins (the replay clock drives it, so x4 and a seek behave)
+    const v = meeting.view(tau)
+    const pass = v ? passOf(v.script, v.frame.index) : null
+    if (!pass) this.passed = ''
+    else if (!snap && pass.key !== this.passed) {
+      this.passed = pass.key
+      this.env.pass?.(`agent_${pass.from}`, `agent_${pass.to}`)
+    }
     for (const id of ids) {
       const g = goals[id]
       if (!g || g.pose === 'leave') continue
@@ -189,6 +210,6 @@ export function lineMode(speed: number, lineMs: number): 'bubble' | 'full' | 'su
 }
 
 /** a minutes point plays its brief meeting from the clock it landed on (a late body load does not move its start) */
-export function startMinutes(meeting: MeetingRunner, p: Point, meta: DocMeta | undefined, convs: Parameters<typeof scriptFor>[2], at: number, status: StatusMap): boolean {
-  return meeting.start(scriptFor(p, meta, convs, false), at, status, {})
+export function startMinutes(meeting: MeetingRunner, p: Point, meta: DocMeta | undefined, convs: Parameters<typeof scriptFor>[2], at: number, status: StatusMap, speed = 1, reduced = false): boolean {
+  return meeting.start(scriptFor(p, meta, convs, reduced, speed), at, status, {})
 }

@@ -4,6 +4,9 @@ import { setCameraKeysBlocked } from '../office/cameraRig'
 import { setClockClick, setClockTime } from '../office/clock'
 import { prefersReducedMotion, type OfficeWorld } from '../office/world'
 import { atMs } from './engine'
+import type { Point } from '../timeline/types'
+import { noteMinutes } from './minutesInfo'
+import { scriptFor } from './scene'
 import { startMinutes } from './stage'
 import { replay } from './store'
 
@@ -47,11 +50,37 @@ export function ReplayDriver({ world }: { world: OfficeWorld }) {
       raf = requestAnimationFrame(frame)
     }
 
+    // the library's document of a minutes point and its table's rows (null rows: SECRET / private, or not loaded)
+    const tableOf = async (p: Point) => {
+      const lib = world.library
+      const meta = p.issue === null ? undefined : lib?.getSnapshot().metas?.find((m) => m.kind === 'minutes' && m.repo === p.project && m.folder === p.issue)
+      let convs = null
+      if (meta && meta.readable && meta.grade !== 'private') {
+        await lib!.ensure([meta.id])
+        const body = lib!.getSnapshot().bodies[meta.id]
+        convs = body ? conversations(body.data) : null
+      }
+      return { meta, convs }
+    }
+    // the rows of this day's minutes points are counted ahead (the remaining time includes them, timelapse.md 11.4)
+    let preloaded: readonly Point[] | null = null
+    const preload = (win: readonly Point[]) => {
+      if (win === preloaded || !world.library?.getSnapshot().metas) return
+      preloaded = win
+      void (async () => {
+        for (const p of win.filter((q) => q.kind === 'minutes').slice(0, 40)) {
+          const { meta, convs } = await tableOf(p)
+          if (replay.points !== win) return
+          noteMinutes(p, scriptFor(p, meta, convs, false))
+        }
+      })()
+    }
     let was = replay.getSnapshot().mode
     let lastPoint: unknown = null
     const sync = () => {
       const s = replay.getSnapshot()
       if (s.mode === 'office') {
+        preload(replay.points)
         world.board.lock(replay.scene()?.board ?? null)
         if (was !== 'office') animate(Date.now(), target())
         else if (!anim && replay.point !== lastPoint) setClockTime(new Date(target()))
@@ -69,21 +98,17 @@ export function ReplayDriver({ world }: { world: OfficeWorld }) {
       replay.onPoint((p, via) => {
         // seeking (drag, keys) only changes the state; a scene starts when the replay plays the point (design 8)
         world.meeting.stop()
-        if (via !== 'play' || p.kind !== 'minutes' || prefersReducedMotion()) return
+        if (via !== 'play' || p.kind !== 'minutes') return
         // the meeting starts at the clock of the landing, however long its body takes to load
         const at = replay.landedClock
-        const lib = world.library
-        const meta = p.issue === null ? undefined : lib?.getSnapshot().metas?.find((m) => m.kind === 'minutes' && m.repo === p.project && m.folder === p.issue)
         void (async () => {
-          let convs = null
-          if (meta && meta.readable && meta.grade !== 'private') {
-            await lib!.ensure([meta.id])
-            const body = lib!.getSnapshot().bodies[meta.id]
-            convs = body ? conversations(body.data) : null
-          }
+          const { meta, convs } = await tableOf(p)
           // the playhead moved on while the body was loading
           if (replay.point !== p) return
-          startMinutes(world.meeting, p, meta, convs, at, replay.scene()!.status)
+          // reduced motion: the rows are bubbles at the seats, nobody gathers or passes (timelapse.md 11.4)
+          const reduced = prefersReducedMotion()
+          noteMinutes(p, scriptFor(p, meta, convs, false))
+          startMinutes(world.meeting, p, meta, convs, at, replay.scene()!.status, replay.getSnapshot().speed, reduced)
         })()
       }),
     ]
