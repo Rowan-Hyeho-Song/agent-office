@@ -37,14 +37,13 @@ import {
   type Shot,
   type V3,
 } from './tour'
-import { isBoardActive } from './boardView/store'
 import { NO_MOUSE, mouseStep, type MouseEv, type MouseState } from './tourInput'
 import { cutInLimits, freeSpot, stopEaseAt, stopEaseDone, type CutLimits } from './tourLimits'
-import { getTourState, registerTour, setTourAutoOff, setTourFade, setTourState, tourAutoOff } from './tourStore'
+import { getTourState, registerTour, setTourFade, setTourState, tourTick } from './tourStore'
 import { VIEW, focusAllowsCameraKeys, keepClear } from './view'
 import { prefersReducedMotion, type OfficeWorld } from './world'
 
-// The tour's camera (#207, office-ui.md 10): after 45 s without input on the 3D it flies from agent to agent (tour.ts decides
+// The tour's camera (#207, office-ui.md 10): started by the visitor only (the dock's view toggle, an agent's name, `]`; #427: never by itself) it flies from agent to agent (tour.ts decides
 // the order, the framing and the way), any input ends it where the camera stands. CameraRig stands aside while it runs
 // (tourStore.isTouring); OrbitControls keeps the camera and the target, so nothing jumps when it ends.
 // The controls are DISABLED while it runs (their update() would clamp the tour's poses to the free-view limits, and the
@@ -91,15 +90,8 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
 
   useEffect(() => {
     if (!limits) return
-    const q = new URLSearchParams(location.search)
-    // ?debug=1&tourIdle=3: the idle wait in seconds (and the automatic start under ?debug=1, which is otherwise off so
-    // screenshot scripts stay still)
-    const idleOverride = world.debug && q.has('tourIdle') ? Math.max(0.5, Number(q.get('tourIdle'))) * 1000 : null
-    const idleMs = idleOverride ?? TOUR.idleMs
-    const auto = !world.debug || idleOverride !== null
     const plan = new TourPlan()
     let run: Run | null = null
-    let lastInput = Date.now()
     let saved: { minD: number; maxD: number; maxP: number; minP: number } | null = null
     let ease: { from: V3; to: V3; t0: number } | null = null
     let gesture: { id: number; x: number; y: number; t: number } | null = null
@@ -247,7 +239,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
       begin(plan.startAt(Date.now(), agent, views(), speed()))
     }
 
-    function stopTour(why: 'button' | 'input' = 'input') {
+    function stopTour() {
       if (!getTourState().active) return
       run = null
       gesture = null
@@ -273,8 +265,6 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
           }
         }
       }
-      if (why === 'button') setTourAutoOff(true)
-      lastInput = Date.now()
       setTourState({ active: false, cut: null, canBack: false })
     }
 
@@ -378,7 +368,6 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
     }
 
     const onDown = (e: PointerEvent) => {
-      lastInput = Date.now()
       if (!touch(e)) return mouseDo('down', e)
       if (!getTourState().active || onBar(e)) return
       if (touch(e)) {
@@ -394,7 +383,6 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
       }
     }
     const onMove = (e: PointerEvent) => {
-      lastInput = Date.now()
       if (!touch(e)) return mouseDo('move', e)
       if (!getTourState().active || onBar(e)) return
       if (touch(e)) {
@@ -420,11 +408,9 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
       stopTour()
     }
     const onWheel = (e: Event) => {
-      lastInput = Date.now()
       if (getTourState().active && !onBar(e)) stopTour()
     }
     const onKey = (e: KeyboardEvent) => {
-      lastInput = Date.now()
       if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return
       const active = getTourState().active
       const usable = focusAllowsCameraKeys(document.activeElement, document.body, document.documentElement) || (active && onBar(e))
@@ -449,14 +435,10 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
     window.addEventListener('keydown', onKey, true)
     document.addEventListener('visibilitychange', onHidden)
 
-    // the idle clock, and what makes the tour give way (a panel, the door, a hidden tab)
+    // what makes a running tour give way (a panel, the door); it never starts one (#427: only the dock's view toggle and an agent's name do)
     const timer = window.setInterval(() => {
-      const st = getTourState()
-      const ctl = live.current.controls
-      if (st.active && (!ctl || live.current.busy || getSideLayout().open)) return stopTour()
-      if (st.active || !auto || tourAutoOff() || !ctl || live.current.busy || document.hidden || getSideLayout().open || isBoardActive()) return
-      if (replay.getSnapshot().mode === 'list') return
-      if (Date.now() - lastInput >= idleMs) startTour()
+      const tick = tourTick({ active: getTourState().active, controls: !!live.current.controls, busy: live.current.busy, panel: getSideLayout().open })
+      if (tick === 'stop') stopTour()
     }, 400)
 
     // a paper plane (#51) is an event at both desks

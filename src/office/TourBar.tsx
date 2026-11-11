@@ -96,7 +96,7 @@ export function TourBar({ world }: { world: OfficeWorld }) {
           <button type="button" className="tour-btn" onClick={tour.next} aria-label="다음 (키 ])" title="다음 (])">
             <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3.5 2 8.5 6l-5 4z" fill="currentColor" /></svg>
           </button>
-          <button type="button" className="tour-btn tour-stop" onClick={() => tour.stop('button')} aria-label="둘러보기 멈추기 (Esc)" title="멈추기 (Esc, 이 탭에서는 다시 시작하지 않음)">
+          <button type="button" className="tour-btn tour-stop" onClick={() => tour.stop()} aria-label="둘러보기 멈추기 (Esc)" title="멈추기 (Esc)">
             <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3h6v6H3z" fill="currentColor" /></svg>
           </button>
         </div>
