@@ -1,5 +1,6 @@
--- Timelapse points for /api/timeline (#81, plan.md 6.7). DRAFT: run at deployment, after docs.sql, in the same
--- Supabase project. Nothing runs it before that.
+-- Timelapse points for /api/timeline (#81, #413, plan.md 6.7). Run once in the office's Supabase project (after docs.sql);
+-- safe to run again. Written by /api/timeline (the Action and the backfill, .github/workflows/timeline.yml); read by the
+-- timelapse (src/replay/livePoints.ts) with the page's publishable key.
 --
 -- Who can do what:
 --   visitors (anon / publishable key)  public points in full; review points (SECRET: no title)
@@ -39,6 +40,8 @@ alter table public.timeline enable row level security;
 drop policy if exists "visitors read timeline" on public.timeline;
 create policy "visitors read timeline" on public.timeline for select to anon, authenticated
   using (tier = 'public' or (tier = 'review' and title = ''));
+-- the page reads the table itself (#413), not a view: the policy above decides the rows
+grant select on public.timeline to anon, authenticated;
 
 -- #193: a fifth seat (에코, sound). Widens the check on a database made for four seats; safe to run again
 alter table public.timeline drop constraint if exists timeline_agent_check;

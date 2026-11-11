@@ -11,6 +11,8 @@ import { useSyncExternalStore } from 'react'
 import type { Point } from '../timeline/types'
 import { adjacentDay, dayId, daysOf, openingDay, pickDay, type DayInfo } from './days'
 import { ALL, daybreakMs, flipText, indexAt, isDaybreak, prepare, projectFrom, sceneAt, shortName, stepMs, atMs, whenText, type Scene, type Speed } from './engine'
+import { supabase } from '../office/supabase'
+import { loadPoints } from './livePoints'
 
 export type Mode = 'off' | 'office' | 'list'
 
@@ -96,8 +98,8 @@ export class ReplayStore {
     if (forced === 'reduce' || forced === 'full') return forced === 'reduce'
     return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
   }
-  /** where the points come from (the fixtures until /api/timeline is deployed); swapped in tests */
-  source: () => Promise<Point[]> = loadFixtures
+  /** where the points come from: the timeline table over the bundled copies, or the copies alone (#413, livePoints.ts); swapped in tests */
+  source: () => Promise<Point[]> = () => loadPoints(loadFixtures, supabase)
 
   getSnapshot = () => this.state
   subscribe = (cb: () => void) => {
