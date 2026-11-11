@@ -15,6 +15,7 @@
 import type { Goal } from './director'
 import { formation, stepBack, turnToward, type Slot } from './formation'
 import { frameAt, trimScript, type MeetingFrame, type MeetingScript, type ScriptLine } from './meeting'
+import { planScript, tierOf, trimMinutes } from './minutes'
 import { hash, rng } from './play'
 import type { StatusMap } from './status'
 
@@ -122,6 +123,8 @@ interface Cur {
   /** when each one leaves the circle, office ms, and when the meeting is over */
   leave: Map<number, number>
   end: number
+  /** the rows play where everyone is (a 1:1 or a lone agent of the timelapse's minutes, timelapse.md 11): no gathering, no dispersal */
+  inPlace: boolean
 }
 
 export class MeetingRunner {
@@ -164,10 +167,11 @@ export class MeetingRunner {
       return true
     }
     const here = (seat: number) => !!status[id(seat)] && status[id(seat)].state !== 'off' && !(opts.skipWorking && status[id(seat)].state === 'working')
-    const trimmed = trimScript(script, script.seats.filter(here))
+    const trimmed = script.minutes ? trimMinutes(script, script.seats.filter(here)) : trimScript(script, script.seats.filter(here))
     const owner = trimmed.lines.some((l) => l.from === 'owner')
     if (!trimmed.lines.length || trimmed.seats.length + (owner ? 1 : 0) < 2 || trimmed.seats.length < 1) return false
-    this.cur = { script: trimmed, phase: 'gather', since: now, t0: now, postAt: null, pinnedAt: null, plan: null, leave: new Map(), end: Infinity }
+    const inPlace = !!trimmed.minutes && trimmed.minutes.mode !== 'gather'
+    this.cur = { script: trimmed, phase: inPlace ? 'lines' : 'gather', since: now, t0: now, postAt: null, pinnedAt: null, plan: null, leave: new Map(), end: Infinity, inPlace }
     return true
   }
 
@@ -176,11 +180,23 @@ export class MeetingRunner {
     this.queue = []
   }
 
+  /** the speed changed while a minutes point plays: its rows are timed again, and the row being played goes on from where it was */
+  replan(speed: number, now: number) {
+    const c = this.cur
+    if (!c?.script.minutes || tierOf(speed) === tierOf(c.script.minutes.speed)) return
+    const old = c.phase === 'lines' ? c.script.lines[frameAt(c.script, now - c.t0).index] : undefined
+    const next = planScript(c.script, { speed })
+    c.script = next
+    if (c.phase !== 'lines' || !old) return
+    const j = next.lines.findIndex((l) => l.row !== undefined && l.row >= (old.row ?? 0))
+    c.t0 = now - (j >= 0 ? next.lines[j].startMs : next.linesMs)
+  }
+
   /** the lines on screen (null before them and after) */
-  view(now: number): { script: MeetingScript; frame: MeetingFrame } | null {
+  view(now: number): { script: MeetingScript; frame: MeetingFrame; t: number } | null {
     const c = this.cur
     if (!c || c.phase !== 'lines') return null
-    return { script: c.script, frame: frameAt(c.script, now - c.t0) }
+    return { script: c.script, frame: frameAt(c.script, now - c.t0), t: now - c.t0 }
   }
 
   /** the formation and the staggered departures, planned once when the gathering starts */
@@ -240,6 +256,7 @@ export class MeetingRunner {
     this.shownWords = {}
     if (!c) return
     const { script } = c
+    if (c.inPlace) return this.applyInPlace(c, now, goals, door)
     const plan = this.planOf(c, goals, place)
     const planner = this.status[id(PLANNER)] && this.status[id(PLANNER)].state !== 'off' ? PLANNER : null
     const there = (seat: number) => arrivedAt(id(seat)) === seatLabel(seat)
@@ -329,6 +346,25 @@ export class MeetingRunner {
     for (const seat of new Set([...script.seats, ...script.followUps])) {
       const l = goals[id(seat)]?.label
       if (l && MEET_SET.has(l)) this.shownWords[id(seat)] = l
+    }
+  }
+
+  /** the rows of a minutes point that does not gather: everyone stays at their seat, the speaker's receiver turns to it (or to the door) */
+  private applyInPlace(c: Cur, now: number, goals: Record<string, Goal>, door?: { x: number; z: number }) {
+    const { script } = c
+    if (now - c.t0 >= script.linesMs) return this.finish(now)
+    const frame = frameAt(script, now - c.t0)
+    const line = script.lines[frame.index]
+    for (const seat of script.seats) {
+      const g = goals[id(seat)]
+      if (!g) continue
+      // a pass turns the heads itself (paper-pass.md 2); the owner's row turns its receiver to the door screen (0.3 s, the rig's own turn)
+      const toward = line?.pass ? null : frame.speaker === seat ? frame.addressee : frame.speaker
+      goals[id(seat)] = {
+        ...g,
+        ...(toward !== null && toward !== seat ? { gaze: id(toward) } : {}),
+        ...(frame.door && door && frame.addressee === seat ? { face: door } : {}),
+      }
     }
   }
 

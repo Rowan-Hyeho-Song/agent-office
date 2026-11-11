@@ -8,6 +8,7 @@ import { boardDistance, pointWaitMs } from './walk'
 import { ALL, LANES, LANE_NAME, SECRET_NOTE, SPEEDS, atMs, describe, dayLabel, laneOf, remainingMs, shortName, stepMs, valueText, whenText, kst, type Lane } from './engine'
 import { replay, useReplay } from './store'
 import { useLineSub } from './lineSub'
+import { minutesExtraMs, progressText, useMinutesProgress, useMinutesVersion } from './minutesInfo'
 import { ReplayList } from './ReplayList'
 import { DayCalendar } from './DayCalendar'
 import { announceText, dayText, endText, navLabel } from './days'
@@ -62,6 +63,8 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
     return () => m.removeEventListener('change', on)
   }, [])
   const line = useLineSub()
+  const rows = progressText(useMinutesProgress())
+  useMinutesVersion()
   const [hover, setHover] = useState(-1)
   const [copied, setCopied] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
@@ -192,7 +195,7 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
   const d = describe(p)
   const lane = laneOf(p)
   const when = whenText(atMs(p))
-  const left = remainingMs(points, s.i, s.speed, (k, first) => pointWaitMs(points, k, (p) => stepMs(p, 1), boardDistance, first), s.ended) / 1000
+  const left = remainingMs(points, s.i, s.speed, (k, first) => pointWaitMs(points, k, (p) => stepMs(p, 1), boardDistance, first) + (points[k].kind === 'minutes' ? minutesExtraMs(points[k], s.speed) : 0), s.ended) / 1000
   const hp = hover >= 0 ? points[hover] : null
   const share = () => {
     const url = replay.shareUrl()
@@ -261,7 +264,7 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
           <button type="button" className="ib play" aria-label={s.playing ? '멈춤' : '재생'} onClick={() => replay.toggle()}>{s.playing ? '❚❚' : '▶'}</button>
           <button type="button" className="ib" aria-label="다음 점" onClick={() => replay.step(1)}>⏭</button>
           <div className="replay-seg" role="radiogroup" aria-label="속도">{SPEEDS.map(speedBtn)}</div>
-          <span className="replay-pos"><b>{s.i + 1}</b> / {points.length}{compact ? '' : ` · 남은 ${Math.floor(left / 60)}:${p2(Math.round(left % 60) % 60)}`}</span>
+          <span className="replay-pos"><b>{s.i + 1}</b> / {points.length}{rows ? ` · ${rows}` : ''}{compact ? '' : ` · 남은 ${Math.floor(left / 60)}:${p2(Math.round(left % 60) % 60)}`}</span>
           <span className="spacer" />
           {!compact && (
             <>

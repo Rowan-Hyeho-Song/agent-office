@@ -202,6 +202,15 @@ export class PaperPlanes {
     }
   }
 
+  /** the clock changes (the timelapse runs the papers on the replay clock): whatever is in the air is dropped */
+  reset() {
+    this.queue.length = 0
+    this.forced.clear()
+    this.flight = null
+    if (this.plane) this.plane.node.visible = false
+    this.passes.reset()
+  }
+
   /** ?debug=1: a pass between two agents now, by a method of your choice (else paper-pass.md 1's) */
   pass(from: string, to: string, method?: Method) {
     this.receive({ id: `dbg-${this.debugN++}`, kind: 'handoff', from, to, at: Date.now() }, method)

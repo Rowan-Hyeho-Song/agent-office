@@ -26,6 +26,13 @@ describe('prepare / indexAt', () => {
     expect(indexAt(ps, t(9))).toBe(2)
     expect(indexAt([], 0)).toBe(-1)
   })
+  it('points of the same instant: the first of them (a link to a minutes point lands on it, not on its decision filed at the same time, #414)', () => {
+    const at = '2026-11-07T02:00:00Z'
+    const ps = prepare([pt(1), { ...pt(2), key: 'm', kind: 'minutes', at }, { ...pt(2), key: 'm#decision', kind: 'decision', at }, pt(3)])
+    expect(ps.map((p) => p.key)).toEqual(['k1', 'm', 'm#decision', 'k3'])
+    expect(indexAt(ps, Date.parse(at))).toBe(1)
+    expect(indexAt(ps, Date.parse(at) + 1000)).toBe(1)
+  })
   it('reads a project from an address', () => {
     expect(projectFrom('agent-office', [OFFICE])).toBe(OFFICE)
     expect(projectFrom(OFFICE, [OFFICE])).toBe(OFFICE)

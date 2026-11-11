@@ -31,6 +31,25 @@ export interface ScriptLine {
   startMs: number
   typeMs: number
   holdMs: number
+  /** a 1:1 row of the timelapse (timelapse.md 11.2): the sender hands the receiver a paper while it shows */
+  pass?: boolean
+  /** the elision marker of a long minutes point (11.4): how many rows it stands for; its text is `· · · N줄` */
+  gap?: number
+  /** the row's place in the table, 1-based (the day view's `회의 4/9줄`) */
+  row?: number
+  /** a pass row: ms into the line when the receiver starts to read (the caption line shows the words from then) */
+  readAt?: number
+}
+
+export type MinutesMode = 'gather' | 'pair' | 'seat'
+export type RowBase = Omit<ScriptLine, 'startMs' | 'typeMs' | 'holdMs' | 'pass' | 'gap' | 'readAt'>
+
+/** what a timelapse minutes script is made of (src/office/minutes.ts plans it): every table row, untimed, and how it plays */
+export interface MinutesInfo {
+  mode: MinutesMode
+  /** the speed it is timed for (1, 4, 16) */
+  speed: number
+  rows: RowBase[]
 }
 
 export interface MeetingScript {
@@ -54,7 +73,15 @@ export interface MeetingScript {
   masked: boolean
   /** typed in full at once (reduced motion) */
   reduced: boolean
+  /** a timelapse minutes point (timelapse.md 11): all the rows, timed for a speed */
+  minutes?: MinutesInfo
 }
+
+const nameOf = (seat: number) => whoOf({ seat: seat as 0 | 1 | 2 | 3 | 4 }).ko
+/** `→ 휴` / `→ 주인`: who a row is said to (the bubble's tab), null when to nobody */
+export const tagOf = (l: Pick<ScriptLine, 'to' | 'toOwner'>) => (l.toOwner ? '→ 주인' : l.to[0] !== undefined ? `→ ${nameOf(l.to[0])}` : null)
+/** the owner's row as the terminal line on the door screen: `> 주인 → 휴: 내용` */
+export const doorLine = (l: Pick<ScriptLine, 'to' | 'text'>) => `> 주인${l.to[0] !== undefined ? ` → ${nameOf(l.to[0])}` : ''}: ${l.text}`
 
 const seatOf = (who: { seat: string }) => (/^[0-4]$/.test(who.seat) ? Number(who.seat) : null)
 
@@ -134,7 +161,7 @@ function inventedLines(meta: DocMeta, isPrivate: boolean): Omit<ScriptLine, 'sta
 }
 
 /** the real lines of a readable document: each 협의 기록 row = one line (first sentence, 36 characters) */
-function realLines(convs: Conversation[], mask: boolean): Omit<ScriptLine, 'startMs' | 'typeMs' | 'holdMs'>[] {
+function realLines(convs: Conversation[], mask: boolean, max: number): Omit<ScriptLine, 'startMs' | 'typeMs' | 'holdMs'>[] {
   const out: Omit<ScriptLine, 'startMs' | 'typeMs' | 'holdMs'>[] = []
   for (const c of convs) {
     for (const u of c.lines) {
@@ -154,11 +181,13 @@ function realLines(convs: Conversation[], mask: boolean): Omit<ScriptLine, 'star
       })
     }
   }
-  return out.slice(0, MAX_LINES)
+  return out.slice(0, max)
 }
 
 export interface BuildOptions {
   reduced?: boolean
+  /** how many rows at most (the live meeting plays 8; the timelapse plays them all) */
+  maxLines?: number
 }
 
 /**
@@ -170,7 +199,7 @@ export function buildScript(meta: DocMeta, convs: Conversation[] | null, opts: B
   const readable = meta.readable && !isPrivate && convs !== null
   // readable but not approved (the owner's view of a SECRET one): the same scene a visitor would see, words hidden
   const masked = !readable || !meta.approved
-  const raw = readable ? realLines(convs, masked) : inventedLines(meta, isPrivate)
+  const raw = readable ? realLines(convs, masked, opts.maxLines ?? MAX_LINES) : inventedLines(meta, isPrivate)
   const { lines, linesMs } = retime(raw, opts.reduced)
   const all = ordered(lines.flatMap((l) => [l.from, ...l.to]))
   const last = readable ? [...convs].reverse() : []
@@ -222,6 +251,8 @@ export interface MeetingBubble {
   log: string
   /** the row to open with "전문 보기": null when masked */
   row: string | null
+  /** the tab's words: `→ 휴` (timelapse minutes), else the plain `회의` */
+  tag: string | null
 }
 
 export interface MeetingFrame {
@@ -268,14 +299,16 @@ export function frameAt(script: MeetingScript, t: number): MeetingFrame {
       typed: typedOf(l, j),
       full: l.full,
       masked: l.masked,
-      dim: j !== index,
+      dim: j !== index || l.gap !== undefined,
       order: j,
       pairWith: l.to[0] ?? null,
       log: logOf(l),
-      row: l.masked || l.private || !script.repo || !script.n ? null : l.key,
+      row: l.masked || l.private || !script.repo || !script.n || l.gap !== undefined ? null : l.key,
+      tag: l.gap !== undefined ? '생략' : script.minutes ? tagOf(l) : null,
     })
   }
-  const door = cur.from === 'owner' ? { key: `${script.id}:${cur.key}`, text: cur.text, typed: typedOf(cur, index), masked: cur.masked, log: logOf(cur) } : null
+  const doorText = cur.from === 'owner' ? doorLine(cur) : ''
+  const door = cur.from === 'owner' ? { key: `${script.id}:${cur.key}`, text: script.minutes ? doorText : cur.text, typed: script.minutes ? typedCount([...doorText].length, t - cur.startMs, script.reduced) : typedOf(cur, index), masked: cur.masked, log: logOf(cur) } : null
   return {
     index,
     ended: false,
