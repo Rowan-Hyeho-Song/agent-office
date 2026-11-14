@@ -19,7 +19,7 @@ const PALETTE: Record<string, string> = {
   M: 'var(--color-magenta)', // heart
 }
 
-export type PixelIconName = TreatKind | 'heart'
+export type PixelIconName = TreatKind | 'heart' | 'note'
 
 export const ICON_GRIDS: Record<PixelIconName, string[]> = {
   coffee: [
@@ -79,6 +79,21 @@ export const ICON_GRIDS: Record<PixelIconName, string[]> = {
     '............',
   ],
   heart: ['.kk.kk.', 'kMMkMMk', 'kMhMMMk', 'kMMMMMk', '.kMMMk.', '..kMk..', '...k...'],
+  // #4 12.3 the note (an envelope; to be judged with the others)
+  note: [
+    '............',
+    '............',
+    'kkkkkkkkkkkk',
+    'kWkWWWWWWkWk',
+    'kWWkWWWWkWWk',
+    'kWWWkWWkWWWk',
+    'kWWWWkkWWWWk',
+    'kWWWWWWWWWWk',
+    'kWWWWWWWWWWk',
+    'kWWWWWWWWWWk',
+    'kkkkkkkkkkkk',
+    '............',
+  ],
 }
 
 /** the heart's light is pinker than the apple's */

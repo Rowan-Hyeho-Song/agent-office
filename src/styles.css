@@ -921,3 +921,15 @@ html[data-motion='reduce'] .badge-sheet { animation: sound-sheet-fade 120ms line
 .pixel-icon svg, .treat-icon svg, .treat-heart svg { display: block; }
 .badge-give-btn { grid-auto-flow: column; gap: 3px; }
 .treat-icon, .treat-heart { font-size: 0; }
+/* #4 12.3: the note form under the badge (in the sheet on a phone) */
+.note-form { position: absolute; top: calc(var(--top) + 352px + 10px); left: 0; width: 224px; box-sizing: border-box; display: grid; gap: 6px; padding: 10px; border-radius: 8px; background: #f3ead8; color: var(--color-ink); font-family: var(--font-pixel); font-size: 12px; box-shadow: 0 0 0 1px var(--color-halo), 0 10px 24px rgb(0 0 0 / 0.45); pointer-events: auto; }
+.badge-sheet .note-form { position: static; width: auto; margin-top: 12px; }
+.note-label { display: flex; justify-content: space-between; font-weight: 700; }
+.note-label span { font-weight: 400; color: #6b5f45; }
+.note-form textarea, .note-form input { box-sizing: border-box; width: 100%; padding: 6px; border: 1px solid rgb(11 14 19 / 0.45); border-radius: 4px; background: #fffaf0; color: var(--color-ink); font: inherit; resize: none; }
+.note-form textarea:focus-visible, .note-form input:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 1px; }
+.note-msg { margin: 0; min-height: 2.4em; color: #6b5f45; font-size: 11px; }
+.note-msg.bad { color: #8a2d1c; }
+.note-msg.ok { color: #2f6b3a; }
+.note-btns { display: flex; gap: 6px; justify-content: flex-end; }
+.note-form .badge-give-btn[disabled] { opacity: 0.5; cursor: default; }

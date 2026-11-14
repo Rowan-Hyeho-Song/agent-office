@@ -17,6 +17,8 @@ import { badgeAnchor, badgeHover, closeBadge, getBadge, useBadge, useBadgeHover 
 import { barcode, joinedDate, machineNo, recentToday, seatLabel, todayLine } from './badgeData'
 import { cue } from '../../audio/cues'
 import { give, waitLeft } from '../visit/treats'
+import { noteWaitLeft, pinNote } from '../visit/notes'
+import { checkNote, NOTE_MAX, NOTE_NAME_MAX } from '../../visit/note'
 import { TREAT_LABEL } from '../visit/reaction'
 import { pixelSvg, type PixelIconName } from '../visit/pixelIcons'
 import { SNACKS, type TreatKind } from '../../visit/treat'
@@ -98,6 +100,8 @@ function Card({ world, agent, nonce, phone, screenW, leaving }: { world: OfficeW
   const [nameKo, nameEn] = info.name.split(' ')
   const titleId = useId()
   const [back, setBack] = useState(false)
+  /** #4 12.3: the note form is open under the card (in the sheet on a phone) */
+  const [writing, setWriting] = useState(false)
   const reduced = prefersReducedMotion()
   const root = useRef<HTMLDivElement>(null)
   const hang = useRef<HTMLDivElement>(null)
@@ -126,6 +130,8 @@ function Card({ world, agent, nonce, phone, screenW, leaving }: { world: OfficeW
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
+      // Esc in the note form closes the form first (NoteForm), not the card
+      if ((e.target as Element | null)?.closest?.('.note-form')) return
       e.stopPropagation()
       closeBadge()
     }
@@ -237,7 +243,7 @@ function Card({ world, agent, nonce, phone, screenW, leaving }: { world: OfficeW
       </div>
       <div className="badge-stub">
         <p className="badge-today">{today}</p>
-        <GiveButtons agent={agent} name={nameKo} />
+        <GiveButtons agent={agent} name={nameKo} onNote={() => setWriting(true)} />
         {!phone && (
           <button ref={frontFirst} type="button" className="badge-flip" onClick={() => flip(true)} tabIndex={back ? -1 : undefined}>
             뒤집기 ↻
@@ -281,6 +287,7 @@ function Card({ world, agent, nonce, phone, screenW, leaving }: { world: OfficeW
         <div className="badge-card" style={{ zoom: (screenW - 64) / BADGE.w }}>
           {front}
         </div>
+        {writing && <NoteForm agent={agent} name={nameKo} onDone={() => setWriting(false)} />}
         <h3 className="badge-sub">오늘 한 일</h3>
         {list}
         {links()}
@@ -313,8 +320,71 @@ function Card({ world, agent, nonce, phone, screenW, leaving }: { world: OfficeW
             </div>
           </div>
         </div>
+        {writing && <NoteForm agent={agent} name={nameKo} onDone={() => setWriting(false)} />}
       </div>
     </div>
+  )
+}
+
+/**
+ * #4 12.3: a note for this robot, pinned on the cork board. The words (80) and an optional name (20); the same check as the
+ * server tells the reason as the visitor types (the word filter, no links, no email address or phone number). The server's
+ * answer decides: pinned, wait (30 s), or its reason.
+ */
+function NoteForm({ agent, name, onDone }: { agent: string; name: string; onDone: () => void }) {
+  const [text, setText] = useState('')
+  const [who, setWho] = useState('')
+  const [said, setSaid] = useState<{ kind: 'error' | 'ok' | 'wait'; text: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const area = useRef<HTMLTextAreaElement>(null)
+  const id = useId()
+  useEffect(() => area.current?.focus({ preventScroll: true }), [])
+  const live = text.trim() || who.trim() ? checkNote(who, text || ' ') : null
+  const problem = live && (text.trim() || live !== '한마디를 적어 주세요.') ? live : null
+  const submit = async () => {
+    if (busy) return
+    cue('ui.click')
+    setBusy(true)
+    const r = await pinNote(agent, text, who)
+    setBusy(false)
+    if ('ok' in r) {
+      setSaid({ kind: 'ok', text: '게시판에 붙였어요.' })
+      window.setTimeout(onDone, 1200)
+    } else if ('wait' in r) setSaid({ kind: 'wait', text: `${r.wait}초 뒤에 다시 붙일 수 있어요.` })
+    else setSaid({ kind: 'error', text: r.error })
+  }
+  return (
+    <form
+      className="note-form"
+      aria-label={`${name}에게 쪽지`}
+      onSubmit={(e) => {
+        e.preventDefault()
+        void submit()
+      }}
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape') return
+        e.stopPropagation()
+        e.nativeEvent.stopImmediatePropagation()
+        onDone()
+      }}
+    >
+      <label htmlFor={`${id}-t`} className="note-label">
+        {name}에게 쪽지 <span>{[...text].length}/{NOTE_MAX}</span>
+      </label>
+      <textarea id={`${id}-t`} ref={area} rows={3} maxLength={NOTE_MAX} value={text} onChange={(e) => setText(e.target.value)} aria-describedby={`${id}-m`} />
+      <input type="text" maxLength={NOTE_NAME_MAX} value={who} onChange={(e) => setWho(e.target.value)} placeholder="이름(비우면 익명)" aria-label="이름, 비우면 익명" />
+      <p id={`${id}-m`} className={`note-msg${said?.kind === 'ok' ? ' ok' : said || problem ? ' bad' : ''}`} role="status">
+        {said?.text ?? problem ?? '게시판은 모두에게 보여요.'}
+      </p>
+      <span className="note-btns">
+        <button type="submit" className="badge-give-btn" disabled={busy || !!problem || !text.trim() || noteWaitLeft() > 0}>
+          붙이기
+        </button>
+        <button type="button" className="badge-give-btn" onClick={onDone}>
+          취소
+        </button>
+      </span>
+    </form>
   )
 }
 
@@ -322,7 +392,7 @@ function Card({ world, agent, nonce, phone, screenW, leaving }: { world: OfficeW
  * 12.2: a snack (☕ opens the three: coffee, cookie, apple) and a cheer (✨). Each once a minute per robot from this visitor:
  * a held-back button is dimmed and shows the seconds left (`☕ 42초`); the server holds the same line.
  */
-function GiveButtons({ agent, name }: { agent: string; name: string }) {
+function GiveButtons({ agent, name, onNote }: { agent: string; name: string; onNote: () => void }) {
   const [picking, setPicking] = useState(false)
   const [, tick] = useState(0)
   const left = { snack: waitLeft(agent, 'coffee'), cheer: waitLeft(agent, 'cheer') }
@@ -376,6 +446,17 @@ function GiveButtons({ agent, name }: { agent: string; name: string }) {
       >
         <Pixel name="cheer" />
         {wait(left.cheer)}
+      </button>
+      <button
+        type="button"
+        className="badge-give-btn"
+        aria-label={`${name}에게 쪽지 쓰기`}
+        onClick={() => {
+          cue('ui.click')
+          onNote()
+        }}
+      >
+        <Pixel name="note" />
       </button>
     </span>
   )

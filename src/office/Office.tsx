@@ -10,6 +10,7 @@ import { ClockRig } from './ClockRig'
 import { SpeakerClick } from './SpeakerClick'
 import { BadgePick } from './badge/BadgePick'
 import { TreatRig } from './visit/TreatRig'
+import { Bulletin } from './visit/Bulletin'
 import { TurntablePick } from './TurntablePick'
 import { FramePick } from './FramePick'
 import { Agents } from './Agents'
@@ -38,6 +39,7 @@ export function Office({ world }: { world: OfficeWorld }) {
       <Agents world={world} />
       <BadgePick world={world} />
       <TreatRig world={world} />
+      <Bulletin world={world} scene={scene} />
       <TrayClick scene={scene} nodes={nodes} />
       <ClockRig scene={scene} nodes={nodes} />
       <SpeakerClick nodes={nodes} />
