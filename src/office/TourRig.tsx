@@ -39,7 +39,7 @@ import {
 } from './tour'
 import { NO_MOUSE, mouseStep, type MouseEv, type MouseState } from './tourInput'
 import { cutInLimits, freeSpot, stopEaseAt, stopEaseDone, type CutLimits } from './tourLimits'
-import { getTourState, registerTour, setTourFade, setTourState, tourTick } from './tourStore'
+import { getTourState, registerTour, setTourFade, setTourState, tourTick, type TourStop } from './tourStore'
 import { VIEW, focusAllowsCameraKeys, keepClear } from './view'
 import { prefersReducedMotion, type OfficeWorld } from './world'
 
@@ -96,6 +96,10 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
     let ease: { from: V3; to: V3; t0: number } | null = null
     let gesture: { id: number; x: number; y: number; t: number } | null = null
     let mouse: MouseState = NO_MOUSE
+    // the side panel at the clock's last tick: the tour gives way when one OPENS, not to one that was open already (#440)
+    let panelWas = getSideLayout().open
+    // why the last tour ended (#440), for ?debug's tour.state()
+    let lastStop: { reason: TourStop; at: number; cut: string | null } | null = null
 
     const speed = () => (replay.getSnapshot().mode === 'office' ? replay.getSnapshot().speed : 1)
     const views = () => buildViews(observe(world, replay.getSnapshot().mode === 'office'), Date.now())
@@ -234,13 +238,16 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
         saved = { minD: ctl.minDistance, maxD: ctl.maxDistance, maxP: ctl.maxPolarAngle, minP: ctl.minPolarAngle }
         ctl.enabled = false // the tour has its own limits; the controls would clamp its poses to the free view's
         setTourState({ active: true })
+        panelWas = getSideLayout().open // a panel already open is the visitor's choice, not a reason to end (#440)
       }
       lastShot.clear()
       begin(plan.startAt(Date.now(), agent, views(), speed()))
     }
 
-    function stopTour() {
+    function stopTour(reason: TourStop) {
       if (!getTourState().active) return
+      lastStop = { reason, at: Date.now(), cut: getTourState().cut?.id ?? null }
+      if (world.debug) console.info('[tour] stopped:', reason)
       run = null
       gesture = null
       setTourFade(0)
@@ -364,7 +371,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
     const mouseDo = (kind: MouseEv['kind'], e: PointerEvent) => {
       const r = mouseStep(mouse, mouseEv(kind, e))
       mouse = r.state
-      if (r.stop) stopTour()
+      if (r.stop) stopTour('drag')
     }
 
     const onDown = (e: PointerEvent) => {
@@ -374,7 +381,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
         if (gesture) {
           // a second finger: the free view
           gesture = null
-          return stopTour()
+          return stopTour('touch')
         }
         // a swipe is decided when it ends; until then the finger must not turn the camera
         gesture = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now() }
@@ -389,7 +396,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
         // not a quick sideways swipe (slow or vertical): the free view
         if (gesture && gesture.id === e.pointerId && performance.now() - gesture.t > TOUR.swipe.ms) {
           gesture = null
-          stopTour()
+          stopTour('touch')
         }
         return
       }
@@ -405,10 +412,10 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
       if (quick && Math.abs(dx) >= TOUR.swipe.px && Math.abs(dx) > Math.abs(dy)) {
         return dx < 0 ? advance() : stepBack()
       }
-      stopTour()
+      stopTour('touch')
     }
     const onWheel = (e: Event) => {
-      if (getTourState().active && !onBar(e)) stopTour()
+      if (getTourState().active && !onBar(e)) stopTour('wheel')
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return
@@ -420,12 +427,12 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
       }
       if (!active) return
       if (e.code === 'BracketLeft' || e.key === '[') return usable && !e.repeat ? stepBack() : undefined
-      if (e.key === 'Escape') return stopTour()
+      if (e.key === 'Escape') return stopTour('key')
       if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta' || e.key === 'Tab') return
       if (onBar(e) && (e.key === 'Enter' || e.key === ' ')) return // the button's own press
-      stopTour() // any other key (WASD, arrows, R, ...) is free-view input: the camera stays and the key goes on to do its job
+      stopTour('key') // any other key (WASD, arrows, R, ...) is free-view input: the camera stays and the key goes on to do its job
     }
-    const onHidden = () => document.hidden && stopTour()
+    const onHidden = () => document.hidden && stopTour('hidden')
 
     window.addEventListener('pointerdown', onDown, true)
     window.addEventListener('pointermove', onMove, true)
@@ -437,8 +444,10 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
 
     // what makes a running tour give way (a panel, the door); it never starts one (#427: only the dock's view toggle and an agent's name do)
     const timer = window.setInterval(() => {
-      const tick = tourTick({ active: getTourState().active, controls: !!live.current.controls, busy: live.current.busy, panel: getSideLayout().open })
-      if (tick === 'stop') stopTour()
+      const panel = getSideLayout().open
+      const tick = tourTick({ active: getTourState().active, controls: !!live.current.controls, busy: live.current.busy, panel, panelBefore: panelWas })
+      panelWas = panel
+      if (tick) stopTour(tick)
     }, 400)
 
     // a paper plane (#51) is an event at both desks
@@ -448,16 +457,16 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
       noteTourEvent(m.to, 6000)
     })
 
-    registerTour({ start: startTour, next: advance, prev: stepBack, stop: stopTour })
+    registerTour({ start: startTour, next: advance, prev: stepBack, stop: (reason = 'button') => stopTour(reason) })
     if (world.debug) {
       ;(world as unknown as { tour: unknown }).tour = {
         start: startTour,
         next: advance,
         prev: stepBack,
-        stop: stopTour,
+        stop: () => stopTour('button'),
         /** the designer's check (#223): an event at an agent now, e.g. tour.event('agent_3') */
         event: (agent: string, ms = 6000) => noteTourEvent(agent, ms),
-        state: () => ({ ...getTourState(), pick: lastPick.work, phase: run?.phase ?? null, history: plan.history.map((c) => `${c.id}:${c.why}:v${c.variant}`), views: views() }),
+        state: () => ({ ...getTourState(), lastStop, pick: lastPick.work, phase: run?.phase ?? null, history: plan.history.map((c) => `${c.id}:${c.why}:v${c.variant}`), views: views() }),
       }
     }
     return () => {
@@ -471,7 +480,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
       window.clearInterval(timer)
       off()
       registerTour(null)
-      stopTour()
+      stopTour('unmount')
       endEase(true)
       frame.current = null
     }

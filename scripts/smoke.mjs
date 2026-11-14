@@ -146,11 +146,70 @@ async function dockFit(origin) {
   }
 }
 
+/**
+ * #440: the tour keeps going on its own. Started from the view toggle, then the cursor moved away (no button held): the first three cuts
+ * follow one another with the camera's flights between them, and nothing but a person's drag ends it (the stop reason says so).
+ * Started with 서재 open: the open panel does not end it (it ended 0.3 s later before #440).
+ */
+async function tourRuns(origin) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  const page = await ctx.newPage()
+  const problems = []
+  const st = () => page.evaluate(() => window.__office.tour.state())
+  // polls until `done(state)`; the tour going off before that is reported with its stop reason
+  const watch = async (ms, done) => {
+    const t0 = Date.now()
+    for (;;) {
+      const x = await st()
+      if (!x.active) return `${((Date.now() - t0) / 1000).toFixed(1)}초에 끝남 (사유: ${x.lastStop?.reason ?? '없음'}, 컷 ${x.lastStop?.cut ?? '?'})`
+      if (done(x)) return null
+      if (Date.now() - t0 > ms) return 'timeout'
+      await page.waitForTimeout(250)
+    }
+  }
+  try {
+    await page.goto(origin + '/?debug=1')
+    const toggle = page.locator('.view-toggle')
+    await toggle.waitFor({ timeout: WAIT_MS * 2 })
+    await page.waitForFunction(() => !!window.__office?.tour, null, { timeout: WAIT_MS })
+    await page.waitForTimeout(1500)
+    await toggle.click()
+    const seq0 = (await st()).seq
+    await page.mouse.move(700, 450, { steps: 12 }) // the cursor goes away from the button, no button held
+    // seq0 is the first cut; two more begins = three cuts
+    const three = await watch(60_000, (x) => x.seq >= seq0 + 2)
+    if (three) problems.push(`입력 없이 첫 세 컷: ${three === 'timeout' ? '60초 안에 세 컷이 되지 않음' : three}`)
+    else {
+      // a press-and-drag on the picture ends it
+      await page.mouse.down()
+      await page.mouse.move(800, 470, { steps: 8 })
+      await page.mouse.up()
+      await page.waitForTimeout(200)
+      const x = await st()
+      if (x.active) problems.push('끌기로 끝나지 않음')
+      else if (x.lastStop?.reason !== 'drag') problems.push(`끌기로 끝났는데 사유가 ${x.lastStop?.reason}`)
+    }
+    // 서재 open, then the toggle: it keeps going
+    await page.locator('.corner-dock .dock-btn', { hasText: '서재' }).first().click()
+    await page.waitForFunction(() => !!document.documentElement.dataset.side, null, { timeout: WAIT_MS })
+    await toggle.click()
+    const withPanel = await watch(3_000, () => false)
+    if (withPanel !== 'timeout') problems.push(`서재를 연 채 시작: ${withPanel}`)
+  } catch (e) {
+    problems.push(`확인 못함: ${e.message.split('\n')[0]}`)
+  }
+  console.log(`${problems.length ? '✗' : '✓'} [둘러보기] 입력 없이 세 컷 · 끌기로만 끝남 · 서재 연 채 시작`)
+  for (const p of problems) console.log(`    ${p}`)
+  if (problems.length) failed++
+  await ctx.close()
+}
+
 try {
   const url = arg('--url')
   if (url) {
     await check('지정 서버', url.replace(/\/$/, ''))
     await dockFit(url.replace(/\/$/, ''))
+    await tourRuns(url.replace(/\/$/, ''))
   } else
     for (const [label, withSupabase] of [
       ['Supabase env 있음', true],
@@ -163,8 +222,11 @@ try {
       }
       try {
         await check(label, server.origin)
-        // the dock once, on the fake data (its debug page always has all five buttons)
-        if (!withSupabase) await dockFit(server.origin)
+        // the dock and the tour once, on the fake data (its debug page always has all five buttons)
+        if (!withSupabase) {
+          await dockFit(server.origin)
+          await tourRuns(server.origin)
+        }
       } finally {
         await server.close()
       }

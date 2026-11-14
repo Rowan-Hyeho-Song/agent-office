@@ -94,7 +94,7 @@ export function BoardCamera() {
       restore.current()
     }
     if (st.phase === 'flying' && !run.current && !saved.current) {
-      tour.stop()
+      tour.stop('board')
       saved.current = { pos: v3(camera.position), target: v3(c.target), limits: { minD: c.minDistance, maxD: c.maxDistance, minP: c.minPolarAngle, maxP: c.maxPolarAngle, enabled: c.enabled } }
       c.enabled = false
       c.minDistance = 0.05
