@@ -3,7 +3,8 @@ import { useEffect, useRef } from 'react'
 import type { PerspectiveCamera, Vector3 } from 'three'
 import { HOME_POS, HOME_TARGET, useCameraBusy } from '../room/Door'
 import { replay } from '../replay/store'
-import { clearBoxes, furnitureBoxes, headBox, robotBox } from './clearance'
+import { clearBoxes, furnitureBoxes, headBox, leafBoxes, robotBox } from './clearance'
+import type { ClearBox } from './view'
 import { observe } from './tourAdapter'
 import { noteTourEvent } from './tourEvents'
 import { getSideLayout } from './sidePanel/store'
@@ -82,6 +83,7 @@ const v3 = (v: Vector3): V3 => [v.x, v.y, v.z]
 
 export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean }) {
   const camera = useThree((s) => s.camera)
+  const scene = useThree((s) => s.scene)
   const controls = useThree((s) => s.controls) as unknown as Orbit | null
   const busy = useCameraBusy()
   const live = useRef({ controls, busy })
@@ -103,7 +105,9 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
 
     const speed = () => (replay.getSnapshot().mode === 'office' ? replay.getSnapshot().speed : 1)
     const views = () => buildViews(observe(world, replay.getSnapshot().mode === 'office'), Date.now())
-    const clearance = (): Clearance => ({ boxes: clearBoxes(Object.values(world.rigs)), margin: VIEW.clear.margin, sight: furnitureBoxes() })
+    // the line of sight also keeps out of the leafy plants' crowns (#397); measured once, the plants do not move
+    let leaves: ClearBox[] | null = null
+    const clearance = (): Clearance => ({ boxes: clearBoxes(Object.values(world.rigs)), margin: VIEW.clear.margin, sight: [...furnitureBoxes(), ...(leaves ??= leafBoxes(scene))] })
     const spot = (id: string) => world.graph?.spots[id]
     const homeNow = (): V3 => [HOME_POS.x, HOME_POS.y, HOME_POS.z] // the default view follows the viewport (portrait phone)
 
@@ -484,7 +488,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
       endEase(true)
       frame.current = null
     }
-  }, [limits, world, camera])
+  }, [limits, world, camera, scene])
 
   useFrame((_, dt) => frame.current?.(Math.min(dt, 0.1)))
   return null
