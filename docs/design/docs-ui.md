@@ -14,7 +14,7 @@
 | 한 건 | ← 목록 / 종류 배지 / 제목 / 요청 에이전트 · 파일철(GitHub 원문 ↗) · 날짜 / 내용 / 선택지 / 추천 이유(접힘) / 의견 / [나중에] [결재] |
 | 결재 직후 | 고른 선택지 위에 결재 도장 → “#이슈에 ✅ 결재 댓글을 남겼어요” → 1.2초 뒤 다음 건(없으면 목록) |
 | 방문자 | “결재 대기 N건” + SECRET 표지 목록(종류 · 요청 에이전트 · 날짜만). 내용 · 선택지 · 이슈 제목 없음 |
-| 로그인 입구 | 출입문 화면 오른쪽 아래 구석 열쇠 점(평소 25% 밝기, 호버·초점이면 청록) + `?owner`. 로그인되면 HUD에 `OWNER` 꼬리표 |
+| 로그인 입구 | 입구 문 남쪽 벽의 **열쇠 걸이**(office-ui.md 13절, #475): 마우스 올림 · 초점이면 청록 테두리 + `주인 로그인`, 누르면 GitHub 로그인. 로그인한 동안 열쇠가 걸이에서 빠짐. `?owner`도 남음. 로그인되면 HUD에 `OWNER` 꼬리표 |
 
 - 패널: 3D 사무실 위 오른쪽, 폭 440px(`--approval-panel-w`). 640px 이하에서는 전체 화면이다.
 - 클래스는 #25의 `.approval-box`, `.approval-count`, `.approval-signin`, `.approval-list`, `.approval-item`, `.approval-reason`, `.approval-actions`를 그대로 쓰고, 탭·한 건 화면용 이름을 더했다(`.approval-tabs`, `.approval-detail`, `.approval-options`, `.approval-option`, `.approval-badge`, `.approval-stamp`, `.approval-note`).
