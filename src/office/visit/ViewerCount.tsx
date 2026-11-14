@@ -1,11 +1,12 @@
 // #4 12.4: `· 지금 3명이 보고 있어요` at the end of the hint line. Nothing without Supabase (the practice mode has no one
-// else to count). The number changes at once; a screen reader hears it at most every 5 s.
+// else to count). The line itself always reads what it shows; a change is announced (polite) at most every 5 s.
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabase'
-import { supabaseViewers, viewersText, VIEWERS_SAY_MS, type PresenceWire } from './viewers'
+import { pageViewers, viewersText, VIEWERS_SAY_MS, type PresenceWire } from './viewers'
 
-export function ViewerCount({ wire = supabase ? supabaseViewers(supabase) : null }: { wire?: PresenceWire | null }) {
+/** `wire` for tests; the page's one shared channel otherwise (a new wire per render made every render leave and join, #452) */
+export function ViewerCount({ wire = pageViewers(supabase) }: { wire?: PresenceWire | null }) {
   const [n, setN] = useState<number | null>(null)
   const [said, setSaid] = useState('')
   const last = useRef(0)
@@ -23,11 +24,13 @@ export function ViewerCount({ wire = supabase ? supabaseViewers(supabase) : null
   return (
     <>
       {' '}
-      <span className="hud-viewers" aria-hidden="true">
+      <span className="hud-viewers">
         <span className="hud-viewers-long">{viewersText(n)}</span>
-        <span className="hud-viewers-short">{viewersText(n, true)}</span>
+        <span className="hud-viewers-short" aria-hidden="true">
+          {viewersText(n, true)}
+        </span>
       </span>
-      <span className="sr-only" aria-live="polite">
+      <span className="sr-only" aria-live="polite" aria-atomic="true">
         {said}
       </span>
     </>
