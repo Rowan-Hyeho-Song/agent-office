@@ -59,10 +59,10 @@ export function splitDecision(title: string): { title: string; note: string | nu
  * The board from the library's files (what this role may see; nothing is filtered here, see library.ts coverOf).
  * The stage is the docs pipeline's (#241, the plan's progress: scripts/docs/build.mjs progressFor), the same one the library
  * shows: 진행 중 / 검토 / 완료 map to their columns, and a 대기 issue (no branch, no PR yet) is not on the board. A file without
- * one (filed before progress existed) is guessed from which documents exist, as before:
+ * one (filed before progress existed) is guessed from which documents exist:
  *   완료    the file has a report (a merged PR's report)
- *   검토    no report yet, but a document still SECRET (waiting for the owner's approval)
  *   진행 중 everything else
+ * 검토 is only ever an open PR (#100): a document waiting for the owner's approval is not a review column card.
  * `private` files are omitted (they have no number and no title for anyone); a SECRET `review` file keeps its number
  * and agent colour and shows a black bar instead of its title (docs-ui 2.3). Decisions: decision documents the viewer
  * can read; the sentence is the decision's chosen option when its body is loaded, else the file title.
@@ -75,7 +75,7 @@ export function boardFromLibrary(folders: DocFolder[], bodies: Readonly<Record<n
       if (file.secret === 'private' || file.repo === null || file.n === null) continue
       const stage = file.progress.guessed ? undefined : file.progress.stage
       if (stage === 'waiting') continue
-      const col: Column = stage ?? (file.docs.some((d) => d.kind === 'report') ? 'done' : file.secret === 'review' ? 'review' : 'doing')
+      const col: Column = stage ?? (file.docs.some((d) => d.kind === 'report') ? 'done' : 'doing')
       out[col].push({ key: file.key, repo: file.repo, n: file.n, title: file.secret ? null : file.title, seat: asSeat(mainSeat(file)), at: file.date })
       for (const d of file.docs) {
         if (d.kind !== 'decision' || !d.readable || !d.title) continue
