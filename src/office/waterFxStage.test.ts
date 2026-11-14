@@ -155,6 +155,30 @@ describe('the water on the model (#185)', () => {
     expect(stats.maxWet).toBe(1)
   }, 60000)
 
+  it('reduced motion: the can appears in the hand with a 0.12 s fade (#397, watering.md 5); without it, no fade', async () => {
+    const w = await world()
+    const fade = () => (w.stage as unknown as { canFade: { o: number } }).canFade.o
+    const frame = (u: number, reduced: boolean) => {
+      const goals = Object.fromEntries(Object.keys(w.rigs).map((a) => [a, a === 'agent_0' ? { spot: 'water_plant_corner', pose: 'water', water: { stage: 'pour', plant: 'plant_corner', u, habit: null }, label: '' } : { spot: 'work_0', pose: 'idle', label: '' }]))
+      w.stage.update({ now: 0, t: 500 + u, dt: 0.02, reduced, replaying: false, rigs: w.rigs, goals: goals as never, status: {}, tablet: false, stamp: false, colors: {} })
+    }
+    const seen: number[] = []
+    for (let u = 0; u <= 0.2; u += 0.02) {
+      frame(u, true)
+      seen.push(fade())
+    }
+    expect(seen[0]).toBeLessThan(0.2)
+    expect(seen.some((o) => o > 0.3 && o < 0.9)).toBe(true) // gradual, not a jump
+    expect(seen.at(-1)).toBe(1) // done by 0.12 s
+    const plain = await world()
+    const fadePlain = () => (plain.stage as unknown as { canFade: { o: number } }).canFade.o
+    for (let u = 0; u <= 0.2; u += 0.02) {
+      const goals = Object.fromEntries(Object.keys(plain.rigs).map((a) => [a, a === 'agent_0' ? { spot: 'water_plant_corner', pose: 'water', water: { stage: 'pour', plant: 'plant_corner', u, habit: null }, label: '' } : { spot: 'work_0', pose: 'idle', label: '' }]))
+      plain.stage.update({ now: 0, t: 500 + u, dt: 0.02, reduced: false, replaying: false, rigs: plain.rigs, goals: goals as never, status: {}, tablet: false, stamp: false, colors: {} })
+      expect(fadePlain()).toBe(1)
+    }
+  }, 60000)
+
   it('every habit plays through the pour without a hand flying off: the left fingertip stays within an arm of the body and the can stays attached', async () => {
     const w = await world()
     for (const [i, habit] of (['poke', 'look', 'leaf', 'tap', 'listen'] as HabitKind[]).entries()) {

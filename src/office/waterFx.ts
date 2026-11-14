@@ -306,22 +306,40 @@ export class Stream {
 
 // ----------------------------------------------------------------------------------------------------------------- the wet soil
 
-/** the soil darkens over 0.8 s and dries over 60 s (watering.md 3) */
+/**
+ * The soil darkens over 0.8 s and dries over 60 s (watering.md 3). Drying follows 1 − (t/60)² of how wet it was when the water stopped
+ * (#397, the designer's pick from #393): slow at first, fast at the end, so a half-dried pot still reads as wet (at 30 s it is 75 %).
+ */
 export const WET_S = 0.8
 export const DRY_S = 60
 export const WET_FAST_S = 0.2
 /** how much darker the wet soil is: its brightness 70 % as the eye sees it, i.e. a dark layer of this opacity over it (blended in linear light: 0.5 of the light is about 73 % of the sRGB value) */
 export const WET_DARK = 0.5
 
+/** how wet the soil still is `t` s after the water stopped, of the wetness it had then (watering.md 3, #397) */
+export const dryCurve = (t: number) => Math.max(0, 1 - (t / DRY_S) ** 2)
+
 export class Wetness {
   private w = new Map<string, number>()
+  /** since the water stopped: the wetness it had then and the seconds since */
+  private drying = new Map<string, { peak: number; t: number }>()
   get(plant: string) {
     return this.w.get(plant) ?? 0
   }
   /** `landing`: water reaches this plant's soil in this step */
   step(plant: string, dt: number, landing: boolean, fast = false) {
     const w = this.get(plant)
-    const next = landing ? Math.min(1, w + dt / (fast ? WET_FAST_S : WET_S)) : Math.max(0, w - dt / DRY_S)
+    let next = 0
+    if (landing) {
+      next = Math.min(1, w + dt / (fast ? WET_FAST_S : WET_S))
+      this.drying.delete(plant)
+    } else if (w > 0) {
+      const d = this.drying.get(plant) ?? { peak: w, t: 0 }
+      d.t += dt
+      next = d.peak * dryCurve(d.t)
+      if (next > 0) this.drying.set(plant, d)
+      else this.drying.delete(plant)
+    }
     if (next > 0 || w > 0) this.w.set(plant, next)
     return next
   }
