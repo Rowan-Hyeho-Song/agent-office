@@ -50,7 +50,15 @@ function Group({ g, open, repo, onFold, row, fresh }: { g: DoneGroup; open: bool
   const toggle = () => {
     onFold(g.key, !open)
     // the phone: the opened group's header goes to the top of the sheet, so what opened is not pushed out of sight
-    if (!open && narrow()) requestAnimationFrame(() => btn.current?.closest('h5')?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
+    // below the list's sticky head (tabs · path · filter chips), not under it (#462 designer)
+    if (!open && narrow())
+      requestAnimationFrame(() => {
+        const h = btn.current?.closest('h5')
+        if (!h) return
+        const sticky = h.closest('.doc-nav')?.querySelector<HTMLElement>('.doc-head')
+        h.style.scrollMarginTop = `${(sticky?.offsetHeight ?? 0) + 8}px`
+        h.scrollIntoView({ block: 'start', behavior: 'smooth' })
+      })
   }
   return (
     <section className="doc-group" data-open={open || undefined} data-kind={g.kind}>

@@ -86,6 +86,16 @@ const newer = (a: DocFile, b: DocFile) => ms(doneAtOf(b)) - ms(doneAtOf(a)) || (
 const recent = (a: DocFile, b: DocFile) => b.date.localeCompare(a.date) || (b.n ?? 0) - (a.n ?? 0)
 const byNumber = (a: DocFile, b: DocFile) => (b.n ?? -1) - (a.n ?? -1) || recent(a, b)
 
+/**
+ * The folder's files without the deploy PRs' own (#462 designer: a group's header already is its PR, so the PR's file is not
+ * listed again, in a group or a flat list, nor counted). They stay reachable by address. `repo` null: nothing to take out.
+ */
+export function listedFiles(files: readonly DocFile[], deploys: readonly Deploy[], repo: string | null): readonly DocFile[] {
+  if (repo === null) return files
+  const prs = new Set(deploys.filter((d) => d.pr !== null && d.project.toLowerCase() === repo.toLowerCase()).map((d) => d.pr))
+  return prs.size ? files.filter((f) => f.n === null || !prs.has(f.n)) : files
+}
+
 /** inside a group: the newest done first, or the sort the viewer picked */
 const sortDone = (files: DocFile[], sort: ListView['sort']) => files.sort(sort === 'number' ? byNumber : sort === 'recent' ? recent : newer)
 
