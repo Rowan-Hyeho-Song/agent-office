@@ -5,6 +5,11 @@
 // bubble or the log. Reading them close (a press on the board) is the next step of #4.
 
 import { useFrame } from '@react-three/fiber'
+import { useCanvasPick } from '../pick'
+import { getBoardView, openBoard, useBoardView } from '../boardView/store'
+import { canOpen } from '../boardView/view'
+import { useCameraBusy } from '../../room/Door'
+import { replay } from '../../replay/store'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { CanvasTexture, Color, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace, Vector3, type Object3D } from 'three'
 import { cue } from '../../audio/cues'
@@ -12,37 +17,12 @@ import { NOTE_ANON, type Note } from '../../visit/note'
 import { supabase } from '../supabase'
 import { AGENT_COLORS, prefersReducedMotion, type OfficeWorld } from '../world'
 import { listenNotes, notesStore, pinLocal, settled } from './notes'
+import { noteSlot, paperOf, wrap } from './bulletinLayout'
 
 /** canvas px per metre: 1 px = 1 mm */
 const PX = 1000
-export const NOTE_GRID = { cols: 3, rows: 4, pad: 36, gap: 22 }
 const FLUTTER_MS = 400
 const FONT = (size: number, bold = false) => `${bold ? '700 ' : ''}${size}px Galmuri11, ui-monospace, monospace`
-
-/** where the k-th note (0 = newest) sits on a board of w × h px: left to right, top to bottom */
-export function noteSlot(k: number, w: number, h: number) {
-  const { cols, rows, pad, gap } = NOTE_GRID
-  const cw = (w - pad * 2 - gap * (cols - 1)) / cols
-  const ch = (h - pad * 2 - gap * (rows - 1)) / rows
-  const col = k % cols
-  const row = Math.floor(k / cols)
-  return { x: pad + col * (cw + gap), y: pad + row * (ch + gap), w: cw, h: ch }
-}
-
-/** the paper, the same every time for a note (the designer, #460): canary 60 %, apricot 25 %, light green 15 % */
-export const PAPERS = [
-  { color: '#fff1a8', share: 60 },
-  { color: '#ffd9b8', share: 25 },
-  { color: '#e2f0c4', share: 15 },
-] as const
-export function paperOf(id: number): string {
-  let r = ((id * 2246822519) >>> 0) % 100
-  for (const p of PAPERS) {
-    if (r < p.share) return p.color
-    r -= p.share
-  }
-  return PAPERS[0].color
-}
 
 /** a note's lean on the board, the same every time (±4°) */
 const leanOf = (id: number) => (((id * 2654435761) >>> 0) % 81) / 10 - 4
@@ -78,7 +58,18 @@ export function Bulletin({ world, scene }: { world: OfficeWorld; scene: Object3D
       pin: (agent: string, text: string, name = '') => pinLocal({ id: Date.now(), agent, text, name, created_at: new Date().toISOString() }),
     }
   }, [world])
+  // while the board is read close up (NotesView lays the cards over the real cork), the notes painted on it step aside (#467, the designer)
+  const view = useBoardView()
+  const reading = view.phase !== 'closed' && view.surface === 'bulletin' && view.mode === 'stage'
+  useEffect(() => rig?.setShown(!reading), [rig, reading])
   useFrame(() => rig?.tick())
+  // a press on the board flies the camera to it and lays the notes over it, like the whiteboard (#234); a phone gets the sheet
+  const busy = useCameraBusy()
+  const may = () => canOpen({ replayOn: replay.getSnapshot().mode !== 'off', cameraBusy: busy, phase: getBoardView().phase })
+  useCanvasPick(
+    () => (may() && rig ? [rig.face] : []),
+    () => may() && openBoard({ mode: matchMedia('(max-width: 640px)').matches ? 'sheet' : 'stage', surface: 'bulletin' }),
+  )
   return null
 }
 
@@ -92,6 +83,8 @@ class BulletinRig {
   private flutter = new Map<number, number>()
   private w: number
   private h: number
+  /** an invisible plane over the face: what a press hits */
+  face: Mesh
 
   constructor(private surface: Object3D) {
     const { w = 0.8, h = 0.9 } = surface.userData as { w?: number; h?: number }
@@ -106,7 +99,15 @@ class BulletinRig {
     this.plane.raycast = () => {}
     this.plane.position.z = 0.001
     surface.add(this.plane)
+    this.face = new Mesh(new PlaneGeometry(w, h), new MeshBasicMaterial({ visible: false }))
+    this.face.position.z = 0.0015
+    surface.add(this.face)
     this.plane.updateMatrixWorld(true)
+    this.face.updateMatrixWorld(true)
+  }
+
+  setShown(on: boolean) {
+    this.plane.visible = on
   }
 
   show(notes: Note[], fresh: number[], refont = false) {
@@ -188,32 +189,12 @@ class BulletinRig {
 
   dispose() {
     this.plane.removeFromParent()
+    this.face.removeFromParent()
+    this.face.geometry.dispose()
+    ;(this.face.material as MeshBasicMaterial).dispose()
     this.plane.geometry.dispose()
     ;(this.plane.material as MeshBasicMaterial).dispose()
     this.texture.dispose()
   }
 }
 
-/** the text in lines of at most `width` px, at most `max` lines; when it does not fit, the last line ends in … (and still fits) */
-export function wrap(g: Pick<CanvasRenderingContext2D, 'measureText'>, text: string, width: number, max: number): string[] {
-  const out: string[] = []
-  let line = ''
-  let cut = false
-  for (const ch of [...text]) {
-    if (g.measureText(line + ch).width > width) {
-      out.push(line)
-      line = ch.trim() ? ch : ''
-      if (out.length === max) {
-        cut = true
-        break
-      }
-    } else line += ch
-  }
-  if (!cut && line) out.push(line)
-  if (cut) {
-    let last = out[max - 1]
-    while (last && g.measureText(last + '…').width > width) last = [...last].slice(0, -1).join('')
-    out[max - 1] = last + '…'
-  }
-  return out.slice(0, max)
-}
