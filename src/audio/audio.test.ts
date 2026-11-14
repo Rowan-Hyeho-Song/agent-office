@@ -137,7 +137,7 @@ describe('cues', () => {
     }
   })
   it('has the lounge props (#280): small events in the room, effects bus', () => {
-    const lounge = ['record.out', 'record.place', 'record.needle', 'record.lift', 'fridge.open', 'fridge.close', 'dispenser.pour', 'sofa.sit', 'pillow.hug', 'mat.step', 'lever.down', 'lever.up'] as const
+    const lounge = ['record.out', 'record.place', 'record.needle', 'record.lift', 'fridge.open', 'fridge.close', 'dispenser.pour', 'sofa.sit', 'pillow.hug', 'mat.step', 'lever.down', 'lever.up', 'fridge.hum', 'fridge.can', 'fridge.milk'] as const
     for (const n of lounge) {
       expect(CUES[n].spatial).toBe(true)
       expect(CUES[n].kind).toBe('event')
