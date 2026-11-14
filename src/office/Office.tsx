@@ -9,6 +9,7 @@ import { ReadyPing } from '../room/RoomUi'
 import { ClockRig } from './ClockRig'
 import { SpeakerClick } from './SpeakerClick'
 import { BadgePick } from './badge/BadgePick'
+import { TreatRig } from './visit/TreatRig'
 import { TurntablePick } from './TurntablePick'
 import { FramePick } from './FramePick'
 import { Agents } from './Agents'
@@ -36,6 +37,7 @@ export function Office({ world }: { world: OfficeWorld }) {
       <Outside nodes={nodes} world={world} />
       <Agents world={world} />
       <BadgePick world={world} />
+      <TreatRig world={world} />
       <TrayClick scene={scene} nodes={nodes} />
       <ClockRig scene={scene} nodes={nodes} />
       <SpeakerClick nodes={nodes} />
