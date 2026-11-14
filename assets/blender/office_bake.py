@@ -5444,7 +5444,7 @@ for o, kind in build_window_view():
 for o in build_clock():
     live(o, "bot")
 _kr, _kk = build_keyrack()  # #475
-baked(_kr, "wall_items")
+baked(_kr, "wall_items", density=3.0)  # #478: the board's narrow ends got ~1 px strips and mip-bled white
 live(_kk, "bot")
 lib = build_library()
 for o, kind in lib:
