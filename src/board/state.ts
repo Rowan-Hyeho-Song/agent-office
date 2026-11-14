@@ -105,6 +105,8 @@ export const decisionIds = (folders: DocFolder[], count = 3): number[] =>
  * project picker), default all. Mapping, per issue (`repo#n`):
  *   plan (issue opened)              card appears in 진행 중 (title and seat from the plan point)
  *   approval "결재 요청 ..."         card moves to 검토 (waiting for the owner)
+ *                                    (kept here though the live board's 검토 is an open PR, #100: the timelapse has no PR points, so this is its only
+ *                                    "waiting for review" signal, and without it the replay's 검토 column would always be empty)
  *   approval "결재 ..." (the result) card goes back to 진행 중 (approved; work continues)
  *   work with issue + pr (merged)    card moves to 완료 (the PR that closes the issue; created if no plan point was seen)
  *   decision                         a note (newest three show); "a: b" splits into line + supplement

@@ -4,6 +4,7 @@ import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing'
 import { Suspense, lazy, useEffect, useState, type ReactNode } from 'react'
 import { afterFirstScreen } from './office/atlases'
 import { AgentList } from './office/AgentList'
+import { AgentBadge } from './office/badge/AgentBadge'
 import { ApprovalBox } from './office/ApprovalBox'
 import { CornerDock } from './office/CornerDock'
 import { SidePanel } from './office/SidePanel'
@@ -122,6 +123,7 @@ export function App() {
       <EdgeHints />
       <TourBar world={world} />
       <AgentList world={world} />
+      <AgentBadge world={world} />
       <CornerDock />
       <SidePanel world={world} />
       <ApprovalBox world={world} />
