@@ -143,6 +143,7 @@ export function linkedPulls(n, prs) {
  *   review  an open linked PR that is not a draft. A draft is still being worked on, so it counts as doing
  *   doing   a branch `<type>/<n>-…` exists, or an open draft PR, or a merged PR that only refs it
  *   waiting otherwise
+ * A done one also says when (`doneAt`, #462): the issue's closed_at, else the merge of the PR that closes it.
  * A work-issue declaration (#182) is a file on the session's PC, invisible to GitHub, so it is not read here.
  * An open review PR beats an earlier merged one (the issue got a second PR); a closed issue beats everything.
  * @param {any} issue
@@ -160,7 +161,10 @@ export function progressFor(issue, { prs = [], branches = [], comments = [] } = 
   else if (open.some((l) => !l.pr.draft)) stage = 'review'
   else if (merged.some((l) => l.closes)) stage = 'done'
   else if (hasBranch || open.length || merged.length) stage = 'doing'
-  return { stage, checks: countChecks(issue.body), pending: pendingApprovals(comments) }
+  // #462: when it was done (the library groups done files by the first deploy after this): the issue's close, else its closing PR's merge
+  const closer = merged.filter((l) => l.closes).map((l) => l.pr.merged_at).sort().at(-1)
+  const doneAt = stage === 'done' ? (issue.state === 'closed' ? issue.closed_at : closer) ?? null : null
+  return { stage, checks: countChecks(issue.body), pending: pendingApprovals(comments), ...(doneAt ? { doneAt } : {}) }
 }
 
 /** what progressFor needs for one issue, from GitHub (three list calls) */
