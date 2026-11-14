@@ -42,7 +42,7 @@ import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFo
 import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
 import { type Place, SEQ, ease, habitOf, placeSequence } from '../play/choreo'
-import { strokeAt } from '../play/stroke'
+import { STEP, stepAt, strokeAt } from '../play/stroke'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
 import { Typist } from './typist'
@@ -74,6 +74,9 @@ const LEAN_MAX_M = 0.08
 const WEIGHT_DIP_M = 0.03
 const WRIST_SAG = (5 * Math.PI) / 180 / ((30 * Math.PI) / 180)
 const LEAN_IN_M = 0.05
+/** the paddle hand's shoulder, from the body's spot: height above the floor and sideways toward the right hand (rig.ts's throw: 1.0 m, 0.12–0.15 m) */
+const SHOULDER_Y = 1.0
+const SHOULDER_SIDE = 0.15
 /** reduced motion: the can's appearance in the hand / on its stand (watering.md 5) */
 const CAN_FADE_MS = 120
 /** watering.md 1: over the monstera it leans 2° more (12° instead of 10°: the lean's 5 cm scaled the same way, #397) */
@@ -533,6 +536,17 @@ export class PlayStage {
       const dir = side === 0 ? 1 : -1
       const planeX = -dir * (d.L! / 2 + d.reach!)
       const ready: V3 = [planeX + dir * 0.12, 0.2, 0]
+      // a ball out of reach of the paddle shoulder: the body steps along the end line first (max 0.4 m at 1.2 m/s, play.md 7, #397); not under reduced motion
+      if (rig && !inp.reduced) {
+        const o = this.tableWorld([0, 0, 0])
+        const shoulder: V3 = [rig.x - o.x, SHOULDER_Y - o.y, rig.z - o.z + dir * SHOULDER_SIDE]
+        const want = stepAt(rally.contacts.filter((c) => c.side === side), playing ? tMs : -Infinity, shoulder, dir, FACE_GAP)
+        // the rally clock (office time) and the frames do not tick together: the step is also held to 1.2 m/s of frame time (#448: 1.38 at peaks)
+        const was = this.sideSteps.get(rig.id) ?? 0
+        const step = was + Math.max(-STEP.mps * inp.dt, Math.min(STEP.mps * inp.dt, want - was))
+        this.sideSteps.set(rig.id, step)
+        rig.nudge(0, step)
+      }
       // read the ball, take the paddle there while it flies, wait drawn back, swing so the face meets it (#416 ③, play.md 7)
       const sp = strokeAt(
         rally.contacts.filter((c) => c.side === side),
@@ -1181,6 +1195,8 @@ export class PlayStage {
     if (e) e.extra = fn
   }
 
+  /** each ping-pong player's side step as drawn last frame (#397) */
+  private sideSteps = new Map<string, number>()
   private pouring: { rig: AgentRig; held: Matrix4; plant: Plant; flow: number; u: number; shakes: number } | null = null
   /**
    * Reduced motion (watering.md 5, #397): the can does not travel; it appears in the hand when the pour begins and back on its stand when it

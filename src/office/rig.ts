@@ -912,10 +912,28 @@ export class AgentRig {
    * Lean the body over by (x, z) m (horizontal, at least this much): the farthest cells of the go board are beyond an arm from the player's spot, so the body leans in
    * the few cm it takes instead of the stone going beyond its reach. At once when it grows (the stone is in the hand this very frame), eased back when it ends.
    */
+  /**
+   * A ping-pong player's step along the end line (play.md 7, #397), set by the play stage after this frame's update: the body is drawn this far
+   * off its spot (x, z and the spot stay; the next update draws it on the spot again unless the stage steps it again).
+   */
+  nudge(x: number, z: number) {
+    // what is drawn now may already carry a step (the stage ran again without an update in between): only the difference
+    const dx = x - this.nudged.x
+    const dz = z - this.nudged.z
+    this.nudged.x = x
+    this.nudged.z = z
+    if (!dx && !dz) return
+    this.parts.root.position.x += dx
+    this.parts.root.position.z += dz
+    this.parts.root.updateMatrixWorld(true)
+  }
+  /** the step nudge() has drawn since the last update put the body on its spot */
+  private nudged = { x: 0, z: 0 }
+
   leanOver(x: number, z: number) {
     if (Math.hypot(x, z) <= this.lean.length()) return
     this.lean.set(x, 0, z)
-    this.parts.root.position.set((this.drawAt?.x ?? this.x) + x, 0, (this.drawAt?.z ?? this.z) + z)
+    this.parts.root.position.set((this.drawAt?.x ?? this.x) + x + this.nudged.x, 0, (this.drawAt?.z ?? this.z) + z + this.nudged.z)
     this.parts.root.updateMatrixWorld(true)
   }
 
@@ -1138,6 +1156,7 @@ export class AgentRig {
     if (wantBack > 0 && stepBack.k === 0) stepBack.dir.set(Math.sin(this.heading), Math.cos(this.heading))
     stepBack.k = MathUtils.clamp(wantBack > stepBack.k ? Math.min(wantBack, stepBack.k + dt / 0.6) : Math.max(wantBack, stepBack.k - dt / 0.6), 0, 1)
     root.position.set((this.drawAt?.x ?? this.x) + this.lean.x + stepBack.dir.x * stepBack.k * WRAP.backM, -this.bodyDip, (this.drawAt?.z ?? this.z) + this.lean.z + stepBack.dir.y * stepBack.k * WRAP.backM)
+    this.nudged.x = this.nudged.z = 0
     // writing beside the monitor: the body turns 15 degrees toward the card (slowly, not a snap)
     const turnTo = resting && !reduced && goal.pose === 'write' && this.place ? -this.place.side * WRITE_ASIDE.turnDeg * (Math.PI / 180) : 0
     this.writeTurn += MathUtils.clamp(turnTo - this.writeTurn, -dt / 0.5 * 0.27, dt / 0.5 * 0.27)
