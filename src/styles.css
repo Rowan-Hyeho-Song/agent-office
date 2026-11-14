@@ -909,3 +909,10 @@ html[data-motion='reduce'] .badge-sheet { animation: sound-sheet-fade 120ms line
 .badge-stub { row-gap: 6px; }
 .badge-stub .badge-today { flex: 1 1 0; min-width: 0; }
 .badge-stub .badge-give { order: 3; flex-basis: 100%; }
+
+/* #4 12.4: how many are watching, at the end of the hint line; a narrow phone line takes the short form */
+.hud-viewers-short { display: none; }
+@media (max-width: 430px) {
+  .hud-viewers-long { display: none; }
+  .hud-viewers-short { display: inline; }
+}
