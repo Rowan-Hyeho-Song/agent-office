@@ -60,7 +60,7 @@ const hex = (b: Uint8Array) => [...b].map((x) => x.toString(16).padStart(2, '0')
  * The cooldown key of a visitor: HMAC(day key, ip | group), the day key = HMAC(server key, "visit-cooldown|YYYY-MM-DD"). The
  * same visitor and group give the same hash during one UTC day only; the IP cannot be read back without the server key.
  */
-export async function visitorHash(secret: string, ip: string, group: 'snack' | 'cheer', at: Date): Promise<string> {
+export async function visitorHash(secret: string, ip: string, group: 'snack' | 'cheer' | 'note', at: Date): Promise<string> {
   const day = await hmac(secret, `visit-cooldown|${at.toISOString().slice(0, 10)}`)
   return hex(await hmac(day, `${ip}|${group}`))
 }

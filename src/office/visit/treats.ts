@@ -76,6 +76,10 @@ export function freshEvents(rows: readonly SharedEvent[], now: number, seen: Rea
     .filter((t) => !seen.has(t.id))
 }
 
+const noteSignals = new Set<() => void>()
+/** #4 12.3: be told when a note was pinned somewhere (the notes list reads its table again) */
+export const onNoteSignal = (cb: () => void) => (noteSignals.add(cb), () => void noteSignals.delete(cb))
+
 /** hear the others: join `office-visit`; on a signal read the last seconds and show what is new. Returns leave */
 export function listenTreats(supabase: SupabaseClient): () => void {
   let reading = false
@@ -90,7 +94,11 @@ export function listenTreats(supabase: SupabaseClient): () => void {
       reading = false
     }
   }
-  const ch = supabase.channel(VISIT_TOPIC).on('broadcast', { event: VISIT_EVENT }, () => void read())
+  // one channel for the visitors' things: the payload's table says which list to read again (#4: the notes ride the same topic)
+  const ch = supabase.channel(VISIT_TOPIC).on('broadcast', { event: VISIT_EVENT }, (m: { payload?: { table?: unknown } }) => {
+    if (m.payload?.table === 'visitor_notes') noteSignals.forEach((cb) => cb())
+    else void read()
+  })
   ch.subscribe()
   return () => void supabase.removeChannel(ch)
 }

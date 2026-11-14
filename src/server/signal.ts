@@ -3,7 +3,7 @@
 // channel leaks nothing; the page answers by re-reading what it is allowed to read (cover views for visitors).
 // Supabase Realtime's HTTP endpoint: POST {SUPABASE_URL}/realtime/v1/api/broadcast. Never imported by the page.
 
-export type SignalTable = 'approvals' | 'docs' | 'visitor_events'
+export type SignalTable = 'approvals' | 'docs' | 'visitor_events' | 'visitor_notes'
 
 /** the channel and event the page listens to (src/office/signal.ts uses the same names) */
 export const SIGNAL_TOPIC = 'office-signal'
