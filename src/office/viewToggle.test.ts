@@ -113,9 +113,9 @@ describe('the tour never starts by itself (#427)', () => {
 })
 
 describe('hidden during the timelapse', () => {
-  it('the toggle lives in the dock, which the replay hides', () => {
+  it('the toggle lives in the dock, which the replay hides: its office bars and its 2D list (#444)', () => {
     const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8')
-    expect(css).toMatch(/body:has\(\.replay\) \.corner-dock[^{]*\{[^}]*visibility: hidden/)
+    expect(css).toMatch(/body:has\(\.replay, \.replay-list\) \.corner-dock[^{]*\{[^}]*visibility: hidden/)
     const dock = readFileSync(new URL('./CornerDock.tsx', import.meta.url), 'utf8')
     expect(dock).toContain("'sound', 'camera'")
   })
