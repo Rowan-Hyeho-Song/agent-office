@@ -64,9 +64,9 @@ describe('the tour never starts by itself (#427)', () => {
     const c = fake()
     // TourRig's clock: every 0.4 s it asks tourTick, which only stops a tour that has to give way
     for (let t = 0; t <= 120_000; t += 400) {
-      const s = tourTick({ active: false, controls: true, busy: false, panel: false })
+      const s = tourTick({ active: false, controls: true, busy: false, panel: false, panelBefore: false })
       expect(s).toBeNull()
-      if (s === 'stop') tour.stop()
+      if (s) tour.stop(s)
     }
     expect(c.start).not.toHaveBeenCalled()
     // the dock's view toggle
@@ -77,12 +77,32 @@ describe('the tour never starts by itself (#427)', () => {
     tour.start('agent_2')
     expect(c.start).toHaveBeenLastCalledWith('agent_2')
   })
-  it('a running tour still gives way: no controls, the door animation, a side panel', () => {
-    expect(tourTick({ active: true, controls: true, busy: false, panel: false })).toBeNull()
-    expect(tourTick({ active: true, controls: false, busy: false, panel: false })).toBe('stop')
-    expect(tourTick({ active: true, controls: true, busy: true, panel: false })).toBe('stop')
-    expect(tourTick({ active: true, controls: true, busy: false, panel: true })).toBe('stop')
-    expect(tourTick({ active: false, controls: false, busy: true, panel: true })).toBeNull()
+  it('a running tour still gives way, and says why: no controls, the door animation, a side panel opening', () => {
+    const s = { active: true, controls: true, busy: false, panel: false, panelBefore: false }
+    expect(tourTick(s)).toBeNull()
+    expect(tourTick({ ...s, controls: false })).toBe('controls')
+    expect(tourTick({ ...s, busy: true })).toBe('door')
+    expect(tourTick({ ...s, panel: true })).toBe('panel')
+    expect(tourTick({ active: false, controls: false, busy: true, panel: true, panelBefore: false })).toBeNull()
+  })
+  it('#440: a panel that was open when the tour started does not end it; closing and opening it again does', () => {
+    // 서재 open, then the view toggle: the clock ticks every 0.4 s and the panel stays open the whole time
+    let before = true
+    const tick = (panel: boolean) => {
+      const r = tourTick({ active: true, controls: true, busy: false, panel, panelBefore: before })
+      before = panel
+      return r
+    }
+    for (let t = 0; t < 30_000; t += 400) expect(tick(true)).toBeNull()
+    expect(tick(false)).toBeNull() // closed: nothing
+    expect(tick(true)).toBe('panel') // opened during the tour: gives way
+  })
+  it('the bar, the toggle and the debug tools stop it with a reason (button unless told)', () => {
+    const c = fake()
+    tour.stop()
+    expect(c.stop).toHaveBeenLastCalledWith('button')
+    tour.stop('board')
+    expect(c.stop).toHaveBeenLastCalledWith('board')
   })
   it('no idle wait left in the code that could start it', () => {
     const rig = readFileSync(new URL('./TourRig.tsx', import.meta.url), 'utf8')
