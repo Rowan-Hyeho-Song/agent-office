@@ -30,7 +30,7 @@ async function desk(seat: number) {
   rig.setGoal(idle, GRAPH)
   let t = 0
   for (let k = 0; k < 240; k++) rig.update(DT, (t += DT), GRAPH, rigs, false)
-  return { rig, rigs, idle, spot, step: (goal: Goal, reduced = false) => rig.update(DT, (t += DT), GRAPH, rigs, reduced) && undefined, t: () => t }
+  return { rig, rigs, idle, spot, step: (reduced = false) => void rig.update(DT, (t += DT), GRAPH, rigs, reduced) }
 }
 
 const handsWorld = (rig: AgentRig) => (['l', 'r'] as const).map((s) => rig.parts.hands[s].node.getWorldPosition(new Vector3()))
@@ -41,7 +41,7 @@ const handsLocal = (rig: AgentRig) => {
 
 describe('writing a card beside the monitor: the body turns to it (#461)', () => {
   for (const seat of [0, 2]) {
-    it(`desk ${seat}: 20° and 4 cm toward the card in 0.4 s, both hands in front of the body, no jump, and back after`, async () => {
+    it(`desk ${seat}: 24° and 4 cm toward the card in 0.4 s, both hands in front of the body, no jump, and back after`, async () => {
       const place = writePlace(GRAPH.spots, `work_${seat}`)
       expect(place, 'a desk with the card beside the monitor').not.toBeNull()
       const d = await desk(seat)
@@ -51,7 +51,7 @@ describe('writing a card beside the monitor: the body turns to it (#461)', () =>
       let worstJump = 0
       const frames: { turn: number; mid: number }[] = []
       for (let k = 0; k < 90; k++) {
-        d.step(write)
+        d.step()
         const now = handsWorld(d.rig)
         worstJump = Math.max(worstJump, ...now.map((p, i) => p.distanceTo(prev[i])))
         prev = now
@@ -73,7 +73,7 @@ describe('writing a card beside the monitor: the body turns to it (#461)', () =>
       // and back when the writing is over
       d.rig.setGoal(d.idle, GRAPH)
       for (let k = 0; k < 60; k++) {
-        d.step(d.idle)
+        d.step()
         const now = handsWorld(d.rig)
         worstJump = Math.max(worstJump, ...now.map((p, i) => p.distanceTo(prev[i])))
         prev = now
@@ -87,7 +87,7 @@ describe('writing a card beside the monitor: the body turns to it (#461)', () =>
     const d = await desk(0)
     const write = { spot: d.spot.id, pose: 'write', label: '', beat: { kind: 'line', u: 0.4, k: 0, v: 0 } } as unknown as Goal
     d.rig.setGoal(write, GRAPH)
-    d.step(write, true)
+    d.step(true)
     expect(Math.abs(d.rig.parts.root.rotation.y - d.rig.heading)).toBeCloseTo((WRITE_ASIDE.turnDeg * Math.PI) / 180, 3)
   }, 60000)
 })

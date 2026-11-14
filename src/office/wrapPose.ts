@@ -10,11 +10,11 @@ import { angleFromFront, rightOf } from './tour'
  * Where the writing happens (#229 designer): on a desk that faces the default camera (office-ui.md 10.3: the seat's facing direction and the direction to the
  * camera have a positive dot product) the card and the pen in front of the body hide behind the monitor, so the card lies on the empty desk top beside the monitor
  * on the side the default camera is on (the designer said the aisle side; that is the far side on two of the three facing desks, hidden by the monitor): seat-local x +-0.32, z -0.36. `side` is +1 for the body's right, -1 for its left; the hand on that
- * side holds the pen, the other presses the card, and the body turns 20 degrees toward it (#461). null: the card stays in front (the desks with their back to the camera).
+ * side holds the pen, the other presses the card, and the body turns 24 degrees toward it (#461). null: the card stays in front (the desks with their back to the camera).
  */
-// #461 (the designer): the whole body turns 20° toward the card and moves 4 cm toward it in 0.4 s (power2.inOut), stays turned while the card is
+// #461 (the designer, plan A): the whole body turns 24° toward the card and moves 4 cm toward it in 0.4 s (power2.inOut), stays turned while the card is
 // written on and touched, and turns back when the writing is over; reduced motion turns at once (the body's direction carries meaning)
-export const WRITE_ASIDE = { x: 0.32, z: -0.36, turnDeg: 20, shiftM: 0.04, turnS: 0.4 } as const
+export const WRITE_ASIDE = { x: 0.32, z: -0.36, turnDeg: 24, shiftM: 0.04, turnS: 0.4 } as const
 export type WritePlace = { side: 1 | -1 } | null
 export function writePlace(spots: Record<string, { x: number; z: number; ry: number }>, spot: string, camera: readonly number[] = DEFAULT_CAMERA): WritePlace {
   const seat = spots[spot]
