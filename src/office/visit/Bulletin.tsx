@@ -34,6 +34,21 @@ export function noteSlot(k: number, w: number, h: number) {
   return { x: pad + col * (cw + gap), y: pad + row * (ch + gap), w: cw, h: ch }
 }
 
+/** the paper, the same every time for a note (the designer, #460): canary 60 %, apricot 25 %, light green 15 % */
+export const PAPERS = [
+  { color: '#fff1a8', share: 60 },
+  { color: '#ffd9b8', share: 25 },
+  { color: '#e2f0c4', share: 15 },
+] as const
+export function paperOf(id: number): string {
+  let r = ((id * 2246822519) >>> 0) % 100
+  for (const p of PAPERS) {
+    if (r < p.share) return p.color
+    r -= p.share
+  }
+  return PAPERS[0].color
+}
+
 /** a note's lean on the board, the same every time (±4°) */
 const leanOf = (id: number) => (((id * 2654435761) >>> 0) % 81) / 10 - 4
 
@@ -162,19 +177,20 @@ class BulletinRig {
       // shadow, paper
       g.fillStyle = 'rgba(0,0,0,0.25)'
       g.fillRect(-s.w / 2 + 5, 7, s.w, s.h)
-      g.fillStyle = '#fff1a8'
+      g.fillStyle = paperOf(note.id)
       g.fillRect(-s.w / 2, 0, s.w, s.h)
       g.fillStyle = 'rgba(0,0,0,0.06)'
       g.fillRect(-s.w / 2, s.h - 18, s.w, 18)
-      // the words: up to four lines, then …
+      // the words: up to three lines, then … (a fourth would touch the name line)
       g.fillStyle = '#2a2418'
       g.font = FONT(24)
       g.textBaseline = 'top'
-      const lines = wrap(g, note.text, s.w - 28, 4)
+      const lines = wrap(g, note.text, s.w - 28, 3)
       lines.forEach((l, i) => g.fillText(l, -s.w / 2 + 14, 28 + i * 32))
       g.font = FONT(18)
       g.fillStyle = '#6b5f45'
-      g.fillText(`— ${note.name || NOTE_ANON}`, -s.w / 2 + 14, s.h - 44)
+      // the name in one line, cut at the paper's width with … (a 20-character name ran off the note)
+      g.fillText(wrap(g, `— ${note.name || NOTE_ANON}`, s.w - 28, 1)[0] ?? '', -s.w / 2 + 14, s.h - 44)
       // the pin, the robot's colour
       g.beginPath()
       g.arc(0, 4, 11, 0, Math.PI * 2)
@@ -199,18 +215,26 @@ class BulletinRig {
   }
 }
 
-/** the text in lines of at most `width` px, at most `max` lines (the last cut with …) */
-function wrap(g: CanvasRenderingContext2D, text: string, width: number, max: number): string[] {
+/** the text in lines of at most `width` px, at most `max` lines; when it does not fit, the last line ends in … (and still fits) */
+export function wrap(g: Pick<CanvasRenderingContext2D, 'measureText'>, text: string, width: number, max: number): string[] {
   const out: string[] = []
   let line = ''
+  let cut = false
   for (const ch of [...text]) {
     if (g.measureText(line + ch).width > width) {
       out.push(line)
       line = ch.trim() ? ch : ''
-      if (out.length === max) break
+      if (out.length === max) {
+        cut = true
+        break
+      }
     } else line += ch
   }
-  if (out.length < max && line) out.push(line)
-  else if (out.length === max) out[max - 1] = out[max - 1].replace(/.$/, '…')
+  if (!cut && line) out.push(line)
+  if (cut) {
+    let last = out[max - 1]
+    while (last && g.measureText(last + '…').width > width) last = [...last].slice(0, -1).join('')
+    out[max - 1] = last + '…'
+  }
   return out.slice(0, max)
 }
