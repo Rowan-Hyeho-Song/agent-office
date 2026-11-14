@@ -48,6 +48,7 @@ import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
 import { Typist } from './typist'
 import { LoungeActs } from './loungeActs'
+import { DRINK_PROP_KINDS } from './lounge'
 
 const UP = new Vector3(0, 1, 0)
 const DEG = Math.PI / 180
@@ -238,6 +239,11 @@ export class PlayStage {
       },
       button: (rig, name, u, inp, holdS, depth) => this.button(rig, name, u, inp, holdS, depth),
       arrivedAt: (id) => this.arrivedAt.get(id),
+      // #457 a drink that has faded out of the hand: nothing carries it home (it is back on its shelf, hidden), the hand is free at once
+      drop: (rig, side, objName) => {
+        for (const k of [...this.carry.keys()]) if (k.startsWith(`${rig.id}:${side}:`) && this.carry.get(k)!.objName === objName) this.carry.delete(k)
+        this.clock(`${rig.id}:${side}`).reset()
+      },
     })
     this.tableNode = scene.getObjectByName('pp_table') ?? undefined
     const ex = this.tableNode?.userData as { size?: number[]; net_h?: number } | undefined
@@ -397,9 +403,9 @@ export class PlayStage {
     const info = tgt.obj && !body ? this.props.info(rig, propKind, prefer ?? objName) : null
     const home = body ? body.matrixWorld.clone() : tgt.obj ? this.props.homeWorld(tgt.obj) : new Matrix4()
     let pose = home
-    // reduced motion: the can is simply in the hand (watering.md 5); everything else is lifted from where it rests
+    // reduced motion: the can (watering.md 5) and a drink from the fridge (lounge-props.md 5.5) are simply in the hand; everything else is lifted from where it rests
     if (body) pose = home
-    else if (out.attached && held) pose = inp.reduced && kind === 'watering_can' ? held : blend(home, held, ease((inp.t - (clock.attachedAt ?? inp.t)) / Math.max(LIFT_S, rig.gestureMin)))
+    else if (out.attached && held) pose = inp.reduced && (kind === 'watering_can' || kind in DRINK_PROP_KINDS) ? held : blend(home, held, ease((inp.t - (clock.attachedAt ?? inp.t)) / Math.max(LIFT_S, rig.gestureMin)))
     else if (out.attached && !tgt.obj) pose = held ?? home
     this.lastObjPose = pose
     const seat = Number(rig.id.split('_')[1])
@@ -1041,6 +1047,8 @@ export class PlayStage {
     const right = new Vector3(Math.cos(heading), 0, -Math.sin(heading))
     void pp
     void og
+    // #457 a drink from the fridge in the left hand (loungeActs.ts): carried, sipped, faded out; nothing else takes the hands meanwhile
+    if (this.lounge.drink(rig, goal, inp)) return
     // the watering errand: first, so nothing else (the stamp) takes the right hand while it carries the can
     if (goal.pose === 'water') return this.errand(rig, goal, inp)
     // #137 ① the white bowl in both hands

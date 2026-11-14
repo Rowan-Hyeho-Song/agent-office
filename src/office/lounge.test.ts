@@ -1,7 +1,8 @@
 /// <reference types="node" />
 import { describe, expect, it } from 'vitest'
-import { Vector3 } from 'three'
+import { Box3, Raycaster, Vector3, type Mesh } from 'three'
 import { loadOffice, stubCanvas } from './glbLoad'
+import { GRIP_S } from './grip'
 import { meshesOf } from './nodes'
 import { rasterFootprint } from './floorMask'
 import { buildGrid, cellAt, decodeFootprint, findPath } from './grid'
@@ -9,7 +10,7 @@ import { FOOTPRINT_DATA } from './footprint.data'
 import { GRAPH } from './navSpots.fixture'
 import { REACH } from './water'
 import { PLAYS } from './play'
-import { ACT_PLACE, DISPENSER, DISPENSER_T, FRIDGE, FRIDGE_T, RECORD, RECORD_T, actTotal, doorDeg, inSwept, openTimeAt, recordBeats, sweptDistance } from './lounge'
+import { ACT_PLACE, DISPENSER, DISPENSER_T, DRINK_KINDS, DRINK_PROP_KINDS, DRINKS, FRIDGE, FRIDGE_LIGHT, FRIDGE_T, RECORD, RECORD_T, actTotal, doorDeg, fridgeLightOn, fridgeStepK, grabAt, inSwept, openTimeAt, recordBeats, sweptDistance } from './lounge'
 import { LEVER_T, MAT, leverAngle, onMat } from './loungeActs'
 import { frameOfNode, linkOf, FRAME_LINKS } from './framePosters'
 
@@ -68,6 +69,73 @@ describe('the fridge door sweeps a known area (lounge.ts)', () => {
   })
 })
 
+describe('#457 taking a drink out (lounge-props.md 5.3 · 5.5)', () => {
+  it('the beats in order: open, the step in, the reach (the grip closes as the hand gets there), the step back, the close', () => {
+    const t = FRIDGE_T
+    expect(t.peek + t.stepS).toBeLessThanOrEqual(t.reach)
+    expect(t.grab - t.reach, 'the grip\'s approach and closing').toBeCloseTo(GRIP_S.approach + GRIP_S.close, 6)
+    expect(t.back).toBeGreaterThan(t.grab)
+    expect(t.back + t.stepS).toBeLessThanOrEqual(t.close)
+    expect(t.shut).toBeLessThan(t.total)
+    // the spec's table: the step 0.9 → 1.25, the reach 1.25 → 1.75, back 1.75 → 2.1, closing 2.1 → 2.5, done at 3.0
+    expect([t.peek, t.reach, t.back, t.close, t.shut, t.total]).toEqual([0.9, 1.25, 1.75, 2.1, 2.5, 3.0])
+    expect(fridgeStepK(t.peek)).toBe(0)
+    expect(fridgeStepK(t.reach)).toBe(1)
+    expect(fridgeStepK(t.back)).toBe(1)
+    expect(fridgeStepK(t.back + t.stepS)).toBe(0)
+    // reduced motion: the drink is in the hand as the door passes 70°, before the grab would be
+    expect(doorDeg(grabAt(true))).toBeCloseTo(t.letGoDeg, 2)
+    expect(grabAt(false)).toBe(t.grab)
+  })
+
+  it('the step is 0.30 m in, and the body keeps 0.15 m or more off the door\'s swing all the way there', () => {
+    expect(Math.hypot(FRIDGE.step.x - FRIDGE.stand.x, FRIDGE.step.z - FRIDGE.stand.z)).toBeCloseTo(0.3, 2)
+    for (let k = 0; k <= 1.0001; k += 0.05) {
+      const x = FRIDGE.stand.x + (FRIDGE.step.x - FRIDGE.stand.x) * k
+      const z = FRIDGE.stand.z + (FRIDGE.step.z - FRIDGE.stand.z) * k
+      expect(sweptDistance(x, z), 'at ' + k.toFixed(2)).toBeGreaterThanOrEqual(FRIDGE.stepOffM)
+    }
+  })
+
+  it('the model\'s drinks: their grips where lounge.ts has them, within the hands\' reach of the step (0.6 m ahead; designer: the shelf items moved 3 cm in), resting on their shelves (not floating)', async () => {
+    const { scene } = await loadOffice()
+    scene.updateMatrixWorld(true)
+    const others: Mesh[] = []
+    scene.traverse((o) => {
+      let p: typeof o | null = o
+      while (p && !/^prop_fridge_/.test(p.name)) p = p.parent
+      if ((o as Mesh).isMesh && !p) others.push(o as Mesh)
+    })
+    for (const k of DRINK_KINDS) {
+      const d = DRINKS[k]
+      const node = scene.getObjectByName(d.prop)!
+      expect(node.userData.prop, k).toBe(d.kind)
+      expect(DRINK_PROP_KINDS[d.kind]).toBe(k)
+      const g = scene.getObjectByName(`${d.prop}_grip_l`)!.getWorldPosition(new Vector3())
+      expect(g.distanceTo(new Vector3(d.grip.x, d.grip.y, d.grip.z)), k + ' grip').toBeLessThan(0.002)
+      // the hand poses reach 0.6 m ahead of the body (water.ts REACH notes); the grip from the step is inside that
+      expect(Math.hypot(g.x - FRIDGE.step.x, g.z - FRIDGE.step.z), k + ' reach from the step').toBeLessThanOrEqual(0.6)
+      // straight down from its middle, the first thing under it is its shelf, at its bottom
+      const box = new Box3().setFromObject(node)
+      const c = box.getCenter(new Vector3())
+      const hit = new Raycaster(new Vector3(c.x, box.max.y + 0.01, c.z), new Vector3(0, -1, 0)).intersectObjects(others, false)[0]
+      expect(hit, k + ' has a shelf under it').toBeTruthy()
+      expect(Math.abs(hit.point.y - box.min.y), k + ' sits on it').toBeLessThan(0.001)
+    }
+  }, 60000)
+
+  it('the inside light: on past 8°, stays on until below 4° (lounge-props.md 5.4); no brighter than 0.5 (#469 designer)', () => {
+    expect(fridgeLightOn(8, false)).toBe(false)
+    expect(fridgeLightOn(8.1, false)).toBe(true)
+    expect(fridgeLightOn(5, true)).toBe(true)
+    expect(fridgeLightOn(4, true)).toBe(true)
+    expect(fridgeLightOn(3.9, true)).toBe(false)
+    expect(fridgeLightOn(5, false)).toBe(false)
+    expect(FRIDGE_LIGHT.intensity).toBeLessThanOrEqual(0.5)
+    expect(FRIDGE_LIGHT).toMatchObject({ color: '#eaf2ff', distance: 1, decay: 2, spill: 0.16 })
+  })
+})
+
 describe('where the agent stands for each act, on the walkable grid', () => {
   it('every stand is a walkable cell the planner reaches (the baked footprint and the committed one), with the thing it works within an arm', async () => {
     const { scene, nodes } = await loadOffice()
@@ -77,6 +145,8 @@ describe('where the agent stands for each act, on the walkable grid', () => {
     const tap = (k: number) => scene.getObjectByName(`water_tap_${k}`)!.getWorldPosition(new Vector3())
     const checks: [string, { x: number; z: number }, Vector3[]][] = [
       ['fridge', FRIDGE.stand, [scene.getObjectByName('fridge_door_grip')!.getWorldPosition(new Vector3())]],
+      // #457 the step in to take a drink: the two drinks' left-hand grips
+      ['fridge step', FRIDGE.step, DRINK_KINDS.map((k) => scene.getObjectByName(`${DRINKS[k].prop}_grip_l`)!.getWorldPosition(new Vector3()))],
       ['dispenser', DISPENSER.stand, [tap(0), tap(1)]],
       // the jacket's place, the platter's middle and the arm's headshell
       ['record', RECORD.stand, [nodes.prop_record.getWorldPosition(new Vector3()), nodes.turntable_platter.getWorldPosition(new Vector3()), nodes.turntable_arm.localToWorld(new Vector3(-0.0225, 0, -0.225))]],

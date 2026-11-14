@@ -151,6 +151,8 @@ export class Guard {
           if (d > 0.01 && !w.props.borrowed.has(n)) s.loose++
           if (was) {
             s.releases++
+            // #457 one that faded out in the hand is back where it rests out of sight: nothing seen moved, so no jump and no reach to put it down
+            if (!n.visible) continue
             const g = gripPoint(w, n, was.side)
             const root = was.rig.parts.root.position
             s.releaseReach = Math.max(s.releaseReach, Math.hypot(g.x - root.x, g.z - root.z))

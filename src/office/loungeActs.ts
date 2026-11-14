@@ -3,13 +3,14 @@
 // PlayStage owns the hands (grip(), button(), partner()): it hands them over in `StageHooks`, and calls solo() for the poses here and update() once a frame.
 // Every sound is a cue of sound.md 4.4 with the position of what makes it; the turntable also tells the speakers (speaker.ts needleDown / needleUp).
 
-import { Matrix4, Mesh, Object3D, Quaternion, Vector3 } from 'three'
+import { AdditiveBlending, Color, DataTexture, Matrix4, Mesh, MeshBasicMaterial, Object3D, PointLight, Quaternion, RGBAFormat, Vector3, type Material } from 'three'
 import { cue, getCueSpeed } from '../audio/cues'
 import { needleDown, needleUp } from '../audio/speaker'
 import type { Goal } from './director'
 import { GRIPS, REST, curlOf } from './grip'
 import { contactAxis } from './gripTargets'
-import { DISPENSER, DISPENSER_T, FRIDGE, FRIDGE_T, RECORD_T, doorDeg, isAct, openTimeAt, recordBeats } from './lounge'
+import { DISPENSER, DISPENSER_T, DRINKS, FRIDGE, FRIDGE_LIGHT, FRIDGE_T, RECORD_T, doorDeg, fridgeLightOn, fridgeStepK, grabAt, isAct, openTimeAt, recordBeats, type DrinkKind } from './lounge'
+import { DRINK_T, SIP_TOPS, sipLift } from './fridgeDrink'
 import { hash } from './play'
 import type { StageIn } from './playStage'
 import type { AgentRig, PropBank } from './rig'
@@ -38,7 +39,43 @@ export const LOUNGE_GRIPS = {
   },
   fridge_door: { r: { pre: all(0.25, [0.2, 0.5]), hold: curlOf([0.7, 0.75, 0.8, 0.85], [0.45, 0.9]), after: REST, contacts: [] } },
   door_lever: { l: { pre: all(0.25, [0.2, 0.5]), hold: curlOf([0.7, 0.75, 0.8, 0.85], [0.45, 0.9]), after: REST, contacts: [] } },
+  // #457 (grips.md): the can wrapped round by the left hand (as the paper cup), the small milk with four fingers flat on one face and the thumb
+  // on the other; the pads on the side (fitted to the contacts: palm, index, thumb)
+  fridge_can: { l: { pre: curlOf([0.25, 0.25, 0.25, 0.25], [0.1, 0.6]), hold: curlOf([0.55, 0.6, 0.62, 0.65], [0.3, 0.9]), after: REST, contacts: ['palm', 'index', 'thumb'] } },
+  fridge_milk: { l: { pre: curlOf([0.2, 0.2, 0.25, 0.25], [0.1, 0.5]), hold: curlOf([0.4, 0.42, 0.45, 0.48], [0.3, 0.8]), after: REST, contacts: ['palm', 'index', 'thumb'] } },
 } as const
+
+/** #457 the drink in the left hand, in the agent's frame (root, m): before the chest, its bottom here; at a sip its top rim just under the face screen */
+export const DRINK_HOLD = {
+  // (a desk top is 0.75: held lower it reads as set down on the desk; its top stays under the head)
+  carry: { x: -0.1, y: 0.84, z: -0.28 },
+  /** the rim, from the head: a little to the left, under the screen's bottom edge, in front of it */
+  rim: { x: -0.03, y: -0.11, z: -0.2 },
+  /** each drink's height (its rim above its bottom) and how far it tips back at a sip (grips.md: the wrist 40° back for the can) */
+  can: { h: 0.122, tilt: 40 },
+  milk: { h: 0.12, tilt: 35 },
+} as const
+
+/** the floor spill's soft edges (lounge-props.md 5.4): across the trapezoid (u) faded at both sides, along it (v: 0 at the fridge) fading out into the room */
+function spillAlpha(n = 32) {
+  const s = (a: number, b: number, x: number) => {
+    const k = Math.min(1, Math.max(0, (x - a) / (b - a)))
+    return k * k * (3 - 2 * k)
+  }
+  const data = new Uint8Array(n * n * 4)
+  for (let j = 0; j < n; j++)
+    for (let i = 0; i < n; i++) {
+      const u = (i + 0.5) / n
+      const v = (j + 0.5) / n
+      const a = s(0, 0.3, u) * s(1, 0.7, u) * s(0, 0.08, v) * (1 - s(0.35, 1, v))
+      const o = (j * n + i) * 4
+      data[o] = data[o + 1] = data[o + 2] = Math.round(a * 255)
+      data[o + 3] = 255
+    }
+  const t = new DataTexture(data, n, n, RGBAFormat)
+  t.needsUpdate = true
+  return t
+}
 Object.assign(GRIPS, LOUNGE_GRIPS)
 
 /** what PlayStage lends (its grip clocks and drive live there) */
@@ -50,6 +87,8 @@ export interface StageHooks {
   button(rig: AgentRig, name: string, u: number, inp: StageIn, holdS?: number, depth?: number): void
   /** when the agent reached its goal's spot (the scene clock), if it has */
   arrivedAt(id: string): number | undefined
+  /** #457 the hand lets go of a prop that is gone from it (faded out): nothing is carried back, the hand's grip starts over */
+  drop(rig: AgentRig, side: 'l' | 'r', objName: string): void
 }
 
 /** the door mat (office_bake.py build_entry: 0.5 × 0.8 at x −4.48, z = the door's) */
@@ -95,6 +134,18 @@ export class LoungeActs {
   private door?: Object3D
   private doorOpen = { axis: 'y' as 'x' | 'y' | 'z', sign: 1 }
   private deg = 0
+  // #457 the inside light (lounge-props.md 5.4): the point light, the LED strip, the floor spill; on (with hysteresis) and how far up (0 … 1)
+  private light: PointLight | null = null
+  private strip: { mat: MeshBasicMaterial; base: Color }[] = []
+  private spill: { node: Object3D; mats: MeshBasicMaterial[] } | null = null
+  private lightOn = false
+  private lightK = 0
+  // #457 the drinks: their own materials (to fade them without fading the door's milk carton), who holds which, the ones waiting to go back on the shelf
+  private drinkMats = new Map<string, Material[]>()
+  private holding = new Map<string, string>()
+  /** prop → the frame (scene time) it was hidden: back on view no earlier than the next frame, once the prop bank has put it home unseen */
+  private refill = new Map<string, number>()
+  private lastSip = new Map<string, number>()
   // the turntable
   private arm?: Arm
   private platter?: Object3D
@@ -168,6 +219,53 @@ export class LoungeActs {
         this.discThere.push(twin)
       }
     }
+    // #457 the inside light: an app light where the model's fridge_light empty is (always in the scene, at 0 when off: a light coming and going
+    // would recompile every lit material), the strip lit with it, the spill drawn added on the floor
+    const at = scene.getObjectByName('fridge_light')
+    if (at) {
+      this.light = new PointLight(FRIDGE_LIGHT.color, 0, FRIDGE_LIGHT.distance, FRIDGE_LIGHT.decay)
+      this.light.name = 'fridge_light_app'
+      this.light.position.copy(at.getWorldPosition(new Vector3()))
+      scene.add(this.light)
+    }
+    nodes.fridge_light_strip?.traverse((o) => {
+      const mat = (o as Mesh).material as MeshBasicMaterial | undefined
+      const base = (o.userData.baseColor as Color | undefined) ?? mat?.color
+      if ((o as Mesh).isMesh && mat?.color && base) {
+        this.strip.push({ mat, base: base.clone() })
+        mat.color.setScalar(0)
+      }
+    })
+    const spill = nodes.fridge_spill
+    if (spill) {
+      const alphaMap = spillAlpha()
+      const mats: MeshBasicMaterial[] = []
+      spill.traverse((o) => {
+        const m = o as Mesh
+        if (!m.isMesh) return
+        const mat = new MeshBasicMaterial({ color: FRIDGE_LIGHT.color, alphaMap, transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false, toneMapped: false })
+        ;(m.material as Material).dispose()
+        m.material = mat
+        m.renderOrder = 1
+        mats.push(mat)
+      })
+      spill.visible = false
+      this.spill = { node: spill, mats }
+    }
+    for (const d of Object.values(DRINKS)) {
+      const node = nodes[d.prop]
+      if (!node) continue
+      const mats: Material[] = []
+      node.traverse((o) => {
+        const m = o as Mesh
+        if (!m.isMesh) return
+        const own = (m.material as Material).clone()
+        own.transparent = true
+        m.material = own
+        mats.push(own)
+      })
+      this.drinkMats.set(d.prop, mats)
+    }
     // the dispenser's two taps: a fingertip target in front of each (toward the west, where the agent stands)
     for (const k of [0, 1]) {
       const tap = scene.getObjectByName(`water_tap_${k}`)
@@ -215,7 +313,7 @@ export class LoungeActs {
   solo(rig: AgentRig, goal: Goal, inp: StageIn): boolean {
     const a = goal.act
     if (a && isAct(goal.pose) && a.u >= 0) {
-      if (a.kind === 'fridge') this.fridgeHands(rig, a.u, inp)
+      if (a.kind === 'fridge') this.fridgeHands(rig, a.u, a.pick ?? null, inp)
       else if (a.kind === 'dispenser') this.dispenserHands(rig, a.u, inp)
       else this.recordHands(rig, a, inp)
       return true
@@ -232,11 +330,108 @@ export class LoungeActs {
     return false
   }
 
-  private fridgeHands(rig: AgentRig, u: number, inp: StageIn) {
+  private fridgeHands(rig: AgentRig, u: number, pick: DrinkKind | null, inp: StageIn) {
     // the right hand takes the handle and pulls; the door goes on by itself once the handle is out of the arm's reach; on the way back the hand catches it and pushes it shut
     const want = u < openTimeAt(FRIDGE_T.letGoDeg) || (u >= FRIDGE_T.close - 0.3 && u < FRIDGE_T.shut + 0.05)
     this.hooks.grip(rig, 'r', 'fridge_door', 'fridge_door', want, null, inp)
     if (u > FRIDGE_T.open && u < FRIDGE_T.close) rig.glance = { at: new Vector3(FRIDGE.inside.x, 0.55, FRIDGE.inside.z), max: 0.7 }
+    if (!pick) return
+    // #457 (lounge-props.md 5.5): a step in, the left hand takes the drink off its shelf (lifted 2 cm, drawn out past the front), a step back with it
+    // before the chest. Reduced motion: no step, no reach; it is in the hand as the door passes 70°
+    const d = DRINKS[pick]
+    const node = this.props.info(rig, d.kind, d.prop)?.node
+    if (!node) return
+    if (inp.reduced) {
+      if (u >= grabAt(true)) this.drinkHands(rig, pick, this.carryPose(rig, pick, 0), Math.min(1, (u - grabAt(true)) / DRINK_T.appearS), inp)
+      return
+    }
+    const k = fridgeStepK(u)
+    rig.nudge((FRIDGE.step.x - rig.x) * k, (FRIDGE.step.z - rig.z) * k)
+    // the body bends to the shelf while the hand is in (the middle shelf more)
+    const inK = ease((u - FRIDGE_T.reach) / 0.3) - ease((u - FRIDGE_T.back) / 0.3)
+    rig.bodyDip = Math.max(rig.bodyDip, d.dip * inK)
+    if (u < FRIDGE_T.reach) return
+    rig.glance = { at: new Vector3(d.grip.x, d.grip.y, d.grip.z), max: 0.8 }
+    const home = this.props.homeWorld(node)
+    const hp = new Vector3().setFromMatrixPosition(home)
+    const hq = new Quaternion().setFromRotationMatrix(home)
+    const ta = u - FRIDGE_T.grab
+    const lift = hp.clone().setY(hp.y + 0.02)
+    // out past the front of the body (x 4.335) by its own radius and a little more, at the lifted height: it clears the shelf above and the side wall;
+    // then to the chest while the body steps back, so it is before the chest as the door starts to close (5.5: by 2.1 s)
+    const out = lift.clone().setX(FRIDGE.hinge.x - 0.045)
+    const carry = this.carryPose(rig, pick, 0)
+    const cp = new Vector3().setFromMatrixPosition(carry)
+    const cq = new Quaternion().setFromRotationMatrix(carry)
+    let pos: Vector3
+    let q = hq
+    if (ta < 0.1) pos = hp.clone().lerp(lift, ease(ta / 0.1))
+    else if (ta < 0.3) pos = lift.clone().lerp(out, ease((ta - 0.1) / 0.2))
+    else {
+      const kk = ease((ta - 0.3) / 0.3)
+      pos = out.clone().lerp(cp, kk)
+      q = hq.clone().slerp(cq, kk)
+    }
+    this.drinkHands(rig, pick, new Matrix4().compose(pos, q, ONE), 1, inp)
+  }
+
+  /**
+   * #457 the drink's pose in the left hand (world): before the chest, lifted toward the face screen by `sipK` (0 … 1) and tipped back so its top rim
+   * meets the screen's bottom edge. Its grip side faces the body (the shelf's pose: grip empty on the -x side, the agent east of it… west of it).
+   */
+  private carryPose(rig: AgentRig, kind: DrinkKind, sipK: number): Matrix4 {
+    const root = rig.parts.root
+    root.updateWorldMatrix(true, false)
+    const rq = root.getWorldQuaternion(new Quaternion())
+    // the drink's +x along the body's forward (the root's -z): its -x grip side toward the body
+    const yawQ = rq.clone().multiply(new Quaternion().setFromAxisAngle(UP, Math.PI / 2))
+    const c = DRINK_HOLD.carry
+    const low = root.localToWorld(new Vector3(c.x, c.y, c.z))
+    if (sipK <= 0) return new Matrix4().compose(low, yawQ, ONE)
+    const spec = DRINK_HOLD[kind]
+    const right = new Vector3(1, 0, 0).applyQuaternion(rq)
+    const tipQ = new Quaternion().setFromAxisAngle(right, spec.tilt * DEG * sipK).multiply(yawQ)
+    const head = rig.parts.head.position
+    const r = DRINK_HOLD.rim
+    const rim = root.localToWorld(new Vector3(head.x + r.x, head.y + r.y, head.z + r.z))
+    const top = rim.sub(new Vector3(0, spec.h, 0).applyQuaternion(tipQ))
+    return new Matrix4().compose(low.lerp(top, sipK), tipQ, ONE)
+  }
+
+  /** the left hand holds the drink at `held`, seen at `opacity` (it appears / fades) */
+  private drinkHands(rig: AgentRig, kind: DrinkKind, held: Matrix4, opacity: number, inp: StageIn) {
+    const d = DRINKS[kind]
+    // only a drink the hand has closed on is the hand's to let go of (one still on its shelf stays there, seen)
+    if (this.hooks.grip(rig, 'l', d.kind, d.prop, true, held, inp, d.prop)) this.holding.set(rig.id, d.prop)
+    for (const m of this.drinkMats.get(d.prop) ?? []) m.opacity = opacity
+  }
+
+  /**
+   * #457 the drink outside the fridge act (Goal.drink): carried, sipped twice where the agent stays, faded out. The hands are the drink's while it is
+   * in one (true: nothing else takes them this frame). Once the Director has let it go, the hand is free and the prop waits, hidden, to go back.
+   */
+  drink(rig: AgentRig, goal: Goal, inp: StageIn): boolean {
+    const dr = goal.drink
+    const inAct = goal.act?.kind === 'fridge' && goal.act.u >= 0
+    if (!dr || inAct) {
+      if (!dr) this.letGo(rig, inp.t)
+      return false
+    }
+    const sipK = inp.reduced ? 0 : sipLift(dr.sip)
+    const opacity = dr.fade >= 0 ? Math.max(0, 1 - dr.fade / DRINK_T.fadeS) : 1
+    this.drinkHands(rig, dr.kind, this.carryPose(rig, dr.kind, sipK), opacity, inp)
+    return true
+  }
+
+  /** the drink the hand had is gone (faded out, or the agent was taken off the stage): back on its shelf, hidden until the fridge is shut */
+  private letGo(rig: AgentRig, t: number) {
+    const prop = this.holding.get(rig.id)
+    if (!prop) return
+    this.holding.delete(rig.id)
+    this.hooks.drop(rig, 'l', prop)
+    this.props.hide(prop, true)
+    for (const m of this.drinkMats.get(prop) ?? []) m.opacity = 1
+    this.refill.set(prop, t)
   }
 
   private dispenserHands(rig: AgentRig, u: number, inp: StageIn) {
@@ -321,6 +516,36 @@ export class LoungeActs {
     this.hooks.grip(rig, 'l', 'door_lever', 'door_lever', u < end, null, inp)
   }
 
+  /**
+   * #457 the inside light follows the door (lounge-props.md 5.4): on past 8°, off below 4°, up in 0.12 s and down in 0.08 (at once with reduced
+   * motion); the strip with it; the spill 0.16 × how far open. A drink put back (faded out of a hand) shows on its shelf again only while it is dark.
+   */
+  private fridgeLight(inp: StageIn) {
+    this.lightOn = fridgeLightOn(this.deg, this.lightOn)
+    const want = this.lightOn ? 1 : 0
+    if (inp.reduced) this.lightK = want
+    else if (this.lightOn) this.lightK = Math.min(1, this.lightK + inp.dt / FRIDGE_LIGHT.onS)
+    else this.lightK = Math.max(0, this.lightK - inp.dt / FRIDGE_LIGHT.offS)
+    if (this.light) this.light.intensity = FRIDGE_LIGHT.intensity * this.lightK
+    for (const s of this.strip) s.mat.color.copy(s.base).multiplyScalar(this.lightK)
+    if (this.spill) {
+      const o = FRIDGE_LIGHT.spill * (this.deg / FRIDGE.openDeg) * this.lightK
+      for (const m of this.spill.mats) m.opacity = o
+      this.spill.node.visible = o > 0.001
+    }
+    if (!this.lightOn && this.lightK === 0)
+      for (const [prop, at] of [...this.refill]) {
+        if (inp.t <= at) continue
+        this.props.hide(prop, false)
+        this.refill.delete(prop)
+      }
+  }
+
+  /** the inside light now: on, and how far up (tests, the debug panel) */
+  fridgeLightState() {
+    return { on: this.lightOn, k: this.lightK, intensity: this.light?.intensity ?? 0, spill: this.spill?.mats[0]?.opacity ?? 0 }
+  }
+
   // ------------------------------------------------------------------------------------------------------------ frame
 
   /** once a frame, after the hands: the things that move (door, arm, platter, lever), the sounds, the mat and the sofa */
@@ -341,8 +566,21 @@ export class LoungeActs {
       if (a.kind === 'fridge') {
         doorTarget = Math.max(doorTarget ?? 0, doorDeg(u))
         const dp = this.door?.getWorldPosition(new Vector3()) ?? new Vector3(FRIDGE.hinge.x, 0.5, FRIDGE.hinge.z)
-        if (this.crossed(prev, u, FRIDGE_T.open)) this.fire('fridge.open', id, dp, u, inp.t)
+        if (this.crossed(prev, u, FRIDGE_T.open)) {
+          this.fire('fridge.open', id, dp, u, inp.t)
+          // the cold inside for as long as the door is open (sound.md 4.4: called with fridge.open, dur = the seconds it is open)
+          this.fire('fridge.hum', id, new Vector3(FRIDGE.inside.x, 0.45, FRIDGE.inside.z), u, inp.t, { dur: FRIDGE_T.shut - FRIDGE_T.open })
+        }
         if (this.crossed(prev, u, FRIDGE_T.shut)) this.fire('fridge.close', id, dp, u, inp.t)
+        if (a.pick) {
+          const d = DRINKS[a.pick]
+          // looking for it (의문), then glad to have it (기쁨, 1 s), lounge-props.md 5.5
+          if (!inp.reduced && this.crossed(prev, u, FRIDGE_T.reach)) rig.faceEvent('question', inp.t, FRIDGE_T.grab - FRIDGE_T.reach)
+          if (this.crossed(prev, u, grabAt(inp.reduced))) {
+            rig.faceEvent('joy', inp.t, 1)
+            this.fire(a.pick === 'can' ? 'fridge.can' : 'fridge.milk', id, new Vector3(d.grip.x, d.grip.y, d.grip.z), u, inp.t)
+          }
+        }
       } else if (a.kind === 'dispenser') {
         if (this.crossed(prev, u, DISPENSER_T.press)) this.fire('dispenser.pour', id, new Vector3(DISPENSER.face.x, 0.55, DISPENSER.face.z), u, inp.t, { dur: DISPENSER.pourS })
       } else {
@@ -384,6 +622,18 @@ export class LoungeActs {
     if (doorTarget !== null) this.deg = doorTarget
     else this.deg = Math.max(0, this.deg - (FRIDGE.openDeg / FRIDGE.closeS) * dt)
     if (this.door) this.door.rotation[this.doorOpen.axis] = this.doorOpen.sign * this.deg * DEG
+    this.fridgeLight(inp)
+    // #457 the sips: drink.sip at the top of each lift (sound.md 4.4)
+    for (const id in inp.rigs) {
+      const dr = inp.goals[id]?.drink
+      const prev = this.lastSip.get(id) ?? -1
+      if (dr && dr.sip >= 0 && !inp.reduced) {
+        const rig = inp.rigs[id]
+        const at = rig.parts.root.localToWorld(new Vector3(0, rig.parts.head.position.y - 0.1, -0.2))
+        for (const top of SIP_TOPS) if (this.crossed(prev, dr.sip, top)) this.fire('drink.sip', id, at, dr.sip, inp.t)
+        this.lastSip.set(id, dr.sip)
+      } else this.lastSip.delete(id)
+    }
     // the turntable: with no act on it the arm sits where the deck says; the platter turns while the needle is down on a record
     const acting = Object.values(inp.goals).some((g) => g?.act?.kind === 'record' && g.act.u >= 0)
     if (!acting) {
