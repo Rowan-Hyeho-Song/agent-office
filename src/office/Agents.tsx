@@ -39,6 +39,8 @@ import { ANXIOUS_AFTER_MS } from './faceMind'
 import { greetsOwner, questionFaceFor } from './liveFace'
 import { isLateHour } from './duty'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
+import { NOTE_READ, thanksNow } from './noteRead'
+import { notesStore } from './visit/notes'
 import { groundAt, readRugs, type Rug } from './ground'
 import type { RootState } from '@react-three/fiber'
 
@@ -94,6 +96,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
   // who holds the fridge door's swing in the planner (lounge.ts syncFridgeHold), and whether the speakers were told a record is on its way (speaker.ts recordComing)
   const fridgeHold = useRef({ user: null as string | null, from: 0 })
   const comingSent = useRef(false)
+  // #4 notes 2b: each robot's time at the cork board last frame (the thanks are said once, as it crosses NOTE_READ.lookS)
+  const noteAt = useRef<Record<string, number>>({})
   // a meeting departure (office ms) as planner seconds, fixed once per goal: the planner treats a drifting value as a new request (#141)
   const departs = useRef(new Map<string, number>())
   const rigs = useMemo(
@@ -180,6 +184,17 @@ export function Agents({ world }: { world: OfficeWorld }) {
   }
   world.graph = graph
   world.traffic = planner
+
+  // #4 notes 2b: the board's notes (the latest twelve, kept up to date by the note signal) go to the Director, which sends each robot to read
+  // its own within the hour
+  useEffect(() => {
+    const feed = () => {
+      const now = officeNow(world)
+      for (const n of notesStore.getSnapshot().notes) world.director.noteArrived(n.agent, n.id, Date.parse(n.created_at), now)
+    }
+    feed()
+    return notesStore.subscribe(feed)
+  }, [world])
 
   useEffect(
     () =>
@@ -270,6 +285,12 @@ export function Agents({ world }: { world: OfficeWorld }) {
     } else {
       replayNow.current = null
       goals = world.director.goals(now, Math.floor(now / 60000), world.source.getSnapshot(), (a) => rigs[a].arrived, { reduced, wantsBreak: musicWantsBreak() })
+      // #4 notes 2b: after 2 s at the board, the nod (the goal's gesture) and the thanks, in the visitor's tab as a snack's
+      for (const a in goals) {
+        const u = goals[a].note?.u ?? -1
+        if (thanksNow(noteAt.current[a] ?? -1, u)) world.bubbles.say(a, { kind: 'react', text: NOTE_READ.line, ms: NOTE_READ.sayMs, tag: '방문자' })
+        noteAt.current[a] = u
+      }
       // the break music waits for the record that is on its way (sound.md 4.4)
       const coming = world.director.recordComing()
       if (coming !== comingSent.current) {
