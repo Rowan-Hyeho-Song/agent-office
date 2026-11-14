@@ -28,11 +28,18 @@ export const useTour = () =>
     () => state,
   )
 
+/**
+ * Why a tour ended (#440): kept with the last stop (lastTourStop) and logged under ?debug, so a tour that ends by itself can be
+ * traced to its path. Only a person ends it (button · drag · wheel · key · touch) or something the visitor turned to (panel, door,
+ * a hidden tab, the whiteboard close-up); the camera moving on its own never does.
+ */
+export type TourStop = 'button' | 'drag' | 'wheel' | 'key' | 'touch' | 'hidden' | 'panel' | 'door' | 'controls' | 'board' | 'unmount'
+
 export interface TourCommands {
   start(agent?: string): void
   next(): void
   prev(): void
-  stop(): void
+  stop(reason?: TourStop): void
 }
 let commands: TourCommands | null = null
 export const registerTour = (c: TourCommands | null) => void (commands = c)
@@ -42,16 +49,21 @@ export const tour = {
   start: (agent?: string) => commands?.start(agent),
   next: () => commands?.next(),
   prev: () => commands?.prev(),
-  stop: () => commands?.stop(),
+  stop: (reason: TourStop = 'button') => commands?.stop(reason),
 }
 
 /**
  * What the tour's clock (TourRig, every 0.4 s) does (#427): it only ever ENDS a running tour that has to give way (no controls, the door's
- * animation, a side panel). It never starts one: the tour starts from the dock's view toggle or an agent's name in the list, nothing else
- * (no start after a quiet spell any more).
+ * animation, a side panel that OPENS during it), and says why. It never starts one: the tour starts from the dock's view toggle or an
+ * agent's name in the list, nothing else (no start after a quiet spell any more).
+ * `panelBefore` is the panel at the previous tick (or at the start): a panel that was already open when the visitor started the tour is
+ * not a reason to end it (#440: 서재 open → view toggle → the tour ended 0.3 s later; office-ui.md 10.1 says "opens during the tour").
  */
-export function tourTick(s: { active: boolean; controls: boolean; busy: boolean; panel: boolean }): 'stop' | null {
-  return s.active && (!s.controls || s.busy || s.panel) ? 'stop' : null
+export function tourTick(s: { active: boolean; controls: boolean; busy: boolean; panel: boolean; panelBefore: boolean }): TourStop | null {
+  if (!s.active) return null
+  if (!s.controls) return 'controls'
+  if (s.busy) return 'door'
+  return s.panel && !s.panelBefore ? 'panel' : null
 }
 
 // The dock's view toggle (#368, office-ui.md 10.6): the icon shows the CURRENT mode, the label names the mode a press goes to.
