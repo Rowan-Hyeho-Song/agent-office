@@ -130,6 +130,12 @@ describe('cues', () => {
     expect(CUES['water.drip'].kind).toBe('repeat')
     expect(CUES['water.drip'].length).toBeLessThan(CUES.water.length)
   })
+  it('#4 visitor cues are ui (kept at every replay speed) and in the room', () => {
+    for (const n of ['treat.arrive', 'cheer', 'note.pin'] as const) {
+      expect(CUES[n].kind).toBe('ui')
+      expect(CUES[n].spatial).toBe(true)
+    }
+  })
   it('has the lounge props (#280): small events in the room, effects bus', () => {
     const lounge = ['record.out', 'record.place', 'record.needle', 'record.lift', 'fridge.open', 'fridge.close', 'dispenser.pour', 'sofa.sit', 'pillow.hug', 'mat.step', 'lever.down', 'lever.up'] as const
     for (const n of lounge) {

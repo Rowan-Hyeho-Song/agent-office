@@ -519,6 +519,49 @@ export const CUES = {
     length: 0.05,
     play: (o) => tone(o, 900, 0.05, { type: 'square', level: 0.04, slide: 1.6 }),
   },
+  // ── #4 방문자 상호작용 (office-ui.md 12, sound.md 4.5): 방문자(또는 같이 보는 사람)가 한 일이라 배속에도 남는다(ui) ──
+  'treat.arrive': {
+    label: '간식이 로봇에게 도착',
+    kind: 'ui',
+    bus: 'sfx',
+    spatial: true,
+    gap: 150,
+    length: 0.18,
+    // the snack lands in the robot's hand (or quietly on the desk): a round, soft "퐁" that rises a fifth, a touch of paper under it
+    play: (o) => {
+      tone(o, midi(76), 0.08, { type: 'triangle', level: 0.042, slide: 1.5, attack: 0.004 })
+      tone(o, midi(83), 0.1, { type: 'sine', level: 0.017, at: 0.06, attack: 0.004 })
+      noise(o, 0.03, { kind: 'pink', freq: 1800, q: 0.9, level: 0.017, attack: 0.002 })
+    },
+  },
+  cheer: {
+    label: '응원 반짝',
+    kind: 'ui',
+    bus: 'sfx',
+    spatial: true,
+    gap: 300,
+    length: 0.6,
+    // three small hearts rising: E6 · G6 · A6 (A minor pentatonic, on the music) 0.12 s apart, a faint shimmer above
+    play: (o) => {
+      ;[88, 91, 93].forEach((n, i) => tone(o, midi(n), 0.22, { type: 'triangle', level: 0.018, at: i * 0.12, attack: 0.006, echo: true }))
+      noise(o, 0.45, { freq: 7000, q: 1.5, level: 0.004, shape: 'swell' })
+    },
+  },
+  'note.pin': {
+    label: '쪽지가 게시판에 붙음',
+    kind: 'ui',
+    bus: 'sfx',
+    spatial: true,
+    gap: 200,
+    length: 0.42,
+    // a sticky note fluttering onto cork for 0.4 s (two quick paper flaps), then pressed on: a dry little tap
+    play: (o) => {
+      noise(o, 0.12, { kind: 'pink', freq: 2600, q: 1, level: 0.044, shape: 'swell' })
+      noise(o, 0.1, { kind: 'pink', freq: 3000, q: 1, level: 0.035, shape: 'swell', at: 0.15 })
+      noise(o, 0.025, { freq: 1900, q: 1.1, level: 0.1, attack: 0.001, at: 0.38 })
+      noise(o, 0.04, { kind: 'pink', filter: 'lowpass', freq: 450, level: 0.09, attack: 0.002, at: 0.38 })
+    },
+  },
   // ── 2차 후보 중 미리 (sound.md 4.2) ──
   snap: {
     label: '에코 손가락 딱',
