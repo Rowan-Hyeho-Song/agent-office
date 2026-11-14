@@ -10,6 +10,7 @@ import { actSpot, actU, deckAfter, startAct, stepAct, type ActRun } from './actR
 import { ACT_LABEL, ACT_PLACE, grabAt, isAct, type ActKind, type DrinkKind, type RecordMode } from './lounge'
 import { drinkPick, drinkView, stepDrink, type Drink, type DrinkView } from './fridgeDrink'
 import { isNight } from './kst'
+import { NOTE_LABEL, NOTE_READ, noteU, stepNote, stillWaiting, type NoteRun, type NoteWait } from './noteRead'
 import { PATH_BLOCKERS, STAND_BLOCKERS, WATER_PLANTS } from './water'
 import { callAway, chooseSeat, holding as readHolding, placeOf as readPlace, READ_LABEL, startRead, stepRead, type ReadRun, type ReadStage } from './readRun'
 import { holding, placeOf, startWater, stepWater, WATER_LABEL, type WaterRun, type WaterStage } from './waterRun'
@@ -54,6 +55,8 @@ export interface Goal {
   act?: { kind: ActKind; u: number; mode?: RecordMode; recordOn: boolean; pick?: DrinkKind }
   /** #457 the drink taken out of the fridge, in the left hand (fridgeDrink.ts): from the moment the hand has it until it has faded out */
   drink?: DrinkView
+  /** #4 notes 2b (noteRead.ts): at the cork board for its notes; s since arriving (-1 on the way) */
+  note?: { u: number; ids: number[] }
   /** what it's doing, for the debug panel */
   label: string
 }
@@ -131,6 +134,23 @@ export class Director {
   /** #457 the drink each agent has in hand from the fridge (fridgeDrink.ts), and what it took out on which KST day (not the same one twice a day) */
   private drinks: Record<string, Drink> = {}
   private drank: Record<string, { day: number; kinds: DrinkKind[] }> = {}
+  /** #4 notes 2b: the notes each robot has not reacted to yet, the ids ever queued (a note is reacted to once), and the walk to the board under way */
+  private noteQueue: Record<string, NoteWait[]> = {}
+  private noteKnown = new Set<number>()
+  private noteRuns: Record<string, NoteRun> = {}
+
+  /**
+   * #4 notes 2b: a note pinned for `agent` at `at` (ms). Its robot goes to read it the next time it rests, within the hour; a note already
+   * known, for a robot not in the office, or over an hour old is ignored
+   */
+  noteArrived(agent: string, id: number, at: number, now: number) {
+    if (this.noteKnown.has(id) || !this.agents.includes(agent) || now - at > NOTE_READ.waitMs) return
+    this.noteKnown.add(id)
+    ;(this.noteQueue[agent] ??= []).push({ id, at })
+  }
+
+  /** the notes each robot is still to read (tests, the debug panel) */
+  notesWaiting = (agent: string): number[] => (this.noteQueue[agent] ?? []).map((n) => n.id)
   /** the turntable: a record is on the platter, the needle is down (set as the agent's hands get there) */
   private deck = { recordOn: false, needle: false }
   /** when the needle went down (office ms): the arm is not lifted for the break being over until it has been down a while */
@@ -514,8 +534,31 @@ export class Director {
       if (k === 'record' && opts.wantsBreak && this.deck.needle) continue
       if (k && isAct(k) && this.actDone[a] !== block && !this.acts[a] && !this.waters[a] && !this.reads[a] && this.bowl?.agent !== a && resting(a) && steady(a)) beginAct(a, k)
     }
+    // #4 notes 2b (noteRead.ts): a robot with a note waiting walks to the cork board the next time it rests, one at a time. Called away on the
+    // way it tries again later; an hour after the note was pinned it lets it go
+    for (const a of this.agents) {
+      const q = stillWaiting(this.noteQueue[a] ?? [], now)
+      if (q.length) this.noteQueue[a] = q
+      else delete this.noteQueue[a]
+      const run = this.noteRuns[a]
+      if (!run) continue
+      if (!resting(a) || a in this.meet || this.waters[a] || this.reads[a] || this.acts[a] || this.bowl?.agent === a) {
+        delete this.noteRuns[a]
+        continue
+      }
+      const r = stepNote(run, { now, arrived: arrivedAt(a) === NOTE_READ.spot })
+      if (r.done) {
+        this.noteQueue[a] = (this.noteQueue[a] ?? []).filter((n) => !run.ids.includes(n.id))
+        delete this.noteRuns[a]
+      } else if (r.giveUp) delete this.noteRuns[a]
+      else this.noteRuns[a] = r.run
+    }
+    if (!Object.keys(this.noteRuns).length) {
+      const a = this.agents.find((x) => this.noteQueue[x]?.length && !this.acts[x] && !this.waters[x] && !this.reads[x] && this.bowl?.agent !== x && !(x in this.meet) && resting(x) && steady(x))
+      if (a) this.noteRuns[a] = { ids: this.noteQueue[a].map((n) => n.id), since: now, t0: null }
+    }
     // whoever is on an errand is not free for the schedule's other plays (a game partner left alone goes to a solo)
-    const away = [...Object.keys(this.waters), ...Object.keys(this.acts), ...Object.keys(this.reads)]
+    const away = [...Object.keys(this.waters), ...Object.keys(this.acts), ...Object.keys(this.reads), ...Object.keys(this.noteRuns)]
     // #137 ① the white bowl: the one fetching it keeps its record placed alone (it holds game_a, so nobody else is handed the record meanwhile);
     // the one taking it home is away from the schedule. While the bowl is not home there is no pair game at the board, and while it is taken
     // home no new record either, so nobody sits where it is set down or taken from. A re-plan may hand those out again: re-plan until it does not
@@ -593,6 +636,21 @@ export class Director {
       if (ar) {
         const pl = ACT_PLACE[ar.kind]
         out[a] = { spot: pl.spot, pose: ar.kind, face: pl.face, ...standSlot({ stand: pl.stand, face: pl.face }), act: { kind: ar.kind, u: actU(ar, now), ...(ar.mode ? { mode: ar.mode } : {}), recordOn: ar.recordOn, ...(ar.pick ? { pick: ar.pick } : {}) }, label: ACT_LABEL[ar.kind] }
+        shown[a] = { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
+        continue
+      }
+      // #4 notes 2b: at the cork board, looking at its note(s), then the nod (Goal.gesture) and the thanks (Goal.note, the scene's bubble)
+      const nr = this.noteRuns[a]
+      if (nr) {
+        const u = noteU(nr, now)
+        out[a] = {
+          spot: NOTE_READ.spot,
+          pose: 'idle',
+          face: NOTE_READ.face,
+          note: { u, ids: nr.ids },
+          ...(u >= NOTE_READ.lookS ? { gesture: { key: `note:${nr.ids.join(',')}`, hand: false } } : {}),
+          label: u < 0 ? NOTE_LABEL.walk : NOTE_LABEL.read,
+        }
         shown[a] = { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
         continue
       }
