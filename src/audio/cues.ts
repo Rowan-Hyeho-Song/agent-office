@@ -329,6 +329,64 @@ export const CUES = {
       knock(o, 2600, 0.03, 0.004, 14, 0.4)
     },
   },
+  // ── #457 냉장고 안 (lounge-props.md 5.5 · 5.6, sound.md 4.4) ──
+  'fridge.hum': {
+    label: '냉장고 열린 동안 웅',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 600,
+    length: 2,
+    // the cold inside while the door is open (`dur` = how long, 0.5–8 s): a low compressor hum (100 + 200 Hz) and a soft air band,
+    // fading in and out so it never clicks; quiet, under the room's other sounds
+    play: (o, v) => {
+      const d = Math.max(0.5, Math.min(8, v.dur ?? 2))
+      noise(o, d, { kind: 'brown', filter: 'lowpass', freq: 220, level: 0.007, shape: 'flat', attack: 0.25 })
+      noise(o, d, { kind: 'pink', freq: 900, q: 0.8, level: 0.0009, shape: 'flat', attack: 0.3 })
+      tone(o, 100, d, { type: 'sine', level: 0.0012, attack: 0.25 })
+    },
+  },
+  'fridge.can': {
+    label: '냉장고에서 캔 꺼냄 (달그락)',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 300,
+    length: 0.2,
+    // a can lifted off the door shelf: two small metal knocks against the bottles (thin aluminium rings high) and the can's hollow body
+    play: (o) => {
+      knock(o, 3400, 0.04, 0.02, 16, 0.4)
+      knock(o, 2700, 0.05, 0.016, 16, 0.4)
+      knock({ ...o, t: o.t + 0.07 }, 3100, 0.04, 0.014, 16, 0.4)
+      tone(o, 520, 0.08, { type: 'sine', level: 0.008, attack: 0.002, at: 0.02 })
+    },
+  },
+  'fridge.milk': {
+    label: '냉장고에서 우유 팩 꺼냄 (사각)',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 300,
+    length: 0.22,
+    // a paper carton slid off the shelf: a short dry scrape of waxed card and a soft knock of the liquid inside
+    play: (o) => {
+      noise(o, 0.16, { kind: 'pink', freq: 2300, to: 1600, q: 1, level: 0.03, shape: 'swell' })
+      noise(o, 0.04, { kind: 'pink', filter: 'lowpass', freq: 400, level: 0.025, attack: 0.003, at: 0.12 })
+    },
+  },
+  'drink.sip': {
+    label: '마시기 한 모금',
+    kind: 'repeat',
+    bus: 'sfx',
+    spatial: true,
+    gap: 400,
+    length: 0.18,
+    // a robot's small sip at the top of each lift (0.6 s, twice): a soft low "꼴깍" falling a little, very quiet
+    play: (o) => {
+      tone(o, 320, 0.09, { type: 'sine', level: 0.0085, slide: 0.65, attack: 0.008 })
+      tone(o, 260, 0.07, { type: 'sine', level: 0.0057, slide: 0.7, attack: 0.008, at: 0.08 })
+    },
+  },
   'dispenser.pour': {
     label: '정수기 물 받기',
     kind: 'event',
