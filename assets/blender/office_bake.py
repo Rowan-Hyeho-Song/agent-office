@@ -4896,6 +4896,215 @@ def build_records():
     return out
 
 
+# ================================================================ #457 the fridge's inside (lounge-props.md 5)
+FRIDGE_NODES = []  # baked into the fridge atlas (1024), with the door open and its light on
+FR = dict(x0=4.335, x1=4.735, y0=0.10, y1=0.82, z0=-0.94, z1=-0.52)  # the inside (web), FRIDGE_Z -0.73
+FR_SHELF_X = (4.335 + 0.09, 4.335 + 0.09 + 0.30)  # shelves from 9 cm behind the front face (the door bins come 7 in), 0.30 deep
+
+
+def wire_mat():
+    """a wire shelf seen as a grid: graphite rods along the depth every 6 mm, dark between (baked, no alpha)"""
+    m, nodes, links, b = new_mat("fridge_wire")
+    b.inputs["Roughness"].default_value = 0.45
+    b.inputs["Metallic"].default_value = 0.3
+    geo = nodes.new("ShaderNodeNewGeometry")
+    sep = nodes.new("ShaderNodeSeparateXYZ")
+    links.new(geo.outputs["Position"], sep.inputs["Vector"])
+    dv = nodes.new("ShaderNodeMath")
+    dv.operation = "DIVIDE"
+    dv.inputs[1].default_value = 0.006
+    links.new(sep.outputs["Y"], dv.inputs[0])  # Blender y = web -z: across the shelf's width
+    fr = nodes.new("ShaderNodeMath")
+    fr.operation = "FRACT"
+    links.new(dv.outputs[0], fr.inputs[0])
+    ramp = nodes.new("ShaderNodeValToRGB")
+    ramp.color_ramp.interpolation = "CONSTANT"
+    ramp.color_ramp.elements[0].color = rgba("#5a5e66")
+    ramp.color_ramp.elements[1].position = 0.45
+    ramp.color_ramp.elements[1].color = rgba("#2a2c30")
+    links.new(fr.outputs[0], ramp.inputs["Fac"])
+    links.new(ramp.outputs["Color"], b.inputs["Base Color"])
+    return m
+
+
+def fr_can(name, col, band, G, seg=14):
+    """a 330 mL can r 0.033 x 0.122 standing at the origin: rim, a mid band, a ring pull"""
+    can_m = plastic(col, 0.35, 0.4, 0.05, f"can_{col[1:]}")
+    return [lathe(name, [(0, 0), (0.029, 0), (0.033, 0.006), (0.033, 0.112), (0.028, 0.12), (0.027, 0.122), (0, 0.121)], (0, 0, 0), can_m, G, seg=seg),
+            cyl(f"{name}_band", 0.0333, 0.03, (0, 0.06, 0), plastic(band, 0.5, 0, 0.05, f"can_band_{band[1:]}"), G, seg),
+            torus(f"{name}_pull", 0.006, 0.0012, (0, 0.1222, 0.008), plastic("#c8ccd4", 0.3, 0.8, 0, "chrome"), G, seg=8, rseg=3)]
+
+
+def fr_milk(name, G, w=0.055, h=0.10, gable=0.02):
+    """a small milk carton w x w x h, a gable roof (its folded seam on top), a blue-grey band"""
+    white = plastic("#f4f4f0", 0.6, 0, 0.05, "milk_white")
+    bm = bmesh.new()
+    a, t = w / 2, h + gable
+    v = [bm.verts.new(W(sx * a, y, sz * a)) for sx, sz in ((-1, -1), (1, -1), (1, 1), (-1, 1)) for y in (0.0, h)]
+    r0, r1 = bm.verts.new(W(0, t, -a)), bm.verts.new(W(0, t, a))
+    lo, hi = [v[0], v[2], v[4], v[6]], [v[1], v[3], v[5], v[7]]
+    bm.faces.new(list(reversed(lo)))
+    for k in range(4):
+        bm.faces.new((lo[k], lo[(k + 1) % 4], hi[(k + 1) % 4], hi[k]))
+    bm.faces.new((hi[0], hi[1], r0))
+    bm.faces.new((hi[2], hi[3], r1))
+    bm.faces.new((hi[1], hi[2], r1, r0))
+    bm.faces.new((hi[3], hi[0], r0, r1))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    return [mesh_obj(name, bm, white, G),
+            box(f"{name}_band", (w + 0.001, 0.025, w + 0.001), (0, h * 0.55, 0), plastic("#6f8fb3", 0.6, 0, 0.05, "milk_band"), G),
+            box(f"{name}_seam", (0.0015, 0.004, w + 0.003), (0, t + 0.001, 0), white, G)]
+
+
+def fridge_inside(fx0, xw):
+    """#457 (lounge-props.md 5.2-5.4): the lining (cool white, the back a step darker), the compressor step, shelf
+    ledges, a wire shelf and two glass ones (fridge_glass, live: alpha) with a grey front band, the crisper drawer
+    (its frosted front in fridge_glass), the baked things (60-70% full, the front north lane kept clear), the two
+    live ones (prop_fridge_can, prop_fridge_milk), the light (fridge_light, fridge_light_strip, fridge_spill)"""
+    G = "fridge"
+    lin = plastic("#eef1f2", 0.5, 0, 0.05, "fridge_liner")
+    lin_b = plastic("#e1e6e8", 0.5, 0, 0.05, "fridge_liner_back")
+    x0, x1, y0, y1, z0, z1 = FR["x0"], FR["x1"], FR["y0"], FR["y1"], FR["z0"], FR["z1"]
+    zc, W_, D_ = (z0 + z1) / 2, z1 - z0, x1 - x0
+    xm = (x0 + x1) / 2  # the side, top and bottom linings run x0 + 0.002 .. x1 - 0.002 (the back lining behind them)
+    sx0, sx1 = FR_SHELF_X
+    p = [box("fr_liner", (0.002, y1 - y0, W_), (x1 - 0.001, (y0 + y1) / 2, zc), lin_b, G),  # back
+         box("fr_liner", (D_ - 0.004, y1 - y0 - 0.004, 0.002), (xm, (y0 + y1) / 2, z0 + 0.001), lin, G),
+         box("fr_liner", (D_ - 0.004, y1 - y0 - 0.004, 0.002), (xm, (y0 + y1) / 2, z1 - 0.001), lin, G),
+         box("fr_liner", (D_ - 0.004, 0.002, W_ - 0.004), (xm, y1 - 0.001, zc), lin, G),
+         box("fr_liner", (D_ - 0.004, 0.002, W_ - 0.004), (xm, y0 + 0.001, zc), lin, G),
+         box("fr_step", (0.098, 0.06, W_ - 0.006), (x1 - 0.002 - 0.049, y0 + 0.002 + 0.03, zc), lin_b, G, bev=0.004, seg=1)]  # the compressor
+    wz = W_ - 0.008  # the shelves' width between the ledges
+    for ys in (0.62, 0.44, 0.25):  # a ledge on each side wall under each shelf
+        for zs in (z0 + 0.005, z1 - 0.005):
+            p.append(box("fr_ledge", (sx1 - sx0, 0.006, 0.006), ((sx0 + sx1) / 2, ys - 0.005 - 0.003, zs), lin, G, bev=0.001, seg=1))
+    gb = plastic("#8b9096", 0.5, 0.2, 0.05, "fridge_shelf_band")
+    p += [box("fr_wire", (sx1 - sx0 - 0.006, 0.004, wz), ((sx0 + sx1) / 2 + 0.003, 0.62 - 0.002, zc), wire_mat(), G),
+          cyl("fr_wire_rod", 0.003, wz, (sx0 + 0.003, 0.62 - 0.002, zc), plastic("#5a5e66", 0.45, 0.4, 0.05, "fridge_rod"), G, 8, axis="z")]
+    glass = glass_mat("fridge_glass", "#c9d6df", 0.25)
+    gl = []
+    for ys in (0.44, 0.25):  # the glass shelves: a grey band baked at the front, the pane live (alpha)
+        p.append(box("fr_shelf_band", (0.008, 0.006, wz), (sx0 + 0.004, ys - 0.003, zc), gb, G, bev=0.001, seg=1))
+        gl.append(box("fr_glass", (sx1 - sx0 - 0.009, 0.005, wz - 0.002), ((sx0 + 0.008 + sx1) / 2 + 0.0005, ys - 0.0025, zc), glass, "export"))
+    # the crisper: a tray 0.20 deep (the compressor step behind it), its frosted front live with a dark grip groove
+    dx1 = sx0 + 0.20
+    # (the sides run from behind the front to the back; the back and the floor sit between them: no shared faces)
+    dl = dx1 - sx0 - 0.004
+    p += [box("fr_drawer", (dl - 0.004, 0.004, W_ - 0.020), ((sx0 + 0.004 + dx1 - 0.004) / 2, y0 + 0.006, zc), lin, G),
+          box("fr_drawer", (0.004, 0.12, W_ - 0.020), (dx1 - 0.002, y0 + 0.068, zc), lin, G),
+          box("fr_drawer", (dl, 0.12, 0.004), ((sx0 + 0.004 + dx1) / 2, y0 + 0.068, z0 + 0.008), lin, G),
+          box("fr_drawer", (dl, 0.12, 0.004), ((sx0 + 0.004 + dx1) / 2, y0 + 0.068, z1 - 0.008), lin, G)]
+    gl += [box("fr_drawer_front", (0.004, 0.13, W_ - 0.012), (sx0 + 0.002, y0 + 0.07, zc), glass_mat("fridge_frost", "#dfe7ea", 0.5), "export"),
+           box("fr_drawer_grip", (0.003, 0.012, 0.12), (sx0 - 0.0005, y0 + 0.125, zc), plastic("#3a3d42", 0.8, 0, 0, "fridge_grip"), "export")]
+    live(join("fridge_glass", gl), "bot")
+    # the baked things (5.3): top shelf five cans in the back row; middle yogurts, jam, a milk; lower a lunch box
+    # and a glass kimchi tub; the crisper four fruits. The front north lane (x < 4.53, z < -0.84) stays clear
+    things = []
+    for k, (col, band) in enumerate((("#b84a44", "#e3d7b5"), ("#5f8f6a", "#e3d7b5"), ("#b84a44", "#2a2c31"), ("#e3d7b5", "#2a2c31"), ("#5d7598", "#e3d7b5"))):
+        things += place(fr_can(f"fr_can_{k}", col, band, G), Mx((4.69, 0.62, -0.905 + k * 0.072), ry=0.4 * k))
+    yog = plastic("#f4f4f0", 0.5, 0, 0.05, "yogurt")
+    for i_ in range(2):
+        for j_ in range(2):
+            at = (4.64 + 0.051 * i_, 0.44, -0.60 + 0.051 * j_)
+            things += [lathe("fr_yogurt", [(0, 0), (0.021, 0), (0.025, 0.058), (0.0255, 0.06), (0, 0.06)], at, yog, G, seg=12),
+                       cyl("fr_yogurt_lid", 0.026, 0.002, (at[0], 0.44 + 0.061, at[2]), plastic("#f0c9a0", 0.35, 0.5, 0.05, "yogurt_lid"), G, 12)]
+    things += [lathe("fr_jam", [(0, 0), (0.028, 0), (0.03, 0.004), (0.03, 0.068), (0.026, 0.07), (0, 0.07)], (4.68, 0.44, -0.70), plastic("#8e2f3f", 0.25, 0, 0.05, "jam"), G, seg=14),
+               cyl("fr_jam_lid", 0.031, 0.012, (4.68, 0.44 + 0.076, -0.70), plastic("#d9c9a8", 0.85, 0, 0.3, "jam_lid"), G, 14),
+               cyl("fr_jam_cloth", 0.037, 0.003, (4.68, 0.44 + 0.0715, -0.70), plastic("#d9c9a8", 0.9, 0, 0.4, "jam_lid"), G, 14)]
+    things += place(fr_milk("fr_milk", G), Mx((4.62, 0.44, -0.79), ry=0.2))
+    box_m = plastic("#e8ecee", 0.6, 0, 0.05, "lunchbox")
+    things += [box("fr_lunch", (0.11, 0.05, 0.17), (4.64, 0.25 + 0.025, -0.64), box_m, G, bev=0.008, seg=2),
+               box("fr_lunch_lid", (0.112, 0.008, 0.172), (4.64, 0.25 + 0.054, -0.64), plastic("#8fae8a", 0.6, 0, 0.1, "lunch_lid_sage"), G, bev=0.004, seg=1),
+               box("fr_lunch", (0.10, 0.045, 0.15), (4.64, 0.25 + 0.058 + 0.0225, -0.64), box_m, G, bev=0.008, seg=2),
+               box("fr_lunch_lid", (0.102, 0.008, 0.152), (4.64, 0.25 + 0.058 + 0.049, -0.64), plastic("#c47a5c", 0.6, 0, 0.1, "lunch_lid_terra"), G, bev=0.004, seg=1)]
+    for dz in (-0.05, 0.05):  # the two latch clips
+        things.append(box("fr_lunch_latch", (0.004, 0.03, 0.02), (4.64 - 0.057, 0.25 + 0.06, -0.64 + dz), plastic("#6f7a6c", 0.5, 0, 0.05, "lunch_latch"), G))
+    kim = (4.665, 0.25, -0.845)
+    things += [box("fr_kimchi", (0.085, 0.05, 0.11), (kim[0], kim[1] + 0.027, kim[2]), plastic("#9b3b2e", 0.6, 0, 0.3, "kimchi"), G),
+               box("fr_kimchi_lid", (0.092, 0.012, 0.122), (kim[0], kim[1] + 0.06, kim[2]), plastic("#8b9096", 0.5, 0, 0.05, "kimchi_lid"), G, bev=0.003, seg=1)]
+    for sx_ in (-1, 1):  # the glass tub's edges (the glass itself would bake opaque)
+        for sz_ in (-1, 1):
+            things.append(box("fr_kimchi_edge", (0.004, 0.054, 0.004), (kim[0] + sx_ * 0.044, kim[1] + 0.027, kim[2] + sz_ * 0.059), plastic("#d7e0e4", 0.15, 0, 0, "kimchi_glass"), G))
+    fruit_y = y0 + 0.008
+    for (fx_, fz_, r_, col, sy) in ((4.50, -0.86, 0.035, "#c9473d", 0.9), (4.57, -0.77, 0.034, "#c9473d", 0.9),
+                                    (4.50, -0.64, 0.035, "#e08a3c", 1.0), (4.565, -0.58, 0.03, "#b6c46a", 1.0)):
+        things.append(sphere("fr_fruit", r_, (fx_, fruit_y + r_ * sy, fz_), plastic(col, 0.5, 0, 0.2, f"fruit_{col[1:]}"), G, scale=(1, sy, 1), seg=12, rings=7))
+        things.append(cyl("fr_stem", 0.002, 0.012, (fx_, fruit_y + 2 * r_ * sy + 0.004, fz_), plastic("#5a4632", 0.8, 0, 0.2, "stem"), G, 5))
+    pear = (4.565, fruit_y, -0.58)
+    things.append(sphere("fr_fruit", 0.02, (pear[0], pear[1] + 0.06 + 0.012, pear[2]), plastic("#b6c46a", 0.5, 0, 0.2, "fruit_b6c46a"), G, seg=10, rings=6))
+    FRIDGE_NODES.append(join("fridge_inside", p + things))
+    # the two to take (5.3): homes moved 3 cm in from the designer's x 4.43 (the shut door's bins reach x 4.404)
+    for name, kind, objs, at in (("prop_fridge_can", "fridge_can", fr_can("fr_can_live", "#b84a44", "#e3d7b5", "prop"), (4.46, 0.62, -0.87)),
+                                 ("prop_fridge_milk", "fridge_milk", fr_milk("fr_milk_live", "prop"), (4.46, 0.44, -0.84))):
+        o = live(prop(name, kind, objs, at, (0.0, 0.0, 0.0)), "prop")
+        h_ = 0.122 if kind == "fridge_can" else 0.10
+        r_ = 0.033 if kind == "fridge_can" else 0.0275
+        d_ = Vector((-1.0, 0.0, -0.35)).normalized()  # toward the agent: west-north-west
+        # the left hand on the side 40% up, its palm to the pack, the fingers wrapping round it (across the approach)
+        g = grip_at(o, "l", (d_.x * (r_ + 0.012), 0.4 * h_, d_.z * (r_ + 0.012)), (-d_.z, 0, d_.x), (-d_.x, 0, -d_.z))
+        g["pose"] = "wrap"
+        # palm on the near side, the fingers curling round to the far side (index), the thumb on the other
+        yc = 0.4 * h_
+        if kind == "fridge_can":
+            q_ = Vector((-d_.z, 0.0, d_.x))
+            contact(o, "palm", (d_.x * r_, yc, d_.z * r_), (d_.x, 0, d_.z), "l")
+            contact(o, "index", (q_.x * r_, yc, q_.z * r_), (q_.x, 0, q_.z), "l")
+            contact(o, "thumb", (-q_.x * r_, yc, -q_.z * r_), (-q_.x, 0, -q_.z), "l")
+        else:  # the carton's flat faces: west (palm), north (index), south (thumb)
+            contact(o, "palm", (-r_, yc, -0.008), (-1, 0, 0), "l")
+            contact(o, "index", (0.0, yc, -r_), (0, 0, -1), "l")
+            contact(o, "thumb", (0.0, yc, r_), (0, 0, 1), "l")
+    # the light (5.4): the app's point light fridge_light (2 cm under the strip), the strip (neon, lit with it),
+    # the floor spill (hidden at rest, the app fades it with the door); a bake-only light inside
+    sl = cyl("fridge_light_strip", 0.0075, 0.30, (x0 + 0.04, y1 - 0.0045, zc), emitter("#eaf2ff", 3.0, "fridge_light_strip"), "export", 10, axis="z")
+    sl.data.transform(Matrix.Diagonal((1.0, 0.3, 1.0, 1.0)))  # flat: 1.5 cm wide, 4.5 mm thick (local y = web y here)
+    live(sl, "neon")
+    child_empty(None, "fridge_light", Mx((x0 + 0.04, y1 - 0.003 - 0.02, zc)), {"light": "fridge", "color": "#eaf2ff", "distance": 1.0, "decay": 2})
+    # the spill: a trapezoid on the floor in front, 0.55 out, 0.36 wide at the fridge and 0.45 out in the room; UV v
+    # 0 at the fridge -> 1 out, u across (the app fades its edges)
+    bm = bmesh.new()
+    uvl = bm.loops.layers.uv.new("UVMap")
+    corners = [((x0 - 0.01, zc + 0.18), (0, 0)), ((x0 - 0.01, zc - 0.18), (1, 0)), ((x0 - 0.56, zc - 0.225), (1, 1)), ((x0 - 0.56, zc + 0.225), (0, 1))]
+    f_ = bm.faces.new([bm.verts.new(W(x_, 0.002, z_)) for (x_, z_), _ in corners])
+    f_.normal_update()
+    if f_.normal.z < 0:  # Blender z = web y: it faces up
+        f_.normal_flip()
+    for lp, (_, uv_) in zip(f_.loops, corners):
+        lp[uvl].uv = uv_
+    # exported see-through (alpha 0, emissive #eaf2ff): it shows nothing until the app raises its opacity with the door
+    sm = glass_mat("fridge_spill", "#eaf2ff", 0.0)
+    sb = sm.node_tree.nodes["Principled BSDF"]
+    sb.inputs["Emission Color"].default_value = rgba("#eaf2ff")
+    sb.inputs["Emission Strength"].default_value = 1.0
+    o = live(mesh_obj("fridge_spill", bm, sm, "export"), "bot")
+    o["hidden_at_rest"], o["spill"] = True, {"max_opacity": 0.16, "blend": "add"}
+    light("fridge_bake_light", "POINT", 3.0, "#eaf2ff", (x0 + 0.06, y1 - 0.05, zc), size=0.02)
+
+
+def fridge_door_inside():
+    """#457 (5.2-5.3): the door's inner side, in the door's frame (x 0 = its inner face, +x into the fridge; the
+    hinge at z 0, the door to -0.478): the cool lining, three bins (a liner floor, a clear blue-grey lip 3.5 cm), a
+    butter box (a clear lid), three sauce bottles, a 1 L milk carton, a water bottle (clear) and juice"""
+    G = "export"
+    lin = plastic("#eef1f2", 0.5, 0, 0.05, "fridge_liner")
+    lip = glass_mat("fridge_bin", "#b9c8d6", 0.45)
+    out = [box("frd_liner", (0.002, 0.70, 0.40), (0.001, 0.46, -0.24), lin, G)]
+    for yb in (0.70, 0.47, 0.15):  # 8 cm deep (the 1 L bottles fit inside the lip); the lip's foot beside the floor
+        out += [box("frd_bin", (0.0795, 0.004, 0.40), (0.04175, yb, -0.24), lin, G, bev=0.001, seg=1),
+                box("frd_bin_lip", (0.003, 0.037, 0.40), (0.083, yb + 0.0165, -0.24), lip, G)]
+    out += [box("frd_butter", (0.058, 0.045, 0.30), (0.032, 0.70 + 0.002 + 0.0225, -0.24), lin, G, bev=0.003, seg=1),
+            box("frd_butter_lid", (0.06, 0.012, 0.302), (0.032, 0.70 + 0.002 + 0.045 + 0.006, -0.24), glass_mat("fridge_butter", "#b9c8d6", 0.4), G, bev=0.002, seg=1)]
+    for k, col in enumerate(("#b5443a", "#c99a3a", "#3a2a22")):
+        out += [lathe("frd_sauce", [(0, 0), (0.02, 0), (0.022, 0.005), (0.022, 0.09), (0.012, 0.104), (0.0, 0.104)], (0.033, 0.472, -0.40 + k * 0.06), plastic(col, 0.35, 0, 0.05, f"sauce_{col[1:]}"), G, seg=12),
+                lathe("frd_sauce_cap", [(0, 0), (0.012, 0), (0.011, 0.008), (0.003, 0.016), (0, 0.017)], (0.033, 0.472 + 0.104, -0.40 + k * 0.06), plastic("#f2efe6", 0.5, 0, 0.05, "sauce_cap"), G, seg=10)]
+    out += place(fr_milk("frd_milk", G, w=0.07, h=0.20, gable=0.03), Mx((0.036, 0.152, -0.40)))
+    out += [lathe("frd_water", [(0, 0), (0.034, 0), (0.038, 0.01), (0.038, 0.2), (0.016, 0.24), (0.013, 0.25), (0, 0.25)], (0.041, 0.152, -0.29), glass_mat("fridge_water", "#9fb4c4", 0.55), G, seg=14),
+            cyl("frd_water_cap", 0.014, 0.012, (0.041, 0.152 + 0.256, -0.29), plastic("#5d7598", 0.5, 0, 0.05, "water_cap"), G, 12),
+            lathe("frd_juice", [(0, 0), (0.033, 0), (0.035, 0.008), (0.035, 0.15), (0.015, 0.185), (0.013, 0.19), (0, 0.19)], (0.038, 0.152, -0.20), plastic("#e39a3c", 0.3, 0, 0.05, "juice"), G, seg=14),
+            cyl("frd_juice_cap", 0.015, 0.014, (0.038, 0.152 + 0.197, -0.20), plastic("#f2efe6", 0.5, 0, 0.05, "juice_cap"), G, 12)]
+    return out
+
+
 def build_coffee_bar():
     """4: north of the counter on the east wall: a mini fridge 0.48 x 0.50 x 0.85 (door live, hinged on its south edge,
     a vertical bar handle, a 2 mm gap, a vent grille), a water dispenser 0.30 x 0.30 x 1.05 (a blue-grey bottle, two
@@ -4905,8 +5114,21 @@ def build_coffee_bar():
     dark = plastic("#1b1d21", 0.85, 0, 0.0, "fridge_grille")
     xw = HX - 0.005  # 5 mm off the wall (#263: their backs lay on its face)
     fz0, fz1 = FRIDGE_Z - 0.24, FRIDGE_Z + 0.24
-    p = [box("fridge_body", (0.46, 0.85, 0.48), (xw - 0.23, 0.425, FRIDGE_Z), iv, L2, bev=0.008, seg=2),
+    # #457 (lounge-props.md 5.2): a hollow body now: base (with the grille) and lid slabs, two side walls and a back
+    # wall 3 cm (the back 6), the front frame ivory with a 2 mm gasket groove 1 cm round the opening; the lining,
+    # shelves and things inside are fridge_inside (atlas fridge, baked with the door open and its light on)
+    fx0 = xw - 0.46  # the front face, x 4.335
+    p = [box("fridge_body", (0.46, 0.10, 0.48), (xw - 0.23, 0.05, FRIDGE_Z), iv, L2, bev=0.008, seg=2),
+         box("fridge_body", (0.46, 0.03, 0.48), (xw - 0.23, 0.835, FRIDGE_Z), iv, L2, bev=0.008, seg=2),
+         box("fridge_body", (0.46, 0.72, 0.03), (xw - 0.23, 0.46, fz0 + 0.015), iv, L2),
+         box("fridge_body", (0.46, 0.72, 0.03), (xw - 0.23, 0.46, fz1 - 0.015), iv, L2),
+         box("fridge_body", (0.06, 0.72, 0.42), (xw - 0.03, 0.46, FRIDGE_Z), iv, L2),
          box("fridge_grille", (0.004, 0.05, 0.40), (xw - 0.461, 0.035, FRIDGE_Z), dark, L2)]
+    g_ = plastic("#3a3d42", 0.9, 0, 0.0, "fridge_groove")
+    for y_, z_, sy_, sz_ in ((0.09, FRIDGE_Z, 0.002, 0.44), (0.83, FRIDGE_Z, 0.002, 0.44),
+                             (0.46, fz0 + 0.02, 0.74, 0.002), (0.46, fz1 - 0.02, 0.74, 0.002)):
+        p.append(box("fridge_groove", (0.001, sy_, sz_), (fx0 - 0.001, y_, z_), g_, L2))  # its back 0.5 mm off the shut door's
+    fridge_inside(fx0, xw)
     for k in range(4):
         p.append(box("fridge_slot", (0.002, 0.006, 0.38), (xw - 0.4635, 0.018 + k * 0.012, FRIDGE_Z), plastic("#5a5e66", 0.5, 0.3, 0.1, "fridge_slot"), L2))
     # the door: its own live node, pivot on the south hinge line at the front face
@@ -4931,6 +5153,7 @@ def build_coffee_bar():
         for k in range(2):
             memo.append(box("fridge_memo_ink", (0.0004, 0.0015, w_ * 0.62), (-0.0009, h_ / 2 - 0.032 - k * 0.014, -w_ * 0.08), ink, "export"))
         door += place(memo, Mx((-0.04075, my, mz), rx=math.radians(deg)))
+    door += fridge_door_inside()  # #457: the inner panel, three bins and their things (they swing with the door)
     dr = live(pivot(join("fridge_door", place(door, D)), D), "bot")
     dr["open"] = {"axis": "y", "sign": 1, "deg": 100, "open_s": 0.6, "close_s": 0.4}
     child_empty(None, "fridge_door_grip", D @ Mx((-0.06, 0.55, -0.43)), {"grip_for": "r", "pose": "wrap"})
@@ -5047,7 +5270,8 @@ def build_wall_shelf():
           torus("trophy_handle", 0.022, 0.003, (xw - 0.1, top + 0.095, z + 0.28 - 0.04), gold, L2, axis="x", half=True, seg=12, rseg=4),
           torus("trophy_handle", 0.022, 0.003, (xw - 0.1, top + 0.095, z + 0.28 + 0.04), gold, L2, axis="x", half=True, seg=12, rseg=4)]
     fp("shelf_wall", p, "wall", "e")
-    band = [cyl("trophy_band", 0.0365, 0.008, (xw - 0.1, top + 0.006, z + 0.28), plastic("#ffffff", 0.5, 0, 0.1, "trophy_band"), "export", 24)]
+    # built at the origin: place() below puts it at B (#457: it was built at B too and sat at twice B, off the map)
+    band = [cyl("trophy_band", 0.0365, 0.008, (0, 0, 0), plastic("#ffffff", 0.5, 0, 0.1, "trophy_band"), "export", 24)]
     B = Mx((xw - 0.1, top + 0.006, z + 0.28))
     tb = live(pivot(join("shelf_wall_trophy_band", place(band, B)), B), "bot")
     tb["paint"] = "winner"
@@ -5155,6 +5379,8 @@ print(f"library: {sum(len(p.vertices) - 2 for o, _ in lib for p in o.data.polygo
 lounge, shade, lamp_pos = build_lounge()
 baked(lounge, "lounge")
 build_lounge2()  # #280 PR 2
+for o in FRIDGE_NODES:  # #457: the fridge's inside, baked with its door open and its light on
+    baked(o, "fridge")
 for o, dens in L2_NODES:
     baked(o, "lounge2", density=dens)
 for o in VEIN_NODES:
@@ -5721,7 +5947,7 @@ for n in NODES:
 
 images = {}
 # #280 (designer: the floor >= 200 px/m): the floor atlas alone is 2560 square (84 m2 of floor at 2048 gave ~180 px/m)
-ATLAS_SIZE = {"floor": 2560, "desk_props": 2560, "lounge2": 2560}  # #280 3 (room-280.md 9.4): the near-field two up too
+ATLAS_SIZE = {"floor": 2560, "desk_props": 2560, "lounge2": 2560, "fridge": 1024}  # #280 3 (room-280.md 9.4): the near-field two up too
 for name, entries in atlases.items():
     objs = [e["obj"] for e in entries]
     unwrap(objs, {e["obj"].name: e["density"] for e in entries})
@@ -5743,6 +5969,11 @@ import time  # noqa: E402
 
 NO_BAKE = "--no-bake" in ARGS  # #109: export the glb only (layout and slot checks), no atlases
 for name, entries in ({} if NO_BAKE else atlases).items():
+    # #457 (lounge-props.md 5.4): the fridge's inside bakes with its door open and its light on; every other atlas
+    # sees it shut and dark (no fridge glow on the floor or the counter, the door's shadow kept)
+    for nm_, inside in (("fridge_bake_light", True), ("fridge_light_strip", True), ("fridge_door", False), ("fridge_glass", False)):
+        if nm_ in bpy.data.objects:
+            bpy.data.objects[nm_].hide_render = (name != "fridge") if inside else (name == "fridge")
     bpy.ops.object.select_all(action="DESELECT")
     for e in entries:
         e["obj"].select_set(True)

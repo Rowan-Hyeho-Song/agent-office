@@ -4,11 +4,11 @@
 import { Mesh, type Material, type Object3D, type Texture } from 'three'
 import { assetUrl } from '../room/base'
 
-export const ATLASES = ['room', 'floor', 'walls_nw', 'walls_se', 'work', 'wall_items', 'lounge', 'lounge2', 'desk_props'] as const
+export const ATLASES = ['room', 'floor', 'walls_nw', 'walls_se', 'work', 'wall_items', 'lounge', 'lounge2', 'desk_props', 'fridge'] as const
 export type AtlasName = (typeof ATLASES)[number]
 
 /** fetched after the first screen is shown (a 512 px stand-in is used until then) */
-export const DEFERRED_ATLASES: readonly AtlasName[] = ['wall_items', 'lounge', 'lounge2', 'desk_props']
+export const DEFERRED_ATLASES: readonly AtlasName[] = ['wall_items', 'lounge', 'lounge2', 'desk_props', 'fridge']
 export const isDeferred = (a: AtlasName) => DEFERRED_ATLASES.includes(a)
 
 export const atlasUrl = (a: AtlasName) => assetUrl(`models/${a}.webp`)
