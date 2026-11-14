@@ -110,6 +110,15 @@ Node contract (the app reads glTF extras):
                                    up from the near edge (grip_for l|r, pose side_read); _contact_thumb (writing face) |
                                    _contact_index (back), also children of prop_paper_a
   hit_whiteboard                   (#234) empty: the whiteboard's click box on its face (extras hit, size [1.6, 1.1, 0.1], wall n)
+  (#370 desk step 2)               prop_shape_1 (prop, MESH: _grip_r, _contact_thumb|index|middle); desk_1_ringlight_knob
+                                   (bot, pivot = its axis, turn_axis, turn_deg, _contact_thumb|index); prop_tray_sheet (prop,
+                                   hidden_at_rest, _grip_r, _contact_thumb|index) + tray_out_drop (empty); desk_0_calendar_page
+                                   (bot, hidden_at_rest, pivot = the ridge, flip_axis|sign|deg, _contact_index);
+                                   desk_2_lamp_head (bot, pivot = the neck, _contact_thumb|index) + desk_2_lamp_switch
+                                   (bot, _contact_index); desk_2_swatch_leaf_0..3 (bot, pivot = the pin, leaf, rest_deg,
+                                   _tip); succulent_leaf_touch_0|1 (anchor, touch start|end, +z = the leaf's normal)
+  prop_omok_bowl_w                 (#137) prop: the white bowl (body, heap, floor; the lid baked), origin = its bottom
+                                   centre; children omok_bowl_w, omok_bowl_w_contact_index, _grip_r|l, _contact_palm|_palm_l
   pp_net                           live "bot" (#280 3): the net's navy 1 cm lattice (static; the posts, clamps and white
                                    band are in the lounge atlas)
   nav_<id>                         empties: where agents go and which way they face (navigation); nav_meet_center_*
@@ -780,6 +789,16 @@ def seat_memo(G):
     for k, (dz, w, ht) in enumerate(((-0.0012, 0.112, 0.097), (-0.0024, 0.11, 0.094))):
         pg = box("cal_page", (w, ht, 0.0005), (0, -0.002 * k, dz), plastic("#f4f1ea", 0.9, 0, 0.1, "cal_page"), G)
         s += place([pg], Fb @ Mx(rx=math.radians(2 + 3 * k)))
+    # #370 (coder): the front page to flip, hidden at rest (the app shows it with the old date over the screen and
+    # turns it over the rings onto the back face): a sheet the size of the front face, 2.5 mm proud, both faces a full
+    # UV. Pivot = the ridge (just under the rings), turned about its local x by flip_sign x flip_deg (360 - the tent's
+    # 38.6 deg: out, up, over and down the back)
+    Pp = Fc @ Mx((0, 0.0528, 0.0025))
+    pw_, ph_ = 0.112, 0.102
+    page = place([quad("cal_flip", pw_, ph_, paper, "export")], Mx((0, -ph_ / 2, 0.0002))) + \
+        place([quad("cal_flip_back", pw_, ph_, plastic("#f4f1ea", 0.9, 0, 0.1, "cal_page"), "export")], Mx((0, -ph_ / 2, -0.0002), ry=math.pi))
+    L.append(LIVE("desk_0_calendar_page", "bot", place(page, Pp), Pp, hidden_at_rest=True, flip_axis="x", flip_sign=-1,
+                  flip_deg=round(360 - 2 * math.degrees(math.atan2(0.035, 0.10)), 1)))
     # 4 the hourglass (live: turned over while MEMO waits): turned posts with beads, bevelled plates, a waisted glass
     wood_m = plastic("#a0703f", 0.6, 0, 0.3, "hourglass_wood")
     sand = plastic("#ffd27a", 0.9, 0, 0.3, "sand")
@@ -873,10 +892,11 @@ def seat_mesh(G):
           cyl("rl_pole", 0.008, 0.15, (rx_, h + 0.016 + 0.075, rz_), black, G, 10),
           cyl("rl_collar", 0.0105, 0.012, (rx_, h + 0.166, rz_), black, G, 12, bev=0.001),
           cyl("rl_pole2", 0.0058, 0.102, (rx_, h + 0.166 + 0.051, rz_), plastic("#9aa0a8", 0.35, 0.8, 0.08, "rl_alu"), G, 10),
-          cyl("rl_collar", 0.008, 0.008, (rx_, h + 0.268, rz_), black, G, 12, bev=0.001),
-          cyl("rl_knob", 0.011, 0.012, (rx_ + 0.012, h + 0.282, rz_), black, G, 14, axis="x", bev=0.001)]
-    for k in range(1):  # the knob's grip ridge
-        s.append(cyl("rl_knob_rib", 0.0118, 0.0012, (rx_ + 0.0085 + k * 0.003, h + 0.282, rz_), black, G, 14, axis="x"))
+          cyl("rl_collar", 0.008, 0.008, (rx_, h + 0.268, rz_), black, G, 12, bev=0.001)]
+    # #370 (coder): the angle knob is live (MESH turns it): pivot = its axis (desk x), extras turn_axis, turn_deg
+    knob = [cyl("rl_knob", 0.011, 0.012, (rx_ + 0.012, h + 0.282, rz_), black, "export", 14, axis="x", bev=0.001),
+            cyl("rl_knob_rib", 0.0118, 0.0012, (rx_ + 0.0085, h + 0.282, rz_), black, "export", 14, axis="x")]  # its grip ridge
+    L.append(LIVE("desk_1_ringlight_knob", "bot", knob, Mx((rx_ + 0.012, h + 0.282, rz_)), turn_axis="x", turn_deg=90))
     R = 0.125 - 0.012
     Rc = Mx((rx_, h + 0.282 + R + 0.012, rz_))  # ring centre, its top level with the monitor's (designer); faces the agent (+z)
     s += place([torus("rl_housing", R, 0.012, (0, 0, 0), black, G, axis="z", seg=40, rseg=4),
@@ -951,10 +971,14 @@ def seat_hue(G):
     fx, fz = -0.40, -0.16
     s.append(box("fan_base", (0.04, 0.014, 0.03), (fx, h + 0.007, fz), plastic("#2c3038", 0.5, 0.2, 0.05, "kb"), G, bev=0.003, seg=1))
     for k, (a, deg) in enumerate(zip(AGENTS, (27, 9, -9, -27))):
-        chip = [box("swatch", (0.035, 0.16, 0.003), (0, 0.08, 0), plastic(a["color"], 0.5, 0, 0.05, f"swatch_{k}"), G, bev=0.001, seg=1),
-                box("swatch_band", (0.035, 0.024, 0.0006), (0, 0.012, 0.0018), grey_band, G),  # 15% of the chip, at its foot
-                box("swatch_num", (0.014, 0.003, 0.0004), (-0.005, 0.014, 0.0022), plastic("#c9ccd2", 0.7, 0, 0, "swatch_num"), G)]
-        s += place(chip, Mx((fx, h + 0.01, fz - 0.006 + k * 0.004), rz=math.radians(deg)))
+        chip = [box("swatch", (0.035, 0.16, 0.003), (0, 0.08, 0), plastic(a["color"], 0.5, 0, 0.05, f"swatch_{k}"), "export", bev=0.001, seg=1),
+                box("swatch_band", (0.035, 0.024, 0.0006), (0, 0.012, 0.0018), grey_band, "export"),  # 15% of the chip, at its foot
+                box("swatch_num", (0.014, 0.003, 0.0004), (-0.005, 0.014, 0.0022), plastic("#c9ccd2", 0.7, 0, 0, "swatch_num"), "export")]
+        # #370 (designer: 4 chips, open at rest, only the leaves live): each chip its own node, pivot = the pin (its
+        # local z = the pin's axis, desk z); the app fans them further or closes them. _tip children in build_hands
+        zk = fz - 0.006 + k * 0.004
+        L.append(LIVE(f"desk_2_swatch_leaf_{k}", "bot", place(chip, Mx((fx, h + 0.01, zk), rz=math.radians(deg))),
+                      Mx((fx, h + 0.018, zk), rz=math.radians(deg)), leaf=k, rest_deg=deg))
     s += [cyl("fan_pin", 0.0035, 0.024, (fx, h + 0.018, fz + 0.002), chrome, G, 10, axis="z"),
           place([sphere("fan_pin_head", 0.006, (0, 0, 0), chrome, G, scale=(1, 1, 0.5), seg=12, rings=6)], Mx((fx, h + 0.018, fz + 0.015)))[0]]
     # 2 pen tablet in the mouse spot: board, the live active-area outline, four shortcut keys on the left, a cable off
@@ -979,7 +1003,20 @@ def seat_hue(G):
     a15 = math.radians(15)
     P.append(("prop_tablet_pen", None, Mx((0.53, h + 0.004 + 0.07 * math.cos(a15), PEN_CUP_Z - 0.07 * math.sin(a15)), rx=-math.radians(90) - a15)))
     # 3 succulent (as before, #126)
-    s += plant_tris("succulent", echeveria("succulent", 0.24, h, -0.18, G))
+    succ = echeveria("succulent", 0.24, h, -0.18, G)
+    # #370 (coder): where HUE strokes a leaf: two empties on the front leaves' upper skin (the outer then the inner
+    # end of the stroke, toward the agent), local +z = the leaf's outward normal
+    lv = next(o for o in succ if o.name.startswith("succulent_leaves"))
+    lv.data.update()
+    front = [v for v in lv.data.vertices if v.co.y < -(-0.18) - 0.004 and abs(v.co.x - 0.24) < 0.012 and v.normal.z > 0.3]  # Blender -y = web +z
+    for k, r_ in enumerate((0.03, 0.014)):
+        v = min(front, key=lambda v: abs(math.hypot(v.co.x - 0.24, -v.co.y + 0.18) - r_) - 0.2 * v.co.z)
+        n_ = v.normal
+        e = bpy.data.objects.new(f"succulent_leaf_touch_{k}", None)
+        coll("export").objects.link(e)
+        L.append(LIVE(f"succulent_leaf_touch_{k}", "anchor", [e], Matrix.Translation(v.co + n_ * 0.0005) @ web_z_along((n_.x, n_.z, -n_.y)),
+                      touch=("start", "end")[k]))
+    s += plant_tris("succulent", succ)
     # #280 (coder): where watering lands: the soil's centre (pot 5 cm, soil 1.5 cm under its rim), placed with the desk
     soil = bpy.data.objects.new("soil_succulent", None)
     coll("export").objects.link(soil)
@@ -989,7 +1026,6 @@ def seat_hue(G):
     base, elbow, head = (-0.52, h + 0.016, -0.26), (-0.53, h + 0.33, -0.24), (-0.40, h + 0.27, -0.13)
     metal = plastic("#3a3f48", 0.4, 0.5, 0.05, "lamp")
     s += [lathe("lamp_base", [(0, 0), (0.05, 0), (0.052, 0.004), (0.05, 0.012), (0.03, 0.016), (0, 0.016)], (base[0], h, base[2]), metal, G, seg=28),
-          box("lamp_switch", (0.012, 0.005, 0.008), (base[0] + 0.022, h + 0.016, base[2] + 0.02), plastic("#16171b", 0.5, 0, 0, "lamp_switch"), G, bev=0.001, seg=1),
           segment("lamp_arm", base, elbow, 0.0055, metal, G, verts=8),
           segment("lamp_arm", elbow, head, 0.0055, metal, G, verts=8),
           sphere("lamp_joint", 0.01, elbow, metal, G, seg=10, rings=6)]
@@ -1005,9 +1041,14 @@ def seat_hue(G):
     Sh = Mx((-0.40, h + 0.24, -0.12), rx=math.radians(20))
     magenta = plastic(AGENTS[2]["color"], 0.85, 0, 0.1, "lamp_shade")
     shade_prof = [(0.041, -0.03), (0.04, -0.028), (0.03, 0.0), (0.019, 0.022), (0.016, 0.03), (0, 0.03)]
-    inner = flipped(lathe("lamp_shade_in", [(0.0385, -0.029), (0.029, 0.0), (0.018, 0.021), (0, 0.028)], (0, 0, 0), plastic("#f3ead8", 0.8, 0, 0.05, "lamp_shade_in"), G, seg=24))  # designer: bright inside when lit
-    s += place([lathe("lamp_shade", shade_prof, (0, 0, 0), magenta, G, seg=24), inner,
-                cyl("lamp_cap", 0.016, 0.012, (0, 0.034, 0), metal, G, 12, bev=0.001)], Sh)
+    # #370 (coder): the head is live (HUE turns it): shade, its white skin and the cap, pivot = the neck joint at the
+    # arm's end; the bulb (desk_2_lamp, neon) rides with it in the app. The base switch is live too (pressed)
+    inner = flipped(lathe("lamp_shade_in", [(0.0385, -0.029), (0.029, 0.0), (0.018, 0.021), (0, 0.028)], (0, 0, 0), plastic("#f3ead8", 0.8, 0, 0.05, "lamp_shade_in"), "export", seg=24))
+    L.append(LIVE("desk_2_lamp_head", "bot", place([lathe("lamp_shade", shade_prof, (0, 0, 0), magenta, "export", seg=24), inner,
+                                                    cyl("lamp_cap", 0.016, 0.012, (0, 0.034, 0), metal, "export", 12, bev=0.001)], Sh), Mx(head)))
+    L.append(LIVE("desk_2_lamp_switch", "bot", [box("lamp_switch", (0.012, 0.005, 0.008), (base[0] + 0.022, h + 0.016, base[2] + 0.02),
+                                                    plastic("#16171b", 0.5, 0, 0, "lamp_switch"), "export", bev=0.001, seg=1)],
+                  Mx((base[0] + 0.022, h + 0.016, base[2] + 0.02))))
     bulb = [cyl("bulb", 0.034, 0.002, (0, -0.02, 0), emitter("#ffe2b0", 4.0, "desk_lamp"), "export", 20),
             sphere("bulb", 0.014, (0, -0.012, 0), emitter("#ffe2b0", 4.0, "desk_lamp"), "export", seg=10, rings=6)]
     L.append(LIVE("desk_2_lamp", "neon", place(bulb, Sh), Sh))
@@ -2511,6 +2552,7 @@ OMOK_NODES = []  # the omok board with its bowls: its own baked node in the loun
 OMOK_DENSITY = 3.0
 OMOK = dict(n=15, cell=0.0257, board=0.42, top=0.77, stone_d=0.022, stone_h=0.008)
 OMOK_BOWLS = {}  # "b" | "w" -> the grab point in the bowl (web): build_props puts prop_piece_a|b there
+OMOK_BOWL_W = []  # #137: the white bowl's body, heap and floor (prop_omok_bowl_w, built in build_props); its lid stays baked
 SRNG = random.Random(135)  # #135's own draws (the stone heaps)
 
 
@@ -2669,16 +2711,19 @@ def build_omok(gx, gz, G):
     bh = 0.052
     for side, dx in (("b", -0.29), ("w", 0.29)):
         bx, bz = gx + dx, gz + 0.06
-        parts += [lathe("bowl", BOWL, (bx, table, bz), bowl_m, G, 32),
-                  lathe("bowl_lid", LID, (bx, table, gz - 0.07), bowl_m, G, 32),
+        # #137 (designer A'): the white bowl (body, heap, floor) is a prop the agent carries over when playing alone;
+        # its lid stays baked. Built the same way (the RNG draws are unchanged), collected into OMOK_BOWL_W
+        body = OMOK_BOWL_W if side == "w" else parts
+        body.append(lathe("bowl", BOWL, (bx, table, bz), bowl_m, G, 32))
+        parts += [lathe("bowl_lid", LID, (bx, table, gz - 0.07), bowl_m, G, 32),
                   lathe("bowl_lid_rim", LIP, (bx, table + 0.0135, gz - 0.07), rim_m, G, 32)]
         for k in range(9):  # the heap: a ring of stones around the middle, mounded over the rim (grab point clear)
             a, r = 2 * math.pi * (k + SRNG.random() * 0.6) / 9, 0.012 + SRNG.random() * 0.014
             s = lens("heap", OMOK["stone_d"], OMOK["stone_h"], (bx + r * math.cos(a), table + 0.049 + (0.026 - r) * 0.15, bz + r * math.sin(a)),
                      mats[side], G, 10, 5)
             s.rotation_euler = (SRNG.uniform(-0.3, 0.3), SRNG.uniform(-0.3, 0.3), 0)
-            parts.append(s)
-        parts.append(cyl("bowl_in", 0.03, 0.001, (bx, table + 0.0465, bz), inner, G, 24))
+            body.append(s)
+        body.append(cyl("bowl_in", 0.03, 0.001, (bx, table + 0.0465, bz), inner, G, 24))
         at = (bx, table + bh + 0.002, bz)
         OMOK_BOWLS[side] = at
         e = bpy.data.objects.new(f"omok_bowl_{side}", None)  # where a hand dips in for a stone
@@ -3483,6 +3528,22 @@ def build_props():
     # its bowl, next to the sample stone. Center pivot, held in the pinch ("OK hand", agents.md 2.7): the point where
     # the index and thumb tips meet differs per hand in the _grip frame (measured in the preview, hold_piece), so
     # extras grip_lr = {l, r} gives each hand's offset; grip = the right hand's
+    # #137 (designer A'): prop_omok_bowl_w, the white bowl body + heap + floor (the lid stays baked), origin = the
+    # bowl's bottom centre; its dip point omok_bowl_w (and _contact_index, build_hands) ride as children
+    x, y, z = OMOK_BOWLS["w"]
+    Hb = Mx((x, y - 0.052 - 0.002, z))
+    bw_ = pivot(join("prop_omok_bowl_w", OMOK_BOWL_W), Hb)
+    for c in list(bw_.users_collection):
+        c.objects.unlink(bw_)
+    coll(G).objects.link(bw_)
+    hp = Hb.to_translation()
+    bw_["prop"], bw_["home"] = "bowl", {"pos": [round(hp.x, 4), round(hp.z, 4), round(-hp.y, 4)], "rot": [0, 0, 0]}
+    bw_["grip"] = {"pos": [0, 0, 0], "rot": [0, 0, 0]}
+    e_ = bpy.data.objects["omok_bowl_w"]
+    mw = e_.matrix_world.copy()
+    e_.parent = bw_
+    e_.matrix_world = mw
+    out.append(bw_)
     for end, side, m in zip("ab", "bw", stone_mats()):
         x, y, z = OMOK_BOWLS[side]
         o = prop(f"prop_piece_{end}", "piece", [lens("piece", OMOK["stone_d"], OMOK["stone_h"], (0, 0, 0), m, G)],
@@ -3534,6 +3595,26 @@ def build_props():
     # #262 (paper-pass.md 5): a loose A4 sheet, prop_paper, handed over between agents; home on MEMO's IN tray, over
     # the five live sheets (the app keeps it hidden until a hand-off). Its halves fold about the middle line
     out.append(paper_sheet(desk0(TRAY[0], DESK_H + 0.075 + 0.003 + 5 * 0.003 + 0.002, TRAY[1] + 0.012), (0.0, ry0, 0.0), G))
+    # #370 (coder): MEMO takes the IN stack's top sheet to the OUT tier: prop_tray_sheet (an A4 like the live sheets,
+    # hidden at rest: the app shows it on top of however many are left and hides that live sheet), its home a sixth
+    # sheet over the five; tray_out_drop = where it is set down on OUT (over its five)
+    ts = prop("prop_tray_sheet", "tray_sheet", [box("tray_sheet", (0.2, 0.0028, 0.25), (0, 0, 0), plastic("#efece4", 0.9, 0, 0.1, "paper"), G)],
+              desk0(TRAY[0], DESK_H + 0.075 + 0.003 + 0.0015 + 5 * 0.003, TRAY[1] + 0.012), (0.0, ry0, 0.0))
+    ts["hidden_at_rest"] = True
+    out.append(ts)
+    child_empty(None, "tray_out_drop", F0 @ Mx((TRAY[0], DESK_H + 0.003 + 0.0015 + 5 * 0.003, TRAY[1] + 0.012)), {"drop_for": "prop_tray_sheet"})
+    # #370 (coder): MESH picks up a study shape and turns it over: prop_shape_1, a 4 cm plaster icosahedron lying on a
+    # face, front left of the study shapes (the others stay baked)
+    F1 = frame(AGENTS[1]["at"])
+    bm = bmesh.new()
+    bmesh.ops.create_icosphere(bm, subdivisions=1, radius=0.02)
+    bm.normal_update()
+    down = min(bm.faces, key=lambda f: f.normal.z).normal.copy()
+    bmesh.ops.rotate(bm, verts=bm.verts, matrix=down.rotation_difference(Vector((0, 0, -1))).to_matrix())
+    lo = min(v.co.z for v in bm.verts)
+    ico = mesh_obj("shape_ico", bm, plaster("plaster"), G)  # flat faces (no smoothing): the facets read
+    t1 = (F1 @ Mx((-0.34, DESK_H - lo, 0.21))).to_translation()
+    out.append(prop("prop_shape_1", "shape", [ico], (t1.x, t1.z, -t1.y), (0.0, AGENTS[1]["at"][2] + 0.3, 0.0)))
     # sign-off stamp (#43; #187: rubber face, amber body, brass band, waisted neck, turned knob - seat_memo): origin
     # at the body's center, face = local -y. Home: by the ink pad (moved with the kit's mouse pad). Grip: in the fist
     objs, H = SEAT_PROPS["prop_stamp"]
@@ -3611,6 +3692,16 @@ def build_hands():
     for side in "bw":
         x, y, z = OMOK_BOWLS[side]
         contact(f"omok_bowl_{side}", "index", (0, 0, 0), (0, 1, 0), M=Mx((x, y - 0.002 - 0.03, z)))
+    # #137: the white bowl's dip contact rides with prop_omok_bowl_w; two hands carry it, palms on the bulge's sides
+    # (45% up, r 4.45 cm there), fingers up: _grip_r | _l, _contact_palm (right) | _contact_palm_l, +z = outward
+    o = O["prop_omok_bowl_w"]
+    c_ = O["omok_bowl_w_contact_index"]
+    mw = c_.matrix_world.copy()
+    c_.parent = o
+    c_.matrix_world = mw
+    for side, sx in ((R, 1), (L, -1)):
+        grip_at(o, side, (sx * 0.056, 0.0234, 0), (0, 1, 0), (-sx, 0, 0))
+        contact(o, "palm", (sx * 0.0452, 0.0234, 0), (sx, 0, 0), "" if side == R else "l")
     for e in "ab":
         o = O[f"prop_piece_{e}"]
         contact(o, "middle", (0, OMOK["stone_h"] / 2, 0), (0, 1, 0))  # go style (Nihon Ki-in): the middle finger on top
@@ -3730,6 +3821,30 @@ def build_hands():
     for k in range(4):
         contact(f"desk_4_fader_{k}", "index", (-0.08 + 0.018 + k * 0.03, 0.03 + 0.001 + 0.0084, 0.0425), (0, 1, 0), M=Mm)
     contact("coffee_button", "index", COFFEE_BUTTON, (1, 0, 0), M=counter_frame())
+    # #370 (coder, desk-props.md 4 rows 89-99): the second step's hand points, children of their live nodes
+    o = O["prop_shape_1"]  # a three-finger pinch round its waist, from above (r 2 cm: pads 1.6 cm out, the inradius)
+    grip_at(o, R, (0, 0.035, 0), (0, -1, 0), (-1, 0, 0))
+    for part, deg in (("thumb", 180), ("index", 60), ("middle", -60)):
+        a = math.radians(deg)
+        contact(o, part, (0.016 * math.cos(a), 0.0, 0.016 * math.sin(a)), (math.cos(a), 0, math.sin(a)))
+    o = O["desk_1_ringlight_knob"]  # pinched from above and below
+    contact(o, "thumb", (0, 0.011, 0), (0, 1, 0))
+    contact(o, "index", (0, -0.011, 0), (0, -1, 0))
+    o = O["prop_tray_sheet"]  # the near edge (toward the agent, local +z), thumb on top, index under
+    grip_at(o, R, (0, 0, 0.125 - 0.015), (0, 0, -1), (0, -1, 0))
+    contact(o, "thumb", (0, 0.0014, 0.11), (0, 1, 0))
+    contact(o, "index", (0, -0.0014, 0.11), (0, -1, 0))
+    contact(O["desk_0_calendar_page"], "index", (0, -0.1015, 0.0003), (0, 0, 1))  # the bottom edge's middle, front face
+    # the lamp head: thumb and index on the shade's rim, either side (head frame = the desk's axes, origin the neck)
+    Sh_ = Mx((-0.40, h + 0.24, -0.12), rx=math.radians(20))
+    for part, sx in (("thumb", 1), ("index", -1)):
+        p_ = (Sh_ @ W(sx * 0.041, -0.03, 0)) - W(-0.40, h + 0.27, -0.13)
+        contact(O["desk_2_lamp_head"], part, (p_.x, p_.z, -p_.y), (sx, 0, 0))
+    contact(O["desk_2_lamp_switch"], "index", (0, 0.0025, 0), (0, 1, 0))
+    for k, deg in enumerate((27, 9, -9, -27)):  # each swatch chip's tip: the index points there (its face, 1 cm under the top)
+        o = O[f"desk_2_swatch_leaf_{k}"]
+        M_ = Fd[2] @ Mx((-0.40, h + 0.01, -0.16 - 0.006 + k * 0.004), rz=math.radians(deg)) @ Mx((0, 0.15, 0.0015))
+        child_empty(o, f"desk_2_swatch_leaf_{k}_tip", M_ @ web_z_along((0, 0, 1)), {"tip_of": f"desk_2_swatch_leaf_{k}"})
 
 
 # ================================================================ EXIT DOOR (part of room atlas + live screen)
@@ -5593,7 +5708,8 @@ for n in NODES:
     nm_ = n["obj"].name  # #280: shelf_r<digit> = the library binders (not shelf_records, baked in lounge2)
     if nm_.startswith(("agent_", "clock_", "window_", "prop_book_", "prop_shelfbook_", "prop_paper_", "omok_stone_", "pp_ball")) or n.get("live") == "prop" \
             or (nm_.startswith("shelf_r") and nm_[7:8].isdigit()) \
-            or (nm_.startswith("desk_") and "_mouse" in nm_):  # #305: the mouse moves on its pad
+            or (nm_.startswith("desk_") and "_mouse" in nm_) \
+            or n["obj"].get("hidden_at_rest"):  # #305: the mouse moves on its pad; #370: hidden at rest (the calendar page)
         n["obj"].hide_render = True
 
 atlases = {}
