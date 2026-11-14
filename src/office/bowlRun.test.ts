@@ -83,3 +83,25 @@ describe('the Director carries the bowl over for a record placed alone, and back
     expect(d.bowlRest()).toBe('home')
   })
 })
+
+describe('reduced motion: nobody walks with the bowl (#456)', () => {
+  it('no errand; at the corner the moment the agent sits at game_a, home again as soon as the record is over, no one sent for it', () => {
+    let m = 1_000_000
+    while (!(Object.values(playAt(m, AGENTS)).some((x) => x.kind === 'boardgame_solo') && !Object.values(playAt(m + BLOCK_MINUTES, AGENTS)).some((x) => x.kind === 'boardgame_solo'))) m += BLOCK_MINUTES
+    const solo = Object.entries(playAt(m, AGENTS)).find(([, x]) => x.kind === 'boardgame_solo')![0]
+    const d = new Director(AGENTS)
+    const idle = Object.fromEntries(AGENTS.map((a) => [a, { state: 'idle' as const, since: 0 }]))
+    let seated = false
+    const arrived = (a: string) => (a === solo && seated ? 'game_a' : null)
+    let g = d.goals(m * 60000, m, idle, arrived, { reduced: true })
+    expect(g[solo]).toMatchObject({ spot: 'game_a', pose: 'boardgame' })
+    expect(Object.values(g).some((x) => x.bowl)).toBe(false)
+    expect(d.bowlRest()).toBe('home')
+    seated = true
+    g = d.goals(m * 60000 + 5000, m, idle, arrived, { reduced: true })
+    expect(d.bowlRest()).toBe('corner')
+    g = d.goals((m + BLOCK_MINUTES) * 60000, m + BLOCK_MINUTES, idle, arrived, { reduced: true })
+    expect(d.bowlRest()).toBe('home')
+    expect(Object.values(g).some((x) => x.bowl)).toBe(false)
+  })
+})

@@ -420,7 +420,15 @@ export class Director {
         } else this.bowl = r.run
       }
     }
-    if (!this.bowl) {
+    if (!this.bowl && opts.reduced) {
+      // reduced motion (the designer, #456; watering.md 5 · paper-pass): nobody walks with the bowl. It is at the corner from the moment the
+      // agent sits down at game_a (PlayStage fades it out at home and in at the corner, 0.12 s each), and home again as soon as the record is over
+      const solo = this.agents.find((x) => play[x]?.kind === 'boardgame_solo')
+      if (solo && !this.bowlAtCorner && arrivedAt(solo) === 'game_a') {
+        this.bowlAtCorner = true
+        this.bowlLast = solo
+      } else if (!solo && this.bowlAtCorner) this.bowlAtCorner = false
+    } else if (!this.bowl) {
       const errand = (x: string) => !!(this.waters[x] || this.reads[x] || this.acts[x])
       const solo = this.agents.find((x) => play[x]?.kind === 'boardgame_solo')
       if (solo && !this.bowlAtCorner) {

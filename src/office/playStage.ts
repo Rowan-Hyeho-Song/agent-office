@@ -178,6 +178,12 @@ export class PlayStage {
   /** #137 ① the white bowl's home (its bottom centre) and the stone sample's offset from it, for resting both at the corner */
   private bowlHome: Vector3 | null = null
   private pieceOnBowl: Vector3 | null = null
+  /** where the white bowl is drawn now, and (reduced motion) its swap from one rest to the other: out at the old, in at the new, 0.12 s each */
+  private bowlShown: 'home' | 'corner' = 'home'
+  private bowlSwap: { from: 'home' | 'corner'; to: 'home' | 'corner'; t0: number } | null = null
+  private bowlMats: Material[] | null = null
+  /** tests: the white bowl's opacity now */
+  bowlOpacity = 1
   private stones: { b: InstancedMesh; w: InstancedMesh } | null = null
   private shadows: InstancedMesh | null = null
   private rings: Mesh[] = []
@@ -465,7 +471,7 @@ export class PlayStage {
   // ------------------------------------------------------------------------------------------------------------- frame
 
   update(inp: StageIn) {
-    this.restBowl(inp.bowlRest ?? 'home')
+    this.restBowl(this.bowlSwapStep(inp.bowlRest ?? 'home', inp))
     for (const node of this.forced) this.props.force(node, null)
     this.forced.clear()
     this.typed.clear()
@@ -643,6 +649,60 @@ export class PlayStage {
    * #137 ① the white bowl rests at the corner by game_a while a record is placed alone (and the stone sample with it, at the same offset);
    * the bowls' dip points are read from their nodes, so a stone is taken from wherever the bowl is now
    */
+  /**
+   * Reduced motion (#456): a change of the bowl's rest is not walked over; it fades out where it was (0.12 s) and in where it goes (0.12 s),
+   * the bowl and the stone sample snapped there in between. Otherwise the rest changes while the hands hold it (bowlErrand). Returns the
+   * rest to draw this frame.
+   */
+  private bowlSwapStep(want: 'home' | 'corner', inp: StageIn): 'home' | 'corner' {
+    if (!this.bowlSwap && want !== this.bowlShown) {
+      if (!inp.reduced) this.bowlShown = want
+      else this.bowlSwap = { from: this.bowlShown, to: want, t0: inp.t }
+    }
+    const sw = this.bowlSwap
+    if (!sw) return this.bowlShown
+    const u = (inp.t - sw.t0) / (CAN_FADE_MS / 1000)
+    if (u < 1) {
+      this.setBowlOpacity(1 - u)
+      return sw.from
+    }
+    if (this.bowlShown !== sw.to) {
+      // snap: set the new rest and put both there before they fade in (nothing slides)
+      this.restBowl(sw.to)
+      for (const name of ['prop_omok_bowl_w', 'prop_piece_b']) {
+        const n = this.sceneRef.getObjectByName(name)
+        if (n) n.position.setFromMatrixPosition(this.props.homeWorld(n))
+      }
+      this.bowlShown = sw.to
+    }
+    if (u < 2) {
+      this.setBowlOpacity(u - 1)
+      return sw.to
+    }
+    this.setBowlOpacity(1)
+    this.bowlSwap = null
+    return sw.to
+  }
+  private setBowlOpacity(o: number) {
+    const k = Math.max(0, Math.min(1, o))
+    if (k === this.bowlOpacity) return
+    const nodes = ['prop_omok_bowl_w', 'prop_piece_b'].map((n) => this.sceneRef.getObjectByName(n)).filter(Boolean) as Object3D[]
+    if (!this.bowlMats) {
+      this.bowlMats = []
+      for (const node of nodes)
+        for (const m of meshesOf(node)) {
+          m.material = (m.material as Material).clone()
+          this.bowlMats.push(m.material as Material)
+        }
+    }
+    this.bowlOpacity = k
+    for (const mat of this.bowlMats) {
+      mat.transparent = k < 1
+      mat.opacity = k
+      mat.depthWrite = k >= 1
+    }
+  }
+
   private restBowl(rest: 'home' | 'corner') {
     if (this.bowlHome && this.pieceOnBowl) {
       if (rest === 'corner') {
@@ -677,7 +737,8 @@ export class PlayStage {
       return
     }
     // a record placed alone starts once the white bowl has been brought over (#137 ①)
-    const tMs = sessionTime(s, inp.now) - (s.solo ? SOLO_LEAD_MS : 0)
+    // (reduced motion: no fetching, so no delay, #456)
+    const tMs = sessionTime(s, inp.now) - (s.solo && !inp.reduced ? SOLO_LEAD_MS : 0)
     if (tMs < 0) {
       this.sweep(inp)
       return
