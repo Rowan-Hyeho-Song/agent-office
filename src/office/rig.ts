@@ -54,7 +54,7 @@ import type { AgentStatus } from './status'
 import { musicGlow, speakerCone, speakerOn } from '../audio/speaker'
 
 /** the poses of the play schedule (play.ts PlayKind): what "resting" means (sound.md 5) */
-const RESTING_POSES: ReadonlySet<string> = new Set(['pingpong', 'boardgame', 'coffee', 'sofa', 'water', 'books', 'fridge', 'dispenser', 'record'])
+const RESTING_POSES: ReadonlySet<string> = new Set(['pingpong', 'boardgame', 'coffee', 'sofa', 'water', 'books', 'fridge', 'dispenser', 'record', 'bowl'])
 /** the walk (#329): cruising from traffic.ts CRUISE; acceleration, the corner speed and the turn rate keep their proportions to it (tuned at 0.75) */
 const PACE = CRUISE / CRUISE_TUNED
 const SPEED = CRUISE // m/s cruising
@@ -445,6 +445,8 @@ interface Prop {
   grips: Partial<Record<'l' | 'r', Matrix4>>
   /** a pose someone else decided for this frame (PlayStage: the paddle's swing, the cup at the lips): taken exactly, no easing */
   forced: Matrix4 | null
+  /** #137 ① a resting place other than home (the white bowl set down at the corner, and the stone sample on it), world; null = home */
+  rest?: Matrix4 | null
 }
 
 /** a prop's info for the play stage */
@@ -490,7 +492,8 @@ export class PropBank {
 
   /** the prop an activity uses at a spot, if it's free (or already this agent's) */
   private pick(rig: AgentRig, kind: string, prefer?: string) {
-    const mine = this.props.find((p) => p.holder?.rig === rig && p.kind === kind)
+    // the one it holds, unless it asks for another of the kind (#137 ①: one agent placing both colours takes the black stone, then the white)
+    const mine = this.props.find((p) => p.holder?.rig === rig && p.kind === kind && (!prefer || p.node.name === prefer || !this.props.some((q) => q.node.name === prefer)))
     if (mine) return mine
     const free = this.props.filter((p) => p.kind === kind && !p.holder && (kind !== 'pen' || p.homeParent === rig.parts.head))
     return free.find((p) => p.node.name === prefer) ?? free[0]
@@ -515,12 +518,24 @@ export class PropBank {
     return p ? { node: p.node, kind: p.kind, grips: p.grips } : null
   }
 
-  /** where a prop rests, in the world */
+  /** where a prop rests, in the world (its home, or the resting place setRest gave it) */
   homeWorld(node: Object3D, out = new Matrix4()): Matrix4 {
     const p = this.props.find((x) => x.node === node)
     if (!p) return out.copy(node.matrixWorld)
+    return this.restOf(p, out)
+  }
+  private restOf(p: Prop, out: Matrix4): Matrix4 {
+    if (p.rest) return out.copy(p.rest)
     p.homeParent.updateWorldMatrix(true, false)
     return out.multiplyMatrices(p.homeParent.matrixWorld, p.homeLocal)
+  }
+
+  /** #137 ① rest the prop called `name` at `world` instead of its home (null: home again). Only a hand ever moves it there and back */
+  setRest(name: string, world: Matrix4 | null) {
+    const p = this.props.find((x) => x.node.name === name)
+    if (!p) return
+    if (!world) p.rest = null
+    else p.rest = (p.rest ?? new Matrix4()).copy(world)
   }
 
   /** the pose PlayStage wants for this prop this frame (null: leave it to the easing) */
@@ -557,10 +572,7 @@ export class PropBank {
       if (grip && p.holder!.rig.visible) {
         grip.updateWorldMatrix(true, false)
         this.m.multiplyMatrices(grip.matrixWorld, p.gripLocal)
-      } else {
-        p.homeParent.updateWorldMatrix(true, false)
-        this.m.multiplyMatrices(p.homeParent.matrixWorld, p.homeLocal)
-      }
+      } else this.restOf(p, this.m)
       this.m.decompose(this.pos, this.quat, this.scl)
       // cups and the watering can stay upright in a hand (#27: the grip is tilted 60°); the can tips to pour
       if (grip && (p.kind === 'cup' || p.kind === 'watering_can')) {

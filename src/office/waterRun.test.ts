@@ -110,7 +110,12 @@ describe('Director: the schedule sends one agent at a time for the can', () => {
     let second: string | null = null
     for (; m < block + 3000 && !second; m += BLOCK_MINUTES) {
       const a = Object.entries(playAt(m, AGENTS)).find(([, x]) => x.kind === 'water')
-      const b = Object.entries(playAt(m + BLOCK_MINUTES, AGENTS)).find(([, x]) => x.kind === 'water')
+      // the next block's water agent as the Director sees it: with the first still away on its errand the schedule is re-planned without it,
+      // and nobody else is away (no lounge act or reading starts in that block, they would be taken out of it too)
+      const errandFree = (p: ReturnType<typeof playAt>) => Object.values(p).every((x) => !['fridge', 'dispenser', 'record', 'books'].includes(x.kind))
+      const without = a ? playAt(m + BLOCK_MINUTES, AGENTS, new Set([a[0]])) : null
+      // (an act started in the first block would still be waiting for its agent to arrive in the second: none there either)
+      const b = a && without && errandFree(playAt(m, AGENTS)) && errandFree(playAt(m + BLOCK_MINUTES, AGENTS)) && errandFree(without) ? Object.entries(without).find(([, x]) => x.kind === 'water') : undefined
       if (a && b && a[0] !== b[0]) second = b[0]
     }
     expect(second).toBeTruthy()
