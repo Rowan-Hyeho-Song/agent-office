@@ -100,9 +100,10 @@ describe('boardFromLibrary', () => {
       meta({ kind: 'decision', folder: 2, title: '끝' }, 6),
     ]
     const b = boardFromLibrary(groupLibrary(metas))
-    expect(b.doing.map((c) => [c.n, c.title])).toEqual([[1, '진행']])
+    // a SECRET file waiting for the owner's approval is not 검토 (#100: that column is an open PR); number yes, title no
+    expect(b.doing.map((c) => [c.n, c.title, c.seat])).toEqual([[3, null, 0], [1, '진행', 3]])
     expect(b.done.map((c) => c.n)).toEqual([2])
-    expect(b.review.map((c) => [c.n, c.title, c.seat])).toEqual([[3, null, 0]]) // SECRET: number yes, title no
+    expect(b.review).toEqual([])
     expect([...b.doing, ...b.review, ...b.done].some((c) => c.title === '개인' || c.title === '비밀')).toBe(false)
     expect(b.decisions.map((d) => [d.n, d.title])).toEqual([[2, '끝']])
   })
@@ -119,10 +120,14 @@ describe('boardFromLibrary', () => {
       // no progress (filed before it existed): the guess
       meta({ kind: 'plan', folder: 6 }, 7),
       meta({ kind: 'report', folder: 7 }, 8),
+      // no progress, a document still SECRET (owner's approval pending): doing, not review (#100)
+      meta({ kind: 'plan', folder: 8, grade: 'review', approved: false }, 9),
+      // a SECRET file with an open PR: review, number yes, title no
+      meta({ kind: 'plan', folder: 10, grade: 'review', approved: false, progress: p('review') }, 9),
     ]
     const b = boardFromLibrary(groupLibrary(metas))
-    expect(b.doing.map((c) => c.n).sort()).toEqual([1, 5, 6])
-    expect(b.review.map((c) => c.n)).toEqual([2])
+    expect(b.doing.map((c) => c.n).sort((x, y) => x - y)).toEqual([1, 5, 6, 8])
+    expect(b.review.map((c) => [c.n, c.title])).toEqual([[10, null], [2, '제목']])
     expect(b.done.map((c) => c.n).sort()).toEqual([3, 7])
     expect([...b.doing, ...b.review, ...b.done].some((c) => c.n === 4)).toBe(false)
   })
