@@ -6,7 +6,7 @@
 
 import { useFrame } from '@react-three/fiber'
 import { useCanvasPick } from '../pick'
-import { getBoardView, openBoard } from '../boardView/store'
+import { getBoardView, openBoard, useBoardView } from '../boardView/store'
 import { canOpen } from '../boardView/view'
 import { useCameraBusy } from '../../room/Door'
 import { replay } from '../../replay/store'
@@ -58,6 +58,10 @@ export function Bulletin({ world, scene }: { world: OfficeWorld; scene: Object3D
       pin: (agent: string, text: string, name = '') => pinLocal({ id: Date.now(), agent, text, name, created_at: new Date().toISOString() }),
     }
   }, [world])
+  // while the board is read close up (NotesView lays the cards over the real cork), the notes painted on it step aside (#467, the designer)
+  const view = useBoardView()
+  const reading = view.phase !== 'closed' && view.surface === 'bulletin' && view.mode === 'stage'
+  useEffect(() => rig?.setShown(!reading), [rig, reading])
   useFrame(() => rig?.tick())
   // a press on the board flies the camera to it and lays the notes over it, like the whiteboard (#234); a phone gets the sheet
   const busy = useCameraBusy()
@@ -100,6 +104,10 @@ class BulletinRig {
     surface.add(this.face)
     this.plane.updateMatrixWorld(true)
     this.face.updateMatrixWorld(true)
+  }
+
+  setShown(on: boolean) {
+    this.plane.visible = on
   }
 
   show(notes: Note[], fresh: number[], refont = false) {

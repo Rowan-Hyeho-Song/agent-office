@@ -8,7 +8,7 @@ import { NOTE_ANON, type Note } from '../../visit/note'
 import { closeBoard, useBoardRect, type BoardViewState } from '../boardView/store'
 import { AGENT_INFO } from '../world'
 import { notesStore } from './notes'
-import { noteSlot } from './bulletinLayout'
+import { noteSlot, paperOf } from './bulletinLayout'
 
 const FOCUSABLE = 'button, [href], [tabindex]:not([tabindex="-1"])'
 
@@ -46,7 +46,7 @@ function useKeys(root: React.RefObject<HTMLDivElement | null>, open: () => boole
 
 function Card({ note, onOpen, style }: { note: Note; onOpen: (n: Note, el: HTMLElement) => void; style?: React.CSSProperties }) {
   return (
-    <button type="button" className="nv-card" style={{ ...style, ['--pin' as string]: `var(--agent-${note.agent.split('_')[1]})` }} aria-label={`${noteMeta(note)}, ${note.name || NOTE_ANON}: ${note.text}`} onClick={(e) => onOpen(note, e.currentTarget)}>
+    <button type="button" className="nv-card" style={{ ...style, background: paperOf(note.id), ['--pin' as string]: `var(--agent-${note.agent.split('_')[1]})` }} aria-label={`${noteMeta(note)}, ${note.name || NOTE_ANON}: ${note.text}`} onClick={(e) => onOpen(note, e.currentTarget)}>
       <span className="nv-pin" aria-hidden="true" />
       <span className="nv-text">{note.text}</span>
       <span className="nv-name">— {note.name || NOTE_ANON}</span>
@@ -58,7 +58,7 @@ function Opened({ note, onClose }: { note: Note; onClose: () => void }) {
   const ref = useRef<HTMLButtonElement>(null)
   useEffect(() => ref.current?.focus({ preventScroll: true }), [])
   return (
-    <section className="nv-open" role="dialog" aria-label="쪽지 전문" style={{ ['--pin' as string]: `var(--agent-${note.agent.split('_')[1]})` }}>
+    <section className="nv-open" role="dialog" aria-label="쪽지 전문" style={{ background: paperOf(note.id), ['--pin' as string]: `var(--agent-${note.agent.split('_')[1]})` }}>
       <p className="nv-open-meta">{noteMeta(note)}</p>
       <p className="nv-open-text">{note.text}</p>
       <p className="nv-open-name">— {note.name || NOTE_ANON}</p>
