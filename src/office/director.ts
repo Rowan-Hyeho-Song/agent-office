@@ -3,7 +3,7 @@
 
 import { dutyOf, dutyStatus } from './duty'
 import { DESK_SIDES } from './nav'
-import { blockOf, playAt, PLAYS, soloAt, type PlayKind } from './play'
+import { blockOf, playAt, playPose, PLAYS, soloAt, type PlayKind } from './play'
 import { activityLabel, type AgentStatus, type OfficeMessage, type StatusMap } from './status'
 import type { Request } from './traffic'
 import { actSpot, actU, deckAfter, startAct, stepAct, type ActRun } from './actRun'
@@ -491,7 +491,7 @@ export class Director {
       // (a source that skipped duty.ts) = resting at the desk. 'leave' stays in the rig but is never chosen.
       if (s.night === 'duty' && s.state === 'idle') {
         const p = soloAt(minute, a)
-        out[a] = { spot: p.spot, pose: p.kind, face: p.face, ...standSlot(p), quiet: true, label: `야간 당번 · ${p.label}` }
+        out[a] = { spot: p.spot, pose: playPose(p.kind), face: p.face, ...standSlot(p), quiet: true, label: `야간 당번 · ${p.label}` }
         shown[a] = { status: s, kind: 'duty' }
         continue
       }
@@ -539,7 +539,7 @@ export class Director {
         continue
       }
       if (p) playing.push(a)
-      out[a] = p ? { spot: p.spot, pose: p.kind, face: p.face, ...standSlot(p), label: p.label } : deskIdle(desk)
+      out[a] = p ? { spot: p.spot, pose: playPose(p.kind), face: p.face, ...standSlot(p), label: p.label } : deskIdle(desk)
     }
     this.settle(out, playing, deskIdle)
     this.putAway(now, out)

@@ -3,7 +3,7 @@ import { conversations, type DocMeta } from '../docs/library'
 import { buildScript } from './meeting'
 import { MEET_WORDS, MeetingRunner } from './meetingRun'
 import { BUBBLE_ASK, BUBBLE_REPLY, Director } from './director'
-import { playAt } from './play'
+import { playAt, playPose } from './play'
 import { startWrap, totalOf, TOUCH_LABEL, WRAP_LABEL } from './wrap'
 import type { AgentStatus, OfficeMessage, StatusMap } from './status'
 
@@ -29,7 +29,7 @@ describe('Director.goals by state', () => {
     const play = playAt(MINUTE, AGENTS)
     for (const a of AGENTS) {
       expect(g[a].spot).toBe(play[a].spot)
-      expect(g[a].pose).toBe(play[a].kind)
+      expect(g[a].pose).toBe(playPose(play[a].kind)) // a game record placed alone is drawn as the board pose (#137)
     }
   })
 
