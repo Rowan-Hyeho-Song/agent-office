@@ -848,9 +848,10 @@ html[data-motion='reduce'] .sound-panel.sheet { animation: sound-sheet-fade 120m
 .badge-card.flipped .badge-front { transform: rotateY(-180deg); }
 .badge-card.flipped .badge-back { transform: rotateY(0deg); }
 .badge-hang.reduced .badge-face { transition: opacity 120ms linear; transform: none; }
-.badge-hang.reduced .badge-back { opacity: 0; }
-.badge-hang.reduced .badge-card.flipped .badge-front { opacity: 0; transform: none; }
-.badge-hang.reduced .badge-card.flipped .badge-back { opacity: 1; }
+/* the hidden face is also out of the way of the pointer (it sat over the front and took its clicks) */
+.badge-hang.reduced .badge-back { opacity: 0; visibility: hidden; }
+.badge-hang.reduced .badge-card.flipped .badge-front { opacity: 0; transform: none; visibility: hidden; }
+.badge-hang.reduced .badge-card.flipped .badge-back { opacity: 1; visibility: visible; }
 .badge-band { display: flex; align-items: center; height: 30px; padding: 0 4px 0 10px; background: var(--color-ink); color: var(--color-amber); font-weight: 700; font-size: 13px; letter-spacing: 0.04em; }
 .badge-close { all: unset; margin-left: auto; width: 26px; height: 26px; display: grid; place-items: center; color: var(--color-text); font-size: 16px; cursor: pointer; }
 .badge-close:focus-visible, .badge-face button:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 1px; }
@@ -891,3 +892,20 @@ html[data-motion='reduce'] .sound-panel.sheet { animation: sound-sheet-fade 120m
 @media (prefers-reduced-motion: reduce) { .badge-sheet { animation: sound-sheet-fade 120ms linear; } }
 html[data-motion='reduce'] .badge-sheet { animation: sound-sheet-fade 120ms linear; }
 .badge-hover-tag { position: fixed; left: 0; top: 0; z-index: 44; pointer-events: none; padding: 2px 6px; border-radius: 3px; background: var(--color-surface-alpha); box-shadow: 0 0 0 1px var(--color-halo), inset 2px 0 0 var(--agent); color: var(--color-text); font-family: var(--font-pixel); font-size: 12px; white-space: nowrap; }
+
+/* #4 12.2: a visitor's snack or cheer on its way and at the robot (decoration; the robot's '방문자' bubble says it) */
+.treat-layer { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
+.treat-icon, .treat-heart { position: fixed; left: 0; top: 0; font-size: 22px; line-height: 1; filter: drop-shadow(0 3px 2px rgb(0 0 0 / 0.55)); will-change: transform, opacity; }
+.treat-heart { font-size: 16px; color: var(--color-magenta); }
+/* the badge's give buttons (12.1a: 44 × 32 each) */
+.badge-stub { flex-wrap: wrap; }
+.badge-give { display: inline-flex; gap: 4px; }
+.badge-give-btn { all: unset; box-sizing: border-box; min-width: 44px; height: 32px; padding: 0 6px; display: inline-grid; place-items: center; border: 1px solid rgb(11 14 19 / 0.45); border-radius: 4px; font-family: var(--font-pixel); font-size: 13px; cursor: pointer; white-space: nowrap; }
+.badge-give-btn:hover { background: rgb(11 14 19 / 0.08); }
+.badge-give-btn:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 1px; }
+.badge-give-btn[aria-disabled='true'] { opacity: 0.5; cursor: default; }
+.badge-sheet .badge-give-btn { height: 44px; }
+/* row 1: today's line and the flip; row 2: the give buttons (wider with their seconds) */
+.badge-stub { row-gap: 6px; }
+.badge-stub .badge-today { flex: 1 1 0; min-width: 0; }
+.badge-stub .badge-give { order: 3; flex-basis: 100%; }

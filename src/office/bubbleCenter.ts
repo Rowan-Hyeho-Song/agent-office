@@ -14,6 +14,8 @@ export interface Say {
   ms?: number
   /** the agent it faces (opens outward) */
   to?: string
+  /** the tab's word instead of the kind's (#4: a visitor's snack or cheer says '방문자', never who) */
+  tag?: string
 }
 
 interface Live {
@@ -25,6 +27,7 @@ interface Live {
   until: number
   to: string | null
   n: number
+  tag?: string
 }
 
 export const seatOfAgent = (agent: string) => Number(agent.split('_')[1])
@@ -38,7 +41,7 @@ export class BubbleCenter {
   say(agent: string, s: Say = {}, now = Date.now()) {
     const kind = s.kind ?? 'talk'
     const text = kind === 'private' ? '비공개 대화' : firstSentence(s.text ?? '', lineChars())
-    this.live.set(agent, { key: `say${++this.seq}`, agent, kind, text, from: now, until: now + (s.ms ?? 5000), to: s.to ?? null, n: this.seq })
+    this.live.set(agent, { key: `say${++this.seq}`, agent, kind, text, from: now, until: now + (s.ms ?? 5000), to: s.to ?? null, n: this.seq, tag: s.tag })
   }
 
   clear(agent?: string) {
@@ -71,7 +74,7 @@ export class BubbleCenter {
         key: l.key,
         seat,
         kind: l.kind,
-        label: LABEL[l.kind],
+        label: l.tag ?? LABEL[l.kind],
         text: l.text,
         typed,
         log: l.kind === 'private' ? logLine(seatName(seat), null, '비공개 대화') : logLine(seatName(seat), l.to ? seatName(seatOfAgent(l.to)) : null, l.text),

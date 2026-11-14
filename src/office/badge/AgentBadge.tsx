@@ -2,7 +2,7 @@
 // robot that was clicked (or whose ⓘ was pressed in the agent list). Front: company band, the robot's face screen as the photo, name,
 // role chip, seat, the day it joined, what it is doing, a pixel barcode with its machine number; under the perforation what it did
 // today. Back (뒤집기): today's recent three, the library and the day's timelapse. On a phone it is a bottom sheet without the
-// lanyard, the list right under the front. Snacks, cheers and notes (12.2 · 12.3) come with the rest of #4: no buttons until then.
+// lanyard, the list right under the front. Under the perforation: a snack and a cheer (12.2, GiveButtons); the note (12.3) comes next.
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type Ref } from 'react'
 import { usePanelOpen } from '../../room/panels'
@@ -15,6 +15,10 @@ import { useTour } from '../tourStore'
 import { AGENT_INFO, prefersReducedMotion, type OfficeWorld } from '../world'
 import { badgeAnchor, badgeHover, closeBadge, getBadge, useBadge, useBadgeHover } from './badgeStore'
 import { barcode, joinedDate, machineNo, recentToday, seatLabel, todayLine } from './badgeData'
+import { cue } from '../../audio/cues'
+import { give, waitLeft } from '../visit/treats'
+import { SNACK_ICON, TREAT_LABEL } from '../visit/reaction'
+import { SNACKS, type TreatKind } from '../../visit/treat'
 
 export const BADGE = { w: 224, h: 352, gutter: 16, top: 48, followMs: 300, dropMs: 350, swingMs: 800, leaveMs: 200, fadeMs: 120 }
 const PHOTO = { w: 120, h: 90 }
@@ -232,6 +236,7 @@ function Card({ world, agent, nonce, phone, screenW, leaving }: { world: OfficeW
       </div>
       <div className="badge-stub">
         <p className="badge-today">{today}</p>
+        <GiveButtons agent={agent} name={nameKo} />
         {!phone && (
           <button ref={frontFirst} type="button" className="badge-flip" onClick={() => flip(true)} tabIndex={back ? -1 : undefined}>
             뒤집기 ↻
@@ -309,6 +314,67 @@ function Card({ world, agent, nonce, phone, screenW, leaving }: { world: OfficeW
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * 12.2: a snack (☕ opens the three: coffee, cookie, apple) and a cheer (✨). Each once a minute per robot from this visitor:
+ * a held-back button is dimmed and shows the seconds left (`☕ 42초`); the server holds the same line.
+ */
+function GiveButtons({ agent, name }: { agent: string; name: string }) {
+  const [picking, setPicking] = useState(false)
+  const [, tick] = useState(0)
+  const left = { snack: waitLeft(agent, 'coffee'), cheer: waitLeft(agent, 'cheer') }
+  useEffect(() => {
+    if (!left.snack && !left.cheer) return
+    const t = window.setInterval(() => tick((n) => n + 1), 1000)
+    return () => window.clearInterval(t)
+  }, [left.snack, left.cheer])
+  const send = (kind: TreatKind) => {
+    cue('ui.click')
+    setPicking(false)
+    void give(agent, kind).then(() => tick((n) => n + 1))
+    tick((n) => n + 1)
+  }
+  const wait = (s: number) => (s ? ` ${s}초` : '')
+  if (picking)
+    return (
+      <span className="badge-give" role="group" aria-label={`${name}에게 줄 간식`}>
+        {SNACKS.map((k) => (
+          <button key={k} type="button" className="badge-give-btn" aria-label={`${TREAT_LABEL[k]} 주기`} onClick={() => send(k)}>
+            {SNACK_ICON[k]}
+          </button>
+        ))}
+        <button type="button" className="badge-give-btn" aria-label="간식 고르기 닫기" onClick={() => setPicking(false)}>
+          ✕
+        </button>
+      </span>
+    )
+  return (
+    <span className="badge-give">
+      <button
+        type="button"
+        className="badge-give-btn"
+        aria-disabled={left.snack ? true : undefined}
+        aria-label={left.snack ? `간식은 ${left.snack}초 뒤에 줄 수 있어요` : `${name}에게 간식 주기`}
+        onClick={() => {
+          if (left.snack) return
+          cue('ui.click')
+          setPicking(true)
+        }}
+      >
+        ☕{wait(left.snack)}
+      </button>
+      <button
+        type="button"
+        className="badge-give-btn"
+        aria-disabled={left.cheer ? true : undefined}
+        aria-label={left.cheer ? `응원은 ${left.cheer}초 뒤에 할 수 있어요` : `${name} 응원하기`}
+        onClick={() => !left.cheer && send('cheer')}
+      >
+        ✨{wait(left.cheer)}
+      </button>
+    </span>
   )
 }
 
