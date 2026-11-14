@@ -8,7 +8,7 @@ import { NOTE_ANON, type Note } from '../../visit/note'
 import { closeBoard, useBoardRect, type BoardViewState } from '../boardView/store'
 import { AGENT_INFO } from '../world'
 import { notesStore } from './notes'
-import { noteSlot } from './Bulletin'
+import { noteSlot } from './bulletinLayout'
 
 const FOCUSABLE = 'button, [href], [tabindex]:not([tabindex="-1"])'
 

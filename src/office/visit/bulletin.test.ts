@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PAPERS, paperOf, wrap } from './Bulletin'
+import { PAPERS, paperOf, wrap } from './bulletinLayout'
 
 // a fake measure: every character 10 px
 const g = { measureText: (t: string) => ({ width: [...t].length * 10 }) as TextMetrics }
