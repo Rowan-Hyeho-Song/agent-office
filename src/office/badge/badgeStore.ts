@@ -46,3 +46,17 @@ export const useBadge = () =>
 
 /** the open robot's head on the screen, CSS px of the canvas (written every frame by BadgePick, read by the card's own frame loop) */
 export const badgeAnchor = { x: 0, y: 0, on: false }
+
+/** the robot under the pointer (12.1 hover: its floor ring turns cyan, a name tag over its head) and where that tag goes, CSS px */
+export const badgeHover = { agent: null as string | null, x: 0, y: 0 }
+const hoverListeners = new Set<() => void>()
+export function setBadgeHover(agent: string | null) {
+  if (badgeHover.agent === agent) return
+  badgeHover.agent = agent
+  hoverListeners.forEach((l) => l())
+}
+export const useBadgeHover = () =>
+  useSyncExternalStore(
+    (cb) => (hoverListeners.add(cb), () => void hoverListeners.delete(cb)),
+    () => badgeHover.agent,
+  )

@@ -889,3 +889,4 @@ html[data-motion='reduce'] .sound-panel.sheet { animation: sound-sheet-fade 120m
 .badge-sheet .badge-links button { min-height: 44px; display: flex; align-items: center; color: var(--color-cyan); font-size: 13px; }
 @media (prefers-reduced-motion: reduce) { .badge-sheet { animation: sound-sheet-fade 120ms linear; } }
 html[data-motion='reduce'] .badge-sheet { animation: sound-sheet-fade 120ms linear; }
+.badge-hover-tag { position: fixed; left: 0; top: 0; z-index: 44; pointer-events: none; padding: 2px 6px; border-radius: 3px; background: var(--color-surface-alpha); box-shadow: 0 0 0 1px var(--color-halo), inset 2px 0 0 var(--agent); color: var(--color-text); font-family: var(--font-pixel); font-size: 12px; white-space: nowrap; }

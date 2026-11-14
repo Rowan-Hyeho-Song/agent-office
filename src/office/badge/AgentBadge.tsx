@@ -13,7 +13,7 @@ import { isPhone } from '../sidePanel/model'
 import { statusLine } from '../status'
 import { useTour } from '../tourStore'
 import { AGENT_INFO, prefersReducedMotion, type OfficeWorld } from '../world'
-import { badgeAnchor, closeBadge, getBadge, useBadge } from './badgeStore'
+import { badgeAnchor, badgeHover, closeBadge, getBadge, useBadge, useBadgeHover } from './badgeStore'
 import { barcode, joinedDate, machineNo, recentToday, seatLabel, todayLine } from './badgeData'
 
 export const BADGE = { w: 224, h: 352, gutter: 16, top: 48, followMs: 300, dropMs: 350, swingMs: 800, leaveMs: 200, fadeMs: 120 }
@@ -56,8 +56,35 @@ export function AgentBadge({ world }: { world: OfficeWorld }) {
   }, [agent, touring, replaying])
   usePanelOpen(!!agent, closeBadge)
 
-  if (!shown) return null
-  return <Card key={shown.nonce} world={world} agent={shown.agent} nonce={shown.nonce} phone={phone} screenW={screenW} leaving={leaving} />
+  return (
+    <>
+      <HoverTag />
+      {shown && <Card key={shown.nonce} world={world} agent={shown.agent} nonce={shown.nonce} phone={phone} screenW={screenW} leaving={leaving} />}
+    </>
+  )
+}
+
+/** 12.1 hover: `휴 · 디자인` over the robot under the pointer (decoration: the list and the badge say it to screen readers) */
+function HoverTag() {
+  const agent = useBadgeHover()
+  const el = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (!agent) return
+    let raf = 0
+    const tick = () => {
+      raf = requestAnimationFrame(tick)
+      if (el.current) el.current.style.transform = `translate(${badgeHover.x}px, ${badgeHover.y}px) translate(-50%, -100%)`
+    }
+    tick()
+    return () => cancelAnimationFrame(raf)
+  }, [agent])
+  if (!agent) return null
+  const info = AGENT_INFO[agent]
+  return (
+    <div ref={el} className="badge-hover-tag" aria-hidden="true" style={{ ['--agent' as string]: info.color }}>
+      {info.name.split(' ')[0]} · {info.role}
+    </div>
+  )
 }
 
 function Card({ world, agent, nonce, phone, screenW, leaving }: { world: OfficeWorld; agent: string; nonce: number; phone: boolean; screenW: number; leaving: boolean }) {
@@ -149,7 +176,14 @@ function Card({ world, agent, nonce, phone, screenW, leaving }: { world: OfficeW
   useLayoutEffect(() => {
     if (phone) return
     const clampX = (x: number) => Math.max(BADGE.gutter, Math.min(window.innerWidth - BADGE.gutter - BADGE.w, x - BADGE.w / 2))
-    let x = clampX(badgeAnchor.on ? badgeAnchor.x : window.innerWidth / 2)
+    // 12.1a (the designer, #443): when the card would cover its robot it steps aside to the wider side, robot x ± (card/2 + 40 px), so the
+    // photo and the robot are seen together
+    const side = badgeAnchor.x < window.innerWidth / 2 ? 1 : -1
+    const want = () => {
+      const covers = badgeAnchor.y > top - 24 && badgeAnchor.y < top + BADGE.h + 120
+      return badgeAnchor.x + (covers ? side * (BADGE.w / 2 + 40) : 0)
+    }
+    let x = clampX(badgeAnchor.on ? want() : window.innerWidth / 2)
     let t0 = performance.now()
     let raf = 0
     const place = () => {
@@ -162,12 +196,12 @@ function Card({ world, agent, nonce, phone, screenW, leaving }: { world: OfficeW
       t0 = t
       if (!badgeAnchor.on) return
       // about 0.3 s to settle (95 %)
-      x += (clampX(badgeAnchor.x) - x) * (1 - Math.exp(-dt / (BADGE.followMs / 3000)))
+      x += (clampX(want()) - x) * (1 - Math.exp(-dt / (BADGE.followMs / 3000)))
       place()
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [phone])
+  }, [phone, top])
 
   const bars = barcode(seat)
   const front = (
@@ -221,7 +255,7 @@ function Card({ world, agent, nonce, phone, screenW, leaving }: { world: OfficeW
           openDocs()
         }}
       >
-        서재에서 보기 ›
+        서재 열기 ›
       </button>
       <button
         type="button"

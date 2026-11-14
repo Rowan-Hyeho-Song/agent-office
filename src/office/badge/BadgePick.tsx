@@ -5,15 +5,30 @@
 
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo } from 'react'
-import { Box3, BoxGeometry, Mesh, MeshBasicMaterial, Vector3, type Object3D } from 'three'
+import { Box3, BoxGeometry, Color, Mesh, MeshBasicMaterial, Vector3, type Object3D } from 'three'
 import { isReplayActive } from '../../replay/store'
 import { useCanvasPick } from '../pick'
 import { isTouring } from '../tourStore'
 import type { OfficeWorld } from '../world'
-import { badgeAnchor, getBadge, openBadge } from './badgeStore'
+import { badgeAnchor, badgeHover, getBadge, openBadge, setBadgeHover } from './badgeStore'
 
 const box = new Box3()
 const v = new Vector3()
+const CYAN = new Color('#4df3ff')
+
+/** 12.1 hover: the robot's floor ring (agent_i_floor_ring) turns cyan; its meshes get their own material the first time, the colour goes back after */
+function tintRing(ring: Object3D | undefined, on: boolean) {
+  ring?.traverse((o) => {
+    const m = o as Mesh
+    if (!m.isMesh) return
+    if (!m.userData.badgeOwnMat) {
+      m.material = (m.material as MeshBasicMaterial).clone()
+      m.userData.badgeOwnMat = true
+      m.userData.badgeColor = (m.material as MeshBasicMaterial).color.clone()
+    }
+    ;(m.material as MeshBasicMaterial).color.copy(on ? CYAN : (m.userData.badgeColor as Color))
+  })
+}
 
 export function BadgePick({ world }: { world: OfficeWorld }) {
   const { camera, size } = useThree()
@@ -64,12 +79,34 @@ export function BadgePick({ world }: { world: OfficeWorld }) {
     }
     return out
   }
-  useCanvasPick(targets, (h) => {
-    const id = h[0]?.object.userData.agent as string | undefined
-    if (id) openBadge(id)
-  })
+  const hover = (id: string | null) => {
+    const was = badgeHover.agent
+    if (was === id) return
+    if (was) tintRing(world.rigs[was]?.parts.floorRing, false)
+    if (id) tintRing(world.rigs[id]?.parts.floorRing, true)
+    setBadgeHover(id)
+  }
+  useCanvasPick(
+    targets,
+    (h) => {
+      const id = h[0]?.object.userData.agent as string | undefined
+      if (id) openBadge(id)
+    },
+    (over, h) => hover(over ? ((h?.[0]?.object.userData.agent as string | undefined) ?? null) : null),
+  )
+  useEffect(() => () => hover(null), []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useFrame(() => {
+    // the hover tag: over the head; gone when the tour or the timelapse takes the picture
+    const hid = badgeHover.agent
+    const hrig = hid ? world.rigs[hid] : null
+    if (hid && (!hrig || isTouring() || isReplayActive())) hover(null)
+    else if (hrig) {
+      box.setFromObject(hrig.group)
+      v.set((box.min.x + box.max.x) / 2, box.max.y + 0.08, (box.min.z + box.max.z) / 2).project(camera)
+      badgeHover.x = ((v.x + 1) / 2) * size.width
+      badgeHover.y = ((1 - v.y) / 2) * size.height
+    }
     const id = getBadge().agent
     const rig = id ? world.rigs[id] : null
     if (!rig) {
