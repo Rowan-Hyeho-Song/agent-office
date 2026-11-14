@@ -421,6 +421,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
       stamp: desk.stamp,
       colors: AGENT_COLORS,
       forcedSessions: world.debug ? world.forcedSessions : undefined,
+      bowlRest: world.director.bowlRest(),
       gripDemo: world.debug ? world.gripDemo : null,
     })
     const tag = playStage.tag

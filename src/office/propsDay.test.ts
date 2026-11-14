@@ -14,6 +14,7 @@ import { GRAPH, SPOTS } from './navSpots.fixture'
 import { BLOCK_MINUTES, PLAYS, playAt, soloAt } from './play'
 import type { Goal } from './director'
 import { SETTLE_MS, sessionsAt, type PlaySession } from '../play/session'
+import { SOLO_LEAD_MS } from './bowlRun'
 import { WATER_PLANTS } from './water'
 
 stubCanvas()
@@ -79,10 +80,26 @@ function solo(w: World, agent: string, kind: 'coffee' | 'books' /* books: the ol
   }
 }
 
+/**
+ * A record placed alone (#137 ①) starts with the white bowl already set down at the corner, a pair game with it at home (the errand that
+ * carries it is the Director's, tested apart; in one world the sessions follow one another without it)
+ */
+function bowlAt(w: World, rest: 'home' | 'corner') {
+  w.stage.update({ now: 0, t: 0, dt: 0.016, reduced: false, replaying: false, rigs: w.rigs, goals: Object.fromEntries(IDS.map((id) => [id, IDLE(id)])) as Record<string, Goal>, status: {}, tablet: false, stamp: false, colors: {}, bowlRest: rest })
+  for (const name of ['prop_omok_bowl_w', 'prop_piece_b']) {
+    const n = w.scene.getObjectByName(name)!
+    n.position.setFromMatrixPosition(w.props.homeWorld(n))
+    n.updateMatrixWorld(true)
+  }
+}
+
 /** a pair plays 9 s of its session (settled in, rally / stones running) */
 function pair(w: World, s: PlaySession, guard: Guard) {
   const spots = s.kind === 'pingpong' ? ['pingpong_a', 'pingpong_b'] : ['game_a', 'game_b']
-  s.players.forEach((id, i) => {
+  // a record placed alone (#137 ①): one agent at game_a, the white bowl already at the corner, the game 20 s later
+  const lead = s.solo ? SOLO_LEAD_MS : 0
+  bowlAt(w, s.solo ? 'corner' : 'home')
+  ;(s.solo ? [s.players[0]] : s.players).forEach((id, i) => {
     const sp = SPOTS.find((x) => x.id === spots[i])!
     stand(w, id, spots[i], { x: sp.x, z: sp.z, ry: sp.ry })
   })
@@ -92,7 +109,7 @@ function pair(w: World, s: PlaySession, guard: Guard) {
     const active = t < 9
     if (!active) for (const id of s.players) w.rigs[id].at = null
     const goals = Object.fromEntries(IDS.map((id) => [id, active && s.players.includes(id) ? { spot: spots[s.players.indexOf(id)], pose: s.kind, label: '' } : IDLE(id)])) as Record<string, Goal>
-    w.stage.update({ now: s.startMs + 20_000 + t * 1000, t, dt, reduced: false, replaying: false, rigs: w.rigs, goals, status: {}, tablet: false, stamp: false, colors: {} })
+    w.stage.update({ now: s.startMs + 20_000 + lead + t * 1000, t, dt, reduced: false, replaying: false, rigs: w.rigs, goals, status: {}, tablet: false, stamp: false, colors: {}, bowlRest: s.solo ? 'corner' : 'home', forcedSessions: [s] })
     w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
     w.props.update(dt)
     w.scene.updateMatrixWorld(true)
@@ -217,7 +234,9 @@ describe('omok through a whole game: the stone is always within an arm of the bo
   /** one session of a pair game played from its first move for `s` seconds, both players standing at the game spots */
   function whole(w: World, session: PlaySession, guard: Guard, seconds: number) {
     const spots = ['game_a', 'game_b']
-    session.players.forEach((id, i) => {
+    const lead = session.solo ? SOLO_LEAD_MS : 0
+    bowlAt(w, session.solo ? 'corner' : 'home')
+    ;(session.solo ? [session.players[0]] : session.players).forEach((id, i) => {
       const sp = SPOTS.find((x) => x.id === spots[i])!
       stand(w, id, spots[i], { x: sp.x, z: sp.z, ry: sp.ry })
     })
@@ -227,7 +246,7 @@ describe('omok through a whole game: the stone is always within an arm of the bo
       const t = k * dt
       const goals = Object.fromEntries(IDS.map((id) => [id, session.players.includes(id) ? { spot: spots[session.players.indexOf(id)], pose: 'boardgame', label: '' } : IDLE(id)])) as Record<string, Goal>
       for (const id of session.players) w.rigs[id].update(dt, t, GRAPH, w.rigs, false, undefined)
-      w.stage.update({ now: session.startMs + SETTLE_MS + t * 1000, t, dt, reduced: false, replaying: false, rigs: w.rigs, goals, status: {}, tablet: false, stamp: false, colors: {} })
+      w.stage.update({ now: session.startMs + SETTLE_MS + lead + t * 1000, t, dt, reduced: false, replaying: false, rigs: w.rigs, goals, status: {}, tablet: false, stamp: false, colors: {}, bowlRest: session.solo ? 'corner' : 'home', forcedSessions: [session] })
       w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
       w.props.update(dt)
       w.scene.updateMatrixWorld(true)

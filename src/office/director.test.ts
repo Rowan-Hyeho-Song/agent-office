@@ -8,7 +8,8 @@ import { startWrap, totalOf, TOUCH_LABEL, WRAP_LABEL } from './wrap'
 import type { AgentStatus, OfficeMessage, StatusMap } from './status'
 
 const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
-const MINUTE = 987_654
+// a minute whose schedule has no record placed alone (#137 ①): these tests are about the goals, and a solo first fetches the white bowl
+const MINUTE = 987_657
 const TALK_MS = 6000
 
 const idle = (since = 0): AgentStatus => ({ state: 'idle', since })

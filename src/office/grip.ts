@@ -38,6 +38,11 @@ export interface GripSpec {
 export const GRIPS: Record<string, GripSpec> = {
   // mug: index and middle through the handle's loop, the thumb on top, ring and little under the body
   cup: { r: { pre: curlOf([0.3, 0.3, 0.2, 0.2], [0.1, 0.3]), hold: curlOf([0.7, 0.75, 0.55, 0.6], [0.35, 0.6]), after: curlOf([0.15, 0.15, 0.2, 0.25], [0.1, 0.2]), contacts: ['index', 'thumb', 'ring'] } },
+  // #137 ① the white go bowl, carried in front with both hands: palms on the bulge's sides, the fingers curled up its wall
+  bowl: {
+    r: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.35, 0.35, 0.4, 0.4], [0.25, 0.2]), after: REST, contacts: ['palm'] },
+    l: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.35, 0.35, 0.4, 0.4], [0.25, 0.2]), after: REST, contacts: ['palm'] },
+  },
   watering_can: {
     r: { pre: all(0.3, [0.2, 0.5]), hold: curlOf([0.85, 0.88, 0.9, 0.9], [0.5, 1]), after: REST, contacts: ['palm'] },
     l: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.25, 0.25, 0.3, 0.3], [0.1, 0]), after: REST, contacts: ['palm'] },

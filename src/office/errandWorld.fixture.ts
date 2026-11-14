@@ -142,7 +142,9 @@ export class Guard {
         }
         if (!was) this.graspStep.set(n.name, moved)
       } else {
-        const d = now.distanceTo(this.home.get(n.name)!)
+        // where it rests now: its home, or the resting place the app gave it (#137 ①: the white bowl at the corner). A resting place that
+        // changes with no hand on the prop shows here as frames away from it while the prop slides over
+        const d = now.distanceTo(new Vector3().setFromMatrixPosition(w.props.homeWorld(n)))
         for (const s of both) {
           s.looseWorst = Math.max(s.looseWorst, d)
           // a prop somebody else moves right now (the paper in a slide or a toss, paperRun.ts) is in transit, not loose; it goes home when the pass ends

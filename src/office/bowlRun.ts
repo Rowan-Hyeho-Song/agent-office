@@ -24,6 +24,9 @@ export const BOWL_LABEL: Record<BowlStage, string> = {
   put: '돌통 내려놓는 중',
 }
 
+/** a record placed alone begins this long after the block's settling: the white bowl is fetched and set down first (PlayStage) */
+export const SOLO_LEAD_MS = 20_000
+
 export const BOWL_S = {
   /** reach both hands (0.3 s), close (0.15 s), lift into the hold (0.55 s) */
   lift: 1.0,
@@ -43,7 +46,8 @@ type XZ = { x: number; z: number }
 export const BOWL_HOME: XZ = { x: -1.61, z: 2.46 }
 export const BOWL_CORNER: XZ = { x: -2.12, z: 2.64 }
 export const BOWL_HOME_STAND: XZ = { x: -1.24, z: 2.46 }
-export const BOWL_CORNER_STAND: XZ = { x: -2.5, z: 2.7 }
+// beside game_a's stool on its right, on the walkable floor (the planner's grid is blocked from z 2.7 behind it)
+export const BOWL_CORNER_STAND: XZ = { x: -2.45, z: 2.56 }
 
 export interface BowlRun {
   agent: string

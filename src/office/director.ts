@@ -474,8 +474,19 @@ export class Director {
       if (k && isAct(k) && this.actDone[a] !== block && !this.acts[a] && !this.waters[a] && !this.reads[a] && this.bowl?.agent !== a && resting(a) && steady(a)) beginAct(a, k)
     }
     // whoever is on an errand is not free for the schedule's other plays (a game partner left alone goes to a solo)
-    const away = [...Object.keys(this.waters), ...Object.keys(this.acts), ...Object.keys(this.reads), ...(this.bowl ? [this.bowl.agent] : [])]
-    if (away.length) play = playAt(minute, this.agents, new Set([...busy, ...away]))
+    const away = [...Object.keys(this.waters), ...Object.keys(this.acts), ...Object.keys(this.reads)]
+    // #137 ① the white bowl: the one fetching it keeps its record placed alone (it holds game_a, so nobody else is handed the record meanwhile);
+    // the one taking it home is away from the schedule. While the bowl is not home there is no pair game at the board, and while it is taken
+    // home no new record either, so nobody sits where it is set down or taken from. A re-plan may hand those out again: re-plan until it does not
+    if (this.bowl?.way === 'home') away.push(this.bowl.agent)
+    const blocked = (k: PlayKind | undefined) => (k === 'boardgame' && (this.bowlAtCorner || !!this.bowl)) || (k === 'boardgame_solo' && this.bowl?.way === 'home')
+    for (const x of this.agents) if (blocked(play[x]?.kind) && !away.includes(x)) away.push(x)
+    for (let k = 0; k < 4 && away.length; k++) {
+      play = playAt(minute, this.agents, new Set([...busy, ...away]))
+      const more = this.agents.filter((x) => blocked(play[x]?.kind) && !away.includes(x))
+      if (!more.length) break
+      away.push(...more)
+    }
     const out: Record<string, Goal> = {}
     const shown: Record<string, Shown> = {}
     const playing: string[] = []
@@ -518,7 +529,11 @@ export class Director {
       if (br) {
         const pl = bowlPlace(br)
         out[a] = { spot: pl.spot, pose: 'bowl', face: pl.face, ...standSlot({ stand: pl.stand, face: pl.face }), bowl: { stage: br.stage, way: br.way, u: (now - br.t0) / 1000 }, label: `기보 놓기 · ${BOWL_LABEL[br.stage]}` }
-        shown[a] = { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest', detail: BOWL_LABEL[br.stage] }
+        // as the watering: resting it shows as rest; called to work (or off) with the bowl in its hands, it shows that and the errand's words
+        const free = (s.state === 'idle' && s.night !== 'duty') || (s.state === 'wrapping' && !this.runs[a])
+        shown[a] = free
+          ? { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
+          : { status: s, kind: s.state === 'working' ? 'work' : s.state === 'wrapping' ? 'wrap' : s.state === 'off' ? 'off' : 'duty', detail: BOWL_LABEL[br.stage], ...(s.state === 'wrapping' ? { step: 'seat' as const } : {}) }
         continue
       }
       // the reading errand: the stage's own place (the stand beside the table, or the sofa seat) and hands, until the book is back where it was taken from
