@@ -5,7 +5,7 @@ import { ATLASES, DEFERRED_ATLASES, FIRST_URLS, _resetFirstScreen, afterFirstScr
 
 describe('load order', () => {
   it('only the close-up atlases are deferred, and they are real atlases', () => {
-    expect([...DEFERRED_ATLASES].sort()).toEqual(['desk_props', 'lounge', 'lounge2', 'wall_items'])
+    expect([...DEFERRED_ATLASES].sort()).toEqual(['desk_props', 'fridge', 'lounge', 'lounge2', 'wall_items'])
     for (const a of DEFERRED_ATLASES) expect(ATLASES).toContain(a)
   })
   it('scripts/atlas-lo.mjs makes stand-ins for exactly the deferred atlases', () => {
