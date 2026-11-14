@@ -103,3 +103,21 @@ SQL Editor에서 **이 순서로** 한 번씩 실행합니다. 모두 다시 실
 - 결재함에서 결재 → 같은 이슈에 `### ✅ 결재` 댓글이 내 계정으로 달림 → 결재함에서 사라짐
 - 그 요청을 올린 역할의 세션에서 새 입력을 하면(또는 새 세션) 결재 결과가 문맥에 들어옴. 훅 출력은 `echo '{"session_id":"t","hook_event_name":"SessionStart","session_title":"프로젝트 코더","cwd":"<agent-office 경로>"}' | node hooks/approval-hook.mjs`로 직접 볼 수 있음
 - 세분화 토큰 권한 화면을 캡처해 둠: 저장소 하나, Issues Read and write, Metadata Read 말고는 없음
+
+## 6. 버전과 배포 (2026-11-14부터)
+
+배포마다 [유의적 버전](https://semver.org/lang/ko/)(MAJOR.MINOR.PATCH)을 붙인다. 첫 버전은 `v1.0.0`(배포 PR #464)이다.
+
+| 올리는 자리 | 언제 | 예 |
+|---|---|---|
+| MAJOR | 방 구성 · 데이터 구조를 크게 바꿔 예전과 호환되지 않을 때 | 1.4.2 → 2.0.0 |
+| MINOR | 새 기능이 하나라도 들어간 배포 | 1.0.0 → 1.1.0 |
+| PATCH | 고침 · 문서 · 성능만 들어간 배포(핫픽스) | 1.1.0 → 1.1.1 |
+
+배포 순서
+1. dev에서 `package.json`의 `version`을 올리는 커밋(`chore(release): vX.Y.Z`)을 만든다.
+2. dev → main PR 제목을 `release: vX.Y.Z — 한 줄 요약`으로 하고, 사용자 승인 뒤 merge(merge commit)한다.
+3. main에 태그 `vX.Y.Z`와 GitHub Release를 만든다(`gh release create vX.Y.Z --target main --generate-notes`, 위에 한두 줄 요약).
+4. 서재의 배포 묶음(docs-ui.md 2.6)과 타임랩스 배포 점은 이 버전을 머리 줄에 쓴다.
+
+책상 방(rowansong.dev)도 같은 규칙으로 따로 버전을 센다. 두 저장소를 함께 배포할 때는 각자 올린다.
