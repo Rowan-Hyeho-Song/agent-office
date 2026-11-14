@@ -161,6 +161,8 @@ const STATES = [
       // window.__replay comes with the replay driver, which also loads after the first screen (#410, #444)
       await p.waitForFunction(() => !!window.__replay, null, { timeout: 30000 })
       await p.evaluate(() => window.__replay.setMode('list'))
+      // the list comes in a moment later; checked before it is there, the dock (hidden only once it is) was measured on top of it
+      await p.waitForSelector('.replay-list', { timeout: 30000 })
     } },
   { name: '타임랩스 · 휴대폰 막대', url: '/?debug=1&replay=all&t=2026-11-08T01:00:00Z', viewport: { width: 390, height: 844 }, act: async (p) => {
       // a phone opens the 2D list by default; "사무실에서 보기" brings the bar
