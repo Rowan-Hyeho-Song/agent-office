@@ -92,6 +92,8 @@ export interface GripOut {
   mix: Mix
   /** the object belongs to the hand (from the instant the hand has closed, until it lets go) */
   attached: boolean
+  /** how far through the approach (0 … 1, not eased; only while approaching) */
+  k?: number
 }
 
 export interface GripOpts {
@@ -150,7 +152,7 @@ export class GripClock {
       case 'approach': {
         const dur = d(GRIP_S.approach)
         const open = Math.min(d(GRIP_S.open), dur)
-        out = { stage: 'approach', wHand: ease(el / dur), wCurl: open > 0 ? ease((el - (dur - open)) / open) : 1, mix: [1, 0, 0], attached: false }
+        out = { stage: 'approach', wHand: ease(el / dur), wCurl: open > 0 ? ease((el - (dur - open)) / open) : 1, mix: [1, 0, 0], attached: false, k: Math.min(1, Math.max(0, el / dur)) }
         break
       }
       case 'close': {

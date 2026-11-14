@@ -447,6 +447,8 @@ interface Prop {
   forced: Matrix4 | null
   /** #137 ① a resting place other than home (the white bowl set down at the corner, and the stone sample on it), world; null = home */
   rest?: Matrix4 | null
+  /** #457 out of sight where it rests (a drink that faded out in a hand is back on its shelf, unseen until the fridge is shut) */
+  hidden?: boolean
 }
 
 /** a prop's info for the play stage */
@@ -495,7 +497,7 @@ export class PropBank {
     // the one it holds, unless it asks for another of the kind (#137 ①: one agent placing both colours takes the black stone, then the white)
     const mine = this.props.find((p) => p.holder?.rig === rig && p.kind === kind && (!prefer || p.node.name === prefer || !this.props.some((q) => q.node.name === prefer)))
     if (mine) return mine
-    const free = this.props.filter((p) => p.kind === kind && !p.holder && (kind !== 'pen' || p.homeParent === rig.parts.head))
+    const free = this.props.filter((p) => p.kind === kind && !p.holder && !p.hidden && (kind !== 'pen' || p.homeParent === rig.parts.head))
     return free.find((p) => p.node.name === prefer) ?? free[0]
   }
 
@@ -538,6 +540,15 @@ export class PropBank {
     else p.rest = (p.rest ?? new Matrix4()).copy(world)
   }
 
+  /** #457 hide the prop called `name` where it rests (true), or show it there again (false); nobody can take it while it is hidden */
+  hide(name: string, on: boolean) {
+    const p = this.props.find((x) => x.node.name === name)
+    if (p) p.hidden = on
+  }
+  isHidden(name: string) {
+    return !!this.props.find((x) => x.node.name === name)?.hidden
+  }
+
   /** the pose PlayStage wants for this prop this frame (null: leave it to the easing) */
   force(node: Object3D, pose: Matrix4 | null) {
     const p = this.props.find((x) => x.node === node)
@@ -562,6 +573,12 @@ export class PropBank {
     const k = 1 - Math.exp(-PROP_OMEGA * dt)
     for (const p of this.props) {
       if (this.borrowed.has(p.node)) continue
+      if (p.hidden) {
+        // exactly where it rests, out of sight: it never travels there in view
+        this.restOf(p, this.m).decompose(p.node.position, p.node.quaternion, this.scl)
+        p.node.visible = false
+        continue
+      }
       if (p.forced && p.holder) {
         // a pose decided elsewhere (the hand was placed from it, grip.ts): exactly, with no easing
         p.forced.decompose(p.node.position, p.node.quaternion, this.scl)
