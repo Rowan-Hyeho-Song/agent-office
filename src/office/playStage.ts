@@ -42,7 +42,7 @@ import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFo
 import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
 import { type Place, SEQ, ease, habitOf, placeSequence } from '../play/choreo'
-import { strokeAt } from '../play/stroke'
+import { stepAt, strokeAt } from '../play/stroke'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
 import { Typist } from './typist'
@@ -74,6 +74,9 @@ const LEAN_MAX_M = 0.08
 const WEIGHT_DIP_M = 0.03
 const WRIST_SAG = (5 * Math.PI) / 180 / ((30 * Math.PI) / 180)
 const LEAN_IN_M = 0.05
+/** the paddle hand's shoulder, from the body's spot: height above the floor and sideways toward the right hand (rig.ts's throw: 1.0 m, 0.12–0.15 m) */
+const SHOULDER_Y = 1.0
+const SHOULDER_SIDE = 0.15
 
 export interface StageIn {
   /** office time, ms */
@@ -529,6 +532,12 @@ export class PlayStage {
       const dir = side === 0 ? 1 : -1
       const planeX = -dir * (d.L! / 2 + d.reach!)
       const ready: V3 = [planeX + dir * 0.12, 0.2, 0]
+      // a ball out of reach of the paddle shoulder: the body steps along the end line first (max 0.4 m at 1.2 m/s, play.md 7, #397); not under reduced motion
+      if (rig && !inp.reduced) {
+        const o = this.tableWorld([0, 0, 0])
+        const shoulder: V3 = [rig.x - o.x, SHOULDER_Y - o.y, rig.z - o.z + dir * SHOULDER_SIDE]
+        rig.nudge(0, stepAt(rally.contacts.filter((c) => c.side === side), playing ? tMs : -Infinity, shoulder, dir, FACE_GAP))
+      }
       // read the ball, take the paddle there while it flies, wait drawn back, swing so the face meets it (#416 ③, play.md 7)
       const sp = strokeAt(
         rally.contacts.filter((c) => c.side === side),

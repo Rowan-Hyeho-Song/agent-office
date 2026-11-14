@@ -125,6 +125,30 @@ describe('PlayStage', () => {
     expect(touch).toBeLessThan(0.003)
   })
 
+  it('ping-pong: a ball out of reach makes the body step along the end line, at most 0.4 m and 1.2 m/s, and it comes back (#397, play.md 7)', async () => {
+    const s = findSession('pingpong')
+    const w = await world()
+    const goals = seat(w.rigs, s)
+    const steps: number[][] = [[], []]
+    for (let k = 0; k < 1500; k++) {
+      const now = s.startMs + 15_000 + 6000 + k * 20
+      w.stage.update(inp(w, goals, now, k * 0.02))
+      for (const side of [0, 1] as const) {
+        const r = w.rigs[s.players[side]]
+        steps[side].push(r.parts.root.position.z - r.z)
+      }
+    }
+    for (const side of [0, 1]) {
+      const st = steps[side]
+      expect(Math.max(...st.map(Math.abs))).toBeLessThanOrEqual(0.4 + 1e-6)
+      for (let i = 1; i < st.length; i++) expect(Math.abs(st[i] - st[i - 1])).toBeLessThanOrEqual(1.2 * 0.02 + 1e-6)
+    }
+    const all = [...steps[0], ...steps[1]]
+    if (LOG) appendFileSync(LOG, 'pingpong side step max ' + Math.max(...all.map(Math.abs)).toFixed(3) + ' m, frames stepped ' + all.filter((x) => Math.abs(x) > 0.01).length + '/' + all.length + '\n')
+    expect(Math.max(...all.map(Math.abs))).toBeGreaterThan(0.05) // in 30 s of rally some ball is out of reach
+    expect(all.some((x, i) => i > 0 && Math.abs(x) < 1e-6 && Math.abs(all[i - 1]) > 0)).toBe(true) // and it comes back to the spot
+  })
+
   it('omok: the same office time gives the same stones; the stone sits between the index and middle fingertips at their contacts', async () => {
     const s = findSession('boardgame')
     const run = async (measure: boolean) => {
