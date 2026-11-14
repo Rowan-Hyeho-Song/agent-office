@@ -74,6 +74,10 @@ const LEAN_MAX_M = 0.08
 const WEIGHT_DIP_M = 0.03
 const WRIST_SAG = (5 * Math.PI) / 180 / ((30 * Math.PI) / 180)
 const LEAN_IN_M = 0.05
+/** reduced motion: the can's appearance in the hand / on its stand (watering.md 5) */
+const CAN_FADE_MS = 120
+/** watering.md 1: over the monstera it leans 2° more (12° instead of 10°: the lean's 5 cm scaled the same way, #397) */
+const LEAN_MORE: Record<string, number> = { plant_sofa: 12 / 10 }
 
 export interface StageIn {
   /** office time, ms */
@@ -1080,7 +1084,8 @@ export class PlayStage {
       flow = flowAt(plant.name, w.u, habitS)
       // it steps in to the pot: the body leans toward it (10°, about 5 cm) and the head bows 15°
       if (lv.body) {
-        rig.leanOver(-Math.sin(heading) * LEAN_IN_M * pr.hold, -Math.cos(heading) * LEAN_IN_M * pr.hold)
+        const lean = LEAN_IN_M * (LEAN_MORE[plant.name] ?? 1) * pr.hold
+        rig.leanOver(-Math.sin(heading) * lean, -Math.cos(heading) * lean)
         rig.headExtra.pitch = -0.26 * pr.hold
       }
     } else if (w.stage === 'put') {
@@ -1094,6 +1099,8 @@ export class PlayStage {
       else want = false
     }
     const attached = this.grip(rig, 'r', 'watering_can', can.node.name, want, held, inp)
+    // reduced motion: a jump (stand → hand at the pour, hand → stand at the put) fades in instead of flying
+    this.fadeCan(can.node, inp.reduced && (w.stage === 'pour' || w.stage === 'put') ? `${rig.id}:${w.stage}` : '', inp.t * 1000)
     // the left hand supports the can's belly while it pours, following it (grip_l), fading in and out with the settle
     const tl = this.target(can.node.name, 'watering_can', 'l')
     if (tl && hands > 0) this.partner(rig, 'watering_can', 'l', tl, this.lastObjPose, 'r', hands)
@@ -1175,6 +1182,34 @@ export class PlayStage {
   }
 
   private pouring: { rig: AgentRig; held: Matrix4; plant: Plant; flow: number; u: number; shakes: number } | null = null
+  /**
+   * Reduced motion (watering.md 5, #397): the can does not travel; it appears in the hand when the pour begins and back on its stand when it
+   * is put, each with a 0.12 s fade. Its meshes get their own copy of the material the first time (the atlas material is shared).
+   */
+  private canFade: { key: string; t0: number; mats: Material[] | null; o: number } = { key: '', t0: 0, mats: null, o: 1 }
+  /** `now`: the rigs' clock, ms (inp.t: it runs in the timelapse and the tests too) */
+  private fadeCan(node: Object3D, key: string, now: number) {
+    const f = this.canFade
+    if (key !== f.key) {
+      f.key = key
+      f.t0 = now
+    }
+    const o = key ? Math.min(1, Math.max(0, (now - f.t0) / CAN_FADE_MS)) : 1
+    if (o === f.o) return
+    if (!f.mats) {
+      f.mats = []
+      for (const m of meshesOf(node)) {
+        m.material = (m.material as Material).clone()
+        f.mats.push(m.material as Material)
+      }
+    }
+    f.o = o
+    for (const mat of f.mats) {
+      mat.transparent = o < 1
+      mat.opacity = o
+      mat.depthWrite = o >= 1
+    }
+  }
   private carryAmp = new Map<string, { x: number; z: number; amp: number }>()
   /** the spout node in the can's frame (water.ts: +z = the water's direction) */
   private spoutLocal: Matrix4 | null = null
