@@ -5,6 +5,7 @@ Run:  blender --background --factory-startup --python office_bake.py -- <out_dir
   --preview        no bake: Cycles renders of the camera shots (preview_<shot>.png), to check modeling
   --shot=a,b       only these preview shots
   --no-bake        unwrap and export office.glb without baking (fast layout checks; no atlases written)
+  --only-atlas=a,b bake only these atlases (tuning runs; the rest are not written)   --fridge-w=W  the fridge inside's bake light
   --stats          print triangles, surface area and texel density per atlas
   --samples N      bake samples (default 1024)   --size N  atlas size (default 2048)   --no-denoise
 
@@ -4899,7 +4900,8 @@ def build_records():
 # ================================================================ #457 the fridge's inside (lounge-props.md 5)
 FRIDGE_NODES = []  # baked into the fridge atlas (1024), with the door open and its light on
 FR = dict(x0=4.335, x1=4.735, y0=0.10, y1=0.82, z0=-0.94, z1=-0.52)  # the inside (web), FRIDGE_Z -0.73
-FR_SHELF_X = (4.335 + 0.09, 4.335 + 0.09 + 0.30)  # shelves from 9 cm behind the front face (the door bins come 7 in), 0.30 deep
+FRIDGE_BAKE_W = 2.2  # the inside's bake light (W, a 0.03 x 0.24 rectangle at the strip), then the atlas's shoulder (#469)
+FR_SHELF_X = (4.335 + 0.09, 4.335 + 0.09 + 0.30)  # shelves from 9 cm behind the front face (the door bins come 8.5 in), 0.30 deep
 
 
 def wire_mat():
@@ -5059,6 +5061,7 @@ def fridge_inside(fx0, xw):
     sl = cyl("fridge_light_strip", 0.0075, 0.30, (x0 + 0.04, y1 - 0.0045, zc), emitter("#eaf2ff", 3.0, "fridge_light_strip"), "export", 10, axis="z")
     sl.data.transform(Matrix.Diagonal((1.0, 0.3, 1.0, 1.0)))  # flat: 1.5 cm wide, 4.5 mm thick (local y = web y here)
     live(sl, "neon")
+    sl.hide_render = True  # (#469) not in any bake: 4.5 mm under the ceiling it burnt the walls' top front white (the area light stands in)
     child_empty(None, "fridge_light", Mx((x0 + 0.04, y1 - 0.003 - 0.02, zc)), {"light": "fridge", "color": "#eaf2ff", "distance": 1.0, "decay": 2})
     # the spill: a trapezoid on the floor in front, 0.55 out, 0.36 wide at the fridge and 0.45 out in the room; UV v
     # 0 at the fridge -> 1 out, u across (the app fades its edges)
@@ -5078,7 +5081,11 @@ def fridge_inside(fx0, xw):
     sb.inputs["Emission Strength"].default_value = 1.0
     o = live(mesh_obj("fridge_spill", bm, sm, "export"), "bot")
     o["hidden_at_rest"], o["spill"] = True, {"max_opacity": 0.16, "blend": "add"}
-    light("fridge_bake_light", "POINT", 3.0, "#eaf2ff", (x0 + 0.06, y1 - 0.05, zc), size=0.02)
+    # (#469 designer: no face over #f2f4f5) the strip's own shape facing down, not a point: a point 5 cm off the side
+    # walls burnt their top front white; the rectangle throws little up and sideways, so the walls take it grazing
+    fw = float(next((a.split("=")[1] for a in sys.argv if a.startswith("--fridge-w=")), FRIDGE_BAKE_W))
+    fl = [float(v) for v in next((a.split("=")[1] for a in sys.argv if a.startswith("--fridge-l=")), "0.04,0.03,0.24").split(",")]  # x from the front, size x, size z
+    light("fridge_bake_light", "AREA", fw, "#eaf2ff", (x0 + fl[0], y1 - 0.006, zc), aim=(x0 + fl[0], 0.0, zc), size=fl[1], size_y=fl[2])
 
 
 def fridge_door_inside():
@@ -5086,7 +5093,9 @@ def fridge_door_inside():
     hinge at z 0, the door to -0.478): the cool lining, three bins (a liner floor, a clear blue-grey lip 3.5 cm), a
     butter box (a clear lid), three sauce bottles, a 1 L milk carton, a water bottle (clear) and juice"""
     G = "export"
-    lin = plastic("#eef1f2", 0.5, 0, 0.05, "fridge_liner")
+    # (#469 designer: the door's inside lit live by the app's light burnt white) a step darker and matte: it faces away from
+    # the inside's light when open, around #d8dde0
+    lin = plastic("#dde2e4", 0.75, 0, 0.05, "fridge_door_liner")
     lip = glass_mat("fridge_bin", "#b9c8d6", 0.45)
     out = [box("frd_liner", (0.002, 0.70, 0.40), (0.001, 0.46, -0.24), lin, G)]
     for yb in (0.70, 0.47, 0.15):  # 8 cm deep (the 1 L bottles fit inside the lip); the lip's foot beside the floor
@@ -5968,10 +5977,13 @@ for name, entries in atlases.items():
 import time  # noqa: E402
 
 NO_BAKE = "--no-bake" in ARGS  # #109: export the glb only (layout and slot checks), no atlases
+ONLY_ATLAS = next((a.split("=")[1].split(",") for a in ARGS if a.startswith("--only-atlas=")), None)  # tuning runs
 for name, entries in ({} if NO_BAKE else atlases).items():
+    if ONLY_ATLAS and name not in ONLY_ATLAS:
+        continue
     # #457 (lounge-props.md 5.4): the fridge's inside bakes with its door open and its light on; every other atlas
     # sees it shut and dark (no fridge glow on the floor or the counter, the door's shadow kept)
-    for nm_, inside in (("fridge_bake_light", True), ("fridge_light_strip", True), ("fridge_door", False), ("fridge_glass", False)):
+    for nm_, inside in (("fridge_bake_light", True), ("fridge_door", False), ("fridge_glass", False)):
         if nm_ in bpy.data.objects:
             bpy.data.objects[nm_].hide_render = (name != "fridge") if inside else (name == "fridge")
     bpy.ops.object.select_all(action="DESELECT")
@@ -5997,6 +6009,20 @@ for name, entries in ({} if NO_BAKE else atlases).items():
             for (u, v) in ((0.10, 0.535), (0.40, 0.58), (0.56, 0.95)):
                 print("top sample (linear):", [round(float(c), 3) for c in a_[int((1 - v) * (w_ - 1)) * w_ + int(u * (w_ - 1)), :3]])
         a_[:, :3] *= ATLAS_GAIN[name]
+        img.pixels.foreach_set(a_.ravel())
+    if name == "fridge":  # #469 (designer: no face over #f2f4f5): a shoulder on the brightest channel, hue kept; the room's
+        import numpy as np  # light through the open door and the strip light pile up on the front's top, past white
+        img = images[name]
+        a_ = np.empty(len(img.pixels), dtype=np.float32)
+        img.pixels.foreach_get(a_)
+        a_ = a_.reshape(-1, 4)
+        a_[:, :3] *= 1.15  # the middle up a little (the lining front ~#dc), the shoulder keeps the top under #f2
+        K_, L_ = 0.72, 0.89  # linear: the knee (sRGB ~#dc) and the ceiling (sRGB ~#f2)
+        m_ = a_[:, :3].max(axis=1)
+        hi_ = m_ > K_
+        m2 = K_ + (L_ - K_) * (1 - np.exp(-(m_[hi_] - K_) / (L_ - K_)))
+        a_[hi_, :3] *= (m2 / m_[hi_])[:, None]
+        print(f"fridge shoulder: {100 * hi_.mean():.1f}% of texels over the knee, max {m_.max():.2f} -> {a_[:, :3].max():.2f}")
         img.pixels.foreach_set(a_.ravel())
     if DENOISE:
         try:
