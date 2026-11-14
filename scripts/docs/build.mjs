@@ -139,10 +139,11 @@ export function linkedPulls(n, prs) {
 
 /**
  * The stage of an issue and how far along it is. Pure.
- *   done    the issue is closed; or a linked PR that closes it (closing keyword, or its own branch) is merged
+ *   done    the issue is closed (only then: a merged PR does not finish an issue that is still open, #462)
  *   review  an open linked PR that is not a draft. A draft is still being worked on, so it counts as doing
- *   doing   a branch `<type>/<n>-…` exists, or an open draft PR, or a merged PR that only refs it
+ *   doing   a branch `<type>/<n>-…` exists, or an open draft PR, or a merged PR (closing it or only refs)
  *   waiting otherwise
+ * A done one also says when (`doneAt`, #462): the issue's closed_at.
  * A work-issue declaration (#182) is a file on the session's PC, invisible to GitHub, so it is not read here.
  * An open review PR beats an earlier merged one (the issue got a second PR); a closed issue beats everything.
  * @param {any} issue
@@ -155,12 +156,14 @@ export function progressFor(issue, { prs = [], branches = [], comments = [] } = 
   const open = linked.filter((l) => l.pr.state === 'open' && !l.pr.merged_at)
   const merged = linked.filter((l) => l.pr.merged_at)
   const hasBranch = branches.some((b) => branchIssue(typeof b === 'string' ? b : b?.name) === n)
+  // done only when the issue is closed (#462 designer: a merged PR that closes it, while the issue stays open, is still work in hand)
   let stage = 'waiting'
   if (issue.state === 'closed') stage = 'done'
   else if (open.some((l) => !l.pr.draft)) stage = 'review'
-  else if (merged.some((l) => l.closes)) stage = 'done'
   else if (hasBranch || open.length || merged.length) stage = 'doing'
-  return { stage, checks: countChecks(issue.body), pending: pendingApprovals(comments) }
+  // #462: when it was done (the library groups done files by the first deploy after this)
+  const doneAt = stage === 'done' ? (issue.closed_at ?? null) : null
+  return { stage, checks: countChecks(issue.body), pending: pendingApprovals(comments), ...(doneAt ? { doneAt } : {}) }
 }
 
 /** what progressFor needs for one issue, from GitHub (three list calls) */

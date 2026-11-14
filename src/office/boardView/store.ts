@@ -18,12 +18,16 @@ export interface BoardViewState {
   focusKey: string | null
   /** the pointer is over the board, or the keyboard opener has focus (the cyan outline + tag) */
   hover: boolean
+  /** which board: the whiteboard (#234), or the cork board of the visitors' notes (#4 12.3: "the same way as the whiteboard") */
+  surface: Surface
 }
 
-export const CLOSED: BoardViewState = { phase: 'closed', mode: 'stage', column: null, focusKey: null, hover: false }
+export type Surface = 'whiteboard' | 'bulletin'
+
+export const CLOSED: BoardViewState = { phase: 'closed', mode: 'stage', column: null, focusKey: null, hover: false, surface: 'whiteboard' }
 
 export type BoardEvent =
-  | { type: 'open'; mode: Mode; column: number | null; focusKey: string | null }
+  | { type: 'open'; mode: Mode; column: number | null; focusKey: string | null; surface?: Surface }
   | { type: 'arrived' }
   | { type: 'close' }
   | { type: 'left' }
@@ -33,7 +37,7 @@ export type BoardEvent =
 export function reduceBoard(s: BoardViewState, e: BoardEvent): BoardViewState {
   switch (e.type) {
     case 'open':
-      return s.phase === 'closed' ? { ...s, phase: e.mode === 'sheet' ? 'open' : 'flying', mode: e.mode, column: e.column, focusKey: e.focusKey } : s
+      return s.phase === 'closed' ? { ...s, phase: e.mode === 'sheet' ? 'open' : 'flying', mode: e.mode, column: e.column, focusKey: e.focusKey, surface: e.surface ?? 'whiteboard' } : s
     case 'arrived':
       return s.phase === 'flying' ? { ...s, phase: 'open' } : s
     case 'close':
@@ -72,10 +76,10 @@ export function setBoardHover(hover: boolean) {
 }
 
 /** what the open button / a press on the board calls; `from` = the element focus goes back to on close */
-export function openBoard(o: { mode: Mode; column?: number | null; focusKey?: string | null; from?: HTMLElement | null }): boolean {
+export function openBoard(o: { mode: Mode; column?: number | null; focusKey?: string | null; from?: HTMLElement | null; surface?: Surface }): boolean {
   const a = document.activeElement
   opener = o.from ?? (a instanceof HTMLElement && a !== document.body ? a : null)
-  const ok = dispatchBoard({ type: 'open', mode: o.mode, column: o.column ?? null, focusKey: o.focusKey ?? null })
+  const ok = dispatchBoard({ type: 'open', mode: o.mode, column: o.column ?? null, focusKey: o.focusKey ?? null, surface: o.surface })
   if (!ok) opener = null
   return ok
 }

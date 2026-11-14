@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { chromium } from 'playwright-core'
 
-const DEFERRED = ['wall_items', 'lounge', 'lounge2', 'desk_props'] // keep in step with DEFERRED_ATLASES in src/office/atlases.ts
+const DEFERRED = ['wall_items', 'lounge', 'lounge2', 'desk_props', 'fridge'] // keep in step with DEFERRED_ATLASES in src/office/atlases.ts
 const SIZE = 512
 const QUALITY = 0.9
 const dir = process.argv[2] ?? 'public/models'

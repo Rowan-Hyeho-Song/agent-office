@@ -480,6 +480,35 @@ html[data-motion='reduce'] .doc-nav .doc-head h4 { transition: none; }
 @media (max-width: 380px) {
   .doc-filter { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 }
+/* #462 (docs-ui.md 2.6): finished files grouped by deploy. The header is a button laid under its face (one grid cell), so the
+   deploy PR in the face stays its own link; the body opens over 180 ms and is out of the Tab order once folded */
+.dg-now { display: flex; align-items: baseline; gap: var(--space-2); margin: var(--space-2) 0 var(--space-1); padding: 0 var(--space-2); font-family: var(--font-pixel); font-weight: 700; font-size: 13px; color: var(--color-text); }
+.dg-now .dg-count { font-weight: 400; font-size: var(--font-size-1); color: var(--color-text-muted); }
+.dg-head { display: grid; margin: 0; border-top: 1px solid var(--color-line); font: inherit; }
+.dg-head > * { grid-area: 1 / 1; }
+.dg-toggle { min-height: 52px; width: 100%; background: none; border: 0; padding: 0; cursor: pointer; }
+.dg-head:hover .dg-toggle { background: var(--surface-raised); }
+.dg-toggle:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: -2px; }
+.dg-face { pointer-events: none; display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; padding: var(--space-1) var(--space-2); }
+.dg-l1 { display: flex; align-items: center; gap: var(--space-2); min-width: 0; font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); white-space: nowrap; }
+.dg-tri { flex: none; width: 12px; height: 12px; background: var(--color-text); clip-path: polygon(25% 15%, 80% 50%, 25% 85%); transition: transform 180ms var(--ease-out); }
+.doc-group[data-open] .dg-tri { transform: rotate(90deg); }
+.dg-lead { flex: none; font-weight: 700; font-size: 13px; color: var(--color-text); }
+.dg-date { flex: none; }
+.dg-pr { pointer-events: auto; flex: none; color: var(--color-text-muted); text-decoration: none; }
+.dg-pr:hover { color: var(--color-text); text-decoration: underline; }
+.dg-pr:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+.dg-l1 .dg-count { margin-left: auto; flex: none; }
+.dg-sum { display: block; padding-left: calc(12px + var(--space-2)); font-size: 12px; line-height: 1.4; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dg-body { display: grid; grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows 180ms var(--ease-out), visibility 0s 180ms; }
+.doc-group[data-open] .dg-body { grid-template-rows: 1fr; visibility: visible; transition: grid-template-rows 180ms var(--ease-out), visibility 0s; }
+.dg-inner { min-height: 0; overflow: hidden; }
+.dg-pr-line { display: none; padding: var(--space-1) var(--space-2); font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
+@media (max-width: 380px) {
+  .dg-pr { display: none; }
+  .dg-pr-line { display: block; }
+}
+@media (prefers-reduced-motion: reduce) { :root:not([data-motion='full']) :is(.dg-tri, .dg-body, .doc-group[data-open] .dg-body) { transition: none; } }
 .doc-note { margin: var(--space-3) 0 0; font-size: 12px; line-height: 1.5; color: var(--color-text-muted); }
 .doc-empty { padding: var(--space-4); }
 .doc-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
@@ -933,3 +962,29 @@ html[data-motion='reduce'] .badge-sheet { animation: sound-sheet-fade 120ms line
 .note-msg.ok { color: #2f6b3a; }
 .note-btns { display: flex; gap: 6px; justify-content: flex-end; }
 .note-form .badge-give-btn[disabled] { opacity: 0.5; cursor: default; }
+
+/* #4 12.3: the notes over the cork board (where the camera has flown) and the phone's sheet */
+/* the board's face is the baked cork itself (the painted notes step aside while it is read); only the room around it dims */
+.nv-stage { position: absolute; box-shadow: 0 0 0 200vmax rgb(0 0 0 / 0.4); background: transparent; }
+.nv-card { all: unset; position: absolute; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px; padding: 14px 12px 10px; background: #fff1a8; color: #2a2418; font-family: var(--font-pixel); font-size: 13px; line-height: 1.4; box-shadow: 0 4px 8px rgb(0 0 0 / 0.3); cursor: pointer; }
+.nv-card:hover { outline: 2px solid var(--color-cyan); outline-offset: 1px; }
+.nv-card:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+.nv-pin { position: absolute; top: -6px; left: 50%; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--pin); box-shadow: 0 0 0 2px rgb(0 0 0 / 0.4); }
+.nv-text { flex: 1; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; word-break: keep-all; overflow-wrap: anywhere; }
+/* the name in one line (the whole name is on the opened card) */
+.nv-name { color: #6b5f45; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nv-empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 24px; color: #2a2418; font-family: var(--font-pixel); text-align: center; text-shadow: 0 1px 0 rgb(255 255 255 / 0.35); }
+.nv-open { position: absolute; left: 50%; top: 50%; translate: -50% -50%; width: min(86%, 420px); box-sizing: border-box; padding: 22px 20px 16px; background: #fff1a8; color: #2a2418; font-family: var(--font-pixel); box-shadow: 0 0 0 1px var(--color-halo), 0 16px 40px rgb(0 0 0 / 0.5); }
+.nv-open::before { content: ''; position: absolute; top: -8px; left: 50%; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: var(--pin); box-shadow: 0 0 0 2px rgb(0 0 0 / 0.4); }
+.nv-open-meta { margin: 0 0 10px; color: #6b5f45; font-size: 12px; }
+.nv-open-text { margin: 0 0 12px; font-size: 18px; line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; }
+.nv-open-name { margin: 0 0 14px; color: #6b5f45; font-size: 13px; }
+.nv-open .nv-open-close { position: static; }
+.nv-sheet { position: fixed; inset: 0; z-index: 36; display: flex; flex-direction: column; background: var(--color-surface); color: var(--color-text); font-family: var(--font-pixel); }
+.nv-sheet-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--color-line); }
+.nv-sheet-head h2 { margin: 0; font: inherit; font-size: 14px; }
+.nv-sheet .nv-sheet-close { position: static; flex: none; }
+.nv-sheet-list { flex: 1; overflow: auto; display: grid; align-content: start; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px 14px; padding: 22px 16px calc(16px + env(safe-area-inset-bottom, 0px)); background: #c8915a; }
+.nv-sheet-list .nv-card { position: relative; min-height: 110px; }
+.nv-sheet-list .nv-text { -webkit-line-clamp: 6; }
+.nv-sheet .nv-open { position: fixed; }

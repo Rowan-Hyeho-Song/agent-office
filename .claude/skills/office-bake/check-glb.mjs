@@ -4,7 +4,8 @@
 //
 // --overlap (#109): reads the slot_<name> empties (each object's footprint, extras slot = kind, size, wall) and checks
 // the layout rules in SKILL.md 10: the gap between every pair against its minimum, walls, the room's inside.
-// It also finds coplanar same-facing faces that overlap (z-fighting, #263); --coplanar <regex> lists where.
+// It also finds coplanar same-facing faces that overlap (z-fighting, #263); --coplanar <regex> lists where; and
+// any top-level node whose meshes reach 0.3 m past the room box (#457: a part placed twice floated off the map).
 //
 // Prints: file size, top-level nodes by kind (atlas / live / nav / hit / surface / screen / prop), triangles,
 // names that look like Blender duplicates ("x.001" → "x001"), live parts with neither pivot_at nor a reason to
@@ -226,6 +227,24 @@ if (overlap) {
   for (const s of outside) console.log(`outside the room: ${s.name}`)
   console.log(`overlap: ${items.length} slots, ${bad.length} pairs under their minimum, ${outside.length} outside the room`)
   if (bad.length || outside.length) fail('--overlap: layout rules broken (table above)')
+  // #457: no mesh off the map. A node built at its place and then placed again sits at twice its place (the trophy
+  // band floated off the room's corner like a white stone). The window's outside view is meant to be out there
+  const VIEW = new Set(['city_lights', 'backdrop', 'sky', 'portal'])
+  const MARGIN = 0.3
+  const v3 = (v) => `(${v.x.toFixed(2)}, ${v.y.toFixed(2)}, ${v.z.toFixed(2)})`
+  const stray = []
+  if (room) {
+    for (const o of scene.children) {
+      if (VIEW.has(o.userData.live)) continue
+      const b = new Box3().setFromObject(o)
+      if (b.isEmpty()) continue
+      if (b.min.x < room.lo[0] - MARGIN || b.max.x > room.hi[0] + MARGIN || b.min.z < room.lo[2] - MARGIN ||
+          b.max.z > room.hi[2] + MARGIN || b.min.y < -MARGIN || b.max.y > room.hi[1] + MARGIN) stray.push(`${o.name} ${v3(b.min)} .. ${v3(b.max)}`)
+    }
+  }
+  for (const s of stray) console.log(`mesh off the map: ${s}`)
+  console.log(`off the map: ${stray.length} nodes outside the room + ${MARGIN} m`)
+  if (stray.length) fail('--overlap: meshes off the map (above)')
 }
 
 // 5a) #263 coplanar faces (with --overlap): two triangles facing the same way on the same plane (within TOL) whose

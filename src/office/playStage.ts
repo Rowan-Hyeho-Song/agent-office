@@ -48,6 +48,7 @@ import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
 import { Typist } from './typist'
 import { LoungeActs } from './loungeActs'
+import { DRINK_PROP_KINDS } from './lounge'
 
 const UP = new Vector3(0, 1, 0)
 const DEG = Math.PI / 180
@@ -68,6 +69,8 @@ const LIFT_S = 0.35
 const REACH_KINDS = new Set(['book', 'marker', 'paddle'])
 /** carrying a prop back to where it rests, s */
 const PUT_S = 0.4
+/** #457 a reach with a waypoint (grip `via`): this share of the approach takes the hand to it, the rest goes on in */
+const VIA_SHARE = 0.4
 /** a go stone is carried within this far of the player's spot (m); farther, the body leans in, by at most LEAN_MAX_M */
 const STONE_COMFORT_M = 0.7
 const LEAN_MAX_M = 0.08
@@ -231,13 +234,18 @@ export class PlayStage {
     scene.updateMatrixWorld(true)
     this.typist = new Typist(nodes)
     this.lounge = new LoungeActs(scene, nodes, props, {
-      grip: (rig, side, kind, objName, want, held, inp, prefer) => this.grip(rig, side, kind, objName, want, held, inp, prefer),
+      grip: (rig, side, kind, objName, want, held, inp, prefer, via) => this.grip(rig, side, kind, objName, want, held, inp, prefer, false, via),
       partner: (rig, kind, side, objName, primary) => {
         const tgt = this.target(objName, kind, side)
         if (tgt) this.partner(rig, kind, side, tgt, this.lastObjPose, primary)
       },
       button: (rig, name, u, inp, holdS, depth) => this.button(rig, name, u, inp, holdS, depth),
       arrivedAt: (id) => this.arrivedAt.get(id),
+      // #457 a drink that has faded out of the hand: nothing carries it home (it is back on its shelf, hidden), the hand is free at once
+      drop: (rig, side, objName) => {
+        for (const k of [...this.carry.keys()]) if (k.startsWith(`${rig.id}:${side}:`) && this.carry.get(k)!.objName === objName) this.carry.delete(k)
+        this.clock(`${rig.id}:${side}`).reset()
+      },
     })
     this.tableNode = scene.getObjectByName('pp_table') ?? undefined
     const ex = this.tableNode?.userData as { size?: number[]; net_h?: number } | undefined
@@ -371,7 +379,7 @@ export class PlayStage {
    * One hand and one object for this frame. `want`: should the hand be holding. `held`: the object's world pose while it is held
    * (null: where it rests; for a fixture like a mouse, always where it is). Returns whether the object is the hand's now.
    */
-  private grip(rig: AgentRig, side: 'l' | 'r', kind: string, objName: string, want: boolean, held: Matrix4 | null, inp: StageIn, prefer?: string, carryCall = false): boolean {
+  private grip(rig: AgentRig, side: 'l' | 'r', kind: string, objName: string, want: boolean, held: Matrix4 | null, inp: StageIn, prefer?: string, carryCall = false, via?: Vector3): boolean {
     const spec = GRIPS[kind]?.[side]
     const tgt = this.target(objName, kind, side)
     const key = `${rig.id}:${side}`
@@ -397,9 +405,9 @@ export class PlayStage {
     const info = tgt.obj && !body ? this.props.info(rig, propKind, prefer ?? objName) : null
     const home = body ? body.matrixWorld.clone() : tgt.obj ? this.props.homeWorld(tgt.obj) : new Matrix4()
     let pose = home
-    // reduced motion: the can is simply in the hand (watering.md 5); everything else is lifted from where it rests
+    // reduced motion: the can (watering.md 5) and a drink from the fridge (lounge-props.md 5.5) are simply in the hand; everything else is lifted from where it rests
     if (body) pose = home
-    else if (out.attached && held) pose = inp.reduced && kind === 'watering_can' ? held : blend(home, held, ease((inp.t - (clock.attachedAt ?? inp.t)) / Math.max(LIFT_S, rig.gestureMin)))
+    else if (out.attached && held) pose = inp.reduced && (kind === 'watering_can' || kind in DRINK_PROP_KINDS) ? held : blend(home, held, ease((inp.t - (clock.attachedAt ?? inp.t)) / Math.max(LIFT_S, rig.gestureMin)))
     else if (out.attached && !tgt.obj) pose = held ?? home
     this.lastObjPose = pose
     const seat = Number(rig.id.split('_')[1])
@@ -410,8 +418,23 @@ export class PlayStage {
       if (last) target.copy(last)
     } else if (out.stage !== 'rest') this.lastHand.set(lastKey, target.clone())
     if (out.stage === 'rest') return false
+    // #457 designer: a reach through an opening goes by `via` (where the grip point would be, in front of it) for the first 40% of the approach,
+    // then straight in for the rest, so the hand does not cut across the opening's edge
+    let w = out.wHand
+    if (via && out.stage === 'approach' && out.k !== undefined) {
+      const at = new Vector3().setFromMatrixPosition(new Matrix4().multiplyMatrices(pose, tgt.pg))
+      const end = new Vector3().setFromMatrixPosition(target)
+      const front = end.clone().add(via.clone().sub(at))
+      if (out.k < VIA_SHARE) {
+        target.setPosition(front)
+        w = ease(out.k / VIA_SHARE)
+      } else {
+        target.setPosition(front.lerp(end, ease((out.k - VIA_SHARE) / (1 - VIA_SHARE))))
+        w = 1
+      }
+    }
     const fit = this.holdFit(rig, side, tgt)
-    rig.drive[side] = { target, w: out.wHand, curl: null, angles: mixVec(rig.curlVec(side, spec.pre), fit.hold, rig.curlVec(side, spec.after), out.mix), wc: out.wCurl, spread: null, reach: REACH_KINDS.has(kind) }
+    rig.drive[side] = { target, w, curl: null, angles: mixVec(rig.curlVec(side, spec.pre), fit.hold, rig.curlVec(side, spec.after), out.mix), wc: out.wCurl, spread: null, reach: REACH_KINDS.has(kind) }
     if (tgt.obj && info && !body) {
       rig.want = { kind: propKind, side, prefer: prefer ?? objName, attached: out.attached }
       if (out.attached) {
@@ -1041,6 +1064,8 @@ export class PlayStage {
     const right = new Vector3(Math.cos(heading), 0, -Math.sin(heading))
     void pp
     void og
+    // #457 a drink from the fridge in the left hand (loungeActs.ts): carried, sipped, faded out; nothing else takes the hands meanwhile
+    if (this.lounge.drink(rig, goal, inp)) return
     // the watering errand: first, so nothing else (the stamp) takes the right hand while it carries the can
     if (goal.pose === 'water') return this.errand(rig, goal, inp)
     // #137 ① the white bowl in both hands
@@ -1118,7 +1143,8 @@ export class PlayStage {
       }
       return
     }
-    if (((goal.pose === 'type' && inp.tablet) || goal.pose === 'write') && seat === 2 && resting) {
+    // 휴 drawing on the tablet (#164). Not while writing a wrap-up card: that is the card's own pose, beside the monitor with the body turned (#461)
+    if (goal.pose === 'type' && inp.tablet && seat === 2 && resting) {
       const pen = this.props.info(rig, 'tablet_pen')
       const tab = this.nodes.desk_2_tablet
       if (pen && tab) {
@@ -1127,8 +1153,8 @@ export class PlayStage {
         const nib = new Vector3(c.x + 0.05 * Math.sin(sc * 1.1) + 0.02 * Math.sin(sc * 4), c.y + 0.005, c.z + 0.04 * Math.cos(sc * 0.8) + 0.02 * Math.cos(sc * 5))
         const held = this.writing(nib, fwd.clone().negate(), 0.071, 45 * DEG, 8 * DEG * Math.sin(sc * 5))
         this.grip(rig, 'r', 'tablet_pen', pen.node.name, true, held, inp)
-        // the other hand keeps typing: the left types, the right holds the pen
-        if (goal.pose === 'type') this.typeAtDesk(rig, inp, seat, true)
+        // the other hand on the keyboard's left third, a shortcut every 3–6 s (#461: it typed whole words before, leaning the hands to one side)
+        this.typeAtDesk(rig, inp, seat, true, 'tablet')
       }
       return
     }
@@ -1142,7 +1168,7 @@ export class PlayStage {
    * Working at the desk (#225): the hands type what the schedule says, the right hand now and then goes to the mouse (the grip stage of the
    * mouse, blended with the keyboard hand), clicks and scrolls. `leftOnly`: the right hand holds the tablet pen.
    */
-  private typeAtDesk(rig: AgentRig, inp: StageIn, seat: number, leftOnly: boolean) {
+  private typeAtDesk(rig: AgentRig, inp: StageIn, seat: number, leftOnly: boolean, activity?: string) {
     // a plane gesture owns the hands while it lasts
     if (rig.gesture && inp.t < rig.gesture.until) return
     const ty = this.typist
@@ -1151,7 +1177,7 @@ export class PlayStage {
       t,
       dt: inp.dt,
       reduced: inp.reduced,
-      activity: inp.status[rig.id]?.activity,
+      activity: activity ?? inp.status[rig.id]?.activity,
       dilation: rig.gestureMin > 0 ? rig.gestureMin / 0.15 : 1,
       still: rig.ambient === 0,
       leftOnly,

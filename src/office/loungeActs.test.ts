@@ -44,7 +44,8 @@ interface Run {
 async function runAct(w: World, agent: string, kind: ActKind, mode?: RecordMode, opts: { maxS?: number; after?: number } = {}): Promise<Run> {
   const { walk, guard } = setup(w, agent)
   const now = walk.t0 + walk.t * 1000
-  walk.director.forceAct(agent, kind, now, mode)
+  // the fridge only looked into here (#457: taking a drink out is fridgeDrink.stage.test.ts)
+  walk.director.forceAct(agent, kind, now, mode, null)
   const r: Run = { fired: [], reachedAt: -1, maxDoor: 0, doorEnd: 0, streamFrames: 0, handFrames: { l: 0, r: 0 }, arm: { max: 0, end: 0 }, platterSpun: 0, stood: 0, guard, walk, endAt: -1 }
   const lounge = w.stage.lounge
   const arm = w.nodes.turntable_arm
@@ -83,14 +84,15 @@ async function runAct(w: World, agent: string, kind: ActKind, mode?: RecordMode,
 }
 
 describe('the fridge', () => {
-  it('the door opens 100° (cue fridge.open as it starts), is held, shuts (cue fridge.close as it ends); the hand takes the handle; every prop clean', async () => {
+  it('the door opens 100° (cue fridge.open as it starts, the hum with it), is held, shuts (cue fridge.close as it ends); the hand takes the handle; every prop clean', async () => {
     const w = await world()
     const r = await runAct(w, 'agent_3', 'fridge')
     const names = r.fired.map((f) => f.name)
-    expect(names, 'cues in order, once each').toEqual(['fridge.open', 'fridge.close'])
+    expect(names, 'cues in order, once each').toEqual(['fridge.open', 'fridge.hum', 'fridge.close'])
     expect(r.fired[0].u).toBeGreaterThanOrEqual(FRIDGE_T.open)
     expect(r.fired[0].u).toBeLessThan(FRIDGE_T.open + 0.2)
-    expect(r.fired[1].u).toBeGreaterThanOrEqual(FRIDGE_T.shut)
+    expect(r.fired[1].u, 'the hum with the opening').toBe(r.fired[0].u)
+    expect(r.fired[2].u).toBeGreaterThanOrEqual(FRIDGE_T.shut)
     expect(r.maxDoor, 'open').toBeCloseTo(FRIDGE.openDeg, 0)
     expect(r.doorEnd, 'shut again').toBe(0)
     expect(w.nodes.fridge_door.rotation.y).toBe(0)

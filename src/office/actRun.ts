@@ -2,7 +2,7 @@
 // is free, runs through whatever the schedule says next, and is one place that says how far along it is: `u`, the seconds since the agent reached its stand (-1 while it
 // is still on its way). Pure: no three.js, no Date.
 
-import { ACT_PLACE, RECORD_T, actTotal, recordBeats, type ActKind, type RecordMode } from './lounge'
+import { ACT_PLACE, RECORD_T, actTotal, recordBeats, type ActKind, type DrinkKind, type RecordMode } from './lounge'
 
 export interface ActRun {
   kind: ActKind
@@ -10,13 +10,24 @@ export interface ActRun {
   mode?: RecordMode
   /** the turntable: a record was already on the platter when this started */
   recordOn: boolean
+  /** #457 the fridge: the drink to take out (fridgeDrink.ts drinkPick); none = it only looks in */
+  pick?: DrinkKind
+  /** the drink is the hand's now (the Director has handed it on, Goal.drink) */
+  taken?: boolean
   /** the schedule block it belongs to (an agent acts once per block) */
   block: number
   /** when the agent reached its stand (office ms); null on the way */
   t0: number | null
 }
 
-export const startAct = (kind: ActKind, block: number, mode: RecordMode | undefined, recordOn: boolean): ActRun => ({ kind, block, ...(mode ? { mode } : {}), recordOn, t0: null })
+export const startAct = (kind: ActKind, block: number, mode: RecordMode | undefined, recordOn: boolean, pick?: DrinkKind | null): ActRun => ({
+  kind,
+  block,
+  ...(mode ? { mode } : {}),
+  recordOn,
+  ...(kind === 'fridge' && pick ? { pick } : {}),
+  t0: null,
+})
 
 export const actSpot = (run: ActRun) => ACT_PLACE[run.kind].spot
 

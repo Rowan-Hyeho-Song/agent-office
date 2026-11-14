@@ -69,6 +69,20 @@ describe('branchIssue', () => {
   ])('%s', (name, n) => expect(branchIssue(name)).toBe(n))
 })
 
+describe('progressFor: doneAt (#462)', () => {
+  const merged = '2026-11-10T02:00:00Z'
+  it('a closed issue: when it was closed', () => {
+    expect(progressFor(issue({ state: 'closed', closed_at: '2026-11-11T00:00:00Z' }), {}).doneAt).toBe('2026-11-11T00:00:00Z')
+  })
+  it('open with a merged closing PR is not done yet: no doneAt (the issue closes it)', () => {
+    const prs = [pr({ body: 'Closes #241', state: 'closed', merged_at: merged }), pr({ number: 301, head: { ref: 'fix/241-x' }, state: 'closed', merged_at: '2026-11-12T00:00:00Z' })]
+    expect(progressFor(issue(), { prs })).not.toHaveProperty('doneAt')
+  })
+  it('not done: no doneAt at all', () => {
+    expect(progressFor(issue(), { prs: [pr({ body: 'Closes #241' })] })).not.toHaveProperty('doneAt')
+  })
+})
+
 describe('progressFor: the stage (#241)', () => {
   const stage = (i: object, ctx: Parameters<typeof progressFor>[1] = {}) => progressFor(issue(i), ctx).stage
   const merged = '2026-11-10T02:00:00Z'
@@ -94,9 +108,10 @@ describe('progressFor: the stage (#241)', () => {
     expect(stage({ state: 'closed' })).toBe('done')
     expect(stage({ state: 'closed' }, { prs: [pr({ body: 'Closes #241' })], branches: ['feature/241-x'] })).toBe('done')
   })
-  it('a merged PR that closes it (keyword or its own branch): done even while the issue is open', () => {
-    expect(stage({}, { prs: [pr({ body: 'Closes #241', state: 'closed', merged_at: merged })] })).toBe('done')
-    expect(stage({}, { prs: [pr({ head: { ref: 'fix/241-x' }, state: 'closed', merged_at: merged })] })).toBe('done')
+  it('#462: a merged PR that closes it (keyword or its own branch) while the issue is still open: doing, not done', () => {
+    expect(stage({}, { prs: [pr({ body: 'Closes #241', state: 'closed', merged_at: merged })] })).toBe('doing')
+    expect(stage({}, { prs: [pr({ head: { ref: 'fix/241-x' }, state: 'closed', merged_at: merged })] })).toBe('doing')
+    expect(stage({ state: 'closed' }, { prs: [pr({ body: 'Closes #241', state: 'closed', merged_at: merged })] })).toBe('done')
   })
   it('a merged PR that only refs it leaves the issue doing; an open review PR beats an earlier merged one', () => {
     expect(stage({}, { prs: [pr({ body: 'Refs #241', state: 'closed', merged_at: merged })] })).toBe('doing')

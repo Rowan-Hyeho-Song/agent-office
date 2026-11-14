@@ -268,12 +268,14 @@ export function collect(data) {
   // commits: landed on dev = work; reached main without being on dev (merge commits) = deploy
   const devShas = new Set(devCommits.map((c) => c.sha))
   const commitPoint = (c, kind) => {
-    const title = firstLine(c.commit?.message)
-    const refs = [...title.matchAll(/\(#(\d+)\)/g)].map((m) => Number(m[1]))
-    const merge = MERGE_PR.exec(title)
+    const first = firstLine(c.commit?.message)
+    const refs = [...first.matchAll(/\(#(\d+)\)/g)].map((m) => Number(m[1]))
+    const merge = MERGE_PR.exec(first)
     if (merge) refs.push(Number(merge[1]))
     const prNo = [...refs].reverse().find((n) => prBy.has(n))
     const pr = prBySha.get(c.sha) ?? (prNo === undefined ? null : prBy.get(prNo))
+    // #462: a deploy is named by its PR ('release: v1.1.0 — …' / 'deploy: dev → main (… 2차) — …'), not by the merge commit's first line
+    const title = kind === 'deploy' && merge && pr?.title ? String(pr.title) : first
     let issue = refs.find((n) => issueBy.has(n)) ?? null
     if (issue === null && pr) {
       const m = CLOSES.exec(pr.body ?? '')

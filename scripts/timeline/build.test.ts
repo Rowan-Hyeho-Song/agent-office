@@ -94,6 +94,12 @@ describe('kinds and attribution', () => {
   it('deploy is the main-only merge, with its PR number and no seat', () => {
     expect(of('deploy')[0]).toMatchObject({ agent: null, pr: 5 })
   })
+  it('a deploy is titled by its PR (#462); without a PR title, the merge line', () => {
+    expect(of('deploy')[0].title).toBe('Merge pull request #5 from x/dev')
+    const named = build(data({ pulls: [pull(4, 'Closes #1'), { ...pull(5, '', 'd1'), title: 'release: v1.1.0 — 쪽지' }] }), cfg)
+    expect(named.find((p) => p.kind === 'deploy')?.title).toBe('release: v1.1.0 — 쪽지')
+    expect(named.filter((p) => p.kind === 'work').map((p) => p.title).sort()).toEqual(['chore: 처음', 'feat: 하나 (#1) (#4)'])
+  })
   it('issue seat: form field, then asset label, then title tag; none = null', () => {
     expect(issueSeat(issue(1, 'a', '## 누가 하나\n디자이너, 코더'))).toEqual({ known: true, seat: 2 })
     expect(issueSeat(issue(1, '[에셋] x', '', { labels: [{ name: 'asset' }] }))).toEqual({ known: true, seat: 1 })

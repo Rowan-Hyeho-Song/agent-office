@@ -7,7 +7,10 @@ import { blockOf, playAt, playPose, PLAYS, soloAt, type PlayKind } from './play'
 import { activityLabel, type AgentStatus, type OfficeMessage, type StatusMap } from './status'
 import type { Request } from './traffic'
 import { actSpot, actU, deckAfter, startAct, stepAct, type ActRun } from './actRun'
-import { ACT_LABEL, ACT_PLACE, isAct, type ActKind, type RecordMode } from './lounge'
+import { ACT_LABEL, ACT_PLACE, grabAt, isAct, type ActKind, type DrinkKind, type RecordMode } from './lounge'
+import { drinkPick, drinkView, stepDrink, type Drink, type DrinkView } from './fridgeDrink'
+import { isNight } from './kst'
+import { NOTE_LABEL, NOTE_READ, noteU, stepNote, stillWaiting, type NoteRun, type NoteWait } from './noteRead'
 import { PATH_BLOCKERS, STAND_BLOCKERS, WATER_PLANTS } from './water'
 import { callAway, chooseSeat, holding as readHolding, placeOf as readPlace, READ_LABEL, startRead, stepRead, type ReadRun, type ReadStage } from './readRun'
 import { holding, placeOf, startWater, stepWater, WATER_LABEL, type WaterRun, type WaterStage } from './waterRun'
@@ -49,7 +52,11 @@ export interface Goal {
   /** #137 ① the white bowl carried to the corner (a record placed alone) or back: its way, stage and how long (s) the stage has lasted */
   bowl?: { stage: BowlStage; way: BowlWay; u: number }
   /** a lounge act (lounge.ts: the fridge, the dispenser, the turntable): which, how long since the agent reached its stand (s, -1 on the way), the turntable's mode and whether a record was on the platter */
-  act?: { kind: ActKind; u: number; mode?: RecordMode; recordOn: boolean }
+  act?: { kind: ActKind; u: number; mode?: RecordMode; recordOn: boolean; pick?: DrinkKind }
+  /** #457 the drink taken out of the fridge, in the left hand (fridgeDrink.ts): from the moment the hand has it until it has faded out */
+  drink?: DrinkView
+  /** #4 notes 2b (noteRead.ts): at the cork board for its notes; s since arriving (-1 on the way) */
+  note?: { u: number; ids: number[] }
   /** what it's doing, for the debug panel */
   label: string
 }
@@ -68,6 +75,10 @@ const PROP_POSES = new Set<Pose>(['coffee', 'pingpong', 'boardgame'])
 const PUT_AWAY_MS = 800
 /** an errand / act starts only if the agent's duty (rest, sleep, night shift) stays the same this long (ms) */
 const START_LEAD_MS = 20_000
+/** #457 what an agent called away with a drink in hand shows on the way (lounge-props.md 5.5) */
+export const CARRYING_DRINK = `${ACT_LABEL.fridge} · 들고 가는 중`
+/** the KST day an office time falls on (a number: days since the epoch) */
+const kstDay = (ms: number) => Math.floor((ms + 9 * 3600_000) / 86_400_000)
 
 /** the needle has been down at least this long (ms) before the end of the break sends somebody to lift the arm (speaker.ts holds a state 8 s; this is well past it) */
 const LIFT_AFTER_MS = 25_000
@@ -120,6 +131,26 @@ export class Director {
   /** the lounge acts in progress (actRun.ts; the fridge and the dispenser share one bar, the turntable has its own) and the block each agent has acted in already */
   private acts: Record<string, ActRun> = {}
   private actDone: Record<string, number> = {}
+  /** #457 the drink each agent has in hand from the fridge (fridgeDrink.ts), and what it took out on which KST day (not the same one twice a day) */
+  private drinks: Record<string, Drink> = {}
+  private drank: Record<string, { day: number; kinds: DrinkKind[] }> = {}
+  /** #4 notes 2b: the notes each robot has not reacted to yet, the ids ever queued (a note is reacted to once), and the walk to the board under way */
+  private noteQueue: Record<string, NoteWait[]> = {}
+  private noteKnown = new Set<number>()
+  private noteRuns: Record<string, NoteRun> = {}
+
+  /**
+   * #4 notes 2b: a note pinned for `agent` at `at` (ms). Its robot goes to read it the next time it rests, within the hour; a note already
+   * known, for a robot not in the office, or over an hour old is ignored
+   */
+  noteArrived(agent: string, id: number, at: number, now: number) {
+    if (this.noteKnown.has(id) || !this.agents.includes(agent) || now - at > NOTE_READ.waitMs) return
+    this.noteKnown.add(id)
+    ;(this.noteQueue[agent] ??= []).push({ id, at })
+  }
+
+  /** the notes each robot is still to read (tests, the debug panel) */
+  notesWaiting = (agent: string): number[] => (this.noteQueue[agent] ?? []).map((n) => n.id)
   /** the turntable: a record is on the platter, the needle is down (set as the agent's hands get there) */
   private deck = { recordOn: false, needle: false }
   /** when the needle went down (office ms): the arm is not lifted for the break being over until it has been down a while */
@@ -192,13 +223,27 @@ export class Director {
   /** the agent that has the fridge door in use, if any (the planner keeps everybody else off the area it sweeps, traffic.ts reserve) */
   fridgeUser = (): string | null => Object.entries(this.acts).find(([, r]) => r.kind === 'fridge')?.[0] ?? null
 
-  /** ?debug=1: send an agent to a lounge act right now */
-  forceAct(agent: string, kind: ActKind, now: number, mode?: RecordMode) {
+  /** ?debug=1: send an agent to a lounge act right now. The fridge: `pick` the drink to take (null: only look in), else the schedule's own choice */
+  forceAct(agent: string, kind: ActKind, now: number, mode?: RecordMode, pick?: DrinkKind | null) {
     for (const k of Object.keys(this.acts)) delete this.acts[k]
     delete this.waters[agent]
-    this.acts[agent] = startAct(kind, blockOf(Math.floor(now / 60000)), kind === 'record' ? (mode ?? (this.deck.needle ? 'lift' : 'put')) : undefined, this.deck.recordOn)
+    delete this.drinks[agent]
+    const block = blockOf(Math.floor(now / 60000))
+    const drink = kind === 'fridge' ? (pick === undefined ? this.pickFor(agent, block, now) : pick) : null
+    this.acts[agent] = startAct(kind, block, kind === 'record' ? (mode ?? (this.deck.needle ? 'lift' : 'put')) : undefined, this.deck.recordOn, drink)
     this.actDone[agent] = this.acts[agent].block
   }
+
+  /** #457 the drink an agent takes at the fridge now (fridgeDrink.ts drinkPick) */
+  private pickFor(agent: string, block: number, now: number): DrinkKind | null {
+    const d = this.drank[agent]
+    const had = d && d.day === kstDay(now) ? d.kinds : []
+    const held = Object.entries(this.drinks).filter(([a]) => a !== agent).map(([, x]) => x.kind)
+    return drinkPick({ agent, block, night: isNight(now), had, held })
+  }
+
+  /** #457 the drink in each agent's hand (tests, the debug panel) */
+  drinkOf = (agent: string): Drink | null => this.drinks[agent] ?? null
 
   clearActs() {
     for (const k of Object.keys(this.acts)) delete this.acts[k]
@@ -451,6 +496,14 @@ export class Director {
         continue
       }
       const r = stepAct(run, { now, arrived: arrivedAt(a) === actSpot(run) })
+      // #457 the fridge: once the left hand has the drink it is the agent's (called away from here on, it takes it along)
+      if (r.run.t0 !== null && r.run.pick && !r.run.taken && actU(r.run, now) >= grabAt(!!opts.reduced)) {
+        r.run = { ...r.run, taken: true }
+        this.drinks[a] = { kind: r.run.pick!, at: r.run.t0! + grabAt(!!opts.reduced) * 1000, stay: null, fadeAt: null }
+        const day = kstDay(now)
+        const had = this.drank[a]?.day === day ? this.drank[a].kinds : []
+        this.drank[a] = { day, kinds: [...had, r.run.pick!] }
+      }
       if (r.run.t0 !== null && run.kind === 'record') {
         const d = deckAfter(r.run, actU(r.run, now))
         this.deck.recordOn = d.recordOn
@@ -465,7 +518,7 @@ export class Director {
     const beginAct = (a: string, kind: ActKind) => {
       const bar = (k: ActKind) => (k === 'record' ? 'record' : 'bar')
       if (Object.values(this.acts).some((r) => bar(r.kind) === bar(kind))) return
-      this.acts[a] = startAct(kind, block, kind === 'record' ? (this.deck.needle ? 'lift' : 'put') : undefined, this.deck.recordOn)
+      this.acts[a] = startAct(kind, block, kind === 'record' ? (this.deck.needle ? 'lift' : 'put') : undefined, this.deck.recordOn, kind === 'fridge' ? this.pickFor(a, block, now) : null)
       this.actDone[a] = block
     }
     // the break music is due and nobody has put the record on: whoever rests, agent_4 (echo) first; the break is over and the needle is still down: somebody lifts it
@@ -481,8 +534,31 @@ export class Director {
       if (k === 'record' && opts.wantsBreak && this.deck.needle) continue
       if (k && isAct(k) && this.actDone[a] !== block && !this.acts[a] && !this.waters[a] && !this.reads[a] && this.bowl?.agent !== a && resting(a) && steady(a)) beginAct(a, k)
     }
+    // #4 notes 2b (noteRead.ts): a robot with a note waiting walks to the cork board the next time it rests, one at a time. Called away on the
+    // way it tries again later; an hour after the note was pinned it lets it go
+    for (const a of this.agents) {
+      const q = stillWaiting(this.noteQueue[a] ?? [], now)
+      if (q.length) this.noteQueue[a] = q
+      else delete this.noteQueue[a]
+      const run = this.noteRuns[a]
+      if (!run) continue
+      if (!resting(a) || a in this.meet || this.waters[a] || this.reads[a] || this.acts[a] || this.bowl?.agent === a) {
+        delete this.noteRuns[a]
+        continue
+      }
+      const r = stepNote(run, { now, arrived: arrivedAt(a) === NOTE_READ.spot })
+      if (r.done) {
+        this.noteQueue[a] = (this.noteQueue[a] ?? []).filter((n) => !run.ids.includes(n.id))
+        delete this.noteRuns[a]
+      } else if (r.giveUp) delete this.noteRuns[a]
+      else this.noteRuns[a] = r.run
+    }
+    if (!Object.keys(this.noteRuns).length) {
+      const a = this.agents.find((x) => this.noteQueue[x]?.length && !this.acts[x] && !this.waters[x] && !this.reads[x] && this.bowl?.agent !== x && !(x in this.meet) && resting(x) && steady(x))
+      if (a) this.noteRuns[a] = { ids: this.noteQueue[a].map((n) => n.id), since: now, t0: null }
+    }
     // whoever is on an errand is not free for the schedule's other plays (a game partner left alone goes to a solo)
-    const away = [...Object.keys(this.waters), ...Object.keys(this.acts), ...Object.keys(this.reads)]
+    const away = [...Object.keys(this.waters), ...Object.keys(this.acts), ...Object.keys(this.reads), ...Object.keys(this.noteRuns)]
     // #137 ① the white bowl: the one fetching it keeps its record placed alone (it holds game_a, so nobody else is handed the record meanwhile);
     // the one taking it home is away from the schedule. While the bowl is not home there is no pair game at the board, and while it is taken
     // home no new record either, so nobody sits where it is set down or taken from. A re-plan may hand those out again: re-plan until it does not
@@ -559,7 +635,22 @@ export class Director {
       const ar = this.acts[a]
       if (ar) {
         const pl = ACT_PLACE[ar.kind]
-        out[a] = { spot: pl.spot, pose: ar.kind, face: pl.face, ...standSlot({ stand: pl.stand, face: pl.face }), act: { kind: ar.kind, u: actU(ar, now), ...(ar.mode ? { mode: ar.mode } : {}), recordOn: ar.recordOn }, label: ACT_LABEL[ar.kind] }
+        out[a] = { spot: pl.spot, pose: ar.kind, face: pl.face, ...standSlot({ stand: pl.stand, face: pl.face }), act: { kind: ar.kind, u: actU(ar, now), ...(ar.mode ? { mode: ar.mode } : {}), recordOn: ar.recordOn, ...(ar.pick ? { pick: ar.pick } : {}) }, label: ACT_LABEL[ar.kind] }
+        shown[a] = { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
+        continue
+      }
+      // #4 notes 2b: at the cork board, looking at its note(s), then the nod (Goal.gesture) and the thanks (Goal.note, the scene's bubble)
+      const nr = this.noteRuns[a]
+      if (nr) {
+        const u = noteU(nr, now)
+        out[a] = {
+          spot: NOTE_READ.spot,
+          pose: 'idle',
+          face: NOTE_READ.face,
+          note: { u, ids: nr.ids },
+          ...(u >= NOTE_READ.lookS ? { gesture: { key: `note:${nr.ids.join(',')}`, hand: false } } : {}),
+          label: u < 0 ? NOTE_LABEL.walk : NOTE_LABEL.read,
+        }
         shown[a] = { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
         continue
       }
@@ -619,6 +710,7 @@ export class Director {
     }
     this.settle(out, playing, deskIdle)
     this.putAway(now, out)
+    this.drinkStep(now, out, shown, arrivedAt, !!opts.reduced)
     this.baseShown = shown
     this.setShown(this.patched())
     return out
@@ -682,6 +774,29 @@ export class Director {
       if (l && l.spot === g.spot && g.depart === undefined) g.depart = l.depart
       else if (l && l.spot !== g.spot) delete this.leaving[a]
       this.lastPose[a] = { pose: g.pose, spot: g.spot }
+    }
+  }
+
+  /**
+   * #457 the drinks after the fridge (fridgeDrink.ts): kept in the left hand while the act runs; then carried to where the agent stays next,
+   * sipped there, faded out after a while or when the hands are wanted (an errand, a pose that uses them). Called away to work with it, the
+   * agent shows it is carrying it on the way (lounge-props.md 5.5, as the can and the book).
+   */
+  private drinkStep(now: number, out: Record<string, Goal>, shown: Record<string, Shown>, arrivedAt: (a: string) => string | null, reduced: boolean) {
+    for (const a of this.agents) {
+      const d = this.drinks[a]
+      if (!d) continue
+      const g = out[a]
+      const inAct = this.acts[a]?.kind === 'fridge'
+      const next = inAct ? d : stepDrink(d, { now, spot: g.spot, pose: g.pose, arrived: arrivedAt(a) === g.spot, errand: !!(g.water || g.read || g.bowl || g.act) })
+      if (!next) {
+        delete this.drinks[a]
+        continue
+      }
+      this.drinks[a] = next
+      g.drink = drinkView(next, { now, spot: g.spot, reduced })
+      const s = shown[a]
+      if (!inAct && next.fadeAt === null && arrivedAt(a) !== g.spot && s && s.kind !== 'rest') shown[a] = { ...s, detail: CARRYING_DRINK }
     }
   }
 

@@ -2,6 +2,7 @@
 //   window.__office.play.force(agent, kind, plant?, reduced?)   kind: water | books | coffee | pingpong | boardgame (a pair game takes the next agent too);
 //                                             water sends the agent for the can (the whole errand, waterRun.ts); plant: plant_corner | plant_sofa | plant_desk
 //                                             the lounge (#280): fridge | dispenser | record (put a record on, or lift the arm when the needle is down) | record-lift |
+//                                             fridge-can | fridge-milk | fridge-peek (#457: the fridge with that drink taken out, or none) |
 //                                             sofa (a seat: plant a pillow hug with seat 'sofa_0' | 'sofa_2') | lie (the east seat) | door (the door spot: lever, mat)
 //   window.__office.play.clear()
 //   window.__office.play.stone('current' | 'alt')   the go-grip variant (grip.ts STONE_VARIANT_DEFAULT): call before the stone game starts
@@ -169,6 +170,11 @@ export function makePlayTools(world: OfficeWorld) {
       }
       if (kind === 'record-lift') {
         world.director.forceAct(agent, 'record', officeNow(world), 'lift')
+        return
+      }
+      // #457 the fridge with a given drink (or none: it only looks in)
+      if (kind === 'fridge-can' || kind === 'fridge-milk' || kind === 'fridge-peek') {
+        world.director.forceAct(agent, 'fridge', officeNow(world), undefined, kind === 'fridge-peek' ? null : kind === 'fridge-can' ? 'can' : 'milk')
         return
       }
       const goals: Record<string, Partial<Goal>> = {

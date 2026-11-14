@@ -25,7 +25,29 @@ export const FRIDGE = {
   inside: { x: 4.55, z: -0.73 },
   /** the distance the designer asks for between the waiting body and the swept area */
   offM: 0.5,
+  /**
+   * #457 (lounge-props.md 5.5): the one step in, 0.30 m from the stand toward the opening, to take a drink from the shelf. A walkable cell, 0.15 m
+   * or more off the swept area (lounge.test.ts), and both drinks' grips within an arm of it.
+   */
+  step: { x: 3.86, z: -1.0 },
+  /** the least room between the stepping body and the door's swing (designer, 5.5) */
+  stepOffM: 0.15,
 } as const
+
+/** #457: what an agent takes out of the fridge (lounge-props.md 5.3): a can from the top shelf, a small milk from the middle one */
+export type DrinkKind = 'can' | 'milk'
+export const DRINK_KINDS: readonly DrinkKind[] = ['can', 'milk']
+/**
+ * The two live drinks of office.glb: the prop node, its prop kind (extras.prop, the grip table's row), and its left-hand grip empty in the world
+ * (`<prop>_grip_l`: 40% up its side, toward the agent; lounge.test.ts reads them off the model). The middle shelf is lower, so the body bends to it
+ * (`dip`, m: the body sinks that much while the hand is in).
+ */
+export const DRINKS: Record<DrinkKind, { prop: string; kind: string; grip: { x: number; y: number; z: number }; dip: number }> = {
+  can: { prop: 'prop_fridge_can', kind: 'fridge_can', grip: { x: 4.418, y: 0.669, z: -0.885 }, dip: 0.04 },
+  milk: { prop: 'prop_fridge_milk', kind: 'fridge_milk', grip: { x: 4.423, y: 0.48, z: -0.853 }, dip: 0.1 },
+}
+/** the prop kinds of the drinks → which drink */
+export const DRINK_PROP_KINDS: Readonly<Record<string, DrinkKind>> = { fridge_can: 'can', fridge_milk: 'milk' }
 
 /** the angle (rad, about the hinge, from the closed door towards the room) at which a floor point lies, or null on the hinge */
 function swingAngle(x: number, z: number): number | null {
@@ -62,26 +84,50 @@ const ease = (k: number) => {
   return c * c * (3 - 2 * c)
 }
 
-/** the fridge act's beats, s from arriving at the stand (lounge-props.md 3: opening 0.6, closing 0.4) */
+/** the fridge act's beats, s from arriving at the stand (lounge-props.md 3: opening 0.6, closing 0.4; 5.5 (#457): a step in to take a drink) */
 export const FRIDGE_T = {
   /** the hand takes the handle (it is on it when the door starts), then the door opens (cue fridge.open) */
   open: 0.45,
-  /** the agent leans in to look for a drink */
+  /** the agent leans in to look for a drink; with one to take, the step in starts here (FRIDGE.step, `stepS` long) */
   peek: 0.9,
+  stepS: 0.35,
+  /** the left hand sets off for the drink (the grip's approach and closing: grip.ts GRIP_S 0.3 + 0.12) … */
+  reach: 1.25,
+  /** … and has it (cue fridge.can / fridge.milk); it is lifted 2 cm and drawn out */
+  grab: 1.67,
+  /** the step back to the stand starts (`stepS` long), the drink before the chest */
+  back: 1.75,
   /** the hand takes the handle again on the way and the door closes */
-  close: 2.0,
+  close: 2.1,
   /** the door shut (cue fridge.close) */
-  shut: 2.4,
+  shut: 2.5,
   /** the hand has let go and the agent is free */
-  total: 2.9,
+  total: 3.0,
   /** the hand lets go of the handle part-way while it opens (the open door's handle is out of the arm's reach): at this angle (deg) */
   letGoDeg: 70,
 } as const
+
+/** how far along the step in the body is at act time `u` (0 at the stand, 1 at FRIDGE.step) */
+export const fridgeStepK = (u: number) => ease((u - FRIDGE_T.peek) / FRIDGE_T.stepS) - ease((u - FRIDGE_T.back) / FRIDGE_T.stepS)
+
+/**
+ * The inside light (lounge-props.md 5.4): on above 8° of opening, off again below 4° (it stays on until the door is nearly shut). The app's point
+ * light at office.glb fridge_light (#eaf2ff, 1 m, decay 2), no brighter than `intensity` (#469 designer: 0.5 at most); the LED strip lit with it;
+ * the floor spill 0.16 × how far open. On in 0.12 s, off in 0.08 s; at once with reduced motion.
+ */
+export const FRIDGE_LIGHT = { onDeg: 8, offDeg: 4, onS: 0.12, offS: 0.08, intensity: 0.5, color: '#eaf2ff', distance: 1, decay: 2, spill: 0.16 } as const
+export const fridgeLightOn = (deg: number, wasOn: boolean) => deg > FRIDGE_LIGHT.onDeg || (wasOn && deg >= FRIDGE_LIGHT.offDeg)
 
 /** the door's angle (deg) at act time `u`: 0 closed, FRIDGE.openDeg open */
 export function doorDeg(u: number): number {
   return FRIDGE.openDeg * (ease((u - FRIDGE_T.open) / FRIDGE.openS) - ease((u - FRIDGE_T.close) / FRIDGE.closeS))
 }
+
+/**
+ * when the drink is the left hand's (act time): at FRIDGE_T.grab, or with reduced motion as the door passes 70° (no step, no reach: it is simply
+ * in the hand, lounge-props.md 5.5)
+ */
+export const grabAt = (reduced: boolean) => (reduced ? openTimeAt(FRIDGE_T.letGoDeg) : FRIDGE_T.grab)
 
 /** the time the opening door reaches `deg` (it only rises on its way open) */
 export function openTimeAt(deg: number): number {
