@@ -149,6 +149,27 @@ describe('PlayStage', () => {
     expect(all.some((x, i) => i > 0 && Math.abs(x) < 1e-6 && Math.abs(all[i - 1]) > 0)).toBe(true) // and it comes back to the spot
   })
 
+  it('ping-pong: the side step keeps to 1.2 m/s of frame time even when the office clock runs ahead of the frames (#448: 1.38 m/s at peaks)', async () => {
+    const s = findSession('pingpong')
+    const w = await world()
+    const goals = seat(w.rigs, s)
+    const dt = 0.016
+    const prev: Record<string, number> = {}
+    let worst = 0
+    for (let k = 0; k < 1500; k++) {
+      // 40 ms of office time per 16 ms frame
+      w.stage.update(inp(w, goals, s.startMs + 15_000 + 6000 + k * 40, k * dt, { dt }))
+      for (const id of s.players) {
+        const r = w.rigs[id]
+        const z = r.parts.root.position.z - r.z
+        if (id in prev) worst = Math.max(worst, Math.abs(z - prev[id]) / dt)
+        prev[id] = z
+      }
+    }
+    expect(worst).toBeGreaterThan(0.5) // it does step
+    expect(worst).toBeLessThanOrEqual(1.2 + 1e-6)
+  })
+
   it('omok: the same office time gives the same stones; the stone sits between the index and middle fingertips at their contacts', async () => {
     const s = findSession('boardgame')
     const run = async (measure: boolean) => {
