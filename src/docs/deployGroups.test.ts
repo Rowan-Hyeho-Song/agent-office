@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { coverOf, groupLibrary, type CoverSource, type DocFile } from './library'
 import { DEFAULT_VIEW } from './progressList'
 import type { Progress } from './progress'
-import { doneAtOf, groupFiles, groupHead, groupOf, isOpen, kstDot, parseDeploy, parseFolds, type Deploy, type DeployPoint } from './deployGroups'
+import { doneAtOf, groupFiles, groupHead, groupOf, isOpen, kstDot, listedFiles, parseDeploy, parseFolds, type Deploy, type DeployPoint } from './deployGroups'
 
 let id = 0
 const file = (n: number, progress: Progress | null, day = n): DocFile => {
@@ -131,5 +131,17 @@ describe('folds', () => {
     expect(parseFolds('[1]')).toEqual({})
     expect(parseFolds('{')).toEqual({})
     expect(parseFolds(null)).toEqual({})
+  })
+})
+
+describe('listedFiles: the deploy PRs are their group headers, not files (#462 designer)', () => {
+  const ds = [deploy('d1', '2026-11-08T00:00:00Z', '', 2), deploy('x', '2026-11-08T00:00:00Z', '', 3, 'o/else'), deploy('s', '2026-11-09T00:00:00Z', '', null)]
+  const files = [file(1, done(1)), file(2, done(2)), file(3, done(3))]
+  it("this project's deploy PR numbers are left out (and so out of the counts); other projects' are not", () => {
+    expect(listedFiles(files, ds, 'O/R').map((f) => f.n)).toEqual([1, 3])
+  })
+  it('the private folder, or no deploys: all of them', () => {
+    expect(listedFiles(files, ds, null)).toHaveLength(3)
+    expect(listedFiles(files, [], 'o/r')).toHaveLength(3)
   })
 })

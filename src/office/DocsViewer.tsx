@@ -4,7 +4,7 @@ import { setSideBack, setSideRaise, setSideUnseen } from './sidePanel/store'
 import { clearFile, loadDocsSeen, reconcileDocs, saveDocsSeen, unreadFile, unreadFolder, type DocsSeen } from '../docs/unread'
 import { IssueReplayButton } from '../replay/IssueReplayButton'
 import { replay, useReplayPoints } from '../replay/store'
-import { groupFiles, groupOf, loadFolds, parseDeploy, saveFolds, type Folds } from '../docs/deployGroups'
+import { groupFiles, groupOf, listedFiles, loadFolds, parseDeploy, saveFolds, type Folds } from '../docs/deployGroups'
 import { FileGroups } from './docs/FileGroups'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
 import { fmtDay as fmtShortDay } from '../approvals/view'
@@ -160,7 +160,9 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
   const kind = kinds.find((t) => t.kind === sel.kind)?.kind ?? kinds[0]?.kind ?? null
   const docs = useMemo(() => (file && kind ? file.docs.filter((d) => d.kind === kind) : []), [file, kind])
   const view: Stage = stage === 'paper' && file && folder ? 'paper' : stage === 'files' && folder ? 'files' : 'folders'
-  const grouped = useMemo(() => (folder ? groupFiles(folder.files, deploys, folder.repo, listView) : null), [folder, deploys, listView])
+  // the deploy PRs' own files are left out of the list and its counts: their group's header is the PR (#462 designer)
+  const listed = useMemo(() => (folder ? listedFiles(folder.files, deploys, folder.repo) : []), [folder, deploys])
+  const grouped = useMemo(() => (folder ? groupFiles(listed, deploys, folder.repo, listView) : null), [folder, listed, deploys, listView])
   useEffect(() => {
     if (open && view === 'files') void replay.load()
   }, [open, view])
@@ -340,7 +342,7 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
                   <div className="doc-head">
                     <DocPath folder={folder} file={null} onRoot={() => setStage('folders')} onFolder={() => setStage('files')} />
                     <h4>파일철</h4>
-                    <ListControls files={folder.files} value={listView} onChange={changeView} />
+                    <ListControls files={listed} value={listView} onChange={changeView} />
                   </div>
                 )}
                 {snap.metas === null && !snap.error && <p className="doc-note">불러오는 중…</p>}
@@ -366,9 +368,9 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
                   (grouped ? (
                     <FileGroups grouped={grouped} folds={folds} repo={folder.repo} onFold={fold} row={fileRow} unread={(f) => unreadFile(f, seen)} />
                   ) : (
-                    viewFiles(folder.files, listView).map(fileRow)
+                    viewFiles(listed, listView).map(fileRow)
                   ))}
-                {view === 'files' && folder && folder.files.length > 0 && viewFiles(folder.files, listView).length === 0 && (
+                {view === 'files' && folder && listed.length > 0 && viewFiles(listed, listView).length === 0 && (
                   <p className="doc-note">
                     이 조건에 맞는 파일철이 없어요.{' '}
                     <button type="button" className="btn-ghost" onClick={() => changeView({ stage: 'all', pendingOnly: false })}>
