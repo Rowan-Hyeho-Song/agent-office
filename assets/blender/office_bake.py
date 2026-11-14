@@ -64,7 +64,7 @@ Node contract (the app reads glTF extras):
                                    local x), live "neon" light ring round the back grille
   wall_n|e|s|w                     the four walls (#111), pivot_at at the wall's foot (floor, middle of the wall),
                                    extras wall; the app lowers the camera-side ones. n carries the window frame
-  door, boards, wallclock          hung on a wall: extras wall (w, n, w). shelf, lounge, desk_<i>, pad_<i>: on the floor
+  door, boards, wallclock, keyrack hung on a wall: extras wall (w, n, w, w). shelf, lounge, desk_<i>, pad_<i>: on the floor
   window_sky|skyline|mid|near, window_lights, window_lights_far, window_portal
                                    the city behind the window (#111): live "sky" (UV 0..1, the app paints it by the
                                    hour), "backdrop", "city_lights" (the app sets day / night strength), at 40 / 25 /
@@ -136,6 +136,10 @@ Node contract (the app reads glTF extras):
   clock_hand_h, clock_hand_m, clock_hub
                                    live "bot": the wall clock (#91), pivot_at = face center, local +y = 12 o'clock,
                                    local +z = out of the face; both hands export at 12, clockwise = negative turn about z
+  keyrack_key, hit_keyrack         (#475) live "bot": the owner's key on the key rack's middle hook (west wall, south of
+                                   the door), pivot_at = where its ring rests on the hook, axes = world (swing about
+                                   web x), extras wall w; the app hides it while the owner is signed in. hit_keyrack:
+                                   the click box (board + key)
 Seats 0..4 = MEMO amber, MESH lavender, HUE magenta, LOOP cyan (#26), ECHO phosphor (#193); their forms:
 docs/design/agents.md 2 (#28).
 """
@@ -1468,6 +1472,7 @@ def build_hits():
     hit("library", "library", Mx((SHELF_X, 1.05, -HZ + 0.01 + SHELF_D / 2)), (SHELF_W + 0.03, 2.1, SHELF_D))
     # the wall clock (#91): face and hands, a little proud of the face
     hit("clock", "clock", CLOCK_M @ Mx((0, 0, 0.015)), (CLOCK_S + 0.04, CLOCK_S + 0.04, 0.05))["wall"] = "w"
+    hit("keyrack", "keyrack", Mx((-4.77, 1.40, 3.30)), (0.06, 0.24, 0.40))["wall"] = "w"  # #475: board + hanging key
     # #234 / #388 (coder): the whiteboard's click box over its face (1.5 x 1.0 + a margin), on the board face, with the
     # back wall (it fades with it)
     hit("whiteboard", "whiteboard", Mx((WHITEBOARD_X, 1.5, -HZ + 0.04)), (1.6, 1.1, 0.1))["wall"] = "n"
@@ -1770,6 +1775,63 @@ def build_clock():
     for o in out:
         o["wall"] = "w"
     return out
+
+
+# ================================================================ KEY RACK (#475, docs/design/office-ui.md 13.2)
+# The owner's sign-in, on the west wall south of the door (the lever side). A walnut board with three brass J hooks:
+# an ivory tag hangs on the left one always, the owner's key (live keyrack_key) on the middle one, the right is empty.
+KR_AT = (-HX + 0.010, 1.45, 3.30)  # board center; back face 1 mm off the wall (13.1 says -4.791: kept off coplanar)
+KR_FX = KR_AT[0] + 0.009  # the board's front face
+KR_HY, KR_HX = 1.42, KR_AT[0] + 0.009 + 0.035  # hook rod height, the hook's tip (3.5 cm out from the board)
+KR_KX = KR_HX - 0.012  # where the rings sit on the hook rods
+
+
+def build_keyrack():
+    """keyrack (baked, wall_items, wall w) and keyrack_key (live bot, pivot_at = where its ring rests on the middle
+    hook; axes = world, swing about web x)"""
+    G = "export"
+    x0, y0, z0 = KR_AT
+    wood_m = plastic("#6b4a30", 0.6, 0, 0.4, "shelf_wood")
+    br = brass()
+    p = [place(rounded_slab("keyrack_board", 0.11, 0.018, 0.34, 0.012, (0, 0, 0), wood_m, G, seg=3, edge=0.003),
+               Mx(KR_AT, rz=math.pi / 2))[0]]
+    for s in (-1, 1):  # screw heads
+        p.append(cyl("keyrack_screw", 0.006, 0.002, (KR_FX + 0.0005, 1.47, z0 + s * 0.145), br, G, 10, axis="x"))
+    for dz in (-0.10, 0.0, 0.10):  # J hooks: out 3.5 cm, up 1.5 cm, a 5 mm ball on the tip
+        z = z0 + dz
+        p += [segment("keyrack_hook", (x0, KR_HY, z), (KR_HX, KR_HY, z), 0.004, br, G, verts=6),
+              segment("keyrack_hook", (KR_HX, KR_HY - 0.004, z), (KR_HX, KR_HY + 0.013, z), 0.004, br, G, verts=6),
+              sphere("keyrack_hook_tip", 0.005, (KR_HX, KR_HY + 0.015, z), br, G, seg=6, rings=4)]
+    # the left hook seen from the room (+z, south): a brass ring and an ivory disc tag, always there (an empty rack would look abandoned)
+    ry = KR_HY + 0.004 - 0.0085
+    p += [torus("keyrack_ring", 0.010, 0.0015, (KR_KX, ry, z0 + 0.10), br, G, axis="x", seg=10, rseg=4),
+          cyl("keyrack_tag_ivory", 0.015, 0.002, (KR_KX, ry - 0.010 - 0.015 + 0.004, z0 + 0.10),
+              plastic("#e8e1cf", 0.6, 0, 0.1, "keyrack_tag_ivory"), G, 16, axis="x")]
+    fp("keyrack", p[:1], "wall", "w")
+    rack = join("keyrack", p)
+    rack["wall"] = "w"
+
+    # the owner's key: ring r 1.2 cm, head d 2.8 cm, blade 5 x 1 cm with three teeth, an amber tag 4 x 6 x 0.4 cm
+    # live PBR has no environment to reflect in the app: full metal renders black, so the key gets its own brass
+    kb = plastic("#c9a465", 0.45, 0.3, 0.0, "keyrack_key_brass")
+    top = KR_HY + 0.004  # the hook rod's top: the ring rests here
+    rc = top - 0.0105  # ring center
+    kz, tz = z0 - 0.014, z0 + 0.018  # key and tag hang a little apart on the ring
+    hy = rc - 0.012 - 0.014 + 0.005  # key head center (the ring runs through its hole)
+    k = [torus("keyrack_key_ring", 0.012, 0.0015, (KR_KX, rc, z0), kb, G, axis="x", seg=12, rseg=4),
+         cyl("keyrack_key_head", 0.014, 0.003, (KR_KX, hy, kz), kb, G, 14, axis="x"),
+         box("keyrack_key_blade", (0.0025, 0.050, 0.010), (KR_KX, hy - 0.014 - 0.025 + 0.003, kz), kb, G)]
+    for ty, th in ((0.012, 0.004), (0.022, 0.006), (0.032, 0.003)):  # teeth on the -z edge, from the tip up
+        k.append(box("keyrack_key_tooth", (0.0025, 0.005, th), (KR_KX, hy - 0.014 - 0.050 + 0.003 + ty, kz - 0.005 - th / 2), kb, G))
+    amber = plastic("#ffb347", 0.5, 0, 0.0, "keyrack_tag")
+    b_ = amber.node_tree.nodes["Principled BSDF"]
+    b_.inputs["Emission Color"].default_value = rgba("#ffb347")
+    b_.inputs["Emission Strength"].default_value = 0.15  # reads as a dot on the dark wall, does not glow
+    tag = place(rounded_slab("keyrack_key_tag", 0.06, 0.004, 0.04, 0.006, (0, 0, 0), amber, G, seg=3),
+                Mx((KR_KX + 0.0055, rc - 0.012 - 0.030 + 0.004, tz), rz=math.pi / 2))
+    key = pivot(join("keyrack_key", k + tag), Mx((KR_KX, top, z0)))
+    key["wall"] = "w"
+    return rack, key
 
 
 # ================================================================ PLANTS (#126, docs/design/office-quality.md 2.6–2.7, 3)
@@ -5381,6 +5443,9 @@ for o, kind in build_window_view():
     live(o, kind)
 for o in build_clock():
     live(o, "bot")
+_kr, _kk = build_keyrack()  # #475
+baked(_kr, "wall_items")
+live(_kk, "bot")
 lib = build_library()
 for o, kind in lib:
     live(o, kind)
@@ -5746,7 +5811,8 @@ if PREVIEW:
     for name, (pos, target) in {"library": ((2.0, 1.4, -0.45), (2.78, 1.05, -2.55)),
                                 "library_spines": ((2.5, 1.12, -1.75), (2.6, 1.02, -2.45)),
                                 "approval": ((-1.55, 1.25, -1.65), (-2.0, 0.85, -2.45)),
-                                "clock": ((-2.35, 1.8, 1.0), (-3.48, 1.85, 1.35))}.items():
+                                "clock": ((-2.35, 1.8, 1.0), (-3.48, 1.85, 1.35)),
+                                "keyrack": ((-3.85, 1.45, 3.15), (-4.78, 1.42, 3.30))}.items():
         shoot(name, pos, target)
     # 2) holding props by their #20 grip offsets on the new _grip empties (preview-only poses)
     saved = {n: bpy.data.objects[n].matrix_world.copy() for n in ("prop_paddle_a", "prop_cup_1")}
@@ -5941,7 +6007,7 @@ scene.render.bake.target = "IMAGE_TEXTURES"
 # shows only as many as there are files)
 for n in NODES:
     nm_ = n["obj"].name  # #280: shelf_r<digit> = the library binders (not shelf_records, baked in lounge2)
-    if nm_.startswith(("agent_", "clock_", "window_", "prop_book_", "prop_shelfbook_", "prop_paper_", "omok_stone_", "pp_ball")) or n.get("live") == "prop" \
+    if nm_.startswith(("agent_", "clock_", "keyrack_key", "window_", "prop_book_", "prop_shelfbook_", "prop_paper_", "omok_stone_", "pp_ball")) or n.get("live") == "prop" \
             or (nm_.startswith("shelf_r") and nm_[7:8].isdigit()) \
             or (nm_.startswith("desk_") and "_mouse" in nm_) \
             or n["obj"].get("hidden_at_rest"):  # #305: the mouse moves on its pad; #370: hidden at rest (the calendar page)
