@@ -821,3 +821,71 @@ html[data-motion='reduce'] .sound-panel.sheet { animation: sound-sheet-fade 120m
 .tt-tag { position: absolute; left: 50%; bottom: calc(100% + 6px); translate: -50% 0; white-space: nowrap; padding: 2px 8px; background: var(--color-surface-alpha); color: var(--color-text);
   box-shadow: inset 0 0 0 1px var(--color-cyan); font: 12px var(--font-pixel, monospace); }
 .tt-outline[data-hover='0'] .tt-tag { display: none; }
+
+/* ---- the agent's badge (사원증, office-ui.md 12.1a, #4) ------------------------------------------------------------------ */
+.agent-list .agent-card-btn { all: unset; pointer-events: auto; cursor: pointer; display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 2px; color: var(--color-text-muted); font-size: 12px; line-height: 1; }
+.agent-list .agent-card-btn:hover { color: var(--color-cyan); }
+.agent-list .agent-card-btn:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 1px; }
+
+.badge-hang { position: fixed; inset: 0 0 auto 0; height: 0; z-index: 45; pointer-events: none; }
+.badge-pendant { position: absolute; top: 0; left: 16px; width: 224px; pointer-events: auto; animation: badge-drop 350ms cubic-bezier(0.2, 0.9, 0.3, 1.25) both; }
+.badge-hang.leaving .badge-pendant { animation: badge-up 200ms ease-in both; }
+.badge-lanyard { position: absolute; left: 111px; top: 0; width: 2px; height: calc(var(--top) - 6px); background: var(--agent); }
+.badge-clip { position: absolute; left: 100px; top: calc(var(--top) - 10px); width: 24px; height: 14px; border-radius: 4px; background: #3a4048; box-shadow: inset 0 0 0 2px #2a2f36; z-index: 2; }
+.badge-hang .badge-card { position: absolute; top: var(--top); left: 0; transform-origin: 50% 0; animation: badge-swing 800ms ease-out 350ms both; }
+.badge-hang.reduced .badge-pendant { animation: badge-fade 120ms linear both; }
+.badge-hang.reduced.leaving .badge-pendant { animation: badge-fade 120ms linear reverse both; }
+.badge-hang.reduced .badge-card { animation: none; }
+@keyframes badge-drop { from { transform: translateY(calc(-1 * (var(--top) + 360px))); } 80% { transform: translateY(6px); } to { transform: none; } }
+@keyframes badge-up { to { transform: translateY(calc(-1 * (var(--top) + 360px))); } }
+@keyframes badge-swing { 0% { rotate: 0deg; } 20% { rotate: 4deg; } 45% { rotate: -4deg; } 65% { rotate: 2.5deg; } 85% { rotate: -1.5deg; } 100% { rotate: 0deg; } }
+@keyframes badge-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.badge-card { position: relative; width: 224px; height: 352px; perspective: 900px; color: var(--color-ink); font-family: var(--font-pixel); }
+.badge-face { position: absolute; inset: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; border-radius: 10px; background: #f3ead8; box-shadow: 0 0 0 1px var(--color-halo), 0 10px 24px rgb(0 0 0 / 0.45); backface-visibility: hidden; transition: transform 400ms ease-in-out; }
+.badge-back { transform: rotateY(180deg); }
+.badge-card.flipped .badge-front { transform: rotateY(-180deg); }
+.badge-card.flipped .badge-back { transform: rotateY(0deg); }
+.badge-hang.reduced .badge-face { transition: opacity 120ms linear; transform: none; }
+.badge-hang.reduced .badge-back { opacity: 0; }
+.badge-hang.reduced .badge-card.flipped .badge-front { opacity: 0; transform: none; }
+.badge-hang.reduced .badge-card.flipped .badge-back { opacity: 1; }
+.badge-band { display: flex; align-items: center; height: 30px; padding: 0 4px 0 10px; background: var(--color-ink); color: var(--color-amber); font-weight: 700; font-size: 13px; letter-spacing: 0.04em; }
+.badge-close { all: unset; margin-left: auto; width: 26px; height: 26px; display: grid; place-items: center; color: var(--color-text); font-size: 16px; cursor: pointer; }
+.badge-close:focus-visible, .badge-face button:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 1px; }
+.badge-body { flex: 1; padding: 10px 12px 8px 18px; border-left: 6px solid var(--agent); margin-left: 0; min-height: 0; }
+.badge-face p { margin: 0; }
+.badge-photo { display: block; width: 120px; height: 90px; border-radius: 4px; background: #05080b; box-shadow: 0 0 0 2px #2a2f36; image-rendering: pixelated; }
+.badge-name { margin-top: 8px !important; font-weight: 700; font-size: 22px; line-height: 1.1; }
+.badge-name span { font-size: 13px; letter-spacing: 0.06em; }
+.badge-row { display: flex; align-items: center; gap: 8px; margin-top: 6px !important; font-size: 12px; }
+.badge-role { padding: 1px 6px; border-radius: 3px; background: var(--agent); color: var(--color-ink); font-weight: 700; }
+.badge-joined { margin-top: 6px !important; font-size: 11px; letter-spacing: 0.04em; }
+.badge-status { display: flex; align-items: center; gap: 6px; margin-top: 4px !important; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.badge-status i { flex: none; width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 0 1px rgb(11 14 19 / 0.35); }
+.badge-code { display: flex; align-items: flex-end; gap: 8px; margin-top: 8px !important; font-size: 11px; letter-spacing: 0.06em; }
+.badge-bars { display: flex; gap: 2px; height: 22px; }
+.badge-bars b { display: block; height: 100%; background: var(--color-ink); }
+.badge-stub { display: flex; align-items: center; gap: 8px; padding: 8px 10px 10px 18px; border-top: 2px dashed rgb(11 14 19 / 0.35); border-left: 6px solid var(--agent); font-size: 11px; }
+.badge-today { flex: 1; min-width: 0; }
+.badge-flip { all: unset; flex: none; padding: 4px 6px; border: 1px solid rgb(11 14 19 / 0.45); border-radius: 3px; font-size: 11px; cursor: pointer; }
+.badge-sub { margin: 0 0 6px; font: inherit; font-weight: 700; font-size: 12px; }
+.badge-recent { list-style: none; margin: 0; padding: 0; font-size: 11px; line-height: 1.5; }
+.badge-recent li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.badge-recent li::before { content: '· '; }
+.badge-recent .badge-none::before { content: ''; }
+.badge-links { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 10px 0 8px !important; }
+.badge-links button { all: unset; font-size: 12px; text-decoration: underline; cursor: pointer; }
+.badge-back .badge-flip { margin-top: 4px; }
+
+/* the phone: a bottom sheet, the front without the lanyard, today's list right under it (no flip) */
+.badge-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; max-height: 88vh; overflow: auto; box-sizing: border-box; padding: 16px 32px calc(12px + env(safe-area-inset-bottom, 0px)); border-radius: 12px 12px 0 0; background: var(--color-surface); color: var(--color-text); font-family: var(--font-pixel); box-shadow: 0 -1px 0 var(--color-line); animation: sound-sheet-up 240ms ease-out; }
+.badge-sheet.leaving { animation: badge-fade 120ms linear reverse both; }
+.badge-sheet .badge-card { margin: 0 auto; }
+.badge-sheet .badge-face { position: relative; height: 100%; }
+.badge-sheet .badge-close { width: 44px; height: 44px; margin: -7px -4px -7px auto; }
+.badge-sheet .badge-sub { margin-top: 16px; }
+.badge-sheet .badge-recent { font-size: 13px; }
+.badge-sheet .badge-links button { min-height: 44px; display: flex; align-items: center; color: var(--color-cyan); font-size: 13px; }
+@media (prefers-reduced-motion: reduce) { .badge-sheet { animation: sound-sheet-fade 120ms linear; } }
+html[data-motion='reduce'] .badge-sheet { animation: sound-sheet-fade 120ms linear; }

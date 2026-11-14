@@ -122,3 +122,12 @@ export const ACTIVITY_LABELS: Record<string, string> = {
 }
 
 export const activityLabel = (activity?: string) => (activity && ACTIVITY_LABELS[activity]) || '작업 중'
+
+export const STATE_LABELS = { working: '', wrapping: '정리 중', idle: '휴식 중', off: '퇴근' } as const
+
+/** the one line of what an agent is doing, as the agent list (and the badge, #4) shows it; `detail` is the director's (#186) */
+export function statusLine(s: AgentStatus | undefined, detail?: string): string {
+  if (!s) return '…'
+  if (s.state === 'wrapping' && detail) return `정리 중 · ${detail}`
+  return detail ?? (s.state === 'working' ? activityLabel(s.activity) : s.night === 'sleep' ? '조는 중' : s.night === 'duty' ? '야간 당번' : STATE_LABELS[s.state])
+}
