@@ -1118,7 +1118,8 @@ export class PlayStage {
       }
       return
     }
-    if (((goal.pose === 'type' && inp.tablet) || goal.pose === 'write') && seat === 2 && resting) {
+    // 휴 drawing on the tablet (#164). Not while writing a wrap-up card: that is the card's own pose, beside the monitor with the body turned (#461)
+    if (goal.pose === 'type' && inp.tablet && seat === 2 && resting) {
       const pen = this.props.info(rig, 'tablet_pen')
       const tab = this.nodes.desk_2_tablet
       if (pen && tab) {
@@ -1127,8 +1128,8 @@ export class PlayStage {
         const nib = new Vector3(c.x + 0.05 * Math.sin(sc * 1.1) + 0.02 * Math.sin(sc * 4), c.y + 0.005, c.z + 0.04 * Math.cos(sc * 0.8) + 0.02 * Math.cos(sc * 5))
         const held = this.writing(nib, fwd.clone().negate(), 0.071, 45 * DEG, 8 * DEG * Math.sin(sc * 5))
         this.grip(rig, 'r', 'tablet_pen', pen.node.name, true, held, inp)
-        // the other hand keeps typing: the left types, the right holds the pen
-        if (goal.pose === 'type') this.typeAtDesk(rig, inp, seat, true)
+        // the other hand on the keyboard's left third, a shortcut every 3–6 s (#461: it typed whole words before, leaning the hands to one side)
+        this.typeAtDesk(rig, inp, seat, true, 'tablet')
       }
       return
     }
@@ -1142,7 +1143,7 @@ export class PlayStage {
    * Working at the desk (#225): the hands type what the schedule says, the right hand now and then goes to the mouse (the grip stage of the
    * mouse, blended with the keyboard hand), clicks and scrolls. `leftOnly`: the right hand holds the tablet pen.
    */
-  private typeAtDesk(rig: AgentRig, inp: StageIn, seat: number, leftOnly: boolean) {
+  private typeAtDesk(rig: AgentRig, inp: StageIn, seat: number, leftOnly: boolean, activity?: string) {
     // a plane gesture owns the hands while it lasts
     if (rig.gesture && inp.t < rig.gesture.until) return
     const ty = this.typist
@@ -1151,7 +1152,7 @@ export class PlayStage {
       t,
       dt: inp.dt,
       reduced: inp.reduced,
-      activity: inp.status[rig.id]?.activity,
+      activity: activity ?? inp.status[rig.id]?.activity,
       dilation: rig.gestureMin > 0 ? rig.gestureMin / 0.15 : 1,
       still: rig.ambient === 0,
       leftOnly,

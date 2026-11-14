@@ -105,7 +105,7 @@ export const PERSONAS: Record<string, Persona> = {
 export const personaOf = (agent: string): Persona => PERSONAS[agent] ?? NORMAL
 
 /** what the work does with the hands (typing.md 4): which segments alternate */
-export type Mode = 'edit' | 'read' | 'cmd' | 'think' | 'delegate'
+export type Mode = 'edit' | 'read' | 'cmd' | 'think' | 'delegate' | 'tablet'
 export function modeOf(activity: string | undefined): Mode {
   switch (activity) {
     case 'read':
@@ -121,6 +121,9 @@ export function modeOf(activity: string | undefined): Mode {
       return 'think'
     case 'delegate':
       return 'delegate'
+    // #461 휴 drawing on the pen tablet: the left hand on the keyboard's left, a shortcut now and then
+    case 'tablet':
+      return 'tablet'
     default:
       return 'edit'
   }
@@ -247,6 +250,8 @@ const COMMAND_CHARS = ['Period', 'Minus', 'Slash', 'Digit1', 'Digit2', 'Digit3',
 const MIN_SAME_FINGER = 0.2
 /** the last key of a chunk is down by this, s into it (its release and the finger's way home must fit before the chunk ends) */
 const LAST_KEY_AT = 11.2
+/** the shortcuts of the left hand while drawing on the tablet: undo, save, copy, paste, brush size ([ ]) left out (right hand) */
+const TABLET_KEYS = ['KeyZ', 'KeyS', 'KeyC', 'KeyV', 'KeyX']
 const LAST_MOUSE_AT = 11.1
 
 interface Builder {
@@ -540,6 +545,12 @@ function plan(b: Builder, mode: Mode, mouse: boolean) {
       rest(U(b, 4, 8))
       if (b.at > LAST_MOUSE_AT - 1.5) break
       if (mouse && rng() < 0.7) mouseEpisode(b, { len: U(b, 0.8, 1.4), clicks: 1, wheel: 0 })
+    } else if (mode === 'tablet') {
+      // #461 (the designer): the right hand draws on the tablet; the left rests on the keyboard's left third and presses a shortcut (two fingers,
+      // about 0.15 s) every 3–6 s, as a designer's left hand does
+      rest(U(b, 3, 6))
+      if (b.at > LAST_KEY_AT - 1) break
+      shortcut(b, TABLET_KEYS[Math.floor(rng() * TABLET_KEYS.length)])
     } else {
       // delegate: a short message, then two clicks
       typeWords(b, { until: Math.min(LAST_KEY_AT, b.at + 4), words: 6 + Math.floor(rng() * 4), endEnter: false })
@@ -573,6 +584,8 @@ export function makeChunk(agent: string, index: number, activity: string | undef
   const gestures: Gesture[] = []
   const longPauses = b.pauses.filter((q) => q.t1 - q.t0 >= GESTURE_MIN_PAUSE_S)
   for (const q of longPauses) {
+    // drawing on the tablet: the left hand stays on the keyboard (#461), no chin rest or head tap
+    if (mode === 'tablet') break
     const hit = g() < GESTURE_RATE
     const chin = g() < (CHIN_PREFER[agent] ?? 0.5)
     let hand: Hand = g() < 0.5 ? 'l' : 'r'
