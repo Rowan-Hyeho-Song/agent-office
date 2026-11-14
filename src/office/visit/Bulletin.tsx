@@ -5,6 +5,11 @@
 // bubble or the log. Reading them close (a press on the board) is the next step of #4.
 
 import { useFrame } from '@react-three/fiber'
+import { useCanvasPick } from '../pick'
+import { getBoardView, openBoard } from '../boardView/store'
+import { canOpen } from '../boardView/view'
+import { useCameraBusy } from '../../room/Door'
+import { replay } from '../../replay/store'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { CanvasTexture, Color, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace, Vector3, type Object3D } from 'three'
 import { cue } from '../../audio/cues'
@@ -64,6 +69,13 @@ export function Bulletin({ world, scene }: { world: OfficeWorld; scene: Object3D
     }
   }, [world])
   useFrame(() => rig?.tick())
+  // a press on the board flies the camera to it and lays the notes over it, like the whiteboard (#234); a phone gets the sheet
+  const busy = useCameraBusy()
+  const may = () => canOpen({ replayOn: replay.getSnapshot().mode !== 'off', cameraBusy: busy, phase: getBoardView().phase })
+  useCanvasPick(
+    () => (may() && rig ? [rig.face] : []),
+    () => may() && openBoard({ mode: matchMedia('(max-width: 640px)').matches ? 'sheet' : 'stage', surface: 'bulletin' }),
+  )
   return null
 }
 
@@ -77,6 +89,8 @@ class BulletinRig {
   private flutter = new Map<number, number>()
   private w: number
   private h: number
+  /** an invisible plane over the face: what a press hits */
+  face: Mesh
 
   constructor(private surface: Object3D) {
     const { w = 0.8, h = 0.9 } = surface.userData as { w?: number; h?: number }
@@ -91,7 +105,11 @@ class BulletinRig {
     this.plane.raycast = () => {}
     this.plane.position.z = 0.001
     surface.add(this.plane)
+    this.face = new Mesh(new PlaneGeometry(w, h), new MeshBasicMaterial({ visible: false }))
+    this.face.position.z = 0.0015
+    surface.add(this.face)
     this.plane.updateMatrixWorld(true)
+    this.face.updateMatrixWorld(true)
   }
 
   show(notes: Note[], fresh: number[], refont = false) {
@@ -172,6 +190,9 @@ class BulletinRig {
 
   dispose() {
     this.plane.removeFromParent()
+    this.face.removeFromParent()
+    this.face.geometry.dispose()
+    ;(this.face.material as MeshBasicMaterial).dispose()
     this.plane.geometry.dispose()
     ;(this.plane.material as MeshBasicMaterial).dispose()
     this.texture.dispose()

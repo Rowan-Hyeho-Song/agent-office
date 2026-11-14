@@ -80,7 +80,8 @@ export function BoardCamera() {
   useFrame(() => {
     const st = getBoardView()
     const c = live.current.controls
-    const surface = scene.getObjectByName('surface_whiteboard')
+    // the board it flies to: the whiteboard, or the cork board of the notes (#4 12.3)
+    const surface = scene.getObjectByName(`surface_${st.surface}`)
     if (st.mode !== 'stage' || !surface || !c) {
       setBoardRect(null)
       return

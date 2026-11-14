@@ -11,6 +11,7 @@ import { measure, useBoardState, useFontsReady, useNarrow } from './hooks'
 import { CardSummary, agentVar } from './CardSummary'
 import { CLOSE } from './pose'
 import { closeBoard, dispatchBoard, openBoard, setBoardHover, takeOpener, useBoardRect, useBoardView, type BoardViewState } from './store'
+import { NotesSheet, NotesStage } from '../visit/NotesView'
 import {
   HOME_VIEW,
   cardLabel,
@@ -77,17 +78,33 @@ export function BoardView({ world }: { world: OfficeWorld }) {
     if (st.phase !== 'closed' && (st.mode === 'sheet') !== narrow) closeBoard()
   }, [narrow, st.mode, st.phase])
   // focus goes back where the screen was opened from
+  // (the board that was open: its own keyboard opener is the fallback, #4 12.3)
+  const lastSurface = useRef(st.surface)
+  if (st.phase !== 'closed') lastSurface.current = st.surface
   useLayoutEffect(() => {
-    if (st.phase === 'closed' && was.current !== 'closed') giveBack(focusReturn(takeOpener(), document.getElementById('board-opener')))
+    if (st.phase === 'closed' && was.current !== 'closed') giveBack(focusReturn(takeOpener(), document.getElementById(lastSurface.current === 'bulletin' ? 'bulletin-opener' : 'board-opener')))
     was.current = st.phase
   }, [st.phase])
 
   return (
     <>
       <Opener hidden={replayOn || st.phase !== 'closed'} narrow={narrow} />
+      <BulletinOpener hidden={replayOn || st.phase !== 'closed'} narrow={narrow} />
       <Hover />
-      {st.phase !== 'closed' && !replayOn && (st.mode === 'sheet' ? <BoardSheet world={world} st={st} /> : <Stage world={world} st={st} />)}
+      {st.phase !== 'closed' && !replayOn && st.surface === 'whiteboard' && (st.mode === 'sheet' ? <BoardSheet world={world} st={st} /> : <Stage world={world} st={st} />)}
+      {/* the cork board of the visitors' notes, the same way (#4 12.3) */}
+      {st.phase !== 'closed' && !replayOn && st.surface === 'bulletin' && (st.mode === 'sheet' ? <NotesSheet /> : <NotesStage st={st} />)}
     </>
+  )
+}
+
+/** #4 12.3: the cork board's keyboard way in, like the whiteboard's (seen only while it has focus) */
+function BulletinOpener({ hidden, narrow }: { hidden: boolean; narrow: boolean }) {
+  if (hidden) return null
+  return (
+    <button id="bulletin-opener" type="button" className="board-opener" aria-label="코르크 게시판 쪽지 보기" onClick={(e) => openBoard({ mode: narrow ? 'sheet' : 'stage', from: e.currentTarget, surface: 'bulletin' })}>
+      코르크 게시판 쪽지 보기
+    </button>
   )
 }
 
