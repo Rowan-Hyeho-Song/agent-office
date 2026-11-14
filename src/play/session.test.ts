@@ -28,12 +28,14 @@ describe('sessions', () => {
   it('a busy player removes the pair', () => {
     let all: ReturnType<typeof sessionsAt> = []
     let t = T
+    // a pair session (a game record placed alone, #137, has one player)
     while (!all.length && t < T + 50 * BLOCK_MS) {
-      all = sessionsAt(t, agents)
+      all = sessionsAt(t, agents).filter((s) => !s.solo)
       t += BLOCK_MS
     }
     expect(all.length).toBeGreaterThan(0)
     const busy = new Set([all[0].players[0]])
-    expect(sessionsAt(t - BLOCK_MS, agents, busy).find((x) => x.spot === all[0].spot)).toBeUndefined()
+    // the busy player is out of every game; its partner may now place a record alone at the board (#137), but not with it
+    expect(sessionsAt(t - BLOCK_MS, agents, busy).find((x) => x.spot === all[0].spot && x.players.includes(all[0].players[0]))).toBeUndefined()
   })
 })

@@ -4,7 +4,10 @@ import { WATER_PLANTS, standOf } from './water'
 // Deterministic play: who does what during free time, from the clock alone. Every visitor computes the same
 // scene for the same minute, so the office looks shared without a server. Pure: no three.js, no Date.
 
-export type PlayKind = 'pingpong' | 'boardgame' | 'coffee' | 'sofa' | 'water' | 'books' | ActKind
+export type PlayKind = 'pingpong' | 'boardgame' | 'boardgame_solo' | 'coffee' | 'sofa' | 'water' | 'books' | ActKind
+
+/** the pose a play is drawn with: placing a game record alone (#137) sits at the board like a game */
+export const playPose = (kind: PlayKind): Exclude<PlayKind, 'boardgame_solo'> => (kind === 'boardgame_solo' ? 'boardgame' : kind)
 
 interface PlayDef {
   kind: PlayKind
@@ -22,6 +25,8 @@ interface PlayDef {
 export const PLAYS: PlayDef[] = [
   { kind: 'pingpong', label: '탁구', spots: ['pingpong_a', 'pingpong_b'], pair: true, weight: 3 },
   { kind: 'boardgame', label: '보드게임', spots: ['game_a', 'game_b'], pair: true, weight: 3 },
+  // one agent placing a game record alone (#137, play.md 5.5): half the pair game's weight; the other chair stays empty for a visitor ("같이 두기")
+  { kind: 'boardgame_solo', label: '기보 놓기', spots: ['game_a'], weight: 1.5 },
   { kind: 'coffee', label: '커피', spots: ['coffee'], weight: 2 },
   // the seats in the order they are taken: the east seat (3, lying, head on the north armrest) before the corner (2, nav `last`: the one chosen last, lounge-props.md 1)
   { kind: 'sofa', label: '소파에서 낮잠', spots: ['sofa_0', 'sofa_1', 'sofa_3', 'sofa_2'], weight: 2 },
@@ -51,7 +56,7 @@ export const LIKES: Record<string, Partial<Record<PlayKind, number>>> = {
   // echo (#193): drums along to the rally rather than playing it, and likes the click of the omok stones
   agent_4: { boardgame: 2, pingpong: 0.5 },
 }
-const like = (agent: string, kind: PlayKind) => LIKES[agent]?.[kind] ?? 1
+const like = (agent: string, kind: PlayKind) => LIKES[agent]?.[playPose(kind)] ?? 1
 
 /** activities change every this many minutes (long enough to get there and play a while) */
 export const BLOCK_MINUTES = 3
@@ -149,7 +154,8 @@ export function playAt(minute: number, agents: string[], busy: ReadonlySet<strin
     const agent = order[i]
     if (out[agent]) continue
     const partner = order.slice(i + 1).find((a) => !out[a])
-    const open = SCHEDULED.filter((p) => (p.pair ? partner && !taken.has(p.kind) : freeSpot(p)))
+    // a pair needs all its spots (the board's chair may already hold someone placing a game record alone)
+    const open = SCHEDULED.filter((p) => (p.pair ? partner && !taken.has(p.kind) && p.spots.every((s) => !used.has(s)) : freeSpot(p)))
     const p = pick(open.length ? open : solos, agent, partner)
     if (p.pair && partner) {
       taken.add(p.kind)

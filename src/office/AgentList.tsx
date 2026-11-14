@@ -1,11 +1,10 @@
 import { useSyncExternalStore } from 'react'
 import { useReplay } from '../replay/store'
 import { Icon } from './ApprovalIcons'
-import { activityLabel, clip, PRIVATE_TASK_LABEL, taskNumber, taskOf, taskText } from './status'
+import { activityLabel, clip, PRIVATE_TASK_LABEL, STATE_LABELS, statusLine, taskNumber, taskOf, taskText } from './status'
+import { openBadge } from './badge/badgeStore'
 import { tour } from './tourStore'
 import { AGENT_INFO, type OfficeWorld } from './world'
-
-const STATE_LABELS = { working: '', wrapping: '정리 중', idle: '휴식 중', off: '퇴근' } as const
 
 /**
  * The plain list of who is doing what (#1): the same status the 3D scene acts out, readable at a glance and by
@@ -25,7 +24,7 @@ export function AgentList({ world }: { world: OfficeWorld }) {
           const s = shown[a]?.status ?? status[a]
           const detail = shown[a]?.detail
           const info = AGENT_INFO[a]
-          const text = !s ? '…' : s.state === 'wrapping' && detail ? `정리 중 · ${detail}` : detail ?? (s.state === 'working' ? activityLabel(s.activity) : s.night === 'sleep' ? '조는 중' : s.night === 'duty' ? '야간 당번' : STATE_LABELS[s.state])
+          const text = statusLine(s, detail)
           const task = taskOf(s)
           // #182: "작업 중 › #170 제목 · 파일 편집 중"; the title alone is cut (the full text stays in title / aria-label)
           const state = s?.state === 'working' ? '작업 중' : STATE_LABELS[s?.state ?? 'off']
@@ -33,7 +32,9 @@ export function AgentList({ world }: { world: OfficeWorld }) {
           return (
             <li key={a} className={`state-${s?.state ?? 'off'}`}>
               <i style={{ background: info.color }} aria-hidden="true" />
-              <button type="button" className="agent-name" onClick={() => tour.start(a)} title="이 에이전트부터 둘러보기"><b>{info.name}</b></button>{' '}
+              <button type="button" className="agent-name" onClick={() => tour.start(a)} title="이 에이전트부터 둘러보기"><b>{info.name}</b></button>
+              {/* #4 12.1: the badge for keyboards and screen readers (the robot itself is clicked with a pointer) */}
+              <button type="button" className="agent-card-btn" aria-label={`${info.name.split(' ')[0]} 카드 열기`} title="사원증 보기" onClick={(e) => openBadge(a, e.currentTarget)}>ⓘ</button>{' '}
               {task && s ? (
                 <span className="agent-task" title={taskText(task)} aria-label={`${info.name}, ${state} ${taskText(task)}${more ? `, ${more}` : ''}`}>
                   {state} ›{' '}

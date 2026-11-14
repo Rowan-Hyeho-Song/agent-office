@@ -10,6 +10,7 @@ import {
   DRIP_R,
   DRIP_STAY,
   DRY_S,
+  dryCurve,
   Drips,
   HABIT_OF_SEAT,
   HABIT_S,
@@ -316,17 +317,31 @@ describe('the soil: dark over 0.8 s, dry over 60 s', () => {
     expect(h.get('a')).toBeCloseTo(0.5, 6)
   })
 
-  it('dries evenly over 60 s once the water stops, and only the plant that was watered is wet', () => {
+  it('dries over 60 s on 1 − (t/60)² once the water stops (#397: a half-dried pot still reads wet), and only the plant that was watered is wet', () => {
     const w = new Wetness()
     w.step('a', 1, true)
     w.step('b', 1, false)
     expect(w.get('b')).toBe(0)
     for (let t = 0; t < DRY_S / 2; t++) w.step('a', 1, false)
-    expect(w.get('a')).toBeCloseTo(0.5, 6)
+    expect(w.get('a')).toBeCloseTo(0.75, 6)
     expect(w.active()).toEqual(['a'])
     for (let t = 0; t < DRY_S / 2 + 1; t++) w.step('a', 1, false)
     expect(w.get('a')).toBe(0)
     expect(w.active()).toEqual([])
+  })
+
+  it('the curve starts from how wet it was when the water stopped; watering again starts it over', () => {
+    expect(dryCurve(0)).toBe(1)
+    expect(dryCurve(DRY_S * 0.9)).toBeCloseTo(0.19, 6)
+    expect(dryCurve(DRY_S + 5)).toBe(0)
+    const w = new Wetness()
+    w.step('a', WET_S / 2, true) // half wet
+    for (let t = 0; t < 30; t++) w.step('a', 1, false)
+    expect(w.get('a')).toBeCloseTo(0.5 * 0.75, 6)
+    w.step('a', WET_S, true) // watered again: back to full, the drying clock restarts
+    expect(w.get('a')).toBe(1)
+    w.step('a', 6, false)
+    expect(w.get('a')).toBeCloseTo(dryCurve(6), 6)
   })
 
   it('the darkening is the 70 % brightness layer (as the eye sees it: sRGB 0.7 is 0.45 of the light)', () => {

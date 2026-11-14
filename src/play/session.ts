@@ -14,6 +14,8 @@ export interface PlaySession {
   seed: number
   /** the block start (ms) */
   startMs: number
+  /** #137: one agent placing a game record alone (players = [it, it]): it plays both colours, the other chair is empty */
+  solo?: boolean
 }
 
 /** time for the players to walk over and sit down before the first serve / move */
@@ -40,5 +42,8 @@ export function sessionsAt(ms: number, agents: string[], busy: ReadonlySet<strin
     if (!b || assign[b]?.spot !== def.spots[1]) continue
     out.push({ kind: def.kind, spot: def.spots[0], players: [a, b], seed: hash(`${block}|${def.kind}|${def.spots[0]}|${a}|${b}`), startMs: block * BLOCK_MS })
   }
+  // a game record placed alone (#137): the board's session with the one agent on both sides
+  const solo = Object.keys(assign).sort().find((id) => assign[id].kind === 'boardgame_solo')
+  if (solo) out.push({ kind: 'boardgame', spot: assign[solo].spot, players: [solo, solo], solo: true, seed: hash(`${block}|boardgame_solo|${assign[solo].spot}|${solo}`), startMs: block * BLOCK_MS })
   return out
 }

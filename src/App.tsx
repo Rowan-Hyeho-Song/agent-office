@@ -4,6 +4,8 @@ import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing'
 import { Suspense, lazy, useEffect, useState, type ReactNode } from 'react'
 import { afterFirstScreen } from './office/atlases'
 import { AgentList } from './office/AgentList'
+import { ViewerCount } from './office/visit/ViewerCount'
+import { AgentBadge } from './office/badge/AgentBadge'
 import { ApprovalBox } from './office/ApprovalBox'
 import { CornerDock } from './office/CornerDock'
 import { SidePanel } from './office/SidePanel'
@@ -117,11 +119,13 @@ export function App() {
       </Canvas>
       <p className="hud">
         <b>AGENT OFFICE</b> · 드래그해서 돌려 보기
+        <ViewerCount />
       </p>
       <CameraHint enabled={limits && !busy} />
       <EdgeHints />
       <TourBar world={world} />
       <AgentList world={world} />
+      <AgentBadge world={world} />
       <CornerDock />
       <SidePanel world={world} />
       <ApprovalBox world={world} />

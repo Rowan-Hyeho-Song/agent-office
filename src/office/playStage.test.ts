@@ -125,6 +125,75 @@ describe('PlayStage', () => {
     expect(touch).toBeLessThan(0.003)
   })
 
+  it('ping-pong: a ball out of reach makes the body step along the end line, at most 0.4 m and 1.2 m/s, and it comes back (#397, play.md 7)', async () => {
+    const s = findSession('pingpong')
+    const w = await world()
+    const goals = seat(w.rigs, s)
+    const steps: number[][] = [[], []]
+    for (let k = 0; k < 1500; k++) {
+      const now = s.startMs + 15_000 + 6000 + k * 20
+      w.stage.update(inp(w, goals, now, k * 0.02))
+      for (const side of [0, 1] as const) {
+        const r = w.rigs[s.players[side]]
+        steps[side].push(r.parts.root.position.z - r.z)
+      }
+    }
+    for (const side of [0, 1]) {
+      const st = steps[side]
+      expect(Math.max(...st.map(Math.abs))).toBeLessThanOrEqual(0.4 + 1e-6)
+      for (let i = 1; i < st.length; i++) expect(Math.abs(st[i] - st[i - 1])).toBeLessThanOrEqual(1.2 * 0.02 + 1e-6)
+    }
+    const all = [...steps[0], ...steps[1]]
+    if (LOG) appendFileSync(LOG, 'pingpong side step max ' + Math.max(...all.map(Math.abs)).toFixed(3) + ' m, frames stepped ' + all.filter((x) => Math.abs(x) > 0.01).length + '/' + all.length + '\n')
+    expect(Math.max(...all.map(Math.abs))).toBeGreaterThan(0.05) // in 30 s of rally some ball is out of reach
+    expect(all.some((x, i) => i > 0 && Math.abs(x) < 1e-6 && Math.abs(all[i - 1]) > 0)).toBe(true) // and it comes back to the spot
+  })
+
+  it('ping-pong: the side step keeps to 1.2 m/s of frame time even when the office clock runs ahead of the frames (#448: 1.38 m/s at peaks)', async () => {
+    const s = findSession('pingpong')
+    const w = await world()
+    const goals = seat(w.rigs, s)
+    const dt = 0.016
+    const prev: Record<string, number> = {}
+    let worst = 0
+    for (let k = 0; k < 1500; k++) {
+      // 40 ms of office time per 16 ms frame
+      w.stage.update(inp(w, goals, s.startMs + 15_000 + 6000 + k * 40, k * dt, { dt }))
+      for (const id of s.players) {
+        const r = w.rigs[id]
+        const z = r.parts.root.position.z - r.z
+        if (id in prev) worst = Math.max(worst, Math.abs(z - prev[id]) / dt)
+        prev[id] = z
+      }
+    }
+    expect(worst).toBeGreaterThan(0.5) // it does step
+    expect(worst).toBeLessThanOrEqual(1.2 + 1e-6)
+  })
+
+  it('reduced motion: the white bowl fades out at home (0.12 s) and in at the corner (0.12 s), never sliding over (#456)', async () => {
+    const w = await world()
+    const goals = Object.fromEntries(IDS.map((id) => [id, { spot: 'work_0', pose: 'idle', label: '' } as Goal]))
+    const bowl = w.scene.getObjectByName('prop_omok_bowl_w')!
+    const homeX = bowl.position.x
+    const frame = (t: number, rest: 'home' | 'corner') => {
+      w.stage.update(inp(w, goals, 0, t, { reduced: true, dt: 0.02, bowlRest: rest }))
+      w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
+      w.props.update(0.02)
+      return { o: (w.stage as unknown as { bowlOpacity: number }).bowlOpacity, x: bowl.position.x }
+    }
+    for (let t = 0; t < 0.2; t += 0.02) expect(frame(t, 'home').x).toBeCloseTo(homeX, 4)
+    const seen: { t: number; o: number; x: number }[] = []
+    for (let t = 0.2; t < 0.6; t += 0.02) seen.push({ t, ...frame(t, 'corner') })
+    const cornerX = seen.at(-1)!.x
+    expect(cornerX).toBeLessThan(homeX - 0.3)
+    // out at home first, then in at the corner: every frame is at one of the two places (nothing slides between them)
+    expect(seen.every((f) => Math.abs(f.x - homeX) < 0.005 || Math.abs(f.x - cornerX) < 0.005)).toBe(true)
+    expect(seen.filter((f) => Math.abs(f.x - homeX) < 0.005).every((f) => f.o <= 1)).toBe(true)
+    expect(Math.min(...seen.map((f) => f.o))).toBeLessThan(0.2)
+    expect(seen.find((f) => f.t > 0.2 + 0.12 && f.t < 0.2 + 0.24 && Math.abs(f.x - cornerX) < 0.005 && f.o > 0 && f.o < 1), 'fading in at the corner').toBeTruthy()
+    expect(seen.at(-1)!.o).toBe(1)
+  })
+
   it('omok: the same office time gives the same stones; the stone sits between the index and middle fingertips at their contacts', async () => {
     const s = findSession('boardgame')
     const run = async (measure: boolean) => {

@@ -42,7 +42,8 @@ import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFo
 import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
 import { type Place, SEQ, ease, habitOf, placeSequence } from '../play/choreo'
-import { strokeAt } from '../play/stroke'
+import { STEP, stepAt, strokeAt } from '../play/stroke'
+import { BOWL_CORNER, BOWL_S, SOLO_LEAD_MS } from './bowlRun'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
 import { Typist } from './typist'
@@ -74,6 +75,15 @@ const LEAN_MAX_M = 0.08
 const WEIGHT_DIP_M = 0.03
 const WRIST_SAG = (5 * Math.PI) / 180 / ((30 * Math.PI) / 180)
 const LEAN_IN_M = 0.05
+/** the white bowl in the carrying hold: in front of the chest, its bottom this high, this far forward of the body */
+const BOWL_CARRY = { y: 0.82, fwd: 0.3 }
+/** the paddle hand's shoulder, from the body's spot: height above the floor and sideways toward the right hand (rig.ts's throw: 1.0 m, 0.12–0.15 m) */
+const SHOULDER_Y = 1.0
+const SHOULDER_SIDE = 0.15
+/** reduced motion: the can's appearance in the hand / on its stand (watering.md 5) */
+const CAN_FADE_MS = 120
+/** watering.md 1: over the monstera it leans 2° more (12° instead of 10°: the lean's 5 cm scaled the same way, #397) */
+const LEAN_MORE: Record<string, number> = { plant_sofa: 12 / 10 }
 
 export interface StageIn {
   /** office time, ms */
@@ -95,6 +105,8 @@ export interface StageIn {
   colors: Record<string, string>
   /** ?debug=1: pair games started by hand (debugPlay.ts) instead of the schedule's, and a grip demo to loop */
   forcedSessions?: PlaySession[]
+  /** #137 ① where the white bowl rests when no hand has it (Director.bowlRest): its home by game_b, or the corner by game_a */
+  bowlRest?: 'home' | 'corner'
   gripDemo?: GripDemo | null
 }
 
@@ -161,6 +173,17 @@ export class PlayStage {
   // omok
   private grid: { o: Vector3; n: number; cell: number } | null = null
   private bowl: Record<'b' | 'w', { mouth: Vector3; contact: Vector3 } | undefined> = { b: undefined, w: undefined }
+  /** the bowls' dip points as nodes: the white one rides with prop_omok_bowl_w (#137 ①), so its points are read every frame */
+  private bowlNodes: Partial<Record<'b' | 'w', { mouth: Object3D; contact: Object3D }>> = {}
+  /** #137 ① the white bowl's home (its bottom centre) and the stone sample's offset from it, for resting both at the corner */
+  private bowlHome: Vector3 | null = null
+  private pieceOnBowl: Vector3 | null = null
+  /** where the white bowl is drawn now, and (reduced motion) its swap from one rest to the other: out at the old, in at the new, 0.12 s each */
+  private bowlShown: 'home' | 'corner' = 'home'
+  private bowlSwap: { from: 'home' | 'corner'; to: 'home' | 'corner'; t0: number } | null = null
+  private bowlMats: Material[] | null = null
+  /** tests: the white bowl's opacity now */
+  bowlOpacity = 1
   private stones: { b: InstancedMesh; w: InstancedMesh } | null = null
   private shadows: InstancedMesh | null = null
   private rings: Mesh[] = []
@@ -234,7 +257,16 @@ export class PlayStage {
     for (const c of ['b', 'w'] as const) {
       const bowl = scene.getObjectByName(`omok_bowl_${c}`)
       const contact = scene.getObjectByName(`omok_bowl_${c}_contact_index`)
-      if (bowl && contact) this.bowl[c] = { mouth: bowl.getWorldPosition(new Vector3()), contact: contact.getWorldPosition(new Vector3()) }
+      if (bowl && contact) {
+        this.bowl[c] = { mouth: bowl.getWorldPosition(new Vector3()), contact: contact.getWorldPosition(new Vector3()) }
+        this.bowlNodes[c] = { mouth: bowl, contact }
+      }
+    }
+    const bw = scene.getObjectByName('prop_omok_bowl_w')
+    const pw = scene.getObjectByName('prop_piece_b')
+    if (bw && pw) {
+      this.bowlHome = bw.getWorldPosition(new Vector3())
+      this.pieceOnBowl = pw.getWorldPosition(new Vector3()).sub(this.bowlHome)
     }
     // the stones on the board: the two samples are hidden and instanced
     const sb = nodes.omok_stone_b
@@ -439,6 +471,7 @@ export class PlayStage {
   // ------------------------------------------------------------------------------------------------------------- frame
 
   update(inp: StageIn) {
+    this.restBowl(this.bowlSwapStep(inp.bowlRest ?? 'home', inp))
     for (const node of this.forced) this.props.force(node, null)
     this.forced.clear()
     this.typed.clear()
@@ -529,6 +562,17 @@ export class PlayStage {
       const dir = side === 0 ? 1 : -1
       const planeX = -dir * (d.L! / 2 + d.reach!)
       const ready: V3 = [planeX + dir * 0.12, 0.2, 0]
+      // a ball out of reach of the paddle shoulder: the body steps along the end line first (max 0.4 m at 1.2 m/s, play.md 7, #397); not under reduced motion
+      if (rig && !inp.reduced) {
+        const o = this.tableWorld([0, 0, 0])
+        const shoulder: V3 = [rig.x - o.x, SHOULDER_Y - o.y, rig.z - o.z + dir * SHOULDER_SIDE]
+        const want = stepAt(rally.contacts.filter((c) => c.side === side), playing ? tMs : -Infinity, shoulder, dir, FACE_GAP)
+        // the rally clock (office time) and the frames do not tick together: the step is also held to 1.2 m/s of frame time (#448: 1.38 at peaks)
+        const was = this.sideSteps.get(rig.id) ?? 0
+        const step = was + Math.max(-STEP.mps * inp.dt, Math.min(STEP.mps * inp.dt, want - was))
+        this.sideSteps.set(rig.id, step)
+        rig.nudge(0, step)
+      }
       // read the ball, take the paddle there while it flies, wait drawn back, swing so the face meets it (#416 ③, play.md 7)
       const sp = strokeAt(
         rally.contacts.filter((c) => c.side === side),
@@ -601,6 +645,87 @@ export class PlayStage {
     return f
   }
 
+  /**
+   * #137 ① the white bowl rests at the corner by game_a while a record is placed alone (and the stone sample with it, at the same offset);
+   * the bowls' dip points are read from their nodes, so a stone is taken from wherever the bowl is now
+   */
+  /**
+   * Reduced motion (#456): a change of the bowl's rest is not walked over; it fades out where it was (0.12 s) and in where it goes (0.12 s),
+   * the bowl and the stone sample snapped there in between. Otherwise the rest changes while the hands hold it (bowlErrand). Returns the
+   * rest to draw this frame.
+   */
+  private bowlSwapStep(want: 'home' | 'corner', inp: StageIn): 'home' | 'corner' {
+    if (!this.bowlSwap && want !== this.bowlShown) {
+      if (!inp.reduced) this.bowlShown = want
+      else this.bowlSwap = { from: this.bowlShown, to: want, t0: inp.t }
+    }
+    const sw = this.bowlSwap
+    if (!sw) return this.bowlShown
+    const u = (inp.t - sw.t0) / (CAN_FADE_MS / 1000)
+    if (u < 1) {
+      this.setBowlOpacity(1 - u)
+      return sw.from
+    }
+    if (this.bowlShown !== sw.to) {
+      // snap: set the new rest and put both there before they fade in (nothing slides)
+      this.restBowl(sw.to)
+      for (const name of ['prop_omok_bowl_w', 'prop_piece_b']) {
+        const n = this.sceneRef.getObjectByName(name)
+        if (n) n.position.setFromMatrixPosition(this.props.homeWorld(n))
+      }
+      this.bowlShown = sw.to
+    }
+    if (u < 2) {
+      this.setBowlOpacity(u - 1)
+      return sw.to
+    }
+    this.setBowlOpacity(1)
+    this.bowlSwap = null
+    return sw.to
+  }
+  private setBowlOpacity(o: number) {
+    const k = Math.max(0, Math.min(1, o))
+    if (k === this.bowlOpacity) return
+    const nodes = ['prop_omok_bowl_w', 'prop_piece_b'].map((n) => this.sceneRef.getObjectByName(n)).filter(Boolean) as Object3D[]
+    if (!this.bowlMats) {
+      this.bowlMats = []
+      for (const node of nodes)
+        for (const m of meshesOf(node)) {
+          m.material = (m.material as Material).clone()
+          this.bowlMats.push(m.material as Material)
+        }
+    }
+    this.bowlOpacity = k
+    for (const mat of this.bowlMats) {
+      mat.transparent = k < 1
+      mat.opacity = k
+      mat.depthWrite = k >= 1
+    }
+  }
+
+  private restBowl(rest: 'home' | 'corner') {
+    if (this.bowlHome && this.pieceOnBowl) {
+      if (rest === 'corner') {
+        const at = new Vector3(BOWL_CORNER.x, this.bowlHome.y, BOWL_CORNER.z)
+        this.props.setRest('prop_omok_bowl_w', new Matrix4().makeTranslation(at.x, at.y, at.z))
+        const p = at.clone().add(this.pieceOnBowl)
+        this.props.setRest('prop_piece_b', new Matrix4().makeTranslation(p.x, p.y, p.z))
+      } else {
+        this.props.setRest('prop_omok_bowl_w', null)
+        this.props.setRest('prop_piece_b', null)
+      }
+    }
+    for (const c of ['b', 'w'] as const) {
+      const n = this.bowlNodes[c]
+      const b = this.bowl[c]
+      if (!n || !b) continue
+      n.mouth.updateWorldMatrix(true, false)
+      n.mouth.getWorldPosition(b.mouth)
+      n.contact.updateWorldMatrix(true, false)
+      n.contact.getWorldPosition(b.contact)
+    }
+  }
+
   private omok(s: PlaySession | null, inp: StageIn) {
     const st = this.stones
     if (!st || !this.grid) return
@@ -611,7 +736,9 @@ export class PlayStage {
       this.sweep(inp)
       return
     }
-    const tMs = sessionTime(s, inp.now)
+    // a record placed alone starts once the white bowl has been brought over (#137 ①)
+    // (reduced motion: no fetching, so no delay, #456)
+    const tMs = sessionTime(s, inp.now) - (s.solo && !inp.reduced ? SOLO_LEAD_MS : 0)
     if (tMs < 0) {
       this.sweep(inp)
       return
@@ -686,7 +813,8 @@ export class PlayStage {
       }
     }
     // the faces of the result: the winner is glad (기쁨), the loser embarrassed (당황); an expression is information, reduced motion keeps it
-    if (view.phase === 'won' && view.winner && view.wonMs > 500) {
+    // a record placed alone has no winner to be glad and no loser to clap (#137 ①)
+    if (view.phase === 'won' && view.winner && view.wonMs > 500 && !s.solo) {
       const fk = `${key}:${view.game}`
       if (!this.faced.has(fk)) {
         this.faced.add(fk)
@@ -698,8 +826,8 @@ export class PlayStage {
     if (inp.reduced) return
     // the hands
     this.omokHands(s, view, inp)
-    // reactions (play.md 2.5): the winner's small fist, the loser's three claps and a bow
-    if (view.phase === 'won' && view.winner) {
+    // reactions (play.md 2.5): the winner's small fist, the loser's three claps and a bow (not when one agent placed both sides)
+    if (view.phase === 'won' && view.winner && !s.solo) {
       const winnerIdx = view.winner === 1 ? view.black : (1 - view.black) as 0 | 1
       const k = `${key}:${view.game}`
       const wr = inp.rigs[s.players[winnerIdx]]
@@ -915,6 +1043,8 @@ export class PlayStage {
     void og
     // the watering errand: first, so nothing else (the stamp) takes the right hand while it carries the can
     if (goal.pose === 'water') return this.errand(rig, goal, inp)
+    // #137 ① the white bowl in both hands
+    if (goal.pose === 'bowl' && goal.bowl) return this.bowlErrand(rig, goal.bowl, inp)
     // the lounge acts (fridge, dispenser, turntable), the pillow on the sofa, the door lever (loungeActs.ts)
     if (this.lounge.solo(rig, goal, inp)) return
     // the planner's stamp (the owner decided something)
@@ -1080,7 +1210,8 @@ export class PlayStage {
       flow = flowAt(plant.name, w.u, habitS)
       // it steps in to the pot: the body leans toward it (10°, about 5 cm) and the head bows 15°
       if (lv.body) {
-        rig.leanOver(-Math.sin(heading) * LEAN_IN_M * pr.hold, -Math.cos(heading) * LEAN_IN_M * pr.hold)
+        const lean = LEAN_IN_M * (LEAN_MORE[plant.name] ?? 1) * pr.hold
+        rig.leanOver(-Math.sin(heading) * lean, -Math.cos(heading) * lean)
         rig.headExtra.pitch = -0.26 * pr.hold
       }
     } else if (w.stage === 'put') {
@@ -1094,6 +1225,8 @@ export class PlayStage {
       else want = false
     }
     const attached = this.grip(rig, 'r', 'watering_can', can.node.name, want, held, inp)
+    // reduced motion: a jump (stand → hand at the pour, hand → stand at the put) fades in instead of flying
+    this.fadeCan(can.node, inp.reduced && (w.stage === 'pour' || w.stage === 'put') ? `${rig.id}:${w.stage}` : '', inp.t * 1000)
     // the left hand supports the can's belly while it pours, following it (grip_l), fading in and out with the settle
     const tl = this.target(can.node.name, 'watering_can', 'l')
     if (tl && hands > 0) this.partner(rig, 'watering_can', 'l', tl, this.lastObjPose, 'r', hands)
@@ -1101,6 +1234,41 @@ export class PlayStage {
     const hu = w.stage === 'pour' && lv.body ? habitU(plant.name, w.habit, w.u) : null
     if (hu !== null && w.habit) this.habit(rig, plant, w.habit, hu, habitEnv(hu, habitS), inp)
     this.pouring = attached && w.stage === 'pour' ? { rig, held, plant, flow, u: w.u, shakes: lv.shakes } : null
+  }
+
+  /**
+   * #137 ① the white bowl's errand (bowlRun.ts): both hands take it by the bulge where it rests (lift), carry it in front of the chest while
+   * walking, and lower it to where it goes (put: its rest is already there, Director.bowlRest), the hands letting go. Nothing else holds
+   * the hands meanwhile; the bowl is never moved but by the right hand's grip with the left hand following it.
+   */
+  private bowlErrand(rig: AgentRig, b: NonNullable<Goal['bowl']>, inp: StageIn) {
+    if (b.stage === 'fetch') return
+    const bowl = this.props.info(rig, 'bowl')
+    if (!bowl) return
+    const root = rig.parts.root
+    const body = new Quaternion().setFromAxisAngle(UP, rig.heading)
+    const fwd = new Vector3(0, 0, -1).applyQuaternion(body)
+    const carry = new Matrix4().compose(new Vector3(root.position.x, BOWL_CARRY.y, root.position.z).addScaledVector(fwd, BOWL_CARRY.fwd), body, new Vector3(1, 1, 1))
+    const rest = this.props.homeWorld(bowl.node)
+    let want = true
+    let held = carry
+    let hands = 1
+    if (b.stage === 'lift') {
+      // it takes the weight: the body dips 2 cm as the hands close and comes up with it
+      rig.bodyDip = 0.02 * Math.sin(Math.PI * Math.min(1, b.u / BOWL_S.lift))
+      rig.headExtra.pitch = -0.2
+    } else if (b.stage === 'put') {
+      const dur = Math.max(0.6, rig.gestureMin)
+      rig.headExtra.pitch = -0.2
+      if (b.u < dur + 0.06) held = blend(carry, rest, ease(Math.min(1, b.u / dur)))
+      else {
+        want = false
+        hands = 0
+      }
+    }
+    this.grip(rig, 'r', 'bowl', bowl.node.name, want, held, inp)
+    const tl = this.target(bowl.node.name, 'bowl', 'l')
+    if (tl && hands > 0) this.partner(rig, 'bowl', 'l', tl, this.lastObjPose, 'r', hands)
   }
 
   /** the can swings a little with each step while it is carried (watering.md 2: ±3° per step); how much follows how fast the body moves */
@@ -1174,7 +1342,37 @@ export class PlayStage {
     if (e) e.extra = fn
   }
 
+  /** each ping-pong player's side step as drawn last frame (#397) */
+  private sideSteps = new Map<string, number>()
   private pouring: { rig: AgentRig; held: Matrix4; plant: Plant; flow: number; u: number; shakes: number } | null = null
+  /**
+   * Reduced motion (watering.md 5, #397): the can does not travel; it appears in the hand when the pour begins and back on its stand when it
+   * is put, each with a 0.12 s fade. Its meshes get their own copy of the material the first time (the atlas material is shared).
+   */
+  private canFade: { key: string; t0: number; mats: Material[] | null; o: number } = { key: '', t0: 0, mats: null, o: 1 }
+  /** `now`: the rigs' clock, ms (inp.t: it runs in the timelapse and the tests too) */
+  private fadeCan(node: Object3D, key: string, now: number) {
+    const f = this.canFade
+    if (key !== f.key) {
+      f.key = key
+      f.t0 = now
+    }
+    const o = key ? Math.min(1, Math.max(0, (now - f.t0) / CAN_FADE_MS)) : 1
+    if (o === f.o) return
+    if (!f.mats) {
+      f.mats = []
+      for (const m of meshesOf(node)) {
+        m.material = (m.material as Material).clone()
+        f.mats.push(m.material as Material)
+      }
+    }
+    f.o = o
+    for (const mat of f.mats) {
+      mat.transparent = o < 1
+      mat.opacity = o
+      mat.depthWrite = o >= 1
+    }
+  }
   private carryAmp = new Map<string, { x: number; z: number; amp: number }>()
   /** the spout node in the can's frame (water.ts: +z = the water's direction) */
   private spoutLocal: Matrix4 | null = null

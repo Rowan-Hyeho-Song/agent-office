@@ -390,7 +390,8 @@ button.secret-cover:hover .bar { background: var(--color-line); }
   .dock-badge { display: grid; }
 }
 @media (max-width: 640px) { body:has(.replay) .desk-link, body:has(.replay) .hud { display: none; } }
-body:has(.replay) .corner-dock, html[data-side='sheet'] .corner-dock { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 160ms ease, visibility 0s 160ms; }
+/* the timelapse (its office bars or its 2D list, #444: the list left the dock showing over it) and the phone sheet take the dock away */
+body:has(.replay, .replay-list) .corner-dock, html[data-side='sheet'] .corner-dock { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 160ms ease, visibility 0s 160ms; }
 @media (prefers-reduced-motion: reduce) { .corner-dock { transition: none; } }
 html[data-motion='reduce'] .corner-dock { transition: none; }
 .docs-box {
@@ -821,3 +822,114 @@ html[data-motion='reduce'] .sound-panel.sheet { animation: sound-sheet-fade 120m
 .tt-tag { position: absolute; left: 50%; bottom: calc(100% + 6px); translate: -50% 0; white-space: nowrap; padding: 2px 8px; background: var(--color-surface-alpha); color: var(--color-text);
   box-shadow: inset 0 0 0 1px var(--color-cyan); font: 12px var(--font-pixel, monospace); }
 .tt-outline[data-hover='0'] .tt-tag { display: none; }
+
+/* ---- the agent's badge (사원증, office-ui.md 12.1a, #4) ------------------------------------------------------------------ */
+.agent-list .agent-card-btn { all: unset; pointer-events: auto; cursor: pointer; display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 2px; color: var(--color-text-muted); font-size: 12px; line-height: 1; }
+.agent-list .agent-card-btn:hover { color: var(--color-cyan); }
+.agent-list .agent-card-btn:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 1px; }
+
+.badge-hang { position: fixed; inset: 0 0 auto 0; height: 0; z-index: 45; pointer-events: none; }
+.badge-pendant { position: absolute; top: 0; left: 16px; width: 224px; pointer-events: auto; animation: badge-drop 350ms cubic-bezier(0.2, 0.9, 0.3, 1.25) both; }
+.badge-hang.leaving .badge-pendant { animation: badge-up 200ms ease-in both; }
+.badge-lanyard { position: absolute; left: 111px; top: 0; width: 2px; height: calc(var(--top) - 6px); background: var(--agent); }
+.badge-clip { position: absolute; left: 100px; top: calc(var(--top) - 10px); width: 24px; height: 14px; border-radius: 4px; background: #3a4048; box-shadow: inset 0 0 0 2px #2a2f36; z-index: 2; }
+.badge-hang .badge-card { position: absolute; top: var(--top); left: 0; transform-origin: 50% 0; animation: badge-swing 800ms ease-out 350ms both; }
+.badge-hang.reduced .badge-pendant { animation: badge-fade 120ms linear both; }
+.badge-hang.reduced.leaving .badge-pendant { animation: badge-fade 120ms linear reverse both; }
+.badge-hang.reduced .badge-card { animation: none; }
+@keyframes badge-drop { from { transform: translateY(calc(-1 * (var(--top) + 360px))); } 80% { transform: translateY(6px); } to { transform: none; } }
+@keyframes badge-up { to { transform: translateY(calc(-1 * (var(--top) + 360px))); } }
+@keyframes badge-swing { 0% { rotate: 0deg; } 20% { rotate: 4deg; } 45% { rotate: -4deg; } 65% { rotate: 2.5deg; } 85% { rotate: -1.5deg; } 100% { rotate: 0deg; } }
+@keyframes badge-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.badge-card { position: relative; width: 224px; height: 352px; perspective: 900px; color: var(--color-ink); font-family: var(--font-pixel); }
+.badge-face { position: absolute; inset: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; border-radius: 10px; background: #f3ead8; box-shadow: 0 0 0 1px var(--color-halo), 0 10px 24px rgb(0 0 0 / 0.45); backface-visibility: hidden; transition: transform 400ms ease-in-out; }
+.badge-back { transform: rotateY(180deg); }
+.badge-card.flipped .badge-front { transform: rotateY(-180deg); }
+.badge-card.flipped .badge-back { transform: rotateY(0deg); }
+.badge-hang.reduced .badge-face { transition: opacity 120ms linear; transform: none; }
+/* the hidden face is also out of the way of the pointer (it sat over the front and took its clicks) */
+.badge-hang.reduced .badge-back { opacity: 0; visibility: hidden; }
+.badge-hang.reduced .badge-card.flipped .badge-front { opacity: 0; transform: none; visibility: hidden; }
+.badge-hang.reduced .badge-card.flipped .badge-back { opacity: 1; visibility: visible; }
+.badge-band { display: flex; align-items: center; height: 30px; padding: 0 4px 0 10px; background: var(--color-ink); color: var(--color-amber); font-weight: 700; font-size: 13px; letter-spacing: 0.04em; }
+.badge-close { all: unset; margin-left: auto; width: 26px; height: 26px; display: grid; place-items: center; color: var(--color-text); font-size: 16px; cursor: pointer; }
+.badge-close:focus-visible, .badge-face button:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 1px; }
+.badge-body { flex: 1; padding: 10px 12px 8px 18px; border-left: 6px solid var(--agent); margin-left: 0; min-height: 0; }
+.badge-face p { margin: 0; }
+.badge-photo { display: block; width: 120px; height: 90px; border-radius: 4px; background: #05080b; box-shadow: 0 0 0 2px #2a2f36; image-rendering: pixelated; }
+.badge-name { margin-top: 8px !important; font-weight: 700; font-size: 22px; line-height: 1.1; }
+.badge-name span { font-size: 13px; letter-spacing: 0.06em; }
+.badge-row { display: flex; align-items: center; gap: 8px; margin-top: 6px !important; font-size: 12px; }
+.badge-role { padding: 1px 6px; border-radius: 3px; background: var(--agent); color: var(--color-ink); font-weight: 700; }
+.badge-joined { margin-top: 6px !important; font-size: 11px; letter-spacing: 0.04em; }
+.badge-status { display: flex; align-items: center; gap: 6px; margin-top: 4px !important; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.badge-status i { flex: none; width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 0 1px rgb(11 14 19 / 0.35); }
+.badge-code { display: flex; align-items: flex-end; gap: 8px; margin-top: 8px !important; font-size: 11px; letter-spacing: 0.06em; }
+.badge-bars { display: flex; gap: 2px; height: 22px; }
+.badge-bars b { display: block; height: 100%; background: var(--color-ink); }
+.badge-stub { display: flex; align-items: center; gap: 8px; padding: 8px 10px 10px 18px; border-top: 2px dashed rgb(11 14 19 / 0.35); border-left: 6px solid var(--agent); font-size: 11px; }
+.badge-today { flex: 1; min-width: 0; }
+.badge-flip { all: unset; flex: none; padding: 4px 6px; border: 1px solid rgb(11 14 19 / 0.45); border-radius: 3px; font-size: 11px; cursor: pointer; }
+.badge-sub { margin: 0 0 6px; font: inherit; font-weight: 700; font-size: 12px; }
+.badge-recent { list-style: none; margin: 0; padding: 0; font-size: 11px; line-height: 1.5; }
+.badge-recent li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.badge-recent li::before { content: '· '; }
+.badge-recent .badge-none::before { content: ''; }
+.badge-links { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 10px 0 8px !important; }
+.badge-links button { all: unset; font-size: 12px; text-decoration: underline; cursor: pointer; }
+.badge-back .badge-flip { margin-top: 4px; }
+
+/* the phone: a bottom sheet, the front without the lanyard, today's list right under it (no flip) */
+.badge-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; max-height: 88vh; overflow: auto; box-sizing: border-box; padding: 16px 32px calc(12px + env(safe-area-inset-bottom, 0px)); border-radius: 12px 12px 0 0; background: var(--color-surface); color: var(--color-text); font-family: var(--font-pixel); box-shadow: 0 -1px 0 var(--color-line); animation: sound-sheet-up 240ms ease-out; }
+.badge-sheet.leaving { animation: badge-fade 120ms linear reverse both; }
+.badge-sheet .badge-card { margin: 0 auto; }
+.badge-sheet .badge-face { position: relative; height: 100%; }
+.badge-sheet .badge-close { width: 44px; height: 44px; margin: -7px -4px -7px auto; }
+.badge-sheet .badge-sub { margin-top: 16px; }
+.badge-sheet .badge-recent { font-size: 13px; }
+.badge-sheet .badge-links button { min-height: 44px; display: flex; align-items: center; color: var(--color-cyan); font-size: 13px; }
+@media (prefers-reduced-motion: reduce) { .badge-sheet { animation: sound-sheet-fade 120ms linear; } }
+html[data-motion='reduce'] .badge-sheet { animation: sound-sheet-fade 120ms linear; }
+.badge-hover-tag { position: fixed; left: 0; top: 0; z-index: 44; pointer-events: none; padding: 2px 6px; border-radius: 3px; background: var(--color-surface-alpha); box-shadow: 0 0 0 1px var(--color-halo), inset 2px 0 0 var(--agent); color: var(--color-text); font-family: var(--font-pixel); font-size: 12px; white-space: nowrap; }
+
+/* #4 12.2: a visitor's snack or cheer on its way and at the robot (decoration; the robot's '방문자' bubble says it) */
+.treat-layer { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
+.treat-icon, .treat-heart { position: fixed; left: 0; top: 0; font-size: 22px; line-height: 1; filter: drop-shadow(0 3px 2px rgb(0 0 0 / 0.55)); will-change: transform, opacity; }
+.treat-heart { font-size: 16px; color: var(--color-magenta); }
+/* the badge's give buttons (12.1a: 44 × 32 each) */
+.badge-stub { flex-wrap: wrap; }
+.badge-give { display: inline-flex; gap: 4px; }
+.badge-give-btn { all: unset; box-sizing: border-box; min-width: 44px; height: 32px; padding: 0 6px; display: inline-grid; place-items: center; border: 1px solid rgb(11 14 19 / 0.45); border-radius: 4px; font-family: var(--font-pixel); font-size: 13px; cursor: pointer; white-space: nowrap; }
+.badge-give-btn:hover { background: rgb(11 14 19 / 0.08); }
+.badge-give-btn:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 1px; }
+.badge-give-btn[aria-disabled='true'] { opacity: 0.5; cursor: default; }
+.badge-sheet .badge-give-btn { height: 44px; }
+/* row 1: today's line and the flip; row 2: the give buttons (wider with their seconds) */
+.badge-stub { row-gap: 6px; }
+.badge-stub .badge-today { flex: 1 1 0; min-width: 0; }
+.badge-stub .badge-give { order: 3; flex-basis: 100%; }
+
+/* #4 12.4: how many are watching, at the end of the hint line; a narrow phone line takes the short form */
+.hud-viewers-short { display: none; }
+@media (max-width: 430px) {
+  .hud-viewers-long { display: none; }
+  .hud-viewers-short { display: inline; }
+}
+/* #454 the pixel icons: whole pixels only (24 px = 12 × 2) */
+.pixel-icon { display: inline-flex; line-height: 0; }
+.pixel-icon svg, .treat-icon svg, .treat-heart svg { display: block; }
+.badge-give-btn { grid-auto-flow: column; gap: 3px; }
+.treat-icon, .treat-heart { font-size: 0; }
+/* #4 12.3: the note form under the badge (in the sheet on a phone) */
+.note-form { position: absolute; top: calc(var(--top) + 352px + 10px); left: 0; width: 224px; box-sizing: border-box; display: grid; gap: 6px; padding: 10px; border-radius: 8px; background: #f3ead8; color: var(--color-ink); font-family: var(--font-pixel); font-size: 12px; box-shadow: 0 0 0 1px var(--color-halo), 0 10px 24px rgb(0 0 0 / 0.45); pointer-events: auto; }
+.badge-sheet .note-form { position: static; width: auto; margin-top: 12px; }
+.note-label { display: flex; justify-content: space-between; font-weight: 700; }
+.note-label span { font-weight: 400; color: #6b5f45; }
+.note-form textarea, .note-form input { box-sizing: border-box; width: 100%; padding: 6px; border: 1px solid rgb(11 14 19 / 0.45); border-radius: 4px; background: #fffaf0; color: var(--color-ink); font: inherit; resize: none; }
+.note-form textarea:focus-visible, .note-form input:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 1px; }
+.note-msg { margin: 0; min-height: 2.4em; color: #6b5f45; font-size: 11px; }
+.note-msg.bad { color: #8a2d1c; }
+.note-msg.ok { color: #2f6b3a; }
+.note-btns { display: flex; gap: 6px; justify-content: flex-end; }
+.note-form .badge-give-btn[disabled] { opacity: 0.5; cursor: default; }

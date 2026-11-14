@@ -29,6 +29,24 @@ const wallBoxes = (): ClearBox[] =>
     return { min: [r.cx - r.sx / 2, 0, r.cz - r.sz / 2], max: [r.cx + r.sx / 2, WALL_CUT[w], r.cz + r.sz / 2], slide: true } as ClearBox
   })
 
+/**
+ * The crowns of the big leafy plants: not furniture (the free camera may brush through leaves), but a scripted camera must not look
+ * through them (#397: the coffee bar's cut was half hidden behind the fiddle-leaf fig). Their boxes above the pot, from the model.
+ */
+export const LEAFY = ['plant_corner'] as const
+const LEAF_FROM_Y = 0.6
+export function leafBoxes(scene: Object3D): ClearBox[] {
+  const out: ClearBox[] = []
+  for (const name of LEAFY) {
+    const o = scene.getObjectByName(name)
+    if (!o) continue
+    tmp.setFromObject(o)
+    if (tmp.isEmpty() || tmp.max.y <= LEAF_FROM_Y) continue
+    out.push({ min: [tmp.min.x, Math.max(tmp.min.y, LEAF_FROM_Y), tmp.min.z], max: tmp.max.toArray() as [number, number, number] })
+  }
+  return out
+}
+
 /** a robot's body box (its root node, re-measured) */
 export function robotBox(group: Object3D): ClearBox {
   tmp.setFromObject(group)

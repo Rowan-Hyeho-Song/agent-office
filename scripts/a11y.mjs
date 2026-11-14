@@ -33,6 +33,16 @@ if (!origin) {
 }
 origin = origin.replace(/\/$/, '')
 
+/**
+ * The board's keyboard opener (#board-opener) is mounted with the board view, which loads after the first screen (#410 `Later`): wait for it
+ * (#444: the phone states pressed it before it existed and the run stopped at `null.click()`). It is only visible with focus, so it is clicked
+ * in the page rather than through the pointer.
+ */
+async function openBoardFromKeys(p) {
+  await p.waitForSelector('#board-opener', { state: 'attached', timeout: 30000 })
+  await p.evaluate(() => document.getElementById('board-opener').click())
+}
+
 /** each state: where to go and what to do there before checking */
 const STATES = [
   { name: '방문자 · 패널 닫힘', url: '/?debug=1' },
@@ -137,17 +147,21 @@ const STATES = [
       await p.waitForSelector('.bv-pop')
     } },
   { name: '화이트보드 · 휴대폰 보드 화면 (390px)', url: '/?debug=1', viewport: { width: 390, height: 844 }, act: async (p) => {
-      await p.evaluate(() => document.getElementById('board-opener').click())
+      await openBoardFromKeys(p)
       await p.waitForSelector('.bs-card')
     } },
   { name: '화이트보드 · 휴대폰 카드 요약 (390px)', url: '/?debug=1', viewport: { width: 390, height: 844 }, act: async (p) => {
-      await p.evaluate(() => document.getElementById('board-opener').click())
+      await openBoardFromKeys(p)
       await p.locator('.bs-card').first().click()
       await p.waitForSelector('.bs-summary')
     } },
   // the timelapse (#82): the office replay with its bar, the 2D list, the phone's bar
   { name: '타임랩스 · 사무실', url: '/?debug=1&replay=all&t=2026-11-08T01:00:00Z', act: (p) => p.waitForSelector('.replay-slider') },
-  { name: '타임랩스 · 목록', url: '/?debug=1&replay=all&t=2026-11-08T01:00:00Z', act: (p) => p.evaluate(() => window.__replay.setMode('list')) },
+  { name: '타임랩스 · 목록', url: '/?debug=1&replay=all&t=2026-11-08T01:00:00Z', act: async (p) => {
+      // window.__replay comes with the replay driver, which also loads after the first screen (#410, #444)
+      await p.waitForFunction(() => !!window.__replay, null, { timeout: 30000 })
+      await p.evaluate(() => window.__replay.setMode('list'))
+    } },
   { name: '타임랩스 · 휴대폰 막대', url: '/?debug=1&replay=all&t=2026-11-08T01:00:00Z', viewport: { width: 390, height: 844 }, act: async (p) => {
       // a phone opens the 2D list by default; "사무실에서 보기" brings the bar
       await p.getByText('▶ 사무실에서 보기').click()

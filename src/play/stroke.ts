@@ -119,3 +119,49 @@ export function strokeAt(contacts: readonly Contact[], tMs: number, home: V3, di
   const kk = k * k // speeding up into the ball
   return { pos: lerp(from, face, kk), wrist: -STROKE.wristBack + (STROKE.wristBack + STROKE.wristThrough) * kk, backhand, phase: 'swing' }
 }
+
+// ------------------------------------------------------------------------------------------------- the side step (#397)
+
+/** play.md 7: a contact farther than this from the shoulder makes the body step along the end line first (at most `maxM`, at `mps`) */
+export const STEP = { reachM: 0.75, maxM: 0.4, mps: 1.2 } as const
+
+const sign = (x: number) => (x < 0 ? -1 : 1)
+
+/** how far along z (table-local) the body must stand off its spot so the face at contact is within reach of `shoulder` (0 when it is already) */
+export function stepFor(c: Contact, shoulder: V3, dir: 1 | -1, gap: number): number {
+  const p = faceAt(c, dir, gap)
+  const dx = p[0] - shoulder[0]
+  const dy = p[1] - shoulder[1]
+  const dz = p[2] - shoulder[2]
+  if (Math.hypot(dx, dy, dz) <= STEP.reachM) return 0
+  // the sideways distance that is still in reach once the step is made
+  const keep = Math.sqrt(Math.max(0, STEP.reachM ** 2 - dx * dx - dy * dy))
+  const s = dz - sign(dz) * keep
+  return Math.max(-STEP.maxM, Math.min(STEP.maxM, s))
+}
+
+/** from `from` toward `to` at the stepping speed for `ms` */
+const toward = (from: number, to: number, ms: number) => from + sign(to - from) * Math.min(Math.abs(to - from), (STEP.mps * Math.max(0, ms)) / 1000)
+
+/**
+ * The body's step along the end line at rally time `tMs` (table-local z, from its spot): after the reaction it goes toward what the
+ * coming contact needs at 1.2 m/s, stays there through the swing and the follow-through, and comes back as the paddle does.
+ * `shoulder` is the paddle hand's shoulder with the body on its spot.
+ */
+export function stepAt(contacts: readonly Contact[], tMs: number, shoulder: V3, dir: 1 | -1, gap: number): number {
+  const cs = [...contacts].sort((a, b) => a.t - b.t)
+  // contact by contact: where the body really got to at each one (it may not have reached what that one needed), then home after its follow-through
+  let at = 0
+  let lastT: number | null = null
+  const homeAt = (t: number) => (lastT === null ? 0 : toward(at, 0, t - lastT - STROKE.followMs))
+  for (const c of cs) {
+    const start = c.from + STROKE.reactMs
+    if (tMs < start) return homeAt(tMs)
+    const from = homeAt(start)
+    const need = stepFor(c, shoulder, dir, gap)
+    if (tMs <= c.t) return toward(from, need, tMs - start)
+    at = toward(from, need, c.t - start)
+    lastT = c.t
+  }
+  return homeAt(tMs)
+}

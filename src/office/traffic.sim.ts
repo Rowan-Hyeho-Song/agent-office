@@ -24,6 +24,8 @@ export function mismatch(a: string, sh: Shown | undefined, g: Goal, arrived: str
   const s = sh.status.state
   // #228: called to work (or off) while carrying the watering can, the agent first brings it back: it shows the errand's words, whatever it is
   if (g.pose === 'water' && sh.kind !== 'rest') return sh.detail && g.water ? null : 'water errand without its words'
+  // and for the white bowl (#137 ①): called away with it in the hands, it first puts it down where it was going and says so
+  if (g.pose === 'bowl' && g.bowl && sh.kind !== 'rest') return sh.detail ? null : 'bowl errand without its words'
   // the same for the book (#280): called away on the sofa, it first brings the book back and says so
   if (g.pose === 'books' && g.read && sh.kind !== 'rest') return sh.detail ? null : 'reading errand without its words'
   switch (sh.kind) {

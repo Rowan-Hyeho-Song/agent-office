@@ -24,7 +24,7 @@ const MAX_TIP_M = 0.003
 
 function findSession(kind: 'pingpong' | 'boardgame', agent: string, side: 0 | 1): PlaySession {
   for (let m = 0; m < 20000; m++) {
-    const s = sessionsAt(1_790_000_000_000 + m * 180_000, IDS).find((x) => x.kind === kind && x.players[side] === agent)
+    const s = sessionsAt(1_790_000_000_000 + m * 180_000, IDS).find((x) => !x.solo && x.kind === kind && x.players[side] === agent) // a pair (a record placed alone has one player, #137)
     if (s) return s
   }
   throw new Error(`no ${kind} session for ${agent} side ${side}`)
