@@ -8,6 +8,7 @@ import { stubCanvas } from './glbLoad'
 import { Guard, IDS, Walk, expectCleanAll, world, type World } from './errandWorld.fixture'
 import { DRINKS, FRIDGE, FRIDGE_LIGHT, FRIDGE_T, grabAt, sweptDistance, type DrinkKind } from './lounge'
 import { DRINK_T } from './fridgeDrink'
+import { FRIDGE_REACH } from './loungeActs'
 
 stubCanvas()
 const DT = 0.02
@@ -162,6 +163,45 @@ describe('#457 a drink from the fridge, drawn', () => {
     expect(w.nodes.prop_fridge_milk.position.y, 'before the chest at the end').toBeGreaterThan(0.7)
     expectCleanAll('fridge milk', w, guard)
   }, 90000)
+
+  for (const kind of ['can', 'milk'] as const)
+    it(`the reach for the ${kind} goes in through the opening, not across its front edge (#472 designer): crossing x 4.335 the hand is within z −0.90 … −0.56`, async () => {
+      const w = await world()
+      const agent = 'agent_3'
+      const { walk, guard } = setup(w, agent)
+      walk.director.forceAct(agent, 'fridge', walk.t0 + walk.t * 1000, undefined, kind)
+      const hand = w.rigs[agent].parts.hands.l
+      const pts: Record<'centre' | 'grip', Vector3[]> = { centre: [], grip: [] }
+      for (let k = 0; k < 30 / DT; k++) {
+        walk.step(DT, guard)
+        const u = walk.goals[agent].act?.u ?? -1
+        if (u >= FRIDGE_T.reach - 0.05 && u <= FRIDGE_T.grab + 0.6) {
+          pts.centre.push(hand.node.getWorldPosition(new Vector3()))
+          pts.grip.push(hand.grip!.getWorldPosition(new Vector3()))
+        }
+        if (u > FRIDGE_T.grab + 0.6) break
+      }
+      const [lo, hi] = FRIDGE_REACH.zIn
+      for (const [name, path] of Object.entries(pts)) {
+        let crossings = 0
+        for (let i = 1; i < path.length; i++) {
+          const a = path[i - 1]
+          const b = path[i]
+          if ((a.x - FRIDGE_REACH.frontX) * (b.x - FRIDGE_REACH.frontX) > 0 || a.x === b.x) continue
+          const z = a.z + ((FRIDGE_REACH.frontX - a.x) / (b.x - a.x)) * (b.z - a.z)
+          crossings++
+          expect(z, `${kind} ${name} crossing the front`).toBeGreaterThanOrEqual(lo)
+          expect(z).toBeLessThanOrEqual(hi)
+        }
+        // in and out again
+        expect(crossings, `${kind} ${name}`).toBeGreaterThanOrEqual(2)
+        // and every frame inside the front is within the opening
+        for (const p of path.filter((q) => q.x > FRIDGE_REACH.frontX)) {
+          expect(p.z, `${kind} ${name} inside`).toBeGreaterThanOrEqual(lo)
+          expect(p.z).toBeLessThanOrEqual(hi)
+        }
+      }
+    }, 90000)
 
   it('reduced motion, the milk: no step, no reach; it is in the hand from 70°, appearing in 0.12 s; no sips; the door\'s milk carton is not faded with it', async () => {
     const w = await world()

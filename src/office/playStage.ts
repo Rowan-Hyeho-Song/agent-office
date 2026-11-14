@@ -69,6 +69,8 @@ const LIFT_S = 0.35
 const REACH_KINDS = new Set(['book', 'marker', 'paddle'])
 /** carrying a prop back to where it rests, s */
 const PUT_S = 0.4
+/** #457 a reach with a waypoint (grip `via`): this share of the approach takes the hand to it, the rest goes on in */
+const VIA_SHARE = 0.4
 /** a go stone is carried within this far of the player's spot (m); farther, the body leans in, by at most LEAN_MAX_M */
 const STONE_COMFORT_M = 0.7
 const LEAN_MAX_M = 0.08
@@ -232,7 +234,7 @@ export class PlayStage {
     scene.updateMatrixWorld(true)
     this.typist = new Typist(nodes)
     this.lounge = new LoungeActs(scene, nodes, props, {
-      grip: (rig, side, kind, objName, want, held, inp, prefer) => this.grip(rig, side, kind, objName, want, held, inp, prefer),
+      grip: (rig, side, kind, objName, want, held, inp, prefer, via) => this.grip(rig, side, kind, objName, want, held, inp, prefer, false, via),
       partner: (rig, kind, side, objName, primary) => {
         const tgt = this.target(objName, kind, side)
         if (tgt) this.partner(rig, kind, side, tgt, this.lastObjPose, primary)
@@ -377,7 +379,7 @@ export class PlayStage {
    * One hand and one object for this frame. `want`: should the hand be holding. `held`: the object's world pose while it is held
    * (null: where it rests; for a fixture like a mouse, always where it is). Returns whether the object is the hand's now.
    */
-  private grip(rig: AgentRig, side: 'l' | 'r', kind: string, objName: string, want: boolean, held: Matrix4 | null, inp: StageIn, prefer?: string, carryCall = false): boolean {
+  private grip(rig: AgentRig, side: 'l' | 'r', kind: string, objName: string, want: boolean, held: Matrix4 | null, inp: StageIn, prefer?: string, carryCall = false, via?: Vector3): boolean {
     const spec = GRIPS[kind]?.[side]
     const tgt = this.target(objName, kind, side)
     const key = `${rig.id}:${side}`
@@ -416,8 +418,23 @@ export class PlayStage {
       if (last) target.copy(last)
     } else if (out.stage !== 'rest') this.lastHand.set(lastKey, target.clone())
     if (out.stage === 'rest') return false
+    // #457 designer: a reach through an opening goes by `via` (where the grip point would be, in front of it) for the first 40% of the approach,
+    // then straight in for the rest, so the hand does not cut across the opening's edge
+    let w = out.wHand
+    if (via && out.stage === 'approach' && out.k !== undefined) {
+      const at = new Vector3().setFromMatrixPosition(new Matrix4().multiplyMatrices(pose, tgt.pg))
+      const end = new Vector3().setFromMatrixPosition(target)
+      const front = end.clone().add(via.clone().sub(at))
+      if (out.k < VIA_SHARE) {
+        target.setPosition(front)
+        w = ease(out.k / VIA_SHARE)
+      } else {
+        target.setPosition(front.lerp(end, ease((out.k - VIA_SHARE) / (1 - VIA_SHARE))))
+        w = 1
+      }
+    }
     const fit = this.holdFit(rig, side, tgt)
-    rig.drive[side] = { target, w: out.wHand, curl: null, angles: mixVec(rig.curlVec(side, spec.pre), fit.hold, rig.curlVec(side, spec.after), out.mix), wc: out.wCurl, spread: null, reach: REACH_KINDS.has(kind) }
+    rig.drive[side] = { target, w, curl: null, angles: mixVec(rig.curlVec(side, spec.pre), fit.hold, rig.curlVec(side, spec.after), out.mix), wc: out.wCurl, spread: null, reach: REACH_KINDS.has(kind) }
     if (tgt.obj && info && !body) {
       rig.want = { kind: propKind, side, prefer: prefer ?? objName, attached: out.attached }
       if (out.attached) {

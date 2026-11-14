@@ -45,6 +45,12 @@ export const LOUNGE_GRIPS = {
   fridge_milk: { l: { pre: curlOf([0.2, 0.2, 0.25, 0.25], [0.1, 0.5]), hold: curlOf([0.4, 0.42, 0.45, 0.48], [0.3, 0.8]), after: REST, contacts: ['palm', 'index', 'thumb'] } },
 } as const
 
+/**
+ * #457 the reach into the fridge (designer, #472): the first 40% of the approach to the front of the opening (x 4.25, the grip's height, z −0.87),
+ * then in. Crossing the front (x 4.335) the hand stays within z −0.90 … −0.56, inside the opening's north edge
+ */
+export const FRIDGE_REACH = { viaX: 4.25, viaZ: -0.87, frontX: 4.335, zIn: [-0.9, -0.56] } as const
+
 /** #457 the drink in the left hand, in the agent's frame (root, m): before the chest, its bottom here; at a sip its top rim just under the face screen */
 export const DRINK_HOLD = {
   // (a desk top is 0.75: held lower it reads as set down on the desk; its top stays under the head)
@@ -80,7 +86,7 @@ Object.assign(GRIPS, LOUNGE_GRIPS)
 
 /** what PlayStage lends (its grip clocks and drive live there) */
 export interface StageHooks {
-  grip(rig: AgentRig, side: 'l' | 'r', kind: string, objName: string, want: boolean, held: Matrix4 | null, inp: StageIn, prefer?: string): boolean
+  grip(rig: AgentRig, side: 'l' | 'r', kind: string, objName: string, want: boolean, held: Matrix4 | null, inp: StageIn, prefer?: string, via?: Vector3): boolean
   /** the other hand of a two-handed hold, following the primary hand's object pose (the last grip() call's) */
   partner(rig: AgentRig, kind: string, side: 'l' | 'r', objName: string, primary: 'l' | 'r'): void
   /** the index fingertip on a contact `<name>_contact_index`, pressed for `holdS` from u = 0.5, `depth` deep */
@@ -372,7 +378,8 @@ export class LoungeActs {
       pos = out.clone().lerp(cp, kk)
       q = hq.clone().slerp(cq, kk)
     }
-    this.drinkHands(rig, pick, new Matrix4().compose(pos, q, ONE), 1, inp)
+    // the reach goes first to the front of the opening, level with the grip (designer, #472): the hand never cuts across the front edge
+    this.drinkHands(rig, pick, new Matrix4().compose(pos, q, ONE), 1, inp, new Vector3(FRIDGE_REACH.viaX, d.grip.y, FRIDGE_REACH.viaZ))
   }
 
   /**
@@ -399,10 +406,10 @@ export class LoungeActs {
   }
 
   /** the left hand holds the drink at `held`, seen at `opacity` (it appears / fades) */
-  private drinkHands(rig: AgentRig, kind: DrinkKind, held: Matrix4, opacity: number, inp: StageIn) {
+  private drinkHands(rig: AgentRig, kind: DrinkKind, held: Matrix4, opacity: number, inp: StageIn, via?: Vector3) {
     const d = DRINKS[kind]
     // only a drink the hand has closed on is the hand's to let go of (one still on its shelf stays there, seen)
-    if (this.hooks.grip(rig, 'l', d.kind, d.prop, true, held, inp, d.prop)) this.holding.set(rig.id, d.prop)
+    if (this.hooks.grip(rig, 'l', d.kind, d.prop, true, held, inp, d.prop, via)) this.holding.set(rig.id, d.prop)
     for (const m of this.drinkMats.get(d.prop) ?? []) m.opacity = opacity
   }
 
