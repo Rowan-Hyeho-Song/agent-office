@@ -69,6 +69,24 @@ describe('branchIssue', () => {
   ])('%s', (name, n) => expect(branchIssue(name)).toBe(n))
 })
 
+describe('progressFor: doneAt (#462)', () => {
+  const merged = '2026-11-10T02:00:00Z'
+  it('a closed issue: when it was closed', () => {
+    expect(progressFor(issue({ state: 'closed', closed_at: '2026-11-11T00:00:00Z' }), {}).doneAt).toBe('2026-11-11T00:00:00Z')
+  })
+  it('open but done by a merged closing PR: the newest such merge; a Refs merge does not count', () => {
+    const prs = [
+      pr({ body: 'Closes #241', state: 'closed', merged_at: merged }),
+      pr({ number: 301, head: { ref: 'fix/241-x' }, state: 'closed', merged_at: '2026-11-12T00:00:00Z' }),
+      pr({ number: 302, body: 'Refs #241', state: 'closed', merged_at: '2026-11-13T00:00:00Z' }),
+    ]
+    expect(progressFor(issue(), { prs }).doneAt).toBe('2026-11-12T00:00:00Z')
+  })
+  it('not done: no doneAt at all', () => {
+    expect(progressFor(issue(), { prs: [pr({ body: 'Closes #241' })] })).not.toHaveProperty('doneAt')
+  })
+})
+
 describe('progressFor: the stage (#241)', () => {
   const stage = (i: object, ctx: Parameters<typeof progressFor>[1] = {}) => progressFor(issue(i), ctx).stage
   const merged = '2026-11-10T02:00:00Z'

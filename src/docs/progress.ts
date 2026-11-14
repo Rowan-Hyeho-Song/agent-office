@@ -13,6 +13,8 @@ export interface Progress {
   checks: { done: number; total: number } | null
   /** 🖊 requests of this issue nobody answered yet */
   pending: number
+  /** #462: when it was done (ISO; the issue's close, else its closing PR's merge); absent on files filed before it was sent */
+  doneAt?: string
   /**
    * The pipeline never sent one for this file (no plan document, or filed before #241): the library still shows a status
    * (designer, #301: every file has one), read from the documents: a merged PR's report = 완료, else 대기. The whiteboard
@@ -42,5 +44,6 @@ export function sanitizeProgress(v: unknown): Progress | null {
     checks = { done: c.done, total: c.total }
   }
   if (x.pending !== undefined && !count(x.pending)) return null
-  return { stage: x.stage as Stage, checks, pending: (x.pending as number | undefined) ?? 0 }
+  const doneAt = typeof x.doneAt === 'string' && x.doneAt.length <= 40 && Number.isFinite(Date.parse(x.doneAt)) ? x.doneAt : undefined
+  return { stage: x.stage as Stage, checks, pending: (x.pending as number | undefined) ?? 0, ...(doneAt ? { doneAt } : {}) }
 }

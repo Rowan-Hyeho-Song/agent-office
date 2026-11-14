@@ -3,6 +3,9 @@ import { SideSlot, useSidePanelOpen } from './SidePanel'
 import { setSideBack, setSideRaise, setSideUnseen } from './sidePanel/store'
 import { clearFile, loadDocsSeen, reconcileDocs, saveDocsSeen, unreadFile, unreadFolder, type DocsSeen } from '../docs/unread'
 import { IssueReplayButton } from '../replay/IssueReplayButton'
+import { replay, useReplayPoints } from '../replay/store'
+import { groupFiles, groupOf, loadFolds, parseDeploy, saveFolds, type Folds } from '../docs/deployGroups'
+import { FileGroups } from './docs/FileGroups'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
 import { fmtDay as fmtShortDay } from '../approvals/view'
 import {
@@ -92,6 +95,17 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
       return next
     })
   }, [])
+  // #462 the finished files grouped by deploy (docs-ui.md 2.6): the deploys are the timelapse's points (loaded with the list)
+  const points = useReplayPoints()
+  const deploys = useMemo(() => points.filter((p) => p.kind === 'deploy').map(parseDeploy), [points])
+  const [folds, setFolds] = useState<Folds>(loadFolds)
+  const fold = useCallback((key: string, isOpen: boolean) => {
+    setFolds((f) => {
+      const next = { ...f, [key]: isOpen }
+      saveFolds(next)
+      return next
+    })
+  }, [])
   const shown = useSidePanelOpen()
   const viewer = useRef<HTMLDivElement>(null)
   const selRef = useRef(sel)
@@ -146,6 +160,15 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
   const kind = kinds.find((t) => t.kind === sel.kind)?.kind ?? kinds[0]?.kind ?? null
   const docs = useMemo(() => (file && kind ? file.docs.filter((d) => d.kind === kind) : []), [file, kind])
   const view: Stage = stage === 'paper' && file && folder ? 'paper' : stage === 'files' && folder ? 'files' : 'folders'
+  const grouped = useMemo(() => (folder ? groupFiles(folder.files, deploys, folder.repo, listView) : null), [folder, deploys, listView])
+  useEffect(() => {
+    if (open && view === 'files') void replay.load()
+  }, [open, view])
+  // a file opened (from the list, a new-document dot or a replay): its group is open when the list comes back
+  const fileGroup = view === 'paper' ? groupOf(grouped, file?.key ?? null) : null
+  useEffect(() => {
+    if (fileGroup && folds[fileGroup.key] === false) fold(fileGroup.key, true)
+  }, [fileGroup, folds, fold])
 
   // Esc steps back first (a paper -> its list); at a list it closes the panel (SidePanel.tsx). Focus follows the stage
   // so a button that just left the page does not drop it on the body. A paper raises the phone sheet to full.
@@ -228,6 +251,44 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
     requestAnimationFrame(() => toc.current?.querySelector<HTMLElement>(`[data-doc="${next.kind}"]`)?.focus())
   }
 
+  const fileRow = (f: DocFile) => (
+    <button key={f.key} type="button" className="doc-file" data-stage={f.progress?.stage} aria-current={f === file} onClick={() => goFile(f)}>
+      <span className="l1">
+        <span className="n">{f.n ? `#${f.n}` : '—'}</span>
+        {unreadFile(f, seen) && <NewMark />}
+        <span className="ttl">
+          {(f.title && shownTitle(f.title, f.topics)) ?? (
+            <>
+              <span className="redact" style={{ width: 120 }} aria-hidden="true" />
+              <span className="sr-only">가려진 제목</span>
+            </>
+          )}
+        </span>
+        {f.secret && <span className="sec">{f.secret === 'review' ? `SECRET ${f.docs.filter((d) => !d.approved).length}` : 'SECRET'}</span>}
+        {f.repo !== null && <span className="date">{fmtDocDay(f.date)}</span>}
+      </span>
+      {(f.progress || f.topics.length > 0 || f.seats.length > 0) && (
+        <span className="l2">
+          <span className="l2-main">
+            {f.progress && <StageChip stage={f.progress.stage} />}
+            <PendingChip progress={f.progress} />
+            <TopicBadges topics={f.topics} fold />
+            {f.seats.length > 0 && (
+              <span className="who">
+                {f.seats.map((s) => (
+                  <i key={s} data-seat={s}>
+                    {seatFirst(s)}
+                  </i>
+                ))}
+              </span>
+            )}
+          </span>
+          <ProgressBar progress={f.progress} />
+        </span>
+      )}
+    </button>
+  )
+
   return (
     <>
       <div className="sr-only" role="status" aria-live="polite">
@@ -302,42 +363,10 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
                   ))}
                 {view === 'files' &&
                   folder &&
-                  viewFiles(folder.files, listView).map((f) => (
-                    <button key={f.key} type="button" className="doc-file" data-stage={f.progress?.stage} aria-current={f === file} onClick={() => goFile(f)}>
-                      <span className="l1">
-                        <span className="n">{f.n ? `#${f.n}` : '—'}</span>
-                        {unreadFile(f, seen) && <NewMark />}
-                        <span className="ttl">
-                          {(f.title && shownTitle(f.title, f.topics)) ?? (
-                            <>
-                              <span className="redact" style={{ width: 120 }} aria-hidden="true" />
-                              <span className="sr-only">가려진 제목</span>
-                            </>
-                          )}
-                        </span>
-                        {f.secret && <span className="sec">{f.secret === 'review' ? `SECRET ${f.docs.filter((d) => !d.approved).length}` : 'SECRET'}</span>}
-                        {f.repo !== null && <span className="date">{fmtDocDay(f.date)}</span>}
-                      </span>
-                      {(f.progress || f.topics.length > 0 || f.seats.length > 0) && (
-                        <span className="l2">
-                          <span className="l2-main">
-                            {f.progress && <StageChip stage={f.progress.stage} />}
-                            <PendingChip progress={f.progress} />
-                            <TopicBadges topics={f.topics} fold />
-                            {f.seats.length > 0 && (
-                              <span className="who">
-                                {f.seats.map((s) => (
-                                  <i key={s} data-seat={s}>
-                                    {seatFirst(s)}
-                                  </i>
-                                ))}
-                              </span>
-                            )}
-                          </span>
-                          <ProgressBar progress={f.progress} />
-                        </span>
-                      )}
-                    </button>
+                  (grouped ? (
+                    <FileGroups grouped={grouped} folds={folds} repo={folder.repo} onFold={fold} row={fileRow} unread={(f) => unreadFile(f, seen)} />
+                  ) : (
+                    viewFiles(folder.files, listView).map(fileRow)
                   ))}
                 {view === 'files' && folder && folder.files.length > 0 && viewFiles(folder.files, listView).length === 0 && (
                   <p className="doc-note">
