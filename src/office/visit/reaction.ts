@@ -17,8 +17,6 @@ export interface Reaction {
   hearts: 0 | 1 | 3
 }
 
-export const SNACK_ICON: Record<Exclude<TreatKind, 'cheer'>, string> = { coffee: '☕', cookie: '🍪', apple: '🍎' }
-export const CHEER_ICON = '✨'
 export const TREAT_LABEL: Record<TreatKind, string> = { coffee: '커피', cookie: '쿠키', apple: '사과', cheer: '응원' }
 
 /** the mood from the scene: asleep (dozing at night), in a meeting, working (or wrapping up), else free (resting, playing) */

@@ -17,7 +17,8 @@ import { badgeAnchor, badgeHover, closeBadge, getBadge, useBadge, useBadgeHover 
 import { barcode, joinedDate, machineNo, recentToday, seatLabel, todayLine } from './badgeData'
 import { cue } from '../../audio/cues'
 import { give, waitLeft } from '../visit/treats'
-import { SNACK_ICON, TREAT_LABEL } from '../visit/reaction'
+import { TREAT_LABEL } from '../visit/reaction'
+import { pixelSvg, type PixelIconName } from '../visit/pixelIcons'
 import { SNACKS, type TreatKind } from '../../visit/treat'
 
 export const BADGE = { w: 224, h: 352, gutter: 16, top: 48, followMs: 300, dropMs: 350, swingMs: 800, leaveMs: 200, fadeMs: 120 }
@@ -342,7 +343,7 @@ function GiveButtons({ agent, name }: { agent: string; name: string }) {
       <span className="badge-give" role="group" aria-label={`${name}에게 줄 간식`}>
         {SNACKS.map((k) => (
           <button key={k} type="button" className="badge-give-btn" aria-label={`${TREAT_LABEL[k]} 주기`} onClick={() => send(k)}>
-            {SNACK_ICON[k]}
+            <Pixel name={k} />
           </button>
         ))}
         <button type="button" className="badge-give-btn" aria-label="간식 고르기 닫기" onClick={() => setPicking(false)}>
@@ -363,7 +364,8 @@ function GiveButtons({ agent, name }: { agent: string; name: string }) {
           setPicking(true)
         }}
       >
-        ☕{wait(left.snack)}
+        <Pixel name="coffee" />
+        {wait(left.snack)}
       </button>
       <button
         type="button"
@@ -372,11 +374,15 @@ function GiveButtons({ agent, name }: { agent: string; name: string }) {
         aria-label={left.cheer ? `응원은 ${left.cheer}초 뒤에 할 수 있어요` : `${name} 응원하기`}
         onClick={() => !left.cheer && send('cheer')}
       >
-        ✨{wait(left.cheer)}
+        <Pixel name="cheer" />
+        {wait(left.cheer)}
       </button>
     </span>
   )
 }
+
+/** a pixel icon (#454: the same as in flight), 24 px */
+const Pixel = ({ name }: { name: PixelIconName }) => <span className="pixel-icon" aria-hidden="true" dangerouslySetInnerHTML={{ __html: pixelSvg(name) }} />
 
 /** the company band: ▣ AGENT OFFICE and the close button, the same on both faces */
 function Band({ titleId, name, onClose, hiddenTitle, tabbable = true }: { titleId: string; name: string; onClose: Ref<HTMLButtonElement> | null; hiddenTitle?: boolean; tabbable?: boolean }) {

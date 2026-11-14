@@ -916,3 +916,8 @@ html[data-motion='reduce'] .badge-sheet { animation: sound-sheet-fade 120ms line
   .hud-viewers-long { display: none; }
   .hud-viewers-short { display: inline; }
 }
+/* #454 the pixel icons: whole pixels only (24 px = 12 × 2) */
+.pixel-icon { display: inline-flex; line-height: 0; }
+.pixel-icon svg, .treat-icon svg, .treat-heart svg { display: block; }
+.badge-give-btn { grid-auto-flow: column; gap: 3px; }
+.treat-icon, .treat-heart { font-size: 0; }

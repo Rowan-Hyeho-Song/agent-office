@@ -10,7 +10,8 @@ import { Box3, Vector3 } from 'three'
 import { cue } from '../../audio/cues'
 import { supabase } from '../supabase'
 import { prefersReducedMotion, type OfficeWorld } from '../world'
-import { CHEER_ICON, moodOf, reactionOf, SNACK_ICON, type Reaction } from './reaction'
+import { moodOf, reactionOf, type Reaction } from './reaction'
+import { pixelSvg } from './pixelIcons'
 import { listenTreats, onTreat, type Treat } from './treats'
 
 export const FLY_MS = 600
@@ -49,7 +50,7 @@ export function TreatRig({ world }: { world: OfficeWorld }) {
       onTreat((treat) => {
         const el = document.createElement('span')
         el.className = `treat-icon treat-${treat.kind}`
-        el.textContent = treat.kind === 'cheer' ? CHEER_ICON : SNACK_ICON[treat.kind]
+        el.innerHTML = pixelSvg(treat.kind)
         root.appendChild(el)
         flights.current.push({ treat, el, start: null, arrived: null, reaction: null, hearts: [], restAt: null })
       }),
@@ -113,7 +114,7 @@ export function TreatRig({ world }: { world: OfficeWorld }) {
       for (let i = 0; i < r.hearts; i++) {
         const h = document.createElement('span')
         h.className = 'treat-heart'
-        h.textContent = '♥'
+        h.innerHTML = pixelSvg('heart')
         root.appendChild(h)
         f.hearts.push(h)
       }
