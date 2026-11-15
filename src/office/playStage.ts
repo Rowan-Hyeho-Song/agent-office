@@ -9,6 +9,7 @@
 // its contact point.
 
 import {
+  Box3,
   BoxGeometry,
   CircleGeometry,
   InstancedMesh,
@@ -42,7 +43,7 @@ import { WATER_S } from './waterRun'
 import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFor, shakeAt, type HabitKind } from './waterFx'
 import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
-import { TOUCH_S, TURNTABLE_PUSH, hourglassAt, type Touch } from './deskTouch'
+import { KEYCAP_ROLL, SHAPE_TURN, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, hourglassAt, type Touch } from './deskTouch'
 import { SIP_TOP_S, TREAT_HOLD, TREAT_LOOK, TREAT_PROP, takeSounds, treatPhase, type SnackKind } from './treatHold'
 import { handsOf } from './paperRun'
 import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, pageTau, rowOf } from './shelfRun'
@@ -1840,6 +1841,8 @@ export class PlayStage {
       if (!c) return false
       c.updateWorldMatrix(true, false)
       this.indexOn(rig, c.getWorldPosition(new Vector3()), contactNormal(this.sceneRef, c), 0, false, inp, want)
+    } else if (TOUCH_PROP[kind]) {
+      if (!this.deskProp(rig, kind, u, inp)) return false
     } else {
       // the hourglass: pinched at two pillars across (the thumb -x, the index +x: its turn axis through both), lifted and put
       // down; the hand does not turn with it
@@ -1851,7 +1854,60 @@ export class PlayStage {
       held.elements[13] += hourglassAt(u, inp.reduced).lift
       this.grip(rig, 'r', 'hourglass', 'desk_0_hourglass', want, held, inp)
     }
-    if (goal.pose === 'type') this.typeAtDesk(rig, inp, seat, true)
+    // the shape takes both hands
+    if (goal.pose === 'type' && kind !== 'shape') this.typeAtDesk(rig, inp, seat, true)
+    return true
+  }
+
+  /**
+   * #370 B a prop taken from the desk (grips.md): reached, lifted to where it is held (its own rotation as it rests: the duck still faces its owner),
+   * held, put back exactly where it rests from back - PUT_S, let go at back. The duck before the face and squeezed once; the keycap before the chest,
+   * rolled ±15° between the fingers; the shape at eye height, turned 30° slowly, the left hand open under it.
+   */
+  private deskProp(rig: AgentRig, kind: Touch['kind'], u: number, inp: StageIn): boolean {
+    const name = TOUCH_PROP[kind]!
+    const node = this.sceneRef.getObjectByName(name)
+    if (!node) return false
+    const S = TOUCH_S[kind]
+    const root = rig.parts.root
+    root.updateWorldMatrix(true, false)
+    const head = rig.parts.headRestY
+    const home = this.props.homeWorld(node)
+    const hq = new Quaternion().setFromRotationMatrix(home)
+    const at = (x: number, y: number, z: number) => root.localToWorld(new Vector3(x, y, z))
+    const fwd = new Vector3(-Math.sin(rig.heading), 0, -Math.cos(rig.heading))
+    let pos: Vector3
+    let q = hq.clone()
+    if (kind === 'duck') pos = at(0.02, head - 0.04, -0.2)
+    else if (kind === 'keycap') {
+      pos = at(0.06, head - 0.38, -0.24)
+      const R = KEYCAP_ROLL
+      const roll = !inp.reduced && u >= R.from && u < R.to ? R.deg * DEG * Math.sin(((u - R.from) / R.periodS) * Math.PI * 2) : 0
+      q = new Quaternion().setFromAxisAngle(fwd, roll).multiply(q)
+    } else {
+      pos = at(0.03, head - 0.1, -0.28)
+      const T = SHAPE_TURN
+      const k = inp.reduced ? 0 : ease(Math.min(1, Math.max(0, (u - T.from) / T.s)))
+      q = new Quaternion().setFromAxisAngle(UP, T.deg * DEG * k).multiply(q)
+    }
+    const hold = new Matrix4().compose(pos, q, ONE)
+    const k = ease(Math.min(1, Math.max(0, (u - (S.back - PUT_S)) / PUT_S)))
+    const held = k > 0 ? blend(hold, home, k) : hold
+    this.grip(rig, 'r', kind, name, u < S.back, held, inp, name)
+    // the duck squeezed once (every finger +0.15 of its curl, 0.15 s)
+    const d = rig.drive.r
+    if (kind === 'duck' && u >= S.at && u < S.at + 0.15 && d?.angles) rig.drive.r = { ...d, angles: d.angles.map((a) => a * 1.15) }
+    // the shape: the left hand open under it, palm up, 1 cm below (it stays where it holds as the shape turns)
+    if (kind === 'shape') {
+      const w = ease(Math.min(1, Math.max(0, (u - 0.7) / 0.3))) * (1 - ease(Math.min(1, Math.max(0, (u - (S.back - PUT_S)) / 0.3))))
+      if (w > 0) {
+        node.updateWorldMatrix(true, true)
+        const bottom = new Box3().setFromObject(node).min.y
+        const palmUp = new Matrix4().makeBasis(new Vector3().crossVectors(fwd, UP).normalize(), fwd, UP)
+        palmUp.setPosition(pos.x - fwd.x * 0.03, bottom - SHAPE_TURN.under - 0.0225, pos.z - fwd.z * 0.03)
+        rig.drive.l = { target: palmUp, w, curl: [0.15, 0.15, 0.15, 0.15, 0.1, 0.2], wc: w, spread: null }
+      }
+    }
     return true
   }
 
