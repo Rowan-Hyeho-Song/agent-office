@@ -3,6 +3,7 @@
 // overlap (so `document.fonts.load()` of the family fetches the subset alone) and together cover everything.
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { brotliDecompressSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 
 const SRC = join(__dirname, '..')
@@ -54,5 +55,52 @@ describe('the Galmuri11 subset (#402)', () => {
     }
     // a few common syllables and the ones the office writes
     for (const ch of '가각간갇갈한글정리쉬는중') expect(has(faces[0].ranges, ch.codePointAt(0)!), ch).toBe(true)
+  })
+})
+
+/** the name IDs in a woff2's name table (WOFF2: a table directory, then one brotli stream of the tables in order; the name table is never transformed) */
+function woff2NameIds(buf: Buffer): number[] {
+  let p = 48
+  const numTables = buf.readUInt16BE(12)
+  const base128 = () => {
+    let v = 0
+    for (let i = 0; i < 5; i++) {
+      const b = buf[p++]
+      v = v * 128 + (b & 0x7f)
+      if (!(b & 0x80)) return v
+    }
+    throw new Error('bad UIntBase128')
+  }
+  const KNOWN = ['cmap', 'head', 'hhea', 'hmtx', 'maxp', 'name', 'OS/2', 'post', 'cvt ', 'fpgm', 'glyf', 'loca', 'prep']
+  const tables: { tag: string; length: number }[] = []
+  for (let k = 0; k < numTables; k++) {
+    const flags = buf[p++]
+    const tag = (flags & 0x3f) === 0x3f ? buf.toString('latin1', p, (p += 4)) : KNOWN[flags & 0x3f] ?? `#${flags & 0x3f}`
+    const version = (flags >> 6) & 3
+    const orig = base128()
+    // glyf / loca are transformed unless version 3, hmtx when version 1: those carry a transformLength
+    const transformed = tag === 'glyf' || tag === 'loca' ? version !== 3 : version !== 0
+    const length = transformed ? base128() : orig
+    tables.push({ tag, length })
+  }
+  const data = brotliDecompressSync(buf.subarray(p, p + buf.readUInt32BE(20)))
+  let off = 0
+  for (const t of tables) {
+    if (t.tag === 'name') {
+      const count = data.readUInt16BE(off + 2)
+      return Array.from({ length: count }, (_, i) => data.readUInt16BE(off + 6 + i * 12 + 6))
+    }
+    off += t.length
+  }
+  return []
+}
+
+describe('the subsets keep the font\'s copyright and licence (OFL 1.1 §2, #402)', () => {
+  it('fonts.css names the font, its author and the licence; each subset keeps name IDs 0 · 13 · 14', () => {
+    expect(css).toMatch(/Galmuri11 © 2019–2025 Lee Minseo, SIL Open Font License 1\.1, https:\/\/openfontlicense\.org — subset/)
+    for (const f of faces.filter((x) => x.file.includes('subset'))) {
+      const ids = woff2NameIds(readFileSync(join(__dirname, f.file)))
+      for (const id of [0, 13, 14]) expect(ids, `${f.file} name ID ${id}`).toContain(id)
+    }
   })
 })
