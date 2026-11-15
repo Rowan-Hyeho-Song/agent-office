@@ -50,6 +50,7 @@ import { Typist } from './typist'
 import { LoungeActs } from './loungeActs'
 import { WriteDesk } from './writeDesk'
 import { DRINK_PROP_KINDS } from './lounge'
+import { BOUNCE, bounceAt, cheerAt } from './gapMotion'
 
 const UP = new Vector3(0, 1, 0)
 const DEG = Math.PI / 180
@@ -61,6 +62,8 @@ const dimsOf = (size: number[], netH: number): Dims => ({ L: size[0], W: size[1]
 const BLADE_Y = 0.175
 /** ball centre to the paddle face at contact: the ball radius and half the blade */
 const FACE_GAP = 0.023
+/** #490 B waiting for a partner (play.md 9.2): the blade's centre in front of the body (the root's frame: right, up, − forward), m; the paddle's own rise and fall with each bounce, m */
+const WAIT_BLADE = { x: 0.16, y: 0.95, z: -0.36, rise: 0.012 } as const
 /** the hand goes to the leaf's corner in this long before the turn, and comes back in this long after it, s (grips.md: 0.2) */
 const LEAD_S = 0.2
 const BACK_S = 0.3
@@ -197,6 +200,8 @@ export class PlayStage {
   private faced = new Set<string>()
   private lastPoint = new Map<string, string>()
   private sipped = new Map<string, number>()
+  /** #490 B a watcher's last cheer (gapMotion cheerAt) */
+  private cheered = new Map<string, number>()
   /** each mover's place sequence of this frame (tests read it) */
   readonly lastPlace: Record<string, Place> = {}
   /** per mover: whether the move's hand began from the pick (a move first seen after its pick, a seat taken mid-move, is left to the board: no hand ever took its stone) */
@@ -1046,6 +1051,40 @@ export class PlayStage {
 
   // ----------------------------------------------------------------------------------------------------- solo activities
 
+  /**
+   * #490 B 공 튀기기 (play.md 9.2): waiting for the partner at the table, the paddle face up in front of the body and the ball bouncing on it, once every
+   * BOUNCE.everyS, BOUNCE.heightM high, with the rally's paddle click. Reduced motion: the ball lies on the still paddle, no sound.
+   */
+  private pingpongWait(rig: AgentRig, goal: Goal, u: number, inp: StageIn) {
+    const root = rig.parts.root
+    const b = bounceAt(u, inp.reduced)
+    const phase = b.n < 0 ? 0.5 : u / BOUNCE.everyS - b.n
+    // the paddle meets the ball going up and sinks a little while it flies
+    const rise = inp.reduced ? 0 : WAIT_BLADE.rise * Math.cos(phase * Math.PI * 2)
+    const blade = root.localToWorld(new Vector3(WAIT_BLADE.x, WAIT_BLADE.y, WAIT_BLADE.z))
+    blade.y += rise
+    const y = new Vector3(0, 0, -1).applyQuaternion(root.getWorldQuaternion(new Quaternion()))
+    y.setY(0).normalize()
+    const z = UP.clone()
+    const x = new Vector3().crossVectors(y, z)
+    const name = `prop_paddle_${goal.spot.endsWith('_b') ? 'b' : 'a'}`
+    this.grip(rig, 'r', 'paddle', name, true, frame(x, y, z, blade.clone().addScaledVector(y, -BLADE_Y)), inp, name)
+    const ball = this.ball
+    if (!ball) return
+    ball.visible = true
+    ball.position.copy(blade).addScaledVector(UP, FACE_GAP + b.h)
+    this.sounds.paddleBounce(rig.id, b.n, `pingpong:wait:${rig.id}:${Math.floor(inp.now / (BOUNCE.everyS * 1000))}`, ball.position)
+  }
+
+  /** #490 B 구경 (play.md 9.2): a watcher's cheer, every CHEER.everyS: three claps and a glad face (the hands stay down with reduced motion) */
+  private cheer(rig: AgentRig, u: number, inp: StageIn) {
+    const n = cheerAt(u)
+    if (n < 0 || this.cheered.get(rig.id) === n) return
+    this.cheered.set(rig.id, n)
+    rig.reaction = { kind: 'clap', t0: inp.t, dur: 1.4 }
+    rig.faceEvent('joy', inp.t)
+  }
+
   /** a pen-like thing writing: the nib on `nib`, the body leaning toward `toward` (horizontal, toward the writer) by `tilt` */
   private writing(nib: Vector3, toward: Vector3, nibLen: number, tilt: number, wrist: number) {
     const z = new Vector3().copy(UP).multiplyScalar(Math.sin(tilt)).addScaledVector(toward, Math.cos(tilt)).normalize()
@@ -1079,6 +1118,11 @@ export class PlayStage {
     if (goal.pose === 'bowl' && goal.bowl) return this.bowlErrand(rig, goal.bowl, inp)
     // the lounge acts (fridge, dispenser, turntable), the pillow on the sofa, the door lever (loungeActs.ts)
     if (this.lounge.solo(rig, goal, inp)) return
+    // #490 B (play.md 9.2): at the ping-pong table before the partner is there, the ball bounces on the paddle (a pair without its rally, as in the
+    // timelapse, waits still and empty-handed: #416); a watcher cheers now and then
+    if (goal.pose === 'pingpong' && goal.partnerWait && resting && !pp) return this.pingpongWait(rig, goal, u, inp)
+    if (goal.watching && resting) return this.cheer(rig, u, inp)
+    if (goal.watching) this.cheered.delete(rig.id)
     // the planner's stamp (the owner decided something)
     if (inp.stamp && seat === 0) {
       const home = this.props.info(rig, 'stamp')
@@ -1165,7 +1209,8 @@ export class PlayStage {
       }
       return
     }
-    if (goal.pose === 'idle' && resting && goal.spot === `work_${seat}` && (seat === 0 || seat === 1 || seat === 3 || seat === 4)) {
+    // (not in a gap: the stretch takes both hands up, #490 B)
+    if (goal.pose === 'idle' && resting && !goal.gap && goal.spot === `work_${seat}` && (seat === 0 || seat === 1 || seat === 3 || seat === 4)) {
       this.grip(rig, 'r', 'mouse', `desk_${seat}_mouse`, true, null, inp)
     }
     if (goal.pose === 'type' && resting) this.typeAtDesk(rig, inp, seat, false)
