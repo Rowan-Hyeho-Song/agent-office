@@ -9,6 +9,7 @@ import { needleDown, needleUp } from '../audio/speaker'
 import type { Goal } from './director'
 import { GRIPS, REST, curlOf } from './grip'
 import { contactAxis } from './gripTargets'
+import { DOOR_ROUND } from './doorRound'
 import { DISPENSER, DISPENSER_T, DRINKS, FRIDGE, FRIDGE_LIGHT, FRIDGE_T, RECORD_T, doorDeg, fridgeLightOn, fridgeStepK, grabAt, isAct, openTimeAt, recordBeats, type DrinkKind } from './lounge'
 import { DRINK_T, SIP_TOPS, sipLift } from './fridgeDrink'
 import { hash } from './play'
@@ -90,22 +91,24 @@ export interface StageHooks {
   /** the other hand of a two-handed hold, following the primary hand's object pose (the last grip() call's) */
   partner(rig: AgentRig, kind: string, side: 'l' | 'r', objName: string, primary: 'l' | 'r'): void
   /** the index fingertip on a contact `<name>_contact_index`, pressed for `holdS` from u = 0.5, `depth` deep */
-  button(rig: AgentRig, name: string, u: number, inp: StageIn, holdS?: number, depth?: number): void
+  button(rig: AgentRig, name: string, u: number, inp: StageIn, holdS?: number): void
   /** when the agent reached its goal's spot (the scene clock), if it has */
   arrivedAt(id: string): number | undefined
   /** #457 the hand lets go of a prop that is gone from it (faded out): nothing is carried back, the hand's grip starts over */
   drop(rig: AgentRig, side: 'l' | 'r', objName: string): void
 }
 
+/** #451 (sound.md 4.4): a step on the mat sounds every this long while walking on it */
+export const MAT_STEP_S = 0.3
 /** the door mat (office_bake.py build_entry: 0.5 × 0.8 at x −4.48, z = the door's) */
 export const MAT = { x0: -4.73, x1: -4.23, z0: 2.0, z1: 2.8 }
 export const onMat = (x: number, z: number) => x >= MAT.x0 && x <= MAT.x1 && z >= MAT.z0 && z <= MAT.z1
 
 /** the door lever's press, s from the agent's arrival: the left hand takes it, it goes down (extras press_s), is held, comes up (release_s) */
 export const LEVER_T = { grab: 0.42, hold: 0.2 }
-export const leverAngle = (u: number, press: { deg: number; sign: number; press_s: number; release_s: number }) => {
+export const leverAngle = (u: number, press: { deg: number; sign: number; press_s: number; release_s: number }, hold: number = LEVER_T.hold) => {
   const down = ease((u - LEVER_T.grab) / press.press_s)
-  const up = ease((u - LEVER_T.grab - press.press_s - LEVER_T.hold) / press.release_s)
+  const up = ease((u - LEVER_T.grab - press.press_s - hold) / press.release_s)
   return press.sign * press.deg * (down - up)
 }
 
@@ -166,6 +169,10 @@ export class LoungeActs {
   // the door lever
   private lever?: { node: Object3D; base: Quaternion; press: { axis: string; sign: number; deg: number; press_s: number; release_s: number } }
   private leverT: Map<string, number> = new Map()
+  /** #451 each agent's hold of the lever, s (the morning opening 1.2, the night lock-up 1.0, the debug door LEVER_T.hold) */
+  private leverHold: Map<string, number> = new Map()
+  /** #451 the last mat step of each agent: when (s) and where */
+  private matStep: Map<string, { t: number; x: number; z: number }> = new Map()
   /** each agent's lever `u` of the last frame (the lever cues fire on crossing) */
   private leverPrev: Map<string, number> = new Map()
   private leverAng = 0
@@ -330,7 +337,8 @@ export class LoungeActs {
       return true
     }
     if (goal.spot === 'door' && rig.arrived === 'door') {
-      this.leverHands(rig, inp)
+      // #451 the door round's own hold (doorRound.ts), else the debug door's
+      this.leverHands(rig, inp, goal.door ? DOOR_ROUND.holdS[goal.door.kind] : LEVER_T.hold)
       return true
     }
     return false
@@ -443,7 +451,7 @@ export class LoungeActs {
 
   private dispenserHands(rig: AgentRig, u: number, inp: StageIn) {
     const seat = Number(rig.id.split('_')[1])
-    this.hooks.button(rig, `water_tap_${seat % 2}`, u, inp, DISPENSER.pourS, 0.01)
+    this.hooks.button(rig, `water_tap_${seat % 2}`, u, inp, DISPENSER.pourS)
     const tap = this.scene.getObjectByName(`water_tap_${seat % 2}`)
     if (tap && u >= DISPENSER_T.press && u < DISPENSER_T.release) {
       const tip = tap.getWorldPosition(new Vector3()).add(new Vector3(-0.03, -0.02, 0))
@@ -483,7 +491,7 @@ export class LoungeActs {
       rig.glance = { at: platter.clone().setY(0.9), max: 0.8 }
     } else if (u >= b.arm0 && u < b.down + 0.15) {
       // the right hand on the headshell's lift handle: the arm follows it (armK below), the hand follows the arm
-      this.hooks.button(rig, 'turntable_arm', 0.55, inp, 10, 0.004)
+      this.hooks.button(rig, 'turntable_arm', 0.55, inp, 10)
       const p = this.platter?.getWorldPosition(new Vector3())
       if (p) rig.glance = { at: p.setY(0.9), max: 0.8 }
     }
@@ -515,13 +523,15 @@ export class LoungeActs {
     }
   }
 
-  private leverHands(rig: AgentRig, inp: StageIn) {
+  private leverHands(rig: AgentRig, inp: StageIn, hold: number) {
     const at = this.hooks.arrivedAt(rig.id)
     if (at === undefined || !this.lever) return
-    const u = inp.t - at
     const p = this.lever.press
-    const end = LEVER_T.grab + p.press_s + LEVER_T.hold + p.release_s
+    const end = LEVER_T.grab + p.press_s + hold + p.release_s
+    // #451 the replay (x16, a rewind): the press stretched over the gesture minimum, so it is seen to go down and up once
+    const u = (inp.t - at) * (rig.gestureMin > end ? end / rig.gestureMin : 1)
     this.leverT.set(rig.id, u)
+    this.leverHold.set(rig.id, hold)
     this.hooks.grip(rig, 'l', 'door_lever', 'door_lever', u < end, null, inp)
   }
 
@@ -662,20 +672,27 @@ export class LoungeActs {
     if (this.lever) {
       const { node, base, press } = this.lever
       let u = -1
-      for (const id in inp.rigs) if (inp.rigs[id].arrived === 'door' && this.leverT.has(id)) u = Math.max(u, this.leverT.get(id)!)
-      for (const id of [...this.leverT.keys()]) if (inp.rigs[id].arrived !== 'door') this.leverT.delete(id)
+      let who = ''
+      for (const id in inp.rigs) if (inp.rigs[id].arrived === 'door' && this.leverT.has(id) && this.leverT.get(id)! > u) {
+        u = this.leverT.get(id)!
+        who = id
+      }
+      for (const id of [...this.leverT.keys()]) if (inp.rigs[id].arrived !== 'door') {
+        this.leverT.delete(id)
+        this.leverHold.delete(id)
+      }
       // the lever's two sounds (sound.md 4.4): the latch at the bottom of the press, the spring back at the top
       const downAt = LEVER_T.grab + press.press_s
-      const upAt = downAt + LEVER_T.hold + press.release_s
       const lp = node.getWorldPosition(new Vector3())
       for (const [id, lu] of this.leverT) {
+        const upAt = downAt + (this.leverHold.get(id) ?? LEVER_T.hold) + press.release_s
         const prev = this.leverPrev.get(id) ?? -1
         if (this.crossed(prev, lu, downAt)) this.fire('lever.down', id, lp, lu, inp.t)
         if (this.crossed(prev, lu, upAt)) this.fire('lever.up', id, lp, lu, inp.t)
         this.leverPrev.set(id, lu)
       }
       for (const id of [...this.leverPrev.keys()]) if (!this.leverT.has(id)) this.leverPrev.delete(id)
-      const ang = u >= 0 ? leverAngle(u, press) * DEG : 0
+      const ang = u >= 0 ? leverAngle(u, press, this.leverHold.get(who) ?? LEVER_T.hold) * DEG : 0
       this.leverAng = ang
       node.quaternion.copy(base).multiply(new Quaternion().setFromAxisAngle(press.axis === 'x' ? new Vector3(1, 0, 0) : press.axis === 'y' ? UP : new Vector3(0, 0, 1), ang))
     }
@@ -684,9 +701,16 @@ export class LoungeActs {
       const rig = inp.rigs[id]
       const goal = inp.goals[id]
       if (!rig.visible) continue
+      // #451 (sound.md 4.4): a step on the mat as it comes onto it, then one every MAT_STEP_S while it walks on it (none standing still)
       const on = onMat(rig.x, rig.z)
-      if (on && !this.mat.get(id)) this.fire('mat.step', id, new Vector3(rig.x, 0.02, rig.z), inp.t, inp.t)
-      this.mat.set(id, onMat(rig.x, rig.z))
+      const last = this.matStep.get(id)
+      const walked = !!last && Math.hypot(rig.x - last.x, rig.z - last.z) > 0.05
+      if (on && (!this.mat.get(id) || (walked && inp.t - last!.t >= MAT_STEP_S))) {
+        this.fire('mat.step', id, new Vector3(rig.x, 0.02, rig.z), inp.t, inp.t)
+        this.matStep.set(id, { t: inp.t, x: rig.x, z: rig.z })
+      }
+      if (!on) this.matStep.delete(id)
+      this.mat.set(id, on)
       const seated = goal?.pose === 'sofa' && rig.arrived === goal.spot ? goal.spot : ''
       // the body settles about 0.3 s after arriving (rig.ts seat: damp rate 3): the cushion thump then
       if (seated && this.sat.get(id) !== seated) this.fire('sofa.sit', id, new Vector3(rig.x, 0.4, rig.z), inp.t, inp.t, { delay: 0.3 })

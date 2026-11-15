@@ -67,7 +67,8 @@ export function deskProps(i: PropsInput): DeskProps {
 
   // the coder's light: running beats the last outcome; an outcome stays until the next run
   const coder = s(3)
-  const running = doing(3, 'test', 'build')
+  // #535: a test / build left running in the background is still running: yellow until its outcome
+  const running = doing(3, 'test', 'build', 'bg_test', 'bg_build')
   const signal: Signal = running ? 'yellow' : coder?.lastResult ? (coder.lastResult.ok ? 'green' : 'red') : 'off'
 
   // the 3D agent's bake: the turntable spins while it builds, the ring light blinks once it's done

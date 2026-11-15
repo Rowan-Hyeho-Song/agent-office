@@ -23,6 +23,8 @@ Node contract (the app reads glTF extras):
                                    sign, deg, open_s, close_s}), shelf_wall_trophy_band (the app paints it), frame_<k>_art
                                    (screen slots for the posters; 0 = this site, 1 = agent office, 2 = desk room),
                                    hit_frame_<k>; props prop_pillow_0|1 (two-hand grips), prop_record (hidden at rest).
+                                   #455 prop_treat_coffee|_cookie|_apple: the visitor's snacks, hidden at rest, homes on the
+                                   coffee bar counter, _grip_r|_l (coffee "wrap") + _contact_* (_l suffix for the left hand).
                                    Empties table_low_slot_0..3 (extras for), fridge_door_grip, water_tap_0|1,
                                    soil_plant_hang_0|1; nav_sofa_0..3 (#280 3 corner sofa: 0 / 1 the south row, 2 the corner
                                    facing north-west (last), 3 the east seat facing west, lie, head [x, z] = the north
@@ -118,6 +120,20 @@ Node contract (the app reads glTF extras):
                                    desk_2_lamp_head (bot, pivot = the neck, _contact_thumb|index) + desk_2_lamp_switch
                                    (bot, _contact_index); desk_2_swatch_leaf_0..3 (bot, pivot = the pin, leaf, rest_deg,
                                    _tip); succulent_leaf_touch_0|1 (anchor, touch start|end, +z = the leaf's normal)
+  (#370 desk step C)               desk_0_inkpad (anchor: the felt's top centre, +y up, extras dab_r, press) +
+                                   desk_0_inkpad_contact_thumb|index (the left hand steadying the baked tin);
+                                   succulent_leaf (baked desk_props + pivot_at, no live: the stroked front leaf, tier
+                                   1, pivot = its base, extras sway_axis x, sway_deg 6 = +-6, + = tip down; the touch
+                                   anchors on it carry extras leaf);
+                                   desk_4_knob_0 extras turn_axis y, turn_deg 45 + _contact_thumb|index (a pinch),
+                                   _grip_l (3.5 cm over its top, palm down, fingers -z);
+                                   desk_1_ringlight_knob_grip_r (on its axis, 2 cm past the end face: a pinch);
+                                   desk_0_hourglass: four posts (was three); _contact_thumb (-x post) | _index (+x post)
+                                   on its x axis, _grip_r 5 cm in front, all its children (turned over about x);
+                                   prop_headphones_cup (live bot, out of the bake: the -x cup + cushion + cable; extras
+                                   cup_of prop_headphones, swivel_axis y, swivel_deg [0, 90]; pivot = the yoke line);
+                                   prop_headphones_grip_r + _contact_palm on the band's middle (unused now);
+                                   prop_headphones_cup_grip_r + _contact_palm: the palm on its outer shell (DJ hold)
   prop_omok_bowl_w                 (#137) prop: the white bowl (body, heap, floor; the lid baked), origin = its bottom
                                    centre; children omok_bowl_w, omok_bowl_w_contact_index, _grip_r|l, _contact_palm|_palm_l
   pp_net                           live "bot" (#280 3): the net's navy 1 cm lattice (static; the posts, clamps and white
@@ -764,6 +780,11 @@ def seat_memo(G):
     s += place([lathe("ink_lid", [(0, 0.004), (0.0305, 0.004), (0.031, 0.003), (0.031, 0.0), (0.029, 0.0), (0, 0.001)],
                       (0, -0.004, 0.031), tin, G, seg=24),
                 cyl("ink_hinge", 0.0018, 0.012, (0, 0, 0), tin, G, 8, axis="x")], Hn)
+    # #370 C (designer): the tin stays baked; where the stamp's face is dabbed = the felt's top centre (+y = its
+    # normal), dab_r = the felt's radius less a margin, press = how far the face sinks in
+    pad = bpy.data.objects.new("desk_0_inkpad", None)
+    coll("export").objects.link(pad)
+    L.append(LIVE("desk_0_inkpad", "anchor", [pad], Mx((ix, h + 0.010, iz)), dab_r=0.026, press=0.002))
     # the stamp (prop_stamp): rubber face, an amber body, a brass band, a waisted neck under a turned wooden knob.
     # Origin = the body's centre, 4.25 cm over the desk (the face at -0.0425), as before
     amber = plastic(AGENTS[0]["color"], 0.4, 0, 0.05, "stamp")
@@ -819,8 +840,8 @@ def seat_memo(G):
           lathe("hg_sand", [(0.0, 0.006), (0.006, 0.006), (0.016, 0.016), (0.019, 0.024), (0.0, 0.024)], (0, 0, 0), sand, G, seg=14)]
     post = [(0.003, -0.047), (0.004, -0.043), (0.0025, -0.039), (0.0025, -0.006), (0.0036, 0.0), (0.0025, 0.006),
             (0.0025, 0.039), (0.004, 0.043), (0.003, 0.047)]
-    for k in range(3):
-        a = 2 * math.pi * k / 3
+    for k in range(4):  # #370 C: four (was three), so a post stands each side on the x axis for the pinch turn-over
+        a = 2 * math.pi * k / 4
         hg.append(lathe("hg_post", post, (0.027 * math.cos(a), 0, 0.027 * math.sin(a)), wood_m, G, seg=8))
     # #493: a felt coaster stays baked under it (the hourglass itself is left out of the bake: turned over, it
     # uncovered its own baked contact shadow as a black hole); the hourglass stands on the coaster, 2.5 mm up
@@ -1015,20 +1036,29 @@ def seat_hue(G):
     a15 = math.radians(15)
     P.append(("prop_tablet_pen", None, Mx((0.53, h + 0.004 + 0.07 * math.cos(a15), PEN_CUP_Z - 0.07 * math.sin(a15)), rx=-math.radians(90) - a15)))
     # 3 succulent (as before, #126)
-    succ = echeveria("succulent", 0.24, h, -0.18, G)
+    succ = echeveria("succulent", 0.24, h, -0.18, G, live_leaf=(1, 1))  # #370 C: the stroked front leaf (tier 1, k 1: toward the agent) live
     # #370 (coder): where HUE strokes a leaf: two empties on the front leaves' upper skin (the outer then the inner
     # end of the stroke, toward the agent), local +z = the leaf's outward normal
     lv = next(o for o in succ if o.name.startswith("succulent_leaves"))
+    one = next(o for o in succ if o.name.startswith("succulent_leaf_live"))
+    one_base = Vector(one["base"])
+    del one["base"]
+    succ.remove(one)
     lv.data.update()
-    front = [v for v in lv.data.vertices if v.co.y < -(-0.18) - 0.004 and abs(v.co.x - 0.24) < 0.012 and v.normal.z > 0.3]  # Blender -y = web +z
+    one.data.update()
+    front = [(v, o) for o in (lv, one) for v in o.data.vertices
+             if v.co.y < -(-0.18) - 0.004 and abs(v.co.x - 0.24) < 0.012 and v.normal.z > 0.3]  # Blender -y = web +z
     for k, r_ in enumerate((0.03, 0.014)):
-        v = min(front, key=lambda v: abs(math.hypot(v.co.x - 0.24, -v.co.y + 0.18) - r_) - 0.2 * v.co.z)
+        v, o_ = min(front, key=lambda p: abs(math.hypot(p[0].co.x - 0.24, -p[0].co.y + 0.18) - r_) - 0.2 * p[0].co.z)
         n_ = v.normal
         e = bpy.data.objects.new(f"succulent_leaf_touch_{k}", None)
         coll("export").objects.link(e)
         L.append(LIVE(f"succulent_leaf_touch_{k}", "anchor", [e], Matrix.Translation(v.co + n_ * 0.0005) @ web_z_along((n_.x, n_.z, -n_.y)),
-                      touch=("start", "end")[k]))
-    s += plant_tris("succulent", succ)
+                      touch=("start", "end")[k], **({"leaf": "succulent_leaf"} if o_ is one else {})))
+    # #370 C (designer): the stroked leaf sways about its base, across it (desk x), at most +-6 deg; + = the tip down
+    # baked (desk_props atlas, MeshBasic) with a pivot, not a lit bot: a PBR leaf read darker than its baked neighbours
+    L.append(LIVE("succulent_leaf", "baked", [one], Mx(tuple(one_base)), sway_axis="x", sway_deg=6))
+    s += plant_tris("succulent", succ)  # without the live leaf (its 24 triangles)
     # #280 (coder): where watering lands: the soil's centre (pot 5 cm, soil 1.5 cm under its rim), placed with the desk
     soil = bpy.data.objects.new("soil_succulent", None)
     coll("export").objects.link(soil)
@@ -1243,7 +1273,8 @@ def seat_echo(G):
         Kn = Mm @ Mx((cx, mh + 0.001, -0.035))
         knob = [cyl("knob", 0.0065, 0.008, (0, 0.004, 0), plastic("#16171b", 0.5, 0, 0.05, "knob"), G, 14, bev=0.001),
                 box("knob_mark", (0.0012, 0.0005, 0.005), (0, 0.0083, -0.003), ivory, G)]
-        L.append(LIVE(f"desk_4_knob_{k}", "bot", place(knob, Kn), Kn, axis="y"))
+        # #370 C: knob 0 (the far left, ECHO's left hand) is turned by hand: turn_axis y, turn_deg = one twist
+        L.append(LIVE(f"desk_4_knob_{k}", "bot", place(knob, Kn), Kn, axis="y", **({"turn_axis": "y", "turn_deg": 45} if k == 0 else {})))
         Fz = Mm @ Mx((cx, mh + 0.001, 0.02 + 0.0225))  # the fader at zero (the slot's front end); pushed = local -z
         cap_ = [box("fader", (0.012, 0.008, 0.007), (0, 0.004, 0), ivory, G, bev=0.0012, seg=1),
                 box("fader_line", (0.012, 0.0004, 0.001), (0, 0.0082, 0), dark, G)]
@@ -1270,12 +1301,15 @@ def seat_echo(G):
           rail("hp_pad", arc[3:-3], 0.009, pad_m, G)]
     for c in hp:
         c.data.resolution_u, c.data.bevel_resolution = 2, 1
+    cup1 = []  # #370 C (designer): the -x cup swivels on its yoke: its own node prop_headphones_cup (build_props)
     for sx in (-1, 1):
-        hp += [box("hp_yoke", (0.006, 0.05, 0.012), (sx * (R - 0.001), -R - 0.01, 0), band_m, G, bev=0.002, seg=1),  # #263: off the cup's face
-               cyl("hp_cup", 0.045, 0.03, (sx * (R + 0.012), -R - 0.045, 0), cup_m, G, 24, axis="x", bev=0.003),
-               place([torus("hp_cushion", 0.036, 0.011, (0, 0, 0), pad_m, G, axis="x", seg=24, rseg=6)], Mx((sx * (R - 0.006), -R - 0.045, 0)))[0]]
-    hp.append(spring("hp_cable", (-(R + 0.03), -R - 0.07, 0.0), (-(R + 0.03), -R - 0.2, 0.01), 0.005, 9, band_m, G, wire=0.0012, per_turn=6))
+        hp.append(box("hp_yoke", (0.006, 0.05, 0.012), (sx * (R - 0.001), -R - 0.01, 0), band_m, G, bev=0.002, seg=1))  # #263: off the cup's face
+        (cup1 if sx < 0 else hp).extend([
+            cyl("hp_cup", 0.045, 0.03, (sx * (R + 0.012), -R - 0.045, 0), cup_m, G, 24, axis="x", bev=0.003),
+            place([torus("hp_cushion", 0.036, 0.011, (0, 0, 0), pad_m, G, axis="x", seg=24, rseg=6)], Mx((sx * (R - 0.006), -R - 0.045, 0)))[0]])
+    cup1.append(spring("hp_cable", (-(R + 0.03), -R - 0.07, 0.0), (-(R + 0.03), -R - 0.2, 0.01), 0.005, 9, band_m, G, wire=0.0012, per_turn=6))
     P.append(("prop_headphones", hp, Mx((hx, h + 0.21 + 0.008 + 0.009, hz), ry=math.pi / 2)))
+    P.append(("prop_headphones_cup", cup1, Mx((hx, h + 0.21 + 0.008 + 0.009, hz), ry=math.pi / 2)))  # same frame, its parts in place
     # 4 three cassettes stacked flat behind left of the monitor: smoky case, two reel windows, a label, five screws
     case_m = plastic("#5f646d", 0.35, 0.1, 0.05, "cassette_case")
     label = plastic("#efe8d8", 0.85, 0, 0.1, "cassette_label")
@@ -2527,21 +2561,31 @@ def monstera(name, x, z, group):
     return pot + stems + [leaves, veins]
 
 
-def echeveria(name, x, y, z, group):
+def echeveria(name, x, y, z, group, live_leaf=None):
     """HUE's desk: echeveria rosette in three tiers (8 + 6 + 4 fleshy leaves, 12 triangles a side) curling up, the
     centre lighter; small terracotta pot with pebbles"""
     PRNG.seed(f"126:{name}")  # each plant its own stream: changing one leaves the others as they are
     pot, sy = pot3(name, x, z, y, 0.04, 0.032, 0.05, plastic("#b5654a", 0.85, 0, 0.3, "terracotta"), group, pebbles=2, seg=10, soil_node=False,
                    foot=plastic("#96523d", 0.9, 0, 0.3, "terracotta_dark"))
     fol = Foliage(f"{name}_leaves")
+    # #370 C: live_leaf = (tier, k) builds that one leaf in its own mesh "<name>_leaf_live" (its custom prop base = the
+    # leaf's base, web); the draws stay in the same order, so the other leaves are as before
+    one, one_base = (Foliage(f"{name}_leaf_live"), None) if live_leaf else (None, None)
     for tier, (n, length, elev, r0) in enumerate(((8, 0.044, 0.25, 0.007), (6, 0.034, 0.7, 0.004), (4, 0.022, 1.15, 0.0015))):
         for k in range(n):
             a = 2 * math.pi * (k + 0.5 * tier) / n
             out = Vector((math.cos(a), 0.0, math.sin(a)))
             base = Vector((x, sy + 0.004 + 0.006 * tier, z)) + out * r0
             d = (out * math.cos(elev) + UP * math.sin(elev)).normalized()
-            blade(fol, base, d, UP.cross(out), length, [(0.25, 0.25), (0.55, 0.31), (0.82, 0.22)], fold=0.45, droop=-0.6,
+            to = fol
+            if live_leaf == (tier, k):
+                to, one_base = one, base.copy()
+            blade(to, base, d, UP.cross(out), length, [(0.25, 0.25), (0.55, 0.31), (0.82, 0.22)], fold=0.45, droop=-0.6,
                   mi=(PRNG.choice((1, 2)), 2, 2)[tier])
+    if one:
+        lo = one.obj(group)
+        lo["base"] = tuple(one_base)
+        return pot + [fol.obj(group), lo]
     return pot + [fol.obj(group)]
 
 
@@ -3694,6 +3738,16 @@ def build_props():
     for name, kind in (("prop_duck", "duck"), ("prop_keycap_0", "keycap"), ("prop_headphones", "headphones")):
         objs, H = SEAT_PROPS[name]
         out.append(prop(name, kind, objs, *web_pose(H), grip_pos=(0, -0.03, 0), grip_rot=(-math.pi / 2, 0, 0)))
+    # #370 C (designer): the -x cup (with its cushion and cable) swivels on its yoke so ECHO can hold it to one ear
+    # without the other cup going into the head. A live bot (a child mesh would lose its pivot in rebase): the app
+    # hangs it under prop_headphones (extras cup_of). Pivot = the yoke's line (x = -0.084 in the headphones' frame,
+    # z 0) at the cup's centre height; its axes = the headphones'. swivel_axis y, swivel_deg [0, 90]: + turns the
+    # cushion's face from +x (toward the other cup) toward -z. Left out of the bake like the headphones
+    objs, H = SEAT_PROPS["prop_headphones_cup"]
+    Hc = H @ Mx((-(0.085 - 0.001), -0.085 - 0.045, 0.0))
+    cup = pivot(join("prop_headphones_cup", place(objs, H)), Hc)
+    cup["cup_of"], cup["swivel_axis"], cup["swivel_deg"] = "prop_headphones", "y", [0, 90]
+    live(cup, "bot")
     # #164: things written with are props now (HUE draws with the tablet pen, MEMO writes with a marker). Pens lie
     # along local z, the tip at -z, centre pivot; the old grip extras as MEMO's pen
     PEN_GRIP = dict(grip_pos=(0, -0.04, 0), grip_rot=(math.pi / 2, 0, 0))
@@ -3846,9 +3900,17 @@ def build_hands():
     grip_at(O["prop_keycap_0"], R, (0, 0.025, 0), (0, -0.3, -1), (0, -1, 0))
     contact(O["prop_keycap_0"], "thumb", (0, 0.0036, 0.0077), (0, 0.36, 0.93))
     contact(O["prop_keycap_0"], "index", (0, 0.0036, -0.0077), (0, 0.36, -0.93))
-    # #187: the headphones held by the band's middle (grips.md), the palm on the right cup's back when held to an ear
-    grip_at(O["prop_headphones"], R, (0, 0.03, 0), (0, 0, -1), (0, -1, 0))
-    contact(O["prop_headphones"], "palm", (0.085 + 0.012 + 0.015, -0.085 - 0.045, 0), (1, 0, 0))
+    # #370 C (designer, desk-props.md 6.1): held by the band's middle: the palm on the pad's top (tube r 9 mm over the
+    # arc's apex), the fingers wrapping the band front to back (-z), the grip 1 cm over the palm (was 3 cm; the #187
+    # palm on the +x cup's back is gone: unused)
+    grip_at(O["prop_headphones"], R, (0, 0.019, 0), (0, 0, -1), (0, -1, 0))
+    contact(O["prop_headphones"], "palm", (0, 0.009, 0), (0, 1, 0))
+    # #370 (designer, DJ hold): the right palm cups the held cup's outer shell and presses it to the ear (the band's
+    # middle sat 13 cm over the ear: the arm near upright, the wrist turned 140 deg). In the cup's frame (origin = the
+    # yoke line, the headphones' axes): its outer face is at x -0.028 (the cup -0.097 +- 0.015, the pivot -0.084);
+    # the palm on its middle, the grip 1 cm out, the fingers up round its rim (toward the yoke), the palm toward it
+    grip_at(O["prop_headphones_cup"], R, (-0.038, 0, 0), (0, 1, 0), (1, 0, 0))
+    contact(O["prop_headphones_cup"], "palm", (-0.028, 0, 0), (-1, 0, 0))
     # pens (tripod): MEMO's pen (tip = the capped end, -z), the tablet pen, the markers
     tripod(O["agent_0_pen"], -0.085, 0.009)
     tripod(O["prop_tablet_pen"], -0.07, 0.006)
@@ -3873,10 +3935,14 @@ def build_hands():
     top = h + 0.075 + 0.003 + 5 * 0.003  # MEMO's IN stack, 5 sheets: the top sheet's right front corner
     contact("desk_0_in", "thumb", (tx + 0.095, top, tz + 0.012 + 0.12), (0, 1, 0), M=Fd[0])
     contact("desk_0_in", "index", (tx + 0.095, top - 0.003, tz + 0.012 + 0.12), (0, -1, 0), M=Fd[0])
-    Hg = Fd[0] @ Mx((-0.50, h + HG_COASTER + 0.055, -0.22))  # the hourglass: palm over the top plate, thumb on a post
-    grip_at("desk_0_hourglass", R, (0, 0.07, 0), (0, 0, -1), (0, -1, 0), M=Hg)
-    contact("desk_0_hourglass", "palm", (0, 0.055, 0), (0, 1, 0), M=Hg)
-    contact("desk_0_hourglass", "thumb", (0.0305, 0.0, 0.0), (1, 0, 0), M=Hg)
+    # the hourglass: its grip and contacts are its children (#370 C: they lift and turn with it; its frame = the desk's axes)
+    # #370 C (grips.md, PR #557): pinched at mid height on the two side posts and turned over between the
+    # fingers about its own x axis: thumb on the -x post, index on the +x post (the bead's outer face, r 2.7 + 0.36
+    # cm), both on the axis so they stay put while it turns; the right hand from the front, palm down
+    grip_at(O["desk_0_hourglass"], R, (0, 0, 0.05), (0, 0, -1), (0, -1, 0))
+    contact(O["desk_0_hourglass"], "palm", (0, 0.055, 0), (0, 1, 0))  # the old cover grip's palm (unused)
+    contact(O["desk_0_hourglass"], "thumb", (-0.0306, 0.0, 0.0), (-1, 0, 0))
+    contact(O["desk_0_hourglass"], "index", (0.0306, 0.0, 0.0), (1, 0, 0))
     ttx, ttz = -0.43, -0.18  # MESH's turntable: the button, the platter's rim
     contact("desk_1_turntable", "index", (ttx, h + 0.0105, ttz + 0.103), (0, 0, 1), M=Fd[1])
     contact("desk_1_turntable_rim", "index", (ttx, h + 0.018 + 0.01, ttz + 0.075), (0, 1, 0), M=Fd[1])
@@ -3890,6 +3956,18 @@ def build_hands():
     Mm = Fd[4] @ Mx((-0.46, h, 0.10), rx=-math.radians(6))  # ECHO's faders: the fingertip on the cap's top
     for k in range(4):
         contact(f"desk_4_fader_{k}", "index", (-0.08 + 0.018 + k * 0.03, 0.03 + 0.001 + 0.0084, 0.0425), (0, 1, 0), M=Mm)
+    # #370 C: ECHO's left hand pinches knob 0 from above, thumb near-right, index far-left (on its side, r 6.5 mm)
+    o = O["desk_4_knob_0"]
+    c45 = 0.0065 * math.sqrt(0.5)
+    contact(o, "thumb", (c45, 0.005, c45), (1, 0, 1))
+    contact(o, "index", (-c45, 0.005, -c45), (-1, 0, -1))
+    # #370 C4 (coder): the left hand's grip over it: on its axis 3.5 cm over the top (8 mm), palm down, the fingers
+    # forward (away from ECHO, -z); with them the thumb comes on the right (+x), as the contacts above
+    grip_at(o, "l", (0, 0.008 + 0.035, 0), (0, 0, -1), (0, -1, 0))
+    # MEMO's left hand steadies the ink tin: thumb on its wall front-left, index on the rim's top at the left
+    ix_, iz_ = 0.47, 0.13
+    contact("desk_0_inkpad", "thumb", (ix_ - 0.03 * math.sqrt(0.5), h + 0.006, iz_ + 0.03 * math.sqrt(0.5)), (-1, 0, 1), M=Fd[0])
+    contact("desk_0_inkpad", "index", (ix_ - 0.028, h + 0.012, iz_), (0, 1, 0), M=Fd[0])
     contact("coffee_button", "index", COFFEE_BUTTON, (1, 0, 0), M=counter_frame())
     # #370 (coder, desk-props.md 4 rows 89-99): the second step's hand points, children of their live nodes
     o = O["prop_shape_1"]  # a three-finger pinch round its waist, from above (r 2 cm: pads 1.6 cm out, the inradius)
@@ -3900,6 +3978,9 @@ def build_hands():
     o = O["desk_1_ringlight_knob"]  # pinched from above and below
     contact(o, "thumb", (0, 0.011, 0), (0, 1, 0))
     contact(o, "index", (0, -0.011, 0), (0, -1, 0))
+    # #370 C (designer): a two-finger pinch turning it 20 deg: the grip on its axis 2 cm out past the end face (+x),
+    # the fingers reaching back along the axis round it, the palm toward the seat (right hand: thumb up, index under)
+    grip_at(o, R, (0.026, 0, 0), (-1, 0, 0), (0, 0, 1))
     o = O["prop_tray_sheet"]  # the near edge (toward the agent, local +z), thumb on top, index under
     grip_at(o, R, (0, 0, 0.125 - 0.015), (0, 0, -1), (0, -1, 0))
     contact(o, "thumb", (0, 0.0014, 0.11), (0, 1, 0))
@@ -5406,6 +5487,77 @@ def build_beanbag():
     return l2("beanbag", p)
 
 
+def build_treats():
+    """#455 (designer, issue comment): the visitor's snacks taken in hand: prop_treat_coffee | _cookie | _apple, live
+    prop, hidden at rest (the app shows one in the receiving hand), out of the bake. Homes on the coffee bar counter.
+    Grips for both hands (the empty one takes it, paper-pass.md 3): coffee wrapped round its sleeve, the cookie
+    pinched at its rim (thumb on top, index under), the apple resting on the palm. Contacts sit on mesh vertices
+    (lathe / sphere azimuths every 30 deg) so the hand-fit check's 2 mm holds"""
+    G = "export"
+    top = 0.94  # the counter top (x 4.16-4.80, z -0.27-0.47): its front strip, clear of the baked cup stack (4.43, -0.10)
+    # the coffee: a paper cup 9 cm, r 2.8 -> 3.5 cm, kraft sleeve, dark lid with a sip hole; origin at mid height
+    cream = plastic("#f3ead8", 0.7, 0, 0.1, "treat_cup")
+    kraft = plastic("#d9a05b", 0.85, 0, 0.3, "treat_kraft")
+    lid_m = plastic("#3a3530", 0.5, 0, 0.0, "treat_lid")
+    rb, rt, hb, ht = 0.028, 0.035, -0.045, 0.040
+    r_at = lambda y: rb + (y - hb) / (ht - hb) * (rt - rb)
+    ya, yb = -0.012, 0.022
+    cup = [lathe("treat_cup_body", [(0, hb), (rb, hb), (rt, ht), (0, ht)], (0, 0, 0), cream, G, seg=12),
+           lathe("treat_cup_sleeve", [(r_at(ya) + 0.0015, ya), (r_at(yb) + 0.0015, yb), (r_at(yb), yb)], (0, 0, 0), kraft, G, seg=12),
+           lathe("treat_cup_lid", [(0, ht), (0.036, ht), (0.036, ht + 0.007), (0.031, ht + 0.011), (0, ht + 0.011)], (0, 0, 0), lid_m, G, seg=12),
+           box("treat_cup_hole", (0.010, 0.001, 0.005), (0.020, ht + 0.0115, 0), plastic("#151311", 0.6, 0, 0.0, "treat_hole"), G)]
+    o = live(prop("prop_treat_coffee", "treat_coffee", cup, (4.24, top - hb, -0.08), (0.0, 0.0, 0.0)), "prop")
+    yc, rc = 0.005, r_at(0.005) + 0.0015  # the sleeve, its outer face
+    for side, fz in (("r", -1.0), ("l", 1.0)):  # the palm on +x, the fingers round the far side
+        g = grip_at(o, side, (rc + 0.012, yc, 0), (0, 0, fz), (-1, 0, 0))
+        g["pose"] = "wrap"
+        sfx = "" if side == "r" else "l"
+        contact(o, "palm", (rc, yc, 0), (1, 0, 0), sfx)
+        contact(o, "index", (0, yc, fz * rc), (0, 0, fz), sfx)
+        contact(o, "thumb", (0, yc, -fz * rc), (0, 0, -fz), sfx)
+    o["hidden_at_rest"] = True
+    # the cookie: r 3.5 cm x 8 mm, five chips on top
+    dough = plastic("#d9a05b", 0.9, 0, 0.5, "treat_cookie")
+    chip = plastic("#5a3418", 0.6, 0, 0.1, "treat_chip")
+    ck = [cyl("treat_cookie", 0.035, 0.008, (0, 0, 0), dough, G, 16)]
+    for a, d in ((20, 0.020), (110, 0.016), (200, 0.022), (290, 0.012), (0, 0.0)):
+        ck.append(cyl("treat_chip", 0.004, 0.002, (d * math.cos(math.radians(a)), 0.0045, d * math.sin(math.radians(a))), chip, G, 6))
+    o = live(prop("prop_treat_cookie", "treat_cookie", ck, (4.31, top + 0.004, -0.19), (0.0, 0.0, 0.0)), "prop")
+    for side, pz in (("r", 1.0), ("l", -1.0)):  # from +x, the fingers to the middle, thumb up (palm sideways)
+        grip_at(o, side, (0.045, 0, 0), (-1, 0, 0), (0, 0, pz))
+        sfx = "" if side == "r" else "l"
+        contact(o, "thumb", (0.025, 0.004, 0), (0, 1, 0), sfx)
+        contact(o, "index", (0.025, -0.004, 0), (0, -1, 0), sfx)
+    o["hidden_at_rest"] = True
+    # the apple: r 4 cm, 0.92 tall, a blush round the stem, a stem and a leaf. #542 (designer): no band (it read as a
+    # peach); the top cap (its ring at 64 deg, d 3.5 cm) a lighter #f2786b, the rest #e0483e. Smooth shaded (the
+    # sphere's normals are shared); 14 around instead of 12 for a rounder light, the stem and leaf thinner to pay
+    red = plastic("#e0483e", 0.45, 0, 0.1, "treat_apple")
+    blush = plastic("#f2786b", 0.45, 0, 0.1, "treat_apple_blush")
+    R_, SY, RINGS = 0.04, 0.92, 7
+    ap = sphere("treat_apple", R_, (0, 0, 0), red, G, scale=(1, SY, 1), seg=14, rings=RINGS)
+    ap.data.materials.append(blush)
+    for f in ap.data.polygons:  # the top fan only (the faces touching the top pole)
+        if f.center.z > 0.031:
+            f.material_index = 1
+    hy = R_ * SY
+    apl = [ap, segment("treat_apple_stem", (0, hy - 0.004, 0), (0.003, hy + 0.012, 0.001), 0.0018, plastic("#6b3f22", 0.7, 0, 0.2, "treat_stem"), G, verts=4),
+           sphere("treat_apple_leaf", 0.011, (0.010, hy + 0.008, 0.003), plastic("#4fb06a", 0.6, 0, 0.1, "treat_leaf"), G, scale=(1, 0.25, 0.5), seg=5, rings=3)]
+    for part in apl[1:]:  # the stem and leaf stay faceted
+        for f in part.data.polygons:
+            f.use_smooth = False
+    o = live(prop("prop_treat_apple", "treat_apple", apl, (4.22, top + hy, -0.205), (0.0, 0.0, 0.0)), "prop")
+    lat = math.radians(-90 + 2 * 180 / RINGS)  # a ring of vertices below the middle
+    cy_, cr_ = R_ * SY * math.sin(lat), R_ * math.cos(lat)
+    for side, tx in (("r", 1.0), ("l", -1.0)):  # palm up under it, fingers forward (-z) curling round, thumb to the side
+        grip_at(o, side, (0, -hy - 0.012, 0), (0, 0, -1), (0, 1, 0))
+        sfx = "" if side == "r" else "l"
+        contact(o, "palm", (0, -hy, 0), (0, -1, 0), sfx)
+        contact(o, "index", (0, cy_, -cr_), (0, math.sin(lat), -math.cos(lat)), sfx)
+        contact(o, "thumb", (tx * cr_, cy_, 0), (tx * math.cos(lat), math.sin(lat), 0), sfx)
+    o["hidden_at_rest"] = True
+
+
 PILLOW_NAP = (4.12, 0.50, 2.66)  # #519: the nap pillow's centre on the east seat (cushion top 0.44 + 0.12 = arm top 0.56)
 
 
@@ -5442,7 +5594,10 @@ for i, a in enumerate(AGENTS):
     live(lives[0], "screen")
     live(lives[1], "neon")
     for o, kind in desk_live:
-        live(o, kind)
+        if kind == "baked":  # #370 C: a desk part the app moves that still takes the atlas (succulent_leaf)
+            baked(o, DESK_ATLAS, density=2.0)
+        else:
+            live(o, kind)
 lo_c, hi_c = [min(b[0][k] for b, _ in POD) for k in range(3)], [max(b[1][k] for b, _ in POD) for k in range(3)]
 lo_u, hi_u = [min(u[0][k] for _, u in POD) for k in range(3)], [max(u[1][k] for _, u in POD) for k in range(3)]
 FOOTPRINTS.append({"name": "pod", "kind": "floor", "wall": None, "lo": lo_u, "hi": hi_u, "core": (lo_c, hi_c)})
@@ -5464,6 +5619,7 @@ print(f"library: {sum(len(p.vertices) - 2 for o, _ in lib for p in o.data.polygo
 lounge, shade, lamp_pos = build_lounge()
 baked(lounge, "lounge")
 build_lounge2()  # #280 PR 2
+build_treats()  # #455
 for o in FRIDGE_NODES:  # #457: the fridge's inside, baked with its door open and its light on
     baked(o, "fridge")
 for o, dens in L2_NODES:
@@ -6018,7 +6174,7 @@ scene.render.bake.target = "IMAGE_TEXTURES"
 # shows only as many as there are files)
 for n in NODES:
     nm_ = n["obj"].name  # #280: shelf_r<digit> = the library binders (not shelf_records, baked in lounge2)
-    if nm_.startswith(("agent_", "clock_", "keyrack_key", "desk_0_hourglass", "window_", "prop_book_", "prop_shelfbook_", "prop_paper_", "omok_stone_", "pp_ball")) or n.get("live") == "prop" \
+    if nm_.startswith(("agent_", "clock_", "keyrack_key", "desk_0_hourglass", "prop_headphones_cup", "window_", "prop_book_", "prop_shelfbook_", "prop_paper_", "omok_stone_", "pp_ball")) or n.get("live") == "prop" \
             or (nm_.startswith("shelf_r") and nm_[7:8].isdigit()) \
             or (nm_.startswith("desk_") and "_mouse" in nm_) \
             or n["obj"].get("hidden_at_rest"):  # #305: the mouse moves on its pad; #370: hidden at rest (the calendar page)

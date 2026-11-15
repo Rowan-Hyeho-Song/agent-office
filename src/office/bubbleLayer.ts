@@ -15,6 +15,8 @@ export interface Anchor {
   x: number
   y: number
   visible: boolean
+  /** #137 ② C a bubble over the face screen (PlaceInput.face) */
+  face?: PlaceInput['face']
 }
 
 export interface TagItem {
@@ -257,6 +259,7 @@ export class BubbleLayer {
         pair: !!(a && other),
         dim: b.dim,
         down: b.down,
+        face: a?.face,
       })
     }
     const placed = placeBubbles(inputs, view)
@@ -266,11 +269,12 @@ export class BubbleLayer {
       l.el.dataset.side = p.side
       l.el.dataset.dir = p.dir
       l.el.style.display = p.visible && anchors[i.id]?.visible ? '' : 'none'
-      const style = `${Math.round(i.x)}|${Math.round(i.y)}|${p.stack}|${p.shift}`
+      const y = p.y ?? i.y
+      const style = `${Math.round(i.x)}|${Math.round(y)}|${p.stack}|${p.shift}`
       if (style !== l.style) {
         l.style = style
         l.el.style.setProperty('--x', `${Math.round(i.x)}px`)
-        l.el.style.setProperty('--y', `${Math.round(i.y)}px`)
+        l.el.style.setProperty('--y', `${Math.round(y)}px`)
         l.el.style.setProperty('--stack', `${p.stack}px`)
         l.el.style.setProperty('--shift', `${p.shift}px`)
       }

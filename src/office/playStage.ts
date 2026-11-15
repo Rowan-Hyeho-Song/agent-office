@@ -9,6 +9,7 @@
 // its contact point.
 
 import {
+  Box3,
   BoxGeometry,
   CircleGeometry,
   InstancedMesh,
@@ -25,7 +26,7 @@ import {
 } from 'three'
 import type { Goal } from './director'
 import type { GripDemo } from './debugPlay'
-import { GRIPS, GripClock, STONE_ABD, STONE_FALLBACK_M, STONE_H, STONE_PITCH, STONE_PITCH_FLAT, handFor, stoneGrip, stoneRoll, tipAt, type StoneGrip } from './grip'
+import { GRIPS, GripClock, STONE_ABD, STONE_FALLBACK_M, STONE_H, STONE_PITCH, STONE_PITCH_FLAT, handFor, objectFor, stoneGrip, stoneRoll, tipAt, type StoneGrip } from './grip'
 import { DIP_K, POSES, fingerFromC, toVec } from './handPose'
 import { contactNormal, fitFingers, handGripMatrix, offsetOf, resolveTarget, type GripTarget } from './gripTargets'
 import { fingerModelOf, type AgentRig, type PropBank } from './rig'
@@ -35,16 +36,43 @@ import { noteTourEvent } from './tourEvents'
 import { meshesOf } from './nodes'
 import type { StatusMap } from './status'
 import { gameAt, N, type OmokView } from '../play/omok'
+import { hash } from './play'
 import { rallyAt, type Dims, type Rally, type V3 } from '../play/pingpong'
 import { CARRY_HOLD, HOLD_DEFAULT, PLANTS, POUR_TILT, canPose, dropAt, landing, lerpHold, plantsFrom, pourAt, solvePour, spoutOf, type Plant } from './water'
 import { WATER_S } from './waterRun'
 import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFor, shakeAt, type HabitKind } from './waterFx'
 import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
+import { TrayPile } from './tray'
+import { localBox } from './localBox'
+
+/** #137 ② (play.md 2.5) the win ring and line when the visitor won: ivory */
+export const VISITOR_RING = '#f3ead8'
+
+/** #370 C3 the stamping, s from the decision (props.ts STAMP_MS = 2 s): to the ink pad, two dabs, back and pressed on the paper; hover 1 cm, arc 4 cm */
+export const STAMP_INK = { toPad: [0.35, 0.7], dabs: [0.7, 1.1], press: [1.45, 1.7], hover: 0.01, arc: 0.04 } as const
+
+/**
+ * #559 how far each pressed button goes in, m: the fingertip goes in with it. None is a moving part of the model (the coffee button is baked into the
+ * machine, the taps and the lamp switch are empties): 0, the fingertip stops on the surface (designer: 2–3 mm would not show from 1 m). A button the
+ * model makes movable gets its travel here.
+ */
+export const BUTTON_TRAVEL: Record<string, number> = { coffee_button: 0, water_tap_0: 0, water_tap_1: 0, desk_3_signal: 0, desk_2_lamp_switch: 0, desk_1_turntable: 0 }
+/** #559 the press's tap: the hand 1 mm in and back over 0.08 s as it starts */
+export const PRESS_TAP = { m: 0.001, s: 0.08 }
+
+
+/** #370 B3b the IN pile squared at the tidy-up: lifted 4 cm, stood 70° on its near edge, tapped down 1.2 cm; the palms 2 mm off its sides (the hand frame 9 mm behind the palm), 2 cm in from its near edge */
+export const PILE_TIDY = { lift: 0.04, standDeg: 70, tap: 0.012, out: 0.002, palm: 0.009, near: 0.02 }
+import { HEADPHONES, KEYCAP_ROLL, cupSwivel, LEAF_STROKE, MIXER, PAPER_READ, SHAPE_TURN, SNAP, SWATCH, leafAt, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, type Touch } from './deskTouch'
+import { SIP_TOP_S, TREAT_HOLD, TREAT_LOOK, TREAT_PROP, takeSounds, treatPhase, type SnackKind } from './treatHold'
+import { handsOf } from './paperRun'
+import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, pageTau, rowOf } from './shelfRun'
+import { cue, cue as treatCue } from '../audio/cues'
 import { type Place, SEQ, ease, habitOf, placeSequence } from '../play/choreo'
 import { STEP, stepAt, strokeAt } from '../play/stroke'
 import { BOWL_CORNER, BOWL_S, SOLO_LEAD_MS } from './bowlRun'
-import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
+import { VISITOR, sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
 import { Typist } from './typist'
 import { LoungeActs } from './loungeActs'
@@ -93,6 +121,10 @@ const CAN_FADE_MS = 120
 const LEAN_MORE: Record<string, number> = { plant_sofa: 12 / 10 }
 
 export interface StageIn {
+  /** #370 B3b sheets in the planner's IN pile now (props.ts inbox) */
+  inbox?: number
+  /** #370 A a hand on a thing of its own desk, by agent (deskTouch.ts) */
+  touches?: Record<string, Touch>
   /** office time, ms */
   now: number
   /** the clock the rigs' own animation runs on, s (the scene clock in the timelapse) */
@@ -112,6 +144,12 @@ export interface StageIn {
   colors: Record<string, string>
   /** ?debug=1: pair games started by hand (debugPlay.ts) instead of the schedule's, and a grip demo to loop */
   forcedSessions?: PlaySession[]
+  /** #137 ② a visitor's game with the agent at the board (omokVisit/store.ts): drawn instead of the board's own game, in this tab only */
+  visitorOmok?: { agent: string; view: OmokView } | null
+  /** #137 ③ the visitor's match with the agent at the far end (pingpong_b): its rally (visitorPingpong.ts rallyOf) on the match clock, this tab only */
+  visitorPingpong?: { agent: string; rally: Rally; tMs: number } | null
+  /** #455 the treats taken in a hand: which, and when it landed (office ms) */
+  treats?: Record<string, { kind: SnackKind; at: number }>
   /** #137 ① where the white bowl rests when no hand has it (Director.bowlRest): its home by game_b, or the corner by game_a */
   bowlRest?: 'home' | 'corner'
   gripDemo?: GripDemo | null
@@ -188,6 +226,8 @@ export class PlayStage {
   /** where the white bowl is drawn now, and (reduced motion) its swap from one rest to the other: out at the old, in at the new, 0.12 s each */
   private bowlShown: 'home' | 'corner' = 'home'
   private bowlSwap: { from: 'home' | 'corner'; to: 'home' | 'corner'; t0: number } | null = null
+  /** #137 ② whether the last frame drew a visitor's game (its bowl's rest changes by a fade, not a walk) */
+  private visitorBowl = false
   private bowlMats: Material[] | null = null
   /** tests: the white bowl's opacity now */
   bowlOpacity = 1
@@ -217,6 +257,13 @@ export class PlayStage {
   private fxT = -1
   private spout: Object3D | undefined
   private bookHalves: { l: Object3D; r: Object3D } | null = null
+  /** #450 the second bookshelf's books' halves, by book */
+  private shelfHalves = new Map<string, { l: Object3D; r: Object3D }>()
+  /** #450 the shelf books' turning leaves, and the turns already heard (book.page) */
+  private shelfLeaves = new Map<string, LeafBend>()
+  private shelfPaged = new Set<string>()
+  /** #450 the shelf book cues already fired (book.out / book.in once per stage) */
+  private shelfCued = new Set<string>()
   /** the one leaf that turns (#231): bent about the spine, hidden while the book is read without a turn */
   private leaf: LeafBend | null = null
   private leafTargets = new Map<string, GripTarget | null>()
@@ -248,7 +295,7 @@ export class PlayStage {
         const tgt = this.target(objName, kind, side)
         if (tgt) this.partner(rig, kind, side, tgt, this.lastObjPose, primary)
       },
-      button: (rig, name, u, inp, holdS, depth) => this.button(rig, name, u, inp, holdS, depth),
+      button: (rig, name, u, inp, holdS) => this.button(rig, name, u, inp, holdS),
       arrivedAt: (id) => this.arrivedAt.get(id),
       // #457 a drink that has faded out of the hand: nothing carries it home (it is back on its shelf, hidden), the hand is free at once
       drop: (rig, side, objName) => {
@@ -334,6 +381,25 @@ export class PlayStage {
     scene.add(drops)
     this.drops = drops
     this.fx = new WaterScene(scene, drops, this.plants, mobile)
+    // #450 the second bookshelf's books open the same way: their halves hang on them
+    for (const b of SHELF_BOOKS) {
+      const node = nodes[b.name]
+      const hl = nodes[`${b.name}_l`]
+      const hr = nodes[`${b.name}_r`]
+      if (node && hl && hr) {
+        node.attach(hl)
+        node.attach(hr)
+        this.shelfHalves.set(b.name, { l: hl, r: hr })
+        // its one leaf that turns (as the low table's book: grips.md "한 장 넘기기"), hidden between the turns
+        const page = nodes[`${b.name}_page`]
+        if (page) {
+          node.attach(page)
+          const lf = new LeafBend(page)
+          page.visible = false
+          this.shelfLeaves.set(b.name, lf)
+        }
+      }
+    }
     const book = nodes.prop_book
     const l = nodes.prop_book_l
     const r = nodes.prop_book_r
@@ -371,7 +437,8 @@ export class PlayStage {
    */
   private holdFit(rig: AgentRig, side: 'l' | 'r', t: GripTarget) {
     const seat = Number(rig.id.split('_')[1])
-    const key = `${t.key}:${seat}`
+    // the grip kind too: two grips of one hand on one object (#450: a shelf book's spine and its open cover) fit their own fingers
+    const key = `${t.kind}:${t.key}:${seat}`
     if (!this.fits.has(key)) {
       const spec = GRIPS[t.kind][side]!
       const hold = rig.curlVec(side, spec.hold)
@@ -409,8 +476,8 @@ export class PlayStage {
     // the mouse body is live but not a prop (#305): the hand is placed on the body where it is now, wherever the typist has slid it
     const body = kind === 'mouse' ? tgt.obj : null
     if (body) body.updateWorldMatrix(true, false)
-    // the closed book's grip is the same prop as the open one (PropBank knows props by their own kind)
-    const propKind = kind === 'bookclosed' ? 'book' : kind
+    // the closed book's grip (and #450 a shelf book's spine grip) is the same prop as the open one (PropBank knows props by their own kind)
+    const propKind = kind === 'bookclosed' || kind === 'bookspine' ? 'book' : kind
     const info = tgt.obj && !body ? this.props.info(rig, propKind, prefer ?? objName) : null
     const home = body ? body.matrixWorld.clone() : tgt.obj ? this.props.homeWorld(tgt.obj) : new Matrix4()
     let pose = home
@@ -536,6 +603,12 @@ export class PlayStage {
       if (s.kind === 'pingpong') pp = s
       else og = s
     }
+    // #137 ② the visitor sat down opposite: their game on the board (the agent at game_a, the visitor at the empty chair, no hand of theirs)
+    const vo = inp.visitorOmok
+    if (vo) og = inp.rigs[vo.agent]?.arrived === 'game_a' ? { kind: 'boardgame', spot: 'game_a', players: [vo.agent, VISITOR], seed: hash(`visitor|${vo.agent}`), startMs: 0, visitor: vo.view } : null
+    // #137 ③ the visitor holds the near paddle: their match, the agent at the far end (no hand at the near one)
+    const vp = inp.visitorPingpong
+    if (vp) pp = inp.rigs[vp.agent]?.arrived === 'pingpong_b' ? { kind: 'pingpong', spot: 'pingpong_a', players: [VISITOR, vp.agent], seed: hash(`visitor|pp|${vp.agent}`), startMs: 0 } : null
     this.pingpong(pp, inp)
     this.omok(og, inp)
     for (const e of this.carry.values()) e.seen = false
@@ -545,10 +618,13 @@ export class PlayStage {
     this.demo(inp)
     this.putBack(inp)
     for (const id of ids) if (!this.typed.has(id)) this.typist.fade(inp.rigs[id], inp.dt)
+    // #455 a treat in a free hand: over whatever that hand was doing
+    this.treatHands(inp)
     for (const id of ids) {
       inp.rigs[id].applyDrive('l', inp.t, inp.reduced)
       inp.rigs[id].applyDrive('r', inp.t, inp.reduced)
     }
+    this.treatDraw(inp)
     for (const id of ids) this.writeDesk.draw(inp.rigs[id], inp.goals[id], inp)
     this.lounge.update(inp)
     this.book(inp)
@@ -572,9 +648,10 @@ export class PlayStage {
       }
       return
     }
-    const tMs = sessionTime(s, inp.now)
+    const vp = s.players[0] === VISITOR ? inp.visitorPingpong : null
+    const tMs = vp ? vp.tMs : sessionTime(s, inp.now)
     const d = this.dims
-    const rally: Rally = rallyAt(s.seed, s.players, Math.max(tMs, -1), d, inp.reduced)
+    const rally: Rally = vp ? vp.rally : rallyAt(s.seed, s.players, Math.max(tMs, -1), d, inp.reduced)
     const playing = tMs >= 0
     if (playing) this.sounds.pingpong(s.seed, tMs, rally, d.ballR!, rally.ballPos ? this.tableWorld(rally.ballPos) : null)
     if (ball) {
@@ -586,7 +663,8 @@ export class PlayStage {
         this.shadow.visible = over
         this.shadow.position.set(ball.position.x, this.tableWorld([0, 0, 0]).y + 0.002, ball.position.z)
         this.shadow.scale.setScalar(d.ballR! * (1.1 + h * 0.8))
-        ;(this.shadow.material as MeshBasicMaterial).opacity = 0.4 / (1 + h * 3)
+        // the visitor reads the depth from it (play.md 3.2): darker in their match
+        ;(this.shadow.material as MeshBasicMaterial).opacity = (vp ? 0.75 : 0.4) / (1 + h * 3)
       } else {
         ball.visible = !playing || inp.reduced // between points the ball is in somebody's pocket; at the start it waits on the table
         ball.position.copy(this.ballHome)
@@ -594,6 +672,8 @@ export class PlayStage {
     }
     for (const side of [0, 1] as const) {
       const rig = inp.rigs[s.players[side]]
+      // the visitor's end has no hand: their paddle floats (PingpongVisitRig)
+      if (!rig) continue
       const dir = side === 0 ? 1 : -1
       const planeX = -dir * (d.L! / 2 + d.reach!)
       const ready: V3 = [planeX + dir * 0.12, 0.2, 0]
@@ -633,7 +713,7 @@ export class PlayStage {
       this.grip(rig, 'r', 'paddle', `prop_paddle_${side === 0 ? 'a' : 'b'}`, true, held, inp, `prop_paddle_${side === 0 ? 'a' : 'b'}`)
     }
     // the tag over the net for 2 s after a point: the score, as the server's side reads it
-    const before = playing ? rallyAt(s.seed, s.players, tMs - 2000, d, true) : null
+    const before = playing && !vp ? rallyAt(s.seed, s.players, tMs - 2000, d, true) : null
     if (playing && before && (before.score[0] !== rally.score[0] || before.score[1] !== rally.score[1]) && before.game === rally.game) {
       this.tag = { text: `${rally.score[0]} : ${rally.score[1]}`, at: this.tableWorld([0, d.netH! + 0.35, 0]) }
       // the one who lost the point is startled (놀람); once per point
@@ -651,6 +731,29 @@ export class PlayStage {
   private cellPos(cell: number, out = new Vector3()) {
     const g = this.grid!
     return out.set(g.o.x + (cell % g.n) * g.cell, g.o.y, g.o.z + Math.floor(cell / g.n) * g.cell)
+  }
+
+  /** #137 ③ the ping-pong table for the visitor's match: its top's middle (the rally's origin) and its size; null before the model */
+  get pingpongTable(): { o: Vector3; dims: Dims } | null {
+    return this.tableNode ? { o: this.tableWorld([0, 0, 0]), dims: this.dims } : null
+  }
+
+  /** #137 ② for the visitor's input: the board's points (origin, count, step: column i is +x, row j is +z), null before the model */
+  get omokGrid(): { o: Vector3; n: number; cell: number } | null {
+    return this.grid
+  }
+  /** the point a world point is over (within half a step of it), or null */
+  omokCellAt(p: Vector3): number | null {
+    const g = this.grid
+    if (!g) return null
+    const i = Math.round((p.x - g.o.x) / g.cell)
+    const j = Math.round((p.z - g.o.z) / g.cell)
+    if (i < 0 || j < 0 || i >= g.n || j >= g.n) return null
+    return Math.hypot(p.x - (g.o.x + i * g.cell), p.z - (g.o.z + j * g.cell)) <= g.cell / 2 + 1e-9 ? j * g.n + i : null
+  }
+  /** a point's place on the board (world), or null before the model */
+  omokPoint(cell: number, out = new Vector3()): Vector3 | null {
+    return this.grid ? this.cellPos(cell, out) : null
   }
 
   /** which finger's contact on the go stone faces up (it presses from above) */
@@ -690,8 +793,12 @@ export class PlayStage {
    * rest to draw this frame.
    */
   private bowlSwapStep(want: 'home' | 'corner', inp: StageIn): 'home' | 'corner' {
+    // #137 ② a visitor sitting down or leaving moves the bowl with no hand to carry it: it fades over as with reduced motion
+    const visitor = !!inp.visitorOmok
+    const byVisitor = visitor !== this.visitorBowl
+    this.visitorBowl = visitor
     if (!this.bowlSwap && want !== this.bowlShown) {
-      if (!inp.reduced) this.bowlShown = want
+      if (!inp.reduced && !byVisitor) this.bowlShown = want
       else this.bowlSwap = { from: this.bowlShown, to: want, t0: inp.t }
     }
     const sw = this.bowlSwap
@@ -773,12 +880,12 @@ export class PlayStage {
     }
     // a record placed alone starts once the white bowl has been brought over (#137 ①)
     // (reduced motion: no fetching, so no delay, #456)
-    const tMs = sessionTime(s, inp.now) - (s.solo && !inp.reduced ? SOLO_LEAD_MS : 0)
+    const tMs = s.visitor ? 0 : sessionTime(s, inp.now) - (s.solo && !inp.reduced ? SOLO_LEAD_MS : 0)
     if (tMs < 0) {
       this.sweep(inp)
       return
     }
-    const view = gameAt(s.seed, s.players, tMs, inp.reduced)
+    const view = s.visitor ?? gameAt(s.seed, s.players, tMs, inp.reduced)
     this.sounds.omokStone(s.seed, view.game, view.moveIndex, view.lastMove >= 0 ? this.cellPos(view.lastMove) : null)
     this.sweepState = { start: null, board: view.board.slice() }
     // stones on the board
@@ -824,7 +931,8 @@ export class PlayStage {
     if (this.line) this.line.visible = false
     if (showWin) {
       const winnerIdx = view.winner === 1 ? view.black : (1 - view.black) as 0 | 1
-      const col = inp.colors[s.players[winnerIdx]] ?? '#ffffff'
+      // the visitor's own colour is ivory (play.md 2.5: the visitor has no agent colour)
+      const col = s.players[winnerIdx] === VISITOR ? VISITOR_RING : (inp.colors[s.players[winnerIdx]] ?? '#ffffff')
       const cells = [...view.line!].sort((a, b) => a - b).slice(0, 5)
       cells.forEach((cell, i) => {
         const ring = this.rings[i]
@@ -849,7 +957,7 @@ export class PlayStage {
     }
     // the faces of the result: the winner is glad (기쁨), the loser embarrassed (당황); an expression is information, reduced motion keeps it
     // a record placed alone has no winner to be glad and no loser to clap (#137 ①)
-    if (view.phase === 'won' && view.winner && view.wonMs > 500 && !s.solo) {
+    if (view.phase === 'won' && view.winner && view.wonMs > 500 && !s.solo && !s.visitor) {
       const fk = `${key}:${view.game}`
       if (!this.faced.has(fk)) {
         this.faced.add(fk)
@@ -861,8 +969,17 @@ export class PlayStage {
     if (inp.reduced) return
     // the hands
     this.omokHands(s, view, inp)
+    // #137 ② against the visitor (play.md 2.5): the agent claps three times when the visitor won, makes a small fist when it did (its face and words come with the game)
+    if (view.phase === 'won' && view.winner && s.visitor) {
+      const k = `${key}:visitor:${view.game}`
+      const rig = inp.rigs[s.players[0]]
+      if (rig && view.wonMs > 500 && this.reactedGame.get(k) === undefined) {
+        this.reactedGame.set(k, inp.t)
+        rig.reaction = view.winner === 2 ? { kind: 'fist', t0: inp.t, dur: 1.0 } : { kind: 'clap', t0: inp.t + 0.4, dur: 1.4 }
+      }
+    }
     // reactions (play.md 2.5): the winner's small fist, the loser's three claps and a bow (not when one agent placed both sides)
-    if (view.phase === 'won' && view.winner && !s.solo) {
+    if (view.phase === 'won' && view.winner && !s.solo && !s.visitor) {
       const winnerIdx = view.winner === 1 ? view.black : (1 - view.black) as 0 | 1
       const k = `${key}:${view.game}`
       const wr = inp.rigs[s.players[winnerIdx]]
@@ -1123,19 +1240,38 @@ export class PlayStage {
     if (goal.pose === 'pingpong' && goal.partnerWait && resting && !pp) return this.pingpongWait(rig, goal, u, inp)
     if (goal.watching && resting) return this.cheer(rig, u, inp)
     if (goal.watching) this.cheered.delete(rig.id)
+    // #370 B3b the planner's tidy-up squares its IN pile (not with reduced motion, not an empty pile)
+    if (goal.pose === 'tidy' && seat === 0 && resting && this.pileTidy(rig, goal, inp)) return
+    // #370 A a hand on a thing of its own desk (deskTouch.ts), the other one typing on
+    if (resting && goal.spot === `work_${seat}` && this.deskTouch(rig, goal, inp, seat)) return
     // the planner's stamp (the owner decided something)
     if (inp.stamp && seat === 0) {
       const home = this.props.info(rig, 'stamp')
-      const c = (inp.t * 1000) % 1200
-      const lift = 0.05 * (c < 350 ? ease(c / 350) : c < 450 ? 1 : c < 550 ? 1 - ease((c - 450) / 100) : 0)
       if (home) {
-        const m = this.props.homeWorld(home.node)
-        m.elements[13] += lift
-        this.grip(rig, 'r', 'stamp', home.node.name, true, m, inp)
-        this.sounds.stamp(inp.t, home.node.getWorldPosition(new Vector3()))
+        if (this.stampAt === null) this.stampAt = inp.t
+        const s = inp.t - this.stampAt
+        this.grip(rig, 'r', 'stamp', home.node.name, true, this.stampPose(home.node, s, inp), inp)
+        // each dab heard soft as the face meets the felt (the middle of each half of the dabs: 0.8 s, 1.0 s; not with reduced motion: no dabs)
+        const pad = this.sceneRef.getObjectByName('desk_0_inkpad')
+        const [d0, d1] = STAMP_INK.dabs
+        for (const [i, at] of [d0 + (d1 - d0) / 4, d0 + ((d1 - d0) * 3) / 4].entries())
+          if (pad && !inp.reduced && s >= at && this.stampInked < i + 1) {
+            this.stampInked = i + 1
+            cue('stamp.ink', { pos: pad.getWorldPosition(new Vector3()), agent: rig.id, key: `stamp.ink:${Math.round(this.stampAt * 1000)}:${i}` })
+          }
+        // the stamp heard as it meets the paper (the middle of the press, where it has come down from its hover), once a decision
+        if (s >= (STAMP_INK.press[0] + STAMP_INK.press[1]) / 2 && !this.stampHeard) {
+          this.stampHeard = true
+          cue('stamp', { pos: home.node.getWorldPosition(new Vector3()) })
+        }
         noteTourEvent(rig.id, 2500) // the tour (#207)
       }
       return
+    }
+    if (seat === 0) {
+      this.stampAt = null
+      this.stampHeard = false
+      this.stampInked = 0
     }
     if (goal.pose === 'coffee' && resting) {
       // press the machine's button with the index fingertip, then take the mug and drink now and then
@@ -1160,8 +1296,10 @@ export class PlayStage {
     }
     // the reading errand (readRun.ts): the book from the low table to the sofa seat and back
     if (goal.pose === 'books' && goal.read) return this.readErrand(rig, goal.read, inp)
+    // #450 the shelf book (shelfRun.ts): out of its slot, read standing, back in the same slot
+    if (goal.pose === 'shelfbook' && goal.shelf) return this.shelfErrand(rig, goal.shelf, inp)
     if (goal.pose === 'books' && resting) {
-      const book = this.props.info(rig, 'book')
+      const book = this.props.info(rig, 'book', 'prop_book')
       if (book) {
         // before the shelf the book is closed in the hand; it opens in 0.5 s and a page turns every 6 s
         // the page faces the reader (tipped up 30°), the spine runs down, the left page on the reader's left
@@ -1370,7 +1508,7 @@ export class PlayStage {
    */
   private readErrand(rig: AgentRig, r: NonNullable<Goal['read']>, inp: StageIn) {
     if (r.stage === 'fetch') return
-    const book = this.props.info(rig, 'book')
+    const book = this.props.info(rig, 'book', 'prop_book')
     if (!book) return
     const t = inp.t
     const name = book.node.name
@@ -1412,6 +1550,257 @@ export class PlayStage {
     this.reading = r.stage === 'read' ? { rig, openAt: t - r.u, turnAt: r.u, closeAt: t - (r.u - closeFrom) } : null
     if (attached && tr && w >= 1) this.turnLeaf(rig, name, r.u, t - r.u, this.lastObjPose, inp)
     else this.hideLeaf()
+  }
+
+  /** #455 each treat held: its hand, its prop, its pose this frame, its own materials (to fade it), the cues fired */
+  private treatsHeld = new Map<string, { at: number; side: 'l' | 'r'; prop: string; kind: SnackKind; mats: Material[] | null; opacity: number; cued: Set<string>; pg?: Matrix4 }>()
+
+  /**
+   * #455 (office-ui.md 12.2): the treat taken in the free hand (paper-pass.md 3: the right one, the left when the right is busy; both busy: not held, the icon
+   * shows as before), held before the chest, a coffee sipped once (#457's height), faded after TREAT_HOLD.holdS. The hand is driven to the treat's grip at
+   * the hold (the bake's _grip_<side>), the fingers fitted to its contacts; the prop is out of the PropBank while it is held (drawn in treatDraw).
+   */
+  private treatHands(inp: StageIn) {
+    const want = inp.treats ?? {}
+    for (const [id, h] of [...this.treatsHeld]) {
+      const t = want[id]
+      if (!t || t.at !== h.at || !treatPhase(h.kind, (inp.now - h.at) / 1000, inp.reduced)) this.treatEnd(id)
+    }
+    for (const [id, t] of Object.entries(want)) {
+      const rig = inp.rigs[id]
+      if (!rig?.visible) continue
+      const u = (inp.now - t.at) / 1000
+      const ph = treatPhase(t.kind, u, inp.reduced)
+      if (!ph) continue
+      let h = this.treatsHeld.get(id)
+      if (!h) {
+        const hands = handsOf(rig)
+        if (hands.both) continue
+        const side: 'l' | 'r' = hands.busy === 'r' ? 'l' : 'r'
+        h = { at: t.at, side, prop: TREAT_PROP[t.kind], kind: t.kind, mats: null, opacity: 1, cued: new Set() }
+        this.treatsHeld.set(id, h)
+        const node = this.sceneRef.getObjectByName(h.prop)
+        if (node) this.props.borrowed.add(node)
+      }
+      const tgt = this.target(h.prop, `treat_${h.kind}`, h.side)
+      if (!tgt) continue
+      const hand = rig.parts.hands[h.side]
+      const root = rig.parts.root
+      root.updateWorldMatrix(true, false)
+      const rq = root.getWorldQuaternion(new Quaternion())
+      const sx = h.side === 'r' ? 1 : -1
+      const head = rig.parts.head.position
+      const H = TREAT_HOLD.hold
+      const S = TREAT_HOLD.sip
+      // before the chest; a sip lifts it before the face and tips it back
+      const at = root.localToWorld(new Vector3(sx * H.side * (1 - ph.sip), head.y - H.belowHead + (H.belowHead - S.belowHead) * ph.sip, -H.forward + (H.forward - S.forward) * ph.sip))
+      const right = new Vector3(1, 0, 0).applyQuaternion(rq)
+      const q = new Quaternion().setFromAxisAngle(right, ((S.tiltDeg * Math.PI) / 180) * ph.sip).multiply(rq)
+      const pose = new Matrix4().compose(at, q, ONE)
+      const seat = Number(rig.id.split('_')[1])
+      h.pg = this.treatGrip(h.kind, tgt.pg, ph.sip)
+      const target = handFor(pose, h.pg, handGripMatrix(hand)).multiply(offsetOf(tgt.key, seat))
+      const fit = this.holdFit(rig, h.side, tgt)
+      rig.drive[h.side] = { target, w: ph.w, curl: null, angles: fit.hold, wc: ph.w, spread: null }
+      h.opacity = ph.opacity
+      // the sounds: the hand has it (not when that is within 0.2 s of the arrival), the coffee's sip at its top (none with reduced motion)
+      const pos = at.clone()
+      if (u >= TREAT_HOLD.takeAtS && takeSounds() && !h.cued.has('take')) {
+        h.cued.add('take')
+        treatCue('treat.take', { pos, agent: id, key: `treat:take:${id}:${t.at}` })
+      }
+      if (h.kind === 'coffee' && !inp.reduced && u >= SIP_TOP_S && !h.cued.has('sip')) {
+        h.cued.add('sip')
+        treatCue('drink.sip', { pos, agent: id, key: `treat:sip:${id}:${t.at}` })
+      }
+    }
+  }
+
+  /** #455 the treat's grip as it is drawn (TREAT_LOOK): its place scaled with the treat, lowered down it, turned about its up in a sip */
+  private treatGrip(kind: SnackKind, pg: Matrix4, sip: number): Matrix4 {
+    const look = TREAT_LOOK[kind]
+    const p = new Vector3()
+    const q = new Quaternion()
+    const sc = new Vector3()
+    pg.decompose(p, q, sc)
+    p.multiplyScalar(look.scale)
+    p.y -= look.gripDown
+    const m = new Matrix4().compose(p, q, ONE)
+    if (look.sipYawDeg && sip > 0) m.premultiply(new Matrix4().makeRotationY(((look.sipYawDeg * Math.PI) / 180) * sip))
+    return m
+  }
+
+  /** #455 after the drives: each held treat where its hand's grip has it, faded in / out */
+  private treatDraw(inp: StageIn) {
+    for (const [id, h] of this.treatsHeld) {
+      const rig = inp.rigs[id]
+      const node = this.sceneRef.getObjectByName(h.prop)
+      const tgt = this.target(h.prop, `treat_${h.kind}`, h.side)
+      if (!rig || !node || !tgt) continue
+      const hand = rig.parts.hands[h.side]
+      hand.node.updateMatrixWorld(true)
+      objectFor(hand.node.matrixWorld, handGripMatrix(hand), h.pg ?? tgt.pg).decompose(node.position, node.quaternion, node.scale)
+      node.scale.setScalar(TREAT_LOOK[h.kind].scale)
+      node.visible = rig.visible && h.opacity > 0.01
+      if (!h.mats) {
+        h.mats = []
+        for (const m of meshesOf(node)) {
+          m.material = (m.material as Material).clone()
+          h.mats.push(m.material as Material)
+        }
+      }
+      for (const mat of h.mats) {
+        mat.transparent = h.opacity < 1
+        mat.opacity = h.opacity
+        mat.depthWrite = h.opacity >= 1
+      }
+    }
+  }
+
+  /** #455 a treat is over: back to the PropBank, hidden where it rests */
+  private treatEnd(id: string) {
+    const h = this.treatsHeld.get(id)
+    if (!h) return
+    this.treatsHeld.delete(id)
+    const node = this.sceneRef.getObjectByName(h.prop)
+    if (node) {
+      this.props.borrowed.delete(node)
+      node.visible = false
+      node.scale.set(1, 1, 1)
+    }
+    for (const mat of h.mats ?? []) {
+      mat.transparent = false
+      mat.opacity = 1
+      mat.depthWrite = true
+    }
+  }
+
+  /** #455 tests and the debug panel: the hand a treat is in, or null */
+  treatSide(agent: string) {
+    return this.treatsHeld.get(agent)?.side ?? null
+  }
+
+  /**
+   * #450 (lounge-props.md 6): a book from the second bookshelf. Pull: the right hand takes the spine (bookspine), the book comes 0.15 m out of its slot and
+   * up before the chest (the low row: the body sinks 0.25 m and rises). Open: the left hand takes its open-book grip, the right one goes from the spine to the
+   * other cover, the halves open. Read: before the face (0.28 m ahead, 0.18 m under the head), the open face 50° up. Close: it shuts and the right hand takes
+   * the spine again. Put: before its slot, then pushed in with the spine to exactly its home, and let go. The book is never moved by anything but the hands.
+   */
+  private shelfErrand(rig: AgentRig, s: NonNullable<Goal['shelf']>, inp: StageIn) {
+    if (s.stage === 'fetch') return
+    const node = this.sceneRef.getObjectByName(s.book)
+    if (!node) return
+    const name = s.book
+    const root = rig.parts.root
+    const yaw = new Quaternion().setFromAxisAngle(UP, rig.heading)
+    const right = new Vector3(Math.cos(rig.heading), 0, -Math.sin(rig.heading))
+    const quat = (upDeg: number) => {
+      const face = new Vector3(0, Math.cos((upDeg * Math.PI) / 180), Math.sin((upDeg * Math.PI) / 180)).applyQuaternion(yaw).normalize()
+      return new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(right, face, new Vector3().crossVectors(right, face)))
+    }
+    // before the chest closed (the cover to the reader, tipped 30°, as the low table's book is carried); open before the face, the pages 50° up
+    const chest = new Matrix4().compose(root.localToWorld(new Vector3(-0.02, 1.0, -0.32)), quat(60), ONE)
+    const head = rig.parts.headRestY
+    const reading = new Matrix4().compose(root.localToWorld(new Vector3(0, head - 0.18, -0.28)), quat(40), ONE)
+    const home = this.props.homeWorld(node)
+    // out of the slot: toward the room (the spines face it), along the stand's line
+    const out = home.clone().premultiply(new Matrix4().makeTranslation(Math.sin(rig.heading) * SHELF_PULL_M, 0, Math.cos(rig.heading) * SHELF_PULL_M))
+    const lowRow = rowOf(name) === 1
+    const u = s.u
+    let held = chest
+    let spine = false
+    let open = 0
+    let left = false
+    const clockR = this.clocks.get(`${rig.id}:r`)
+    if (s.stage === 'pull') {
+      spine = true
+      // the book stays in its slot until the hand has it, then 0.15 m out (to 0.6 s) and up before the chest (to 1.0 s)
+      const got = clockR?.attachedAt
+      const since = got == null ? -1 : inp.t - got
+      held = since < 0 ? home : since < SHELF_S.pullOut ? blend(home, out, ease(since / SHELF_S.pullOut)) : blend(out, chest, ease((since - SHELF_S.pullOut) / SHELF_S.toChest))
+      if (since >= 0) this.shelfCue('book.out', rig, node, `${s.block}:out`)
+    } else if (s.stage === 'open') {
+      // (designer) the right hand keeps the spine while the left comes to its grip; only once the left has the book does the right go over to the other
+      // cover and the book open: a hand is on the book in every frame
+      left = true
+      spine = true
+      const gotL = this.clocks.get(`${rig.id}:l`)?.attachedAt
+      const sinceL = gotL == null ? -1 : inp.t - gotL
+      open = inp.reduced ? 1 : sinceL < 0 ? 0 : ease(sinceL / SHELF_S.openSwap)
+      held = blend(chest, reading, open)
+    } else if (s.stage === 'read') {
+      left = true
+      spine = true
+      open = 1
+      held = reading
+    } else if (s.stage === 'close') {
+      left = true
+      spine = true
+      open = inp.reduced ? 0 : 1 - ease(u / SHELF_S.close)
+      held = blend(chest, reading, open)
+    } else {
+      // put: before the slot (half the time), then pushed in to its home; the hand lets go once it is there
+      // home by SHELF_S.putIn, a few frames there in the hand, then it lets go (the rest of the stage the hand opens and goes)
+      spine = u < SHELF_S.putIn + 0.06
+      const half = SHELF_S.putIn / 2
+      held = inp.reduced || u >= SHELF_S.putIn ? home : u < half ? blend(chest, out, ease(u / half)) : blend(out, home, ease((u - half) / half))
+      if (u >= SHELF_S.putIn / 2) this.shelfCue('book.in', rig, node, `${s.block}:in`)
+    }
+    // the low row: the body sinks while the book is taken out and put back (hover lower), up again as it comes away (or once it is in)
+    if (lowRow && !inp.reduced) {
+      const sink = s.stage === 'pull' ? Math.min(ease(u / 0.5), ease((SHELF_S.pull - u) / 0.5)) : s.stage === 'put' ? Math.min(ease(u / 0.35), ease((SHELF_S.put + 0.4 - u) / 0.4)) : 0
+      rig.bodyDip = Math.max(rig.bodyDip, SHELF_SINK_M * Math.max(0, sink))
+    }
+    // the left hand on the open book first, then the right one's spine grip, which places the book (it has held it since the pull: the left's own lift
+    // from where the book rests would pull it back to its slot), and the right hand goes over to the other cover as the book opens (its drive only)
+    if (left) this.grip(rig, 'l', 'book', name, true, held, inp)
+    this.grip(rig, 'r', 'bookspine', name, spine, held, inp)
+    const pose = this.lastObjPose.clone()
+    const tr = this.target(name, 'book', 'r')
+    // the right hand from the spine grip to the other cover by the opening, blended (target, fingers, weight): never back to its own pose between the two
+    const sp = rig.drive.r
+    const fromSpine = sp?.target && sp.angles ? { target: sp.target.clone(), angles: [...sp.angles], w: sp.w, wc: sp.wc } : null
+    if (left && tr && open > 0) {
+      this.partner(rig, 'book', 'r', tr, pose, 'l', 1)
+      const op = rig.drive.r
+      if (fromSpine && op?.target && op.angles)
+        rig.drive.r = { ...op, target: blend(fromSpine.target, op.target, open), angles: op.angles.map((x, i) => fromSpine.angles[i] * (1 - open) + x * open), w: fromSpine.w * (1 - open) + op.w * open, wc: fromSpine.wc * (1 - open) + op.wc * open }
+    }
+    // a page turns every 25–40 s while it is read (not with reduced motion), and book.page is heard as it starts
+    const lf = this.shelfLeaves.get(name)
+    if (lf) {
+      const gm = inp.reduced ? 0 : rig.gestureMin
+      const lead = Math.max(LEAD_S, gm)
+      const dur = Math.max(TURN_S, gm)
+      const back = Math.max(BACK_S, gm)
+      const tau = s.stage === 'read' && !inp.reduced ? pageTau({ agent: rig.id, block: s.block }, u, lead, dur, back) : null
+      if (tau === null) {
+        lf.node.visible = false
+        if (lf.theta !== 0) lf.set(0)
+      } else {
+        this.leafTurn(rig, name, lf, tau, lead, dur, back, pose)
+        const k = `${rig.id}:${s.block}:${name}:${Math.round((u - tau) * 10)}`
+        if (tau >= 0 && !this.shelfPaged.has(k)) {
+          this.shelfPaged.add(k)
+          if (this.shelfPaged.size > 64) this.shelfPaged.delete(this.shelfPaged.values().next().value!)
+          cue('book.page', { pos: node.getWorldPosition(new Vector3()), agent: rig.id, key: `lounge:book.page:${k}` })
+        }
+      }
+    }
+    // the halves open with the reading grip
+    const h = this.shelfHalves.get(name)
+    if (h) {
+      h.l.rotation.z = halfAngle('l') * open
+      h.r.rotation.z = LIFT * open
+    }
+  }
+
+  private shelfCue(name: 'book.out' | 'book.in', rig: AgentRig, node: Object3D, key: string) {
+    const k = `${rig.id}:${key}`
+    if (this.shelfCued.has(k)) return
+    this.shelfCued.add(k)
+    if (this.shelfCued.size > 64) this.shelfCued.delete(this.shelfCued.values().next().value!)
+    cue(name, { pos: node.getWorldPosition(new Vector3()), agent: rig.id, key: `lounge:${name}:${k}` })
   }
 
   private setExtra(rig: AgentRig, side: 'l' | 'r', objName: string, fn: (pose: Matrix4) => void) {
@@ -1473,20 +1862,446 @@ export class PlayStage {
   }
 
   /** the coffee machine's button: the index fingertip on its contact point, pressed 0.1 s */
-  private button(rig: AgentRig, name: string, u: number, inp: StageIn, holdS = 0.1, depth = 0.012) {
+  /**
+   * #370 A (desk-props.md 4, grips.md): the right hand on a thing of its own desk while deskTouch.ts says (the thing itself is moved by DeskLive on
+   * the same clock): the signal's top light tapped, the lamp's switch pressed, the turntable's button pressed and its platter pushed 90° round by
+   * the rim, the ring light's knob turned, the calendar's page lifted by its corner, the hourglass pinched at its pillars, lifted and put down
+   * (turned between the fingers). The left hand types on (the keyboard's left third) when it was typing. False: no touch now, or its nodes are not
+   * in the model.
+   */
+  private deskTouch(rig: AgentRig, goal: Goal, inp: StageIn, seat: number): boolean {
+    const tc = inp.touches?.[rig.id]
+    if (!tc) return false
+    const { kind, u } = tc
+    const want = u < TOUCH_S[kind].back
+    const node = (name: string) => this.sceneRef.getObjectByName(name)
+    if (kind === 'signal') this.button(rig, 'desk_3_signal', u, inp, 0.1, want)
+    else if (kind === 'lamp') this.button(rig, 'desk_2_lamp_switch', u - (TOUCH_S.lamp.at - 0.5), inp, 0.12, want)
+    else if (kind === 'turntable') {
+      const c = node('desk_1_turntable_rim_contact_index')
+      const tt = node('desk_1_turntable')
+      if (u < 1.0 || !c || !tt) this.button(rig, 'desk_1_turntable', Math.min(u, 0.95), inp, 0.12, true)
+      else {
+        // the index on the rim, carried round with the push (the contact rests where the platter is unturned)
+        const k = inp.reduced ? (u >= TURNTABLE_PUSH.from ? 1 : 0) : ease(Math.min(1, Math.max(0, (u - TURNTABLE_PUSH.from) / TURNTABLE_PUSH.s)))
+        const pv = (tt.userData.pivot_at as number[] | undefined) ?? tt.getWorldPosition(new Vector3()).toArray()
+        const pivot = new Vector3(pv[0], pv[1], pv[2])
+        const q = new Quaternion().setFromAxisAngle(UP, k * TURNTABLE_PUSH.deg * DEG)
+        const P = c.getWorldPosition(new Vector3()).sub(pivot).applyQuaternion(q).add(pivot)
+        const n = contactNormal(this.sceneRef, c).applyQuaternion(q)
+        this.indexOn(rig, P, n, 0, false, inp, want)
+      }
+    } else if (kind === 'knob' && node('desk_1_ringlight_knob_grip_r')) {
+      // #370 C (designer): the knob pinched by the thumb (over it) and the index (under it), the hand turning with it (DeskLive turns it 20°)
+      const k = node('desk_1_ringlight_knob')!
+      k.updateWorldMatrix(true, false)
+      this.grip(rig, 'r', 'ringknob', 'desk_1_ringlight_knob', want, k.matrixWorld.clone(), inp)
+    } else if (kind === 'knob' || kind === 'calendar') {
+      const c = node(kind === 'knob' ? 'desk_1_ringlight_knob_contact_index' : 'desk_0_calendar_page_contact_index')
+      if (!c) return false
+      c.updateWorldMatrix(true, false)
+      this.indexOn(rig, c.getWorldPosition(new Vector3()), contactNormal(this.sceneRef, c), 0, false, inp, want)
+    } else if (kind === 'paper') {
+      if (!this.paperTouch(rig, u, inp)) return false
+    } else if (kind === 'mixer') {
+      // #370 C4 the right index and middle on fader_0's cap, going with it along its slot (its contact rests where the fader rests); the left hand
+      // pinches knob_0 and turns with it, MIXER.lag later
+      const c = node('desk_4_fader_0_contact_index')
+      const f = node('desk_4_fader_0')
+      if (!c || !f) return false
+      const rest = (f.userData.liveRest as { p: Vector3 } | undefined)?.p
+      const slid = rest ? f.position.clone().sub(rest) : new Vector3()
+      if (f.parent) slid.transformDirection(f.parent.matrixWorld).multiplyScalar(f.position.clone().sub(rest ?? f.position).length())
+      this.indexOn(rig, c.getWorldPosition(new Vector3()).add(slid), contactNormal(this.sceneRef, c), 0, false, inp, want)
+      const k = node('desk_4_knob_0')
+      if (k && node('desk_4_knob_0_grip_l')) {
+        k.updateWorldMatrix(true, false)
+        this.grip(rig, 'l', 'mixerknob', 'desk_4_knob_0', u >= MIXER.lag && u < TOUCH_S.mixer.back + MIXER.lag, k.matrixWorld.clone(), inp)
+      }
+    } else if (kind === 'snap') {
+      if (!this.snapHand(rig, u, inp)) return false
+    } else if (kind === 'leaf') {
+      // #370 C3 the index fingertip along the leaf from its touch start to its end, riding it down as it gives (about the leaf's own pivot)
+      const a = node('succulent_leaf_touch_0')
+      const b = node('succulent_leaf_touch_1')
+      const lf = node('succulent_leaf')
+      if (!a || !b || !lf) return false
+      const L = leafAt(u, inp.reduced)
+      const first = LEAF_STROKE.strokes[0][0]
+      const k = L.k >= 0 ? L.k : u < first ? 0 : u < LEAF_STROKE.strokes[1][0] ? 0 : 1
+      const P = a.getWorldPosition(new Vector3()).lerp(b.getWorldPosition(new Vector3()), k)
+      // the leaf turned by its sway about its own x through its pivot (as DeskLive turns it): the point under the finger goes with it
+      const pv = lf.userData.pivot_at as number[]
+      const pivot = new Vector3(pv[0], pv[1], pv[2])
+      const ax = new Vector3(1, 0, 0).transformDirection(lf.matrixWorld)
+      const turn = new Quaternion().setFromAxisAngle(ax, (L.sway * Math.PI) / 180)
+      P.sub(pivot).applyQuaternion(turn).add(pivot)
+      const n = contactNormal(this.sceneRef, a).applyQuaternion(turn)
+      // between the strokes the finger is off it 1.5 cm (going back to the start)
+      const off = L.k < 0 && u > first ? 0.015 : 0
+      this.indexOn(rig, P, n, -off, false, inp, want)
+    } else if (kind === 'swatch') {
+      if (!this.swatchTouch(rig, tc.k ?? 0, u, inp)) return false
+    } else if (TOUCH_PROP[kind]) {
+      if (!this.deskProp(rig, kind, u, inp)) return false
+    } else {
+      // the hourglass: pinched at two pillars across (the thumb -x, the index +x: its turn axis through both), lifted and put
+      // down; the hand does not turn with it
+      const hg = node('desk_0_hourglass')
+      const rest = hg?.userData.liveRest as { p: Vector3; q: Quaternion } | undefined
+      if (!hg || !rest || !node('desk_0_hourglass_contact_thumb')) return false
+      // where it is now (DeskLive lifts it by the touch and by as much as its turn would sink its plates into the coaster), turned as it rests: the
+      // pinch is on its turn axis, so the fingers stay on it as it turns between them
+      hg.updateWorldMatrix(true, false)
+      const rq = rest.q.clone()
+      if (hg.parent) rq.premultiply(new Quaternion().setFromRotationMatrix(hg.parent.matrixWorld))
+      const held = new Matrix4().compose(hg.getWorldPosition(new Vector3()), rq, ONE)
+      this.grip(rig, 'r', 'hourglass', 'desk_0_hourglass', want, held, inp)
+    }
+    // the shape takes both hands
+    if (goal.pose === 'type' && kind !== 'shape' && kind !== 'swatch' && kind !== 'paper' && kind !== 'mixer') this.typeAtDesk(rig, inp, seat, true)
+    return true
+  }
+
+  /**
+   * #370 B3b (desk-props.md 4: 정리 때 IN 더미를 세워 탁탁 두 번): in the tidy-up's own beats, the planner's hands close on the IN pile's sides
+   * (gather), stand it up 70° on its near edge 4 cm over the tray and tap it down twice (the taps), set it back exactly where it rests (keys) and
+   * open (lean). False with no pile to square: the tidy-up's usual hands.
+   */
+  private pileTidy(rig: AgentRig, goal: Goal, inp: StageIn): boolean {
+    const pile = TrayPile.of(this.sceneRef.getObjectByName('desk_0_in'))
+    const b = goal.beat
+    if (!pile || !b || inp.reduced || !(inp.inbox && inp.inbox > 0)) {
+      pile?.pose(null)
+      return false
+    }
+    const T = PILE_TIDY
+    const e = (x: number) => ease(Math.min(1, Math.max(0, x)))
+    // how far it stands (0..1) and how far it is tapped down (0..1)
+    const stand = b.kind === 'tap' ? (b.k === 0 ? e(b.u / 0.4) : 1) : b.kind === 'keys' ? 1 - e(b.u) : 0
+    const tap = b.kind === 'tap' && (b.k > 0 || b.u > 0.4) ? Math.sin(Math.PI * (b.k > 0 ? b.u : (b.u - 0.4) / 0.6)) : 0
+    const size = pile.pileSize
+    const rest = pile.pileRest()
+    const edge = new Vector3(0, 0, size.max.z)
+    const local = new Matrix4()
+      .makeTranslation(0, T.lift * stand - T.tap * tap, 0)
+      .multiply(new Matrix4().makeTranslation(edge.x, edge.y, edge.z))
+      .multiply(new Matrix4().makeRotationX(T.standDeg * DEG * stand))
+      .multiply(new Matrix4().makeTranslation(-edge.x, -edge.y, -edge.z))
+    const pose = rest.clone().multiply(local)
+    pile.pose(stand > 0 || tap !== 0 ? pose : null)
+    // the hands on its sides, palms toward each other, the fingers along it away from the reader, at half its drawn height, near its near edge
+    const w = b.kind === 'gather' ? e(b.u) : b.kind === 'lean' ? 1 - e(b.u / 0.4) : 1
+    if (w <= 0) return b.kind !== 'lean'
+    const q = new Quaternion().setFromRotationMatrix(pose)
+    const px = new Vector3(1, 0, 0).applyQuaternion(q)
+    const pz = new Vector3(0, 0, 1).applyQuaternion(q)
+    // the hands at its near corners (2 cm in): the wrist cuffs, wider than the palms, stay off it; the fingers flat on its sides (curled, they go in)
+    const cz = size.max.z - PILE_TIDY.near
+    for (const side of ['l', 'r'] as const) {
+      const x = side === 'l' ? size.min.x - T.out : size.max.x + T.out
+      const at = new Vector3(x, size.height / 2, cz).applyMatrix4(pose)
+      const palm = side === 'l' ? px.clone() : px.clone().negate()
+      const fingers = pz.clone().negate()
+      const target = new Matrix4().makeBasis(new Vector3().crossVectors(fingers, palm).normalize(), fingers, palm).setPosition(at.addScaledVector(palm, -T.palm))
+      rig.drive[side] = { target, w, curl: [0, 0, 0, 0, 0.15, 0.3], wc: w, spread: null }
+    }
+    return true
+  }
+
+  /**
+   * #370 B3 (grips.md 서류 한 장 집기, desk-props.md 4): the IN pile's top sheet pinched at its front-right corner, lifted before the chest and tipped
+   * 55° up toward the face, held by both long sides as a sheet handed over is read (grips.md 낱장 옆 쥐고 읽기), and laid back on the pile squared (the count never changes: IN is what waits for the
+   * owner). The sheet is the pile's own top sheet (TrayPile.lift), so nothing appears or goes.
+   */
+  private paperTouch(rig: AgentRig, u: number, inp: StageIn): boolean {
+    const pile = TrayPile.of(this.sceneRef.getObjectByName('desk_0_in'))
+    if (!pile) return false
+    const P = PAPER_READ
+    const S = TOUCH_S.paper
+    const rest = pile.topRest()
+    const squared = pile.topRest(true)
+    const root = rig.parts.root
+    root.updateWorldMatrix(true, false)
+    // read before the chest, the sheet's own yaw kept (its +z toward the reader), tipped up toward the face
+    const rq = new Quaternion().setFromRotationMatrix(rest)
+    const right = new Vector3(Math.cos(rig.heading), 0, -Math.sin(rig.heading))
+    const q = new Quaternion().setFromAxisAngle(right, P.tiltDeg * DEG).multiply(rq)
+    const read = new Matrix4().compose(root.localToWorld(new Vector3(0.02, rig.parts.headRestY - 0.2, -0.28)), q, ONE)
+    const k = (a: number, b: number) => ease(Math.min(1, Math.max(0, (u - a) / (b - a))))
+    const held = u < P.take[0] ? rest : u < P.put[0] ? blend(rest, read, k(P.take[0], P.take[1])) : blend(read, squared, k(P.put[0], P.put[1]))
+    if (u < S.back) pile.lift(u < P.take[0] ? null : held)
+    else pile.lift(null, true)
+    this.grip(rig, 'r', 'paper_corner', 'desk_0_in_top', u < S.back, u < S.back ? held : squared, inp)
+    // both hands on the long sides while it is read (0.2 s from the corner to the side as it comes up, and back before it is laid down)
+    const s2 = k(P.sides[0], P.sides[1]) * (1 - k(P.unside[0], P.unside[1]))
+    if (s2 > 0) {
+      const seat = Number(rig.id.split('_')[1])
+      const side = (h: 'l' | 'r') => {
+        const t = this.target('desk_0_in_top', 'paper_tray_side', h)
+        if (!t) return null
+        return { target: handFor(held, t.pg, handGripMatrix(rig.parts.hands[h])).multiply(offsetOf(t.key, seat)), angles: this.holdFit(rig, h, t).hold }
+      }
+      const r = side('r')
+      const d = rig.drive.r
+      if (r && d?.target && d.angles) rig.drive.r = { ...d, target: blend(d.target, r.target, s2), angles: d.angles.map((x, i) => x * (1 - s2) + r.angles[i] * s2), w: 1, wc: 1 }
+      const l = side('l')
+      if (l) rig.drive.l = { target: l.target, w: s2, curl: null, angles: l.angles, wc: s2, spread: null }
+    }
+    return true
+  }
+
+  /**
+   * #370 B2 (grips.md 색견본 부채): the left hand closes round the fan's stand (desk_2_swatch_grip_l), the right index on the outermost chip's face as
+   * the fan spreads (DeskLive turns the chips), then on chip `k`'s face 2.5 cm under its tip, pointing at it; both let go as the fan closes.
+   */
+  private swatchTouch(rig: AgentRig, k: number, u: number, inp: StageIn): boolean {
+    const gl = this.sceneRef.getObjectByName('desk_2_swatch_grip_l')
+    const chip = (i: number) => this.sceneRef.getObjectByName(`desk_2_swatch_leaf_${i}`)
+    if (!gl || !chip(0)) return false
+    const S = TOUCH_S.swatch
+    // the left hand on the stand
+    const hl = rig.parts.hands.l
+    const wl = ease(Math.min(1, Math.max(0, u / 0.5))) * (1 - ease(Math.min(1, Math.max(0, (u - S.back) / 0.4))))
+    gl.updateWorldMatrix(true, false)
+    const spec = GRIPS.swatch.l!
+    rig.drive.l = { target: handFor(gl.matrixWorld, new Matrix4(), handGripMatrix(hl)), w: wl, curl: spec.hold, wc: wl, spread: null }
+    // the right index: on the outermost chip while it spreads, then on the chip pointed at
+    const c = chip(u < SWATCH.point[0] ? 3 : k)
+    const tip = c && this.sceneRef.getObjectByName(`${c.name}_tip`)
+    if (!c || !tip) return true
+    c.updateWorldMatrix(true, true)
+    const up = new Vector3(0, 1, 0).transformDirection(c.matrixWorld)
+    const n = new Vector3(0, 0, 1).transformDirection(c.matrixWorld)
+    // the face toward the designer
+    if (n.dot(rig.parts.root.position.clone().sub(c.getWorldPosition(new Vector3()))) < 0) n.negate()
+    const P = tip.getWorldPosition(new Vector3()).addScaledVector(up, -0.025).addScaledVector(n, 0.0015)
+    this.indexOn(rig, P, n, 0, false, inp, u >= 0.3 && u < S.back)
+    return true
+  }
+
+  /**
+   * #370 C4 (agents.md 2.11) 에코's finger snap: the right hand beside the face screen (the head's middle height, SNAP.out outside its right side, at its
+   * front), the palm forward, the thumb and the middle tips together (the middle 0.6, the thumb (0.4, 0.9)); the middle flicked to 0.9 over 0.08 s, the
+   * cue 'snap' as it lands. Reduced motion: no hand, the cue only.
+   */
+  private snapHand(rig: AgentRig, u: number, inp: StageIn): boolean {
+    const [f0, f1] = SNAP.flick
+    if (u >= f1 && this.snapped !== rig.id + ':' + Math.round(inp.t - u)) {
+      this.snapped = rig.id + ':' + Math.round(inp.t - u)
+      cue('snap', { pos: rig.parts.head.getWorldPosition(new Vector3()), agent: rig.id, key: `snap:${rig.id}:${Math.round((inp.now - u * 1000) / 1000)}` })
+    }
+    if (inp.reduced) return true
+    const head = rig.parts.head
+    head.updateWorldMatrix(true, true)
+    const b = (this.headBoxes ??= new Map()).get(rig.id) ?? localBox(head)
+    this.headBoxes.set(rig.id, b)
+    const at = head.localToWorld(new Vector3(b.max.x + SNAP.out, (b.min.y + b.max.y) / 2, b.min.z))
+    const hq = head.getWorldQuaternion(new Quaternion())
+    const fwd = new Vector3(0, 0, -1).applyQuaternion(hq)
+    const up = new Vector3(0, 1, 0).applyQuaternion(hq)
+    const target = new Matrix4().makeBasis(new Vector3().crossVectors(up, fwd).normalize(), up, fwd).setPosition(at)
+    const e = (x: number) => ease(Math.min(1, Math.max(0, x)))
+    const w = u < SNAP.up ? e(u / SNAP.up) : 1 - e((u - SNAP.down[0]) / (SNAP.down[1] - SNAP.down[0]))
+    const mid = 0.6 + 0.3 * e((u - f0) / (f1 - f0))
+    rig.drive.r = { target, w, curl: [0.5, mid, 0.8, 0.85, 0.4, 0.9], wc: w, spread: null }
+    return true
+  }
+  private snapped = ''
+  private headBoxes: Map<string, Box3> | undefined
+
+  /**
+   * #370 C3 (desk-props.md 4 도장에 인주 묻혀 찍기): where the stamp is `s` s into a decision's stamping: taken where it rests, over to the ink pad
+   * (an arc 4 cm up), dabbed twice (its face down onto the felt, `press` into it), back over to where it rests and pressed down there. Its face is the
+   * bottom of its own box. Reduced motion: no dabs, lifted and pressed where it rests.
+   */
+  private stampPose(node: Object3D, s: number, inp: StageIn): Matrix4 {
+    const home = this.props.homeWorld(node)
+    const pad = this.sceneRef.getObjectByName('desk_0_inkpad')
+    const I = STAMP_INK
+    const k = (a: number, b: number) => ease(Math.min(1, Math.max(0, (s - a) / (b - a))))
+    const hq = new Quaternion().setFromRotationMatrix(home)
+    const hp = new Vector3().setFromMatrixPosition(home)
+    const up = new Vector3(0, 1, 0)
+    // the press on the paper: down from the hover over where it rests, and it stays there
+    const pressed = () => hp.clone().addScaledVector(up, I.hover * (1 - k(I.press[0], (I.press[0] + I.press[1]) / 2)))
+    if (!pad || inp.reduced) return new Matrix4().compose(s < I.press[0] ? hp.clone().addScaledVector(up, I.hover * k(0.2, 0.5)) : pressed(), hq, ONE)
+    const face = (this.stampFace ??= localBox(node).min.y)
+    const padPos = pad.getWorldPosition(new Vector3()).sub(new Vector3(0, face, 0).applyQuaternion(hq))
+    const press = Number(pad.userData.press) || 0.002
+    let p: Vector3
+    if (s < I.toPad[0]) p = hp.clone()
+    else if (s < I.toPad[1]) {
+      const t = k(I.toPad[0], I.toPad[1])
+      p = hp.clone().lerp(padPos.clone().addScaledVector(up, I.hover), t).addScaledVector(up, I.arc * Math.sin(Math.PI * t))
+    } else if (s < I.dabs[1]) {
+      // two dabs: down onto the felt (`press` into it) and up again, each half the time
+      const f = ((s - I.dabs[0]) / (I.dabs[1] - I.dabs[0])) * 2
+      p = padPos.clone().addScaledVector(up, I.hover - (I.hover + press) * Math.sin(Math.PI * (f % 1)))
+    } else if (s < I.press[0]) {
+      const t = k(I.dabs[1], I.press[0])
+      p = padPos.clone().addScaledVector(up, I.hover).lerp(hp.clone().addScaledVector(up, I.hover), t).addScaledVector(up, I.arc * Math.sin(Math.PI * t))
+    } else p = pressed()
+    return new Matrix4().compose(p, hq, ONE)
+  }
+  private stampAt: number | null = null
+  private stampHeard = false
+  private stampInked = 0
+  private stampFace: number | undefined
+
+  /**
+   * #370 C2 where the headphones are held for one cup to the right ear: the cup axis (their x, from the near cup to the far) along the head's side
+   * turned HEADPHONES.tiltDeg out, the headband up, the near cup (swivelled HEADPHONES.swivelDeg: its cushion now faces their -z, the head) with its
+   * cushion's centre on the side of the head at the ear's height. The head is the head's box at rest.
+   */
+  private headphoneHold(rig: AgentRig): { pos: Vector3; q: Quaternion } | null {
+    const cup = this.sceneRef.getObjectByName('prop_headphones_cup')
+    const hp = this.sceneRef.getObjectByName('prop_headphones')
+    if (!cup || !hp) return null
+    // the cushion in the headphones' frame as swivelled: the cup's rest (as attached to them) turned on its yoke, its cushion face (its own +x) at its
+    // middle; the cushion's normal is the cup's +x
+    const rest = cup.userData.liveRest as { p: Vector3; q: Quaternion } | undefined
+    if (!rest) return null
+    const c = (this.cushionAt ??= (() => {
+      const box = localBox(cup)
+      return new Vector3(box.max.x, (box.min.y + box.max.y) / 2, (box.min.z + box.max.z) / 2)
+    })())
+    const sw = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), (HEADPHONES.swivelDeg * Math.PI) / 180)
+    const cq = rest.q.clone().multiply(sw)
+    const cushion = c.clone().applyQuaternion(cq).add(rest.p)
+    const nHp = new Vector3(1, 0, 0).applyQuaternion(cq)
+    // the head as it is now (it turns and nods as the agent works): the headphones go with it
+    const head = rig.parts.head
+    head.updateWorldMatrix(true, true)
+    const hq = head.getWorldQuaternion(new Quaternion())
+    const right = new Vector3(1, 0, 0).applyQuaternion(hq)
+    const fwd = new Vector3(0, 0, -1).applyQuaternion(hq)
+    const up = new Vector3(0, 1, 0).applyQuaternion(hq)
+    // the cushion faces into the head, turned tiltDeg toward the front (the far cup out from the head's side), the headband up
+    const t = (HEADPHONES.tiltDeg * Math.PI) / 180
+    const nW = right.clone().multiplyScalar(-Math.cos(t)).addScaledVector(fwd, Math.sin(t))
+    const basis = (n: Vector3, u: Vector3) => {
+      const z = new Vector3().crossVectors(n, u).normalize()
+      const y = new Vector3().crossVectors(z, n).normalize()
+      return new Matrix4().makeBasis(n.clone().normalize(), y, z)
+    }
+    const q = new Quaternion().setFromRotationMatrix(basis(nW, up).multiply(basis(nHp, new Vector3(0, 1, 0)).invert()))
+    // the ear: the head's right side at its middle height (the head's box in its own frame, measured once)
+    const ear = (this.earAt ??= new Map()).get(rig.id) ?? (() => {
+      const b = localBox(head)
+      const e = new Vector3(b.max.x, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2)
+      this.earAt!.set(rig.id, e)
+      return e
+    })()
+    const E = head.localToWorld(ear.clone())
+    return { pos: E.sub(cushion.applyQuaternion(q)), q }
+  }
+  /** #370 C2 the right hand on the near cup's shell (prop_headphones_cup_grip_r) where the cup is with the headphones where grip() put them */
+  private cupHand(rig: AgentRig, u: number, inp: StageIn) {
+    const d = rig.drive.r
+    const cup = this.sceneRef.getObjectByName('prop_headphones_cup')
+    const rest = cup?.userData.liveRest as { p: Vector3; q: Quaternion } | undefined
+    const t = this.target('prop_headphones_cup', 'headphones_cup', 'r')
+    if (!d?.target || !cup || !rest || !t) return
+    const sw = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), (cupSwivel(u, inp.reduced) * Math.PI) / 180)
+    const cupWorld = this.lastObjPose.clone().multiply(new Matrix4().compose(rest.p, rest.q.clone().multiply(sw), ONE))
+    const seat = Number(rig.id.split('_')[1])
+    const target = handFor(cupWorld, t.pg, handGripMatrix(rig.parts.hands.r)).multiply(offsetOf(t.key, seat))
+    rig.drive.r = { ...d, target, angles: this.holdFit(rig, 'r', t).hold }
+  }
+  private cushionAt: Vector3 | undefined
+  private earAt: Map<string, Vector3> | undefined
+
+  /**
+   * #370 B a prop taken from the desk (grips.md): reached, lifted to where it is held (its own rotation as it rests: the duck still faces its owner),
+   * held, put back exactly where it rests from back - PUT_S, let go at back. The duck before the face and squeezed once; the keycap before the chest,
+   * rolled ±15° between the fingers; the shape at eye height, turned 30° slowly, the left hand open under it.
+   */
+  private deskProp(rig: AgentRig, kind: Touch['kind'], u: number, inp: StageIn): boolean {
+    const name = TOUCH_PROP[kind]!
+    const node = this.sceneRef.getObjectByName(name)
+    if (!node) return false
+    const S = TOUCH_S[kind]
+    const root = rig.parts.root
+    root.updateWorldMatrix(true, false)
+    const head = rig.parts.headRestY
+    const home = this.props.homeWorld(node)
+    const hq = new Quaternion().setFromRotationMatrix(home)
+    const at = (x: number, y: number, z: number) => root.localToWorld(new Vector3(x, y, z))
+    const fwd = new Vector3(-Math.sin(rig.heading), 0, -Math.cos(rig.heading))
+    let pos: Vector3
+    let q = hq.clone()
+    if (kind === 'headphones') {
+      const h = this.headphoneHold(rig)
+      if (!h) return false
+      pos = h.pos
+      q = h.q
+    } else if (kind === 'duck') pos = at(0.02, head - 0.04, -0.2)
+    else if (kind === 'keycap') {
+      pos = at(0.06, head - 0.38, -0.24)
+      const R = KEYCAP_ROLL
+      const roll = !inp.reduced && u >= R.from && u < R.to ? R.deg * DEG * Math.sin(((u - R.from) / R.periodS) * Math.PI * 2) : 0
+      q = new Quaternion().setFromAxisAngle(fwd, roll).multiply(q)
+    } else {
+      pos = at(0.03, head - 0.1, -0.28)
+      const T = SHAPE_TURN
+      const k = inp.reduced ? 0 : ease(Math.min(1, Math.max(0, (u - T.from) / T.s)))
+      q = new Quaternion().setFromAxisAngle(UP, T.deg * DEG * k).multiply(q)
+    }
+    const hold = new Matrix4().compose(pos, q, ONE)
+    const k = ease(Math.min(1, Math.max(0, (u - (S.back - PUT_S)) / PUT_S)))
+    const held = k > 0 ? blend(hold, home, k) : hold
+    this.grip(rig, 'r', kind, name, u < S.back, held, inp, name)
+    // #370 C2 (designer, #574): the headphones are carried by the near cup, the palm round its shell pressing it to the ear (the DJ's one-ear
+    // listen), not by the headband: the hand's drive goes to the cup's own grip where the cup is now (on the headphones, swivelled on its yoke)
+    if (kind === 'headphones') this.cupHand(rig, u, inp)
+    // the duck squeezed once (every finger +0.15 of its curl, 0.15 s)
+    const d = rig.drive.r
+    if (kind === 'duck' && u >= S.at && u < S.at + 0.15 && d?.angles) rig.drive.r = { ...d, angles: d.angles.map((a) => a * 1.15) }
+    // the shape: the left hand open under it, palm up, 1 cm below (it stays where it holds as the shape turns)
+    if (kind === 'shape') {
+      const w = ease(Math.min(1, Math.max(0, (u - 0.7) / 0.3))) * (1 - ease(Math.min(1, Math.max(0, (u - (S.back - PUT_S)) / 0.3))))
+      if (w > 0) {
+        node.updateWorldMatrix(true, true)
+        const bottom = new Box3().setFromObject(node).min.y
+        const palmUp = new Matrix4().makeBasis(new Vector3().crossVectors(fwd, UP).normalize(), fwd, UP)
+        palmUp.setPosition(pos.x - fwd.x * 0.03, bottom - SHAPE_TURN.under - 0.0225, pos.z - fwd.z * 0.03)
+        rig.drive.l = { target: palmUp, w, curl: [0.15, 0.15, 0.15, 0.15, 0.1, 0.2], wc: w, spread: null }
+      }
+    }
+    return true
+  }
+
+  /**
+   * The right index fingertip pressing `name`'s contact (grips.md 버튼): on its surface, pressed between 0.5 s and 0.5 + holdS into it by the button's
+   * own travel (BUTTON_TRAVEL, #559: the fingertip goes in with the button and no further, never into the case around it) and, as the press starts,
+   * the whole hand 1 mm closer for 0.08 s (designer: the tap reads with the index's curl +0.07).
+   */
+  private button(rig: AgentRig, name: string, u: number, inp: StageIn, holdS = 0.1, want = true) {
     const contact = this.sceneRef.getObjectByName(`${name}_contact_index`)
     if (!contact) return
-    const clock = this.clock(`${rig.id}:r:button`)
-    const out = clock.step(inp.t, true, { gestureMin: rig.gestureMin, reduced: inp.reduced })
+    const P = new Vector3().setFromMatrixPosition(contact.matrixWorld)
+    const n = contactNormal(this.sceneRef, contact) // out of the button, toward the hand
+    const pressed = u > 0.5 && u < 0.5 + holdS
+    const tap = pressed && !inp.reduced && u - 0.5 < PRESS_TAP.s ? PRESS_TAP.m * Math.sin((Math.PI * (u - 0.5)) / PRESS_TAP.s) : 0
+    this.indexOn(rig, P, n, pressed ? (BUTTON_TRAVEL[name] ?? 0) + tap : 0, pressed, inp, want)
+  }
+
+  /**
+   * #370 A the right index fingertip on `P` (the surface's normal `n` out of it, toward the hand), `press` m into it, the other fingers folded
+   * (grips.md 버튼): reached, held while `want`, then let go. The clock starts from the reach again after a while the hand was not on a button.
+   */
+  private indexOn(rig: AgentRig, P: Vector3, n: Vector3, press: number, pressed: boolean, inp: StageIn, want = true) {
+    const key = `${rig.id}:r:button`
+    const clock = this.clock(key)
+    const last = this.lastGripT.get(key)
+    if (last !== undefined && inp.t - last > 0.25 && clock.current.stage !== 'rest') clock.reset()
+    this.lastGripT.set(key, inp.t)
+    const out = clock.step(inp.t, want, { gestureMin: rig.gestureMin, reduced: inp.reduced })
     const hand = rig.parts.hands.r
     const idx = fingerModelOf(hand, 0, 'r')
     if (!idx) return
     const spec = GRIPS.button.r!
-    const m = contact.matrixWorld
-    const P = new Vector3().setFromMatrixPosition(m)
-    const n = contactNormal(this.sceneRef, contact) // out of the button, toward the hand
-    const pressed = u > 0.5 && u < 0.5 + holdS
-    const press = pressed ? depth : 0
     // the hand points in along −n, palm down
     const y = n.clone().negate()
     const z = UP.clone().negate()
@@ -1495,7 +2310,13 @@ export class PlayStage {
     const c1 = spec.hold[0] + (pressed ? 0.07 : 0)
     const tip = tipAt(idx, c1, 0)
     const basis = new Matrix4().makeBasis(x, y, z)
-    const origin = P.clone().addScaledVector(n, press).sub(tip.clone().applyMatrix4(new Matrix4().extractRotation(basis)))
+    // (#370 A) it comes in and goes out along the normal (n is out of the surface), from 2 cm off: the blend from where the hand was never dips
+    // under the surface
+    // and for 0.15 s after it has it, it comes the last 6 mm down onto it (the arm catches up without going into it)
+    const since = clock.attachedAt == null ? 0 : (inp.t - clock.attachedAt) / 0.15
+    const settle = out.stage === 'approach' || out.stage === 'rest' ? 1 : 1 - ease(Math.min(1, Math.max(0, since)))
+    // (#559) `press` is into the surface: n is out of it, toward the hand
+    const origin = P.clone().addScaledVector(n, -press + 0.02 * (1 - out.wHand) + 0.006 * settle).sub(tip.clone().applyMatrix4(new Matrix4().extractRotation(basis)))
     const target = basis.clone().setPosition(origin)
     const curl = [0, 1, 2, 3, 4, 5].map((k) => spec.pre[k] * out.mix[0] + (k === 0 ? c1 : spec.hold[k]) * out.mix[1] + spec.after[k] * out.mix[2])
     rig.drive.r = { target, w: out.wHand, curl, wc: out.wCurl, spread: null }
@@ -1620,6 +2441,11 @@ export class PlayStage {
     if (inp.reduced || inp.t - openAt < 0.5 || c < 0) return this.hideLeaf()
     const tau = (c % Math.max(6, lead + dur + back + 1)) - lead
     if (tau >= dur + back) return this.hideLeaf()
+    this.leafTurn(rig, bookName, lf, tau, lead, dur, back, pose)
+  }
+
+  /** a leaf at `tau` s into its turn (from -lead to dur + back): the leaf bent, the right hand pinching its corner over the reading grip (#231) */
+  private leafTurn(rig: AgentRig, bookName: string, lf: LeafBend, tau: number, lead: number, dur: number, back: number, pose: Matrix4) {
     const theta = leafAngle(tau, dur, lead)
     lf.set(theta)
     lf.node.visible = theta < OPEN_ANGLE - 1e-3

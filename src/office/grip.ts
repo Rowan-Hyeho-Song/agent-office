@@ -51,6 +51,22 @@ export const GRIPS: Record<string, GripSpec> = {
     l: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.3, 0.3, 0.3, 0.3], [0.3, 0.4]), after: REST, contacts: ['index', 'middle', 'ring', 'little', 'thumb'] },
     r: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.3, 0.3, 0.3, 0.3], [0.3, 0.4]), after: REST, contacts: ['index', 'middle', 'ring', 'little', 'thumb'] },
   },
+  // #455 a visitor's treat taken in a free hand (the bake's _grip_r / _grip_l, the left contacts with an _l tail): the coffee cup wrapped round its sleeve,
+  // the cookie pinched at its edge (the thumb on top), the apple lying on the palm
+  treat_coffee: {
+    r: { pre: all(0.25, [0.2, 0.5]), hold: curlOf([0.7, 0.72, 0.7, 0.7], [0.45, 0.8]), after: REST, contacts: ['palm', 'index', 'thumb'] },
+    l: { pre: all(0.25, [0.2, 0.5]), hold: curlOf([0.7, 0.72, 0.7, 0.7], [0.45, 0.8]), after: REST, contacts: ['palm', 'index', 'thumb'] },
+  },
+  treat_cookie: {
+    r: { pre: all(0.15, [0.1, 0.3]), hold: curlOf([0.45, 0.5, 0.55, 0.6], [0.35, 0.7]), after: REST, contacts: ['index', 'thumb'] },
+    l: { pre: all(0.15, [0.1, 0.3]), hold: curlOf([0.45, 0.5, 0.55, 0.6], [0.35, 0.7]), after: REST, contacts: ['index', 'thumb'] },
+  },
+  treat_apple: {
+    r: { pre: all(0.15, [0.1, 0.2]), hold: curlOf([0.3, 0.3, 0.35, 0.35], [0.2, 0.3]), after: REST, contacts: ['palm', 'index', 'thumb'] },
+    l: { pre: all(0.15, [0.1, 0.2]), hold: curlOf([0.3, 0.3, 0.35, 0.35], [0.2, 0.3]), after: REST, contacts: ['palm', 'index', 'thumb'] },
+  },
+  // #450 a book taken out of its slot by the spine and pushed back in (grips.md 2.1, the bake's <book>_grip_r and contacts): the index over the head, the thumb on the cover
+  bookspine: { r: { pre: all(0.15, [0.1, 0.3]), hold: curlOf([0.4, 0.35, 0.35, 0.35], [0.35, 0.6]), after: REST, contacts: ['index', 'thumb'] } },
   // the closed book carried in front of the chest (#280, the bake's prop_book_grip_l / _contact_thumb_l, children of the book itself): the left hand under it, the thumb on its edge
   bookclosed: { l: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.3, 0.3, 0.3, 0.3], [0.3, 0.4]), after: REST, contacts: ['thumb'] } },
   // the right thumb and index pinching the corner of the one leaf that turns (#231): the index 0.6, the thumb (0.25, 0.85), the others 0.3
@@ -64,6 +80,31 @@ export const GRIPS: Record<string, GripSpec> = {
   // the pen family: a tripod grip, ring and little folded
   tablet_pen: { r: { pre: curlOf([0.3, 0.35, 0.6, 0.65], [0.2, 0.5]), hold: curlOf([0.45, 0.55, 0.8, 0.85], [0.35, 0.8]), after: REST, contacts: ['thumb', 'index', 'middle'] } },
   marker: { r: { pre: curlOf([0.3, 0.35, 0.6, 0.65], [0.2, 0.5]), hold: curlOf([0.4, 0.5, 0.75, 0.8], [0.3, 0.75]), after: REST, contacts: ['thumb', 'index', 'middle'] } },
+  // #370 A (grips.md PR #557): the hourglass pinched at two of its four pillars across, the thumb on the -x one and the index on the +x one (its
+  // turn axis through both); the other fingers folded
+  hourglass: { r: { pre: all(0.3, [0.2, 0.5]), hold: curlOf([0.55, 0.75, 0.75, 0.75], [0.35, 0.5]), after: REST, contacts: ['thumb', 'index'] } },
+  // #370 B (grips.md): the duck wrapped in the palm (squeezed once at the end: every finger +0.15), the keycap pinched by its sides, a plaster shape
+  // taken by the thumb and the fingertips
+  duck: { r: { pre: all(0.3, [0.2, 0.5]), hold: curlOf([0.6, 0.65, 0.7, 0.7], [0.3, 0.7]), after: REST, contacts: ['palm', 'index', 'thumb'] } },
+  keycap: { r: { pre: curlOf([0.3, 0.35, 0.6, 0.65], [0.2, 0.5]), hold: curlOf([0.75, 0.3, 0.3, 0.3], [0.2, 0.85]), after: REST, contacts: ['thumb', 'index'] } },
+  shape: { r: { pre: all(0.3, [0.2, 0.5]), hold: curlOf([0.55, 0.6, 0.62, 0.65], [0.35, 0.85]), after: REST, contacts: ['thumb', 'index', 'middle'] } },
+  // #370 B2 the swatch fan's stand held in the left hand (no contacts: the hand closed round the pin)
+  swatch: { l: { pre: all(0.3, [0.2, 0.5]), hold: curlOf([0.6, 0.6, 0.6, 0.6], [0.3, 0.8]), after: REST, contacts: [] } },
+  // #370 B3 (grips.md 서류 한 장 집기): the top sheet's corner pinched, the thumb on it and the index under it, the others loosely folded
+  paper_corner: { r: { pre: curlOf([0.6, 0.25, 0.25, 0.25], [0.1, 0.7]), hold: curlOf([0.8, 0.3, 0.3, 0.3], [0.2, 0.9]), after: REST, contacts: ['thumb', 'index'] } },
+  // #370 B3 a tray sheet read held by its long sides: as the loose sheet (paper_side)
+  paper_tray_side: {
+    l: { pre: curlOf([0.15, 0.15, 0.2, 0.2], [0.1, 0.3]), hold: curlOf([0.25, 0.25, 0.3, 0.3], [0.35, 0.5]), after: REST, contacts: ['index', 'thumb'] },
+    r: { pre: curlOf([0.15, 0.15, 0.2, 0.2], [0.1, 0.3]), hold: curlOf([0.25, 0.25, 0.3, 0.3], [0.35, 0.5]), after: REST, contacts: ['index', 'thumb'] },
+  },
+  // #370 C (grips.md 링 조명 노브): the ring light's knob pinched by the thumb and the index tips, the wrist turning it 20°
+  ringknob: { r: { pre: curlOf([0.3, 0.3, 0.8, 0.85], [0.2, 0.6]), hold: curlOf([0.55, 0.55, 0.8, 0.85], [0.3, 0.7]), after: REST, contacts: ['thumb', 'index'] } },
+  // #370 C2 (grips.md 헤드폰 한쪽): the headband's middle held in the hand
+  headphones: { r: { pre: all(0.3, [0.2, 0.5]), hold: curlOf([0.7, 0.75, 0.8, 0.8], [0.4, 0.9]), after: REST, contacts: ['palm'] } },
+  // #370 C2 (designer, #574): the headphones' near cup held by its shell, the palm round its back pressing it to the ear, the fingers round it 0.35
+  headphones_cup: { r: { pre: all(0.25, [0.2, 0.4]), hold: curlOf([0.35, 0.35, 0.35, 0.35], [0.3, 0.5]), after: REST, contacts: ['palm'] } },
+  // #370 C4 에코's mixer knob pinched by the left thumb and index (as the ring light's knob)
+  mixerknob: { l: { pre: curlOf([0.3, 0.3, 0.8, 0.85], [0.2, 0.6]), hold: curlOf([0.55, 0.55, 0.8, 0.85], [0.3, 0.7]), after: REST, contacts: ['thumb', 'index'] } },
   stamp: { r: { pre: all(0.3, [0.1, 0.3]), hold: curlOf([0.75, 0.8, 0.82, 0.85], [0.4, 0.9]), after: REST, contacts: ['palm'] } },
   // a hand gripping the mouse body (#305: it slides it about its pad): the palm over the body, the index on the left button, the middle on the right
   mouse: { r: { pre: all(0.2, [0.1, 0.3]), hold: curlOf([0.35, 0.35, 0.45, 0.5], [0.25, 0.6]), after: REST, contacts: ['palm', 'index', 'middle'] } },

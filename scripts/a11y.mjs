@@ -181,7 +181,16 @@ try {
     const ctx = await browser.newContext({ viewport: s.viewport ?? { width: 1280, height: 800 }, reducedMotion: 'reduce' })
     const page = await ctx.newPage()
     await page.goto(origin + s.url)
-    await page.waitForSelector('.approval-launcher, .approval-box', { timeout: 30000 })
+    // #568: the office is ready once the approval launcher is on screen. On a busy PC the 3D can take longer than one
+    // wait; reload once and wait again instead of failing a run that found no violation. The pass rule does not change.
+    const READY = '.approval-launcher, .approval-box'
+    try {
+      await page.waitForSelector(READY, { timeout: 45000 })
+    } catch {
+      console.log(`  (준비 대기 시간 초과, 새로 고침 뒤 한 번 더: ${s.name})`)
+      await page.reload()
+      await page.waitForSelector(READY, { timeout: 45000 })
+    }
     await page.waitForTimeout(1500)
     if (s.act) {
       await s.act(page)

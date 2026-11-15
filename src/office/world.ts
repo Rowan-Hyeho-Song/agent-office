@@ -36,6 +36,8 @@ import { FakeStatusSource, type StatusSource } from './status'
 import type { ScreenForce } from './screenLive'
 import type { ScreenState } from './screens'
 import { supabase } from './supabase'
+import type { SnackKind } from './treatHold'
+import type { TouchKind } from './deskTouch'
 
 /** the five agents = desks 0..4 (#5, #193); agent_<seat> in the glb */
 export const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
@@ -117,6 +119,8 @@ export interface OfficeWorld {
   replay: ReplayControl | null
   /** debug only: shifts the play clock to preview later schedules */
   timeOffsetMs: number
+  /** #455 the treats taken in a hand (TreatRig.tsx sets one as it lands, office ms): drawn by PlayStage */
+  treats: Record<string, { kind: SnackKind; at: number }>
   goals: Record<string, Goal>
   rigs: Record<string, AgentRig>
   /** the paper planes in flight (#51), set by the scene */
@@ -135,6 +139,8 @@ export interface OfficeWorld {
   forcedSessions: PlaySession[]
   /** ?debug=1: the grip demo in progress (debugPlay.ts) */
   gripDemo: GripDemo | null
+  /** #370 A debug: begin this desk touch now (window.__office.forceTouch = 'signal'); taken and cleared by Agents.tsx */
+  forceTouch: TouchKind | null
   /** ?debug=1: window.__office.play.force(agent, kind) / .clear(); window.__office.grip.demo(agent, prop) / .stop() (see debugPlay.ts) */
   play: ReturnType<typeof makePlayTools>['play'] | null
   grip: ReturnType<typeof makePlayTools>['grip'] | null
@@ -214,6 +220,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     meeting,
     replay: null,
     timeOffsetMs: 0,
+    treats: {},
     goals: {},
     rigs: {},
     planes: null,
@@ -226,6 +233,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
     forceGoal: null,
     forcedSessions: [],
     gripDemo: null,
+    forceTouch: null,
     play: null,
     grip: null,
     hand: null,

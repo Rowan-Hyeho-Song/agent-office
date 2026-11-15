@@ -32,6 +32,12 @@ import { SoundListener, SoundRoot } from './audio/SoundRoot'
 const DocsViewer = lazy(() => import('./office/DocsViewer').then((m) => ({ default: m.DocsViewer })))
 const BoardView = lazy(() => import('./office/boardView/BoardView').then((m) => ({ default: m.BoardView })))
 const BoardCamera = lazy(() => import('./office/boardView/BoardCamera').then((m) => ({ default: m.BoardCamera })))
+// #137 ② the visitor's omok: after the first screen, like the board view
+const OmokVisitRig = lazy(() => import('./office/omokVisit/OmokVisitRig').then((m) => ({ default: m.OmokVisitRig })))
+const OmokVisitUi = lazy(() => import('./office/omokVisit/OmokVisitUi').then((m) => ({ default: m.OmokVisitUi })))
+// #137 ③ the visitor's paddle at the ping-pong table: the same
+const PingpongVisitRig = lazy(() => import('./office/pingpongVisit/PingpongVisitRig').then((m) => ({ default: m.PingpongVisitRig })))
+const PingpongVisitUi = lazy(() => import('./office/pingpongVisit/PingpongVisitUi').then((m) => ({ default: m.PingpongVisitUi })))
 const ReplayDriver = lazy(() => import('./replay/ReplayDriver').then((m) => ({ default: m.ReplayDriver })))
 const ReplayHud = lazy(() => import('./replay/ReplayHud').then((m) => ({ default: m.ReplayHud })))
 const SoundPanel = lazy(() => import('./audio/SoundPanel').then((m) => ({ default: m.SoundPanel })))
@@ -113,6 +119,12 @@ export function App() {
         <Later on={later}>
           <BoardCamera />
         </Later>
+        <Later on={later}>
+          <OmokVisitRig world={world} />
+        </Later>
+        <Later on={later}>
+          <PingpongVisitRig world={world} />
+        </Later>
         <SideViewOffset />
         <EdgeHintRig limits={limits} />
         <SoundListener world={world} />
@@ -140,6 +152,12 @@ export function App() {
       </Later>
       <Later on={later}>
         <BoardView world={world} />
+      </Later>
+      <Later on={later}>
+        <OmokVisitUi world={world} />
+      </Later>
+      <Later on={later}>
+        <PingpongVisitUi world={world} />
       </Later>
       <Later on={later}>
         <ReplayDriver world={world} />

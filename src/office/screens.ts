@@ -2,6 +2,7 @@
 // code (screenLive.ts) only interprets the list, so "a private screen never carries the activity" is testable here.
 
 import { activityLabel, type AgentStatus } from './status'
+import { BACKGROUND_ACTIVITIES } from '../signal/events'
 
 export type ScreenState = 'work' | 'wrap' | 'rest' | 'off' | 'private'
 export const SCREEN_STATES: ScreenState[] = ['work', 'wrap', 'rest', 'off', 'private']
@@ -43,6 +44,28 @@ const ACTIVITY_ICON: Record<string, IconName> = {
   think: 'think',
 }
 
+/** #535: the turn ended with background work still running: the monitor shows the wait (office-ui.md 4.2) */
+const WAITING: readonly string[] = BACKGROUND_ACTIVITIES
+export const isWaiting = (activity?: string | null) => !!activity && WAITING.includes(activity)
+/** #535 (office-ui.md 4.2): the wait's turning bar, | / – \, a frame every 0.25 s; still in reduced motion */
+export const SPIN = ['|', '/', '–', '\\'] as const
+export const spinFrame = (t: number, reduced: boolean) => (reduced ? 0 : Math.floor(t / 0.25) % SPIN.length)
+
+/** #535 (designer): the activity words' sizes, largest first: shrunk until they fit, then split in two lines at the smallest */
+export const LABEL_PX = { max: 48, min: 34, step: 2 } as const
+/**
+ * The activity words fitted to `width` px (measured by `measure(text, px)`): the largest size from 48 down to 34 that fits on one line; if even 34
+ * does not, two lines at 34 px, split at the space nearest the middle (a word too long for its line is left as it is)
+ */
+export function fitLabel(text: string, width: number, measure: (text: string, px: number) => number): { px: number; lines: string[] } {
+  for (let px = LABEL_PX.max; px >= LABEL_PX.min; px -= LABEL_PX.step) if (measure(text, px) <= width) return { px, lines: [text] }
+  const spaces = [...text.matchAll(/ /g)].map((m) => m.index!)
+  if (!spaces.length) return { px: LABEL_PX.min, lines: [text] }
+  const mid = text.length / 2
+  const at = spaces.reduce((b, i) => (Math.abs(i - mid) < Math.abs(b - mid) ? i : b))
+  return { px: LABEL_PX.min, lines: [text.slice(0, at), text.slice(at + 1)] }
+}
+
 /** a working agent whose hook says the session is outside the office's projects (#34) shows the private screen */
 export function screenState(s: Pick<AgentStatus, 'state' | 'activity'> | undefined): ScreenState {
   if (!s || s.state === 'off') return 'off'
@@ -52,13 +75,14 @@ export function screenState(s: Pick<AgentStatus, 'state' | 'activity'> | undefin
 }
 
 export type Op =
-  | { op: 'bg'; tone: 'agent' | 'rest' | 'lock' | 'off' }
+  | { op: 'bg'; tone: 'agent' | 'wait' | 'rest' | 'lock' | 'off' }
   | { op: 'hatch' }
   | { op: 'head'; tone: 'ink' | 'lock' }
   | { op: 'icon'; icon: IconName; tone: 'ink' | 'lock' }
-  | { op: 'label'; text: string; tone: 'text' | 'lock' }
-  | { op: 'strip'; tone: 'agent' | 'lock' }
-  | { op: 'elapsed' }
+  | { op: 'spin' }
+  | { op: 'label'; text: string; tone: 'text' | 'lock'; light?: boolean }
+  | { op: 'strip'; tone: 'agent' | 'lock'; half?: boolean }
+  | { op: 'elapsed'; short?: boolean }
   | { op: 'fields' }
   | { op: 'saver' }
   | { op: 'restFoot' }
@@ -73,6 +97,17 @@ export type Op =
 export function screenPlan(state: ScreenState, activity?: string): Op[] {
   switch (state) {
     case 'work':
+      // #535 (office-ui.md 4.2): waiting on background work: half the tint, the turning bar in the icon's place, the words not bold, the strip at
+      // half speed, how long it has waited (3:12)
+      if (isWaiting(activity))
+        return [
+          { op: 'bg', tone: 'wait' },
+          { op: 'head', tone: 'ink' },
+          { op: 'spin' },
+          { op: 'label', text: activityLabel(activity), tone: 'text', light: true },
+          { op: 'strip', tone: 'agent', half: true },
+          { op: 'elapsed', short: true },
+        ]
       return [
         { op: 'bg', tone: 'agent' },
         { op: 'head', tone: 'ink' },

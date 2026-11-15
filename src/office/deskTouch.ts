@@ -1,0 +1,408 @@
+// #370 A (docs/design/desk-props.md 4, grips.md): a hand on a thing of its own desk, for a moment. Pure: the desk props (props.ts) and who sits at
+// their desk in, the touch under way per seat and what the desk shows out (the lamp, the calendar's day, the hourglass, the turntable, the ring
+// light's knob follow the hand, not the status, while it touches them). PlayStage draws the hand, DeskLive the thing.
+//   루프 신호등 톡: the light turns green (a pass) while it sits at its desk.
+//   휴 스탠드 스위치: the designer comes on (off → in) or goes off at its desk: the lamp changes as the switch is pressed.
+//   메시 턴테이블: while it bakes, 3 an hour: the button pressed, the platter pushed 90° round by its rim (0.8 s).
+//   메시 링 조명 노브: while it works, 1 an hour: the knob pinched and turned 20° (back and forth, one way each time).
+//   메모 달력: the first time it sits at its desk awake on a new day, a page turned over; the new day shows as it lifts.
+//   메모 모래시계: an approval starts waiting while it sits there: pinched at the pillar, lifted 5 cm, turned 180° between the fingers, put down (once).
+// A seat does one touch at a time; the same habit is not done again within 2 minutes (desk-props.md 4).
+
+import { hash } from './play'
+import type { DeskProps } from './props'
+
+export type TouchKind = 'signal' | 'lamp' | 'turntable' | 'knob' | 'calendar' | 'hourglass' | 'duck' | 'keycap' | 'shape' | 'swatch' | 'paper' | 'leaf' | 'headphones' | 'mixer' | 'snap'
+
+export const TOUCH_SEAT: Record<TouchKind, number> = { signal: 3, lamp: 2, turntable: 1, knob: 1, calendar: 0, hourglass: 0, duck: 3, keycap: 3, shape: 1, swatch: 2, paper: 0, leaf: 2, headphones: 4, mixer: 4, snap: 4 }
+
+/**
+ * Each touch's times, s from its start: `len` the whole (the hand back at its end), `at` when its effect happens (the press, the page let go, the
+ * hourglass set down), `back` when the hand lets go (it goes back over the rest). The press of a button is at 0.5 s (PlayStage.button).
+ */
+export const TOUCH_S: Record<TouchKind, { len: number; at: number; back: number }> = {
+  signal: { len: 1.2, at: 0.5, back: 0.65 },
+  // the switch is at the lamp's foot across the desk, the hand comes from the tablet pen: 0.4 s more to get there
+  lamp: { len: 1.6, at: 0.9, back: 1.1 },
+  // the button at 0.5 s, the rim from 1.0 s, pushed 1.1–1.9 s
+  turntable: { len: 2.4, at: 0.5, back: 1.95 },
+  // pinched by 0.6 s, turned 0.6–1.1 s
+  knob: { len: 1.6, at: 0.6, back: 1.15 },
+  // the page's corner taken at 0.6 s and lifted to 1.0 s, then it falls over by itself
+  calendar: { len: 1.6, at: 0.6, back: 1.0 },
+  // pinched by 0.6 s; lifted 0.3 s, turned 0.5 s, put down 0.3 s (designer: 0.3 · 0.5 · 0.3)
+  hourglass: { len: 2.1, at: 0.6, back: 1.7 },
+  // #370 B: taken from the desk, held, put back exactly where it rests (from back - 0.4 s), let go at back
+  // the duck before the face from 1.0 s, talked to (the bubble 1.0–3.6 s), squeezed once at 3.65 s (0.15 s)
+  duck: { len: 4.7, at: 3.65, back: 4.25 },
+  // the keycap rolled between the fingers before the chest (±15°, 0.5 s a roll) from 0.9 s
+  keycap: { len: 4.0, at: 0.5, back: 3.6 },
+  // the shape at eye height, the left hand under it, turned 30° slowly (2 s) from 1.0 s
+  shape: { len: 4.4, at: 0.5, back: 4.0 },
+  // #370 B2 the swatch fan: the left hand holds its stand, the right index spreads the chips (0.6–1.2 s) and points at one (1.4–2.8 s)
+  swatch: { len: 3.8, at: 1.2, back: 3.0 },
+  // #370 B3 메모 reads the IN pile's top sheet: pinched by 0.6 s, before the chest by 1.2 s (the left palm under it), read, laid back squared by 4.0 s
+  paper: { len: 4.6, at: 0.6, back: 4.0 },
+  // #370 C3 휴 strokes the succulent's front leaf twice with an index fingertip (0.6–1.2 s, 1.5–2.1 s), the leaf giving under it
+  leaf: { len: 2.7, at: 0.6, back: 2.2 },
+  // #370 C2 에코 listens with one cup: the headphones by the headband to the right ear (0.6–1.3 s), the cup swivelled to the head (1.0–1.4 s), listened
+  // to until 3.6 s, the cup back (3.6–3.9 s), put back where they rest by 4.3 s
+  headphones: { len: 4.8, at: 1.3, back: 4.3 },
+  // #370 C4 에코 at its mixer as the speaker goes on or off: the right index and middle push fader_0 (0.4–0.9 s), the left twists knob_0 0.15 s after
+  mixer: { len: 1.5, at: 0.4, back: 1.05 },
+  // #370 C4 (agents.md 2.11) 에코's finger snap as its tidy-up starts: the hand up 0.2 s, the middle flicked 0.08 s, down 0.2 s
+  snap: { len: 0.55, at: 0.28, back: 0.28 },
+}
+
+/** #370 C4 the mixer: the fader pushed (s from the touch), the knob twisted (the left hand `lag` later), and how the fader goes back to the level after */
+export const MIXER = { push: [0.4, 0.9], lag: 0.15, twistDeg: 45, settleS: 0.3 } as const
+/** #370 C4 the snap (agents.md 2.11): up, the flick (the middle 0.6 → 0.9), down; the hand beside the face screen, 12 cm out */
+export const SNAP = { up: 0.2, flick: [0.2, 0.28], down: [0.28, 0.48], out: 0.12 } as const
+
+/** #370 C3 the succulent's strokes (s from the touch's start) and how far the leaf gives under the finger (its baked sway_deg at the stroke's middle) */
+export const LEAF_STROKE = { strokes: [[0.6, 1.2], [1.5, 2.1]], deg: 6 } as const
+
+/** the leaf's sway at `u` s of the touch, degrees, and the stroke's progress (0..1 along it, or -1 between strokes) */
+export function leafAt(u: number | null, reduced: boolean): { sway: number; k: number } {
+  if (u === null) return { sway: 0, k: -1 }
+  for (const [a, b] of LEAF_STROKE.strokes) if (u >= a && u <= b) {
+    const k = (u - a) / (b - a)
+    return { sway: reduced ? 0 : LEAF_STROKE.deg * Math.sin(Math.PI * k), k }
+  }
+  return { sway: 0, k: -1 }
+}
+
+/**
+ * #370 C2 (designer, grips.md 헤드폰 한쪽): the headphones held by the headband beside the head, their cup axis turned `tiltDeg` out from the head's side
+ * (designer: the far cup about 5 cm off it, 4–8 cm), the near cup (prop_headphones_cup, -x) swivelled `swivelDeg` on its yoke so its cushion faces the head (within ±20°),
+ * its cushion on the ear. Times: the cup swivels in over `swivelIn`, back over `swivelOut`.
+ */
+export const HEADPHONES = { tiltDeg: 17, swivelDeg: 90, swivelIn: [1.0, 1.4], swivelOut: [3.6, 3.9] } as const
+
+/** the near cup's swivel at `u` s of the touch, degrees (none with reduced motion: the cup turns at once) */
+export function cupSwivel(u: number | null, reduced: boolean): number {
+  if (u === null) return 0
+  const [a, b] = HEADPHONES.swivelIn
+  const [c, d] = HEADPHONES.swivelOut
+  if (reduced) return u >= a && u < d ? HEADPHONES.swivelDeg : 0
+  const e = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x))
+  return HEADPHONES.swivelDeg * (u < c ? e((u - a) / (b - a)) : 1 - e((u - c) / (d - c)))
+}
+
+/**
+ * the top sheet's reading (designer: as a sheet handed over is read, grips.md 낱장 옆 쥐고 읽기): taken by its corner at 0.6 s and lifted to 1.2 s; as
+ * it comes up (0.8–1.0 s) the right hand slides to the right long side and the left takes the left one; read 55° up toward the face until 3.4 s; the
+ * right hand back to the corner (3.4–3.6 s) as the left lets go, laid back squared by 4.0 s
+ */
+export const PAPER_READ = { take: [0.6, 1.2], sides: [0.8, 1.0], unside: [3.4, 3.6], put: [3.4, 4.0], tiltDeg: 55 } as const
+
+/** #370 B the props taken (their nodes) */
+export const TOUCH_PROP: Partial<Record<TouchKind, string>> = { duck: 'prop_duck', keycap: 'prop_keycap_0', shape: 'prop_shape_1', headphones: 'prop_headphones' }
+/** #370 B (designer): what 루프 says to its duck, one picked by the failure's time, never the same twice running */
+export const DUCK_LINES = ['오리 씨, 한 줄씩 볼게요.', '여기까진 맞죠? 그럼 여기서…', '이 값이 왜 비어 있을까요.', '다시 돌려 볼게요. 지켜봐 주세요.', '아, 말하다 보니 알겠네요.']
+export const DUCK_BUBBLE = { from: 1.0, to: 3.6 }
+export const KEYCAP_ROLL = { from: 0.9, to: 3.2, deg: 15, periodS: 0.5 }
+export const SHAPE_TURN = { from: 1.0, s: 2, deg: 30, under: 0.01 }
+/** the swatch fan: spread to twice its rest fan (each chip's baked rest_deg) over 0.6–1.2 s, closed again over 2.9–3.3 s; the chip pointed at 1.4–2.8 s */
+export const SWATCH = { open: [0.6, 1.2], close: [2.9, 3.3], point: [1.4, 2.8], chips: 4 } as const
+
+/** the turntable's push and the knob's turn (grips.md) */
+export const TURNTABLE_PUSH = { from: 1.1, s: 0.8, deg: 90 }
+export const KNOB_TURN = { from: 0.6, s: 0.5, deg: 20 }
+/** the hourglass between the fingers: lifted, turned, put down (s from the touch's start), 5 cm */
+export const HOURGLASS_FLIP = { from: 0.6, lift: 0.3, turn: 0.5, down: 0.3, m: 0.05 }
+/** the calendar page: lifted by the finger to `liftDeg` over `s`, then over by itself to its baked flip_deg in `fallS` */
+export const CALENDAR_FLIP = { from: 0.6, s: 0.4, liftDeg: 110, fallS: 0.45 }
+
+/** habits: times an hour while working and while resting at its desk (desk-props.md 4), and not again within NO_REPEAT_S */
+export const HABIT_PER_HOUR: Partial<Record<TouchKind, { work: number; rest: number }>> = {
+  turntable: { work: 3, rest: 0 },
+  knob: { work: 1, rest: 0 },
+  keycap: { work: 2, rest: 3 },
+  shape: { work: 2, rest: 3 },
+  swatch: { work: 3, rest: 0 },
+  paper: { work: 4, rest: 0 },
+  leaf: { work: 0, rest: 2 },
+  headphones: { work: 1, rest: 0 },
+}
+export const NO_REPEAT_S = 120
+
+export interface TouchIn {
+  /** the hands' clock, s */
+  t: number
+  /** the office clock, ms (the habits' hours) */
+  now: number
+  desk: DeskProps
+  /** the agent of this seat sits at its own desk now */
+  seated: (seat: number) => boolean
+  /** its status is not off */
+  awake: (seat: number) => boolean
+  /** it is working */
+  working: (seat: number) => boolean
+  /** #370 C4 the speaker plays (audio/speaker.ts speakerOn) */
+  speaker?: boolean
+  /** #370 C4 its wrap-up is at the tidy-up */
+  tidying?: (seat: number) => boolean
+}
+
+export interface Touch {
+  kind: TouchKind
+  /** the swatch's chip pointed at (0..3) */
+  k?: number
+  /** s since it began (the hands' clock) */
+  u: number
+}
+
+/** what the desk shows of the touches (DeskLive) */
+export interface TouchShown {
+  /** the hourglass's turn, rad about its own x (k * π per flip), and its lift, m */
+  hourglassTurn: number
+  hourglassLift: number
+  /** the turntable pushed round by hand, rad (on top of its spin) */
+  turntablePush: number
+  /** the ring light's knob, rad about its own x */
+  knobTurn: number
+  /** the calendar page turning over: degrees of its flip, or null (hidden at rest) */
+  calendarPage: number | null
+  /** #370 B2 the swatch fan spread past its rest: 0 (as baked) .. 1 (each chip twice its rest angle) */
+  swatchSpread: number
+  /** #370 C4 fader_0 under the hand: how far its push is (0..1) and which way (1 up: the music on, 0 down), or null */
+  faderPush: { k: number; dir: number } | null
+  /** #370 C4 knob_0 twisted by the hand, degrees (0..45), or null */
+  knobTwist: number | null
+  /** #370 C3 the succulent's front leaf giving under the finger, degrees about its own x */
+  leafSway: number
+  /** #370 C2 the headphones' near cup swivelled on its yoke, degrees */
+  cupSwivel: number
+}
+
+const ease = (k: number) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k))
+const dayKey = (c: DeskProps['calendar']) => `${c.year}-${c.month}-${c.day}`
+
+export class DeskTouches {
+  private prev: DeskProps | null = null
+  private prevNow = 0
+  private cur = new Map<number, { kind: TouchKind; t0: number; k?: number }>()
+  private lastStart = new Map<TouchKind, number>()
+  /** what is shown: the lamp, the calendar's day; the hourglass's flips and the turntable's pushes done, the knob's last turn's direction */
+  private lamp: boolean | null = null
+  private calendar: DeskProps['calendar'] | null = null
+  private flips = 0
+  private pushes = 0
+  private knobAt = 0
+  private knobDir = 1
+  /** the duck's line now (DUCK_LINES), and the hands' clock last stepped (the bubble) */
+  private duckLine = -1
+  private speakerWas: boolean | null = null
+  private tidyWas = false
+  private lastT = 0
+
+  /** a seek: forget the edges (nothing is touched for what was jumped over) */
+  reset() {
+    this.prev = null
+    this.cur.clear()
+    this.lamp = null
+    this.calendar = null
+  }
+
+  step(i: TouchIn) {
+    const { t, desk } = i
+    // the touches over: what they did stays
+    for (const [seat, c] of [...this.cur]) {
+      const u = t - c.t0
+      if (u < TOUCH_S[c.kind].len && u >= 0) continue
+      this.settle(c.kind, desk)
+      this.cur.delete(seat)
+    }
+    const prev = this.prev
+    if (this.lamp === null || !prev) this.lamp = desk.lamp
+    if (this.calendar === null) this.calendar = desk.calendar
+    const free = (seat: number) => !this.cur.has(seat) && i.seated(seat)
+    const start = (kind: TouchKind) => {
+      this.cur.set(TOUCH_SEAT[kind], { kind, t0: t, ...(kind === 'swatch' ? { k: hash(`swatch|${i.now}`) % SWATCH.chips } : {}) })
+      this.lastStart.set(kind, t)
+    }
+    if (prev) {
+      if (desk.signal === 'green' && prev.signal !== 'green' && free(3)) start('signal')
+      // a failure: the duck, picked up and talked to
+      if (desk.signal === 'red' && prev.signal !== 'red' && free(3)) {
+        start('duck')
+        let k = hash(`duck|${i.now}`) % DUCK_LINES.length
+        if (k === this.duckLine) k = (k + 1) % DUCK_LINES.length
+        this.duckLine = k
+      }
+      if (desk.lamp !== prev.lamp && free(2)) start('lamp')
+      if (desk.hourglass && !prev.hourglass && free(0)) start('hourglass')
+    }
+    // the lamp, untouched: as the status says (the switch pressed: from the press on)
+    if (this.cur.get(2)?.kind !== 'lamp') this.lamp = desk.lamp
+    // a new day: shown once the planner has turned the page (it is not turned for it)
+    if (dayKey(desk.calendar) !== dayKey(this.calendar) && free(0) && i.awake(0)) start('calendar')
+    // #370 C4 the speaker goes on or off while 에코 sits at its desk: the mixer under its hands (the direction in k: 1 on, 0 off); its tidy-up starting:
+    // the snap
+    if (this.speakerWas !== null && i.speaker !== undefined && i.speaker !== this.speakerWas && free(TOUCH_SEAT.mixer)) {
+      start('mixer')
+      this.cur.get(TOUCH_SEAT.mixer)!.k = i.speaker ? 1 : 0
+    }
+    if (i.speaker !== undefined) this.speakerWas = i.speaker
+    const tidy = i.tidying?.(TOUCH_SEAT.snap) ?? false
+    if (tidy && !this.tidyWas && free(TOUCH_SEAT.snap)) start('snap')
+    this.tidyWas = tidy
+    // the habits at their seeded times this hour
+    const hourMs = 3_600_000
+    for (const kind of ['turntable', 'knob', 'keycap', 'shape', 'swatch', 'paper', 'leaf', 'headphones'] as const) {
+      const seat = TOUCH_SEAT[kind]
+      const working = i.working(seat)
+      // the turntable while it bakes; the knob and the shape while it works and does not bake; the keycap and the shape while it rests awake too
+      const on =
+        kind === 'turntable'
+          ? desk.turntable
+          : kind === 'knob'
+            ? working && !desk.turntable
+            : kind === 'shape'
+              ? i.awake(seat) && !desk.turntable
+              : kind === 'swatch' || kind === 'headphones'
+                ? working
+                : kind === 'paper'
+                  ? working && desk.inbox > 0
+                  : kind === 'leaf'
+                    ? i.awake(seat) && !working
+                    : i.awake(seat)
+      if (!on || !free(seat) || !(i.now > this.prevNow)) continue
+      const last = this.lastStart.get(kind)
+      if (last !== undefined && t - last < NO_REPEAT_S) continue
+      const h = Math.floor(i.now / hourMs)
+      const due = habitTimes(kind, h, working || kind === 'turntable' ? 'work' : 'rest').some((at) => at > this.prevNow && at <= i.now)
+      if (due && i.now - this.prevNow < 60_000) start(kind)
+    }
+    // effects at their moment
+    for (const c of this.cur.values()) {
+      const u = t - c.t0
+      if (c.kind === 'lamp' && u >= TOUCH_S.lamp.at) this.lamp = desk.lamp
+      if (c.kind === 'calendar' && u >= TOUCH_S.calendar.at) this.calendar = desk.calendar
+    }
+    this.prev = desk
+    this.prevNow = i.now
+    this.lastT = t
+  }
+
+  /** #370 B the bubble of an agent's touch now (루프 talking to its duck), or undefined */
+  bubble(agent: string): string | undefined {
+    const c = this.cur.get(TOUCH_SEAT.duck)
+    if (agent !== `agent_${TOUCH_SEAT.duck}` || c?.kind !== 'duck') return undefined
+    const u = this.lastT - c.t0
+    return u >= DUCK_BUBBLE.from && u < DUCK_BUBBLE.to ? DUCK_LINES[Math.max(0, this.duckLine)] : undefined
+  }
+
+  /** a touch done: what it did is kept */
+  private settle(kind: TouchKind, desk: DeskProps) {
+    if (kind === 'hourglass') this.flips++
+    if (kind === 'turntable') this.pushes++
+    if (kind === 'knob') {
+      this.knobAt += this.knobDir * KNOB_TURN.deg
+      this.knobDir = -this.knobDir
+    }
+    if (kind === 'lamp') this.lamp = desk.lamp
+    if (kind === 'calendar') this.calendar = desk.calendar
+  }
+
+  /** start a touch now (tests, the debug panel): its seat's touch under way is dropped */
+  begin(kind: TouchKind, t: number, k?: number) {
+    this.cur.set(TOUCH_SEAT[kind], { kind, t0: t, ...(k !== undefined ? { k } : kind === 'swatch' ? { k: 1 } : {}) })
+    this.lastStart.set(kind, t)
+  }
+
+  /** the touch of a seat under way at `t`, or null */
+  of(seat: number, t: number): Touch | null {
+    const c = this.cur.get(seat)
+    return c ? { kind: c.kind, u: t - c.t0, ...(c.k !== undefined ? { k: c.k } : {}) } : null
+  }
+
+  /** every touch under way, by agent */
+  all(t: number): Record<string, Touch> {
+    const out: Record<string, Touch> = {}
+    for (const [seat, c] of this.cur) out[`agent_${seat}`] = { kind: c.kind, u: t - c.t0, ...(c.k !== undefined ? { k: c.k } : {}) }
+    return out
+  }
+
+  /** the desk as shown: the lamp and the calendar as the hands left them */
+  desk(desk: DeskProps): DeskProps {
+    return { ...desk, lamp: this.lamp ?? desk.lamp, calendar: this.calendar ?? desk.calendar }
+  }
+
+  /** what the hands move on the desk now */
+  shown(t: number, reduced: boolean): TouchShown {
+    const u = (kind: TouchKind) => {
+      const c = this.cur.get(TOUCH_SEAT[kind])
+      return c && c.kind === kind ? t - c.t0 : null
+    }
+    const D = Math.PI / 180
+    // the hourglass: turned between the fingers while lifted
+    const hg = hourglassAt(u('hourglass'), reduced)
+    const tu = u('turntable')
+    const push = tu === null ? 0 : reduced ? (tu >= TURNTABLE_PUSH.from ? 1 : 0) : ease((tu - TURNTABLE_PUSH.from) / TURNTABLE_PUSH.s)
+    const ku = u('knob')
+    const knob = ku === null ? 0 : reduced ? (ku >= KNOB_TURN.from ? 1 : 0) : ease((ku - KNOB_TURN.from) / KNOB_TURN.s)
+    return {
+      hourglassTurn: (this.flips + hg.turn) * Math.PI,
+      hourglassLift: hg.lift,
+      turntablePush: (this.pushes + push) * TURNTABLE_PUSH.deg * D,
+      knobTurn: (this.knobAt + this.knobDir * KNOB_TURN.deg * knob) * D,
+      calendarPage: calendarPage(u('calendar'), reduced),
+      swatchSpread: swatchSpread(u('swatch'), reduced),
+      leafSway: leafAt(u('leaf'), reduced).sway,
+      cupSwivel: cupSwivel(u('headphones'), reduced),
+      ...mixerAt(u('mixer'), this.cur.get(TOUCH_SEAT.mixer)?.k ?? 1, reduced),
+    }
+  }
+}
+
+/** the hourglass at `u` s of its touch: the part of its half turn done (0..1) and its lift, m (null: not touched) */
+export function hourglassAt(u: number | null, reduced: boolean): { turn: number; lift: number } {
+  if (u === null) return { turn: 0, lift: 0 }
+  const F = HOURGLASS_FLIP
+  const s = u - F.from
+  if (reduced) return { turn: u >= TOUCH_S.hourglass.at ? 1 : 0, lift: 0 }
+  const turn = ease((s - F.lift) / F.turn)
+  const lift = s < 0 ? 0 : s < F.lift ? ease(s / F.lift) : s < F.lift + F.turn ? 1 : 1 - ease((s - F.lift - F.turn) / F.down)
+  return { turn, lift: Math.max(0, lift) * F.m }
+}
+
+/** the calendar page's flip at `u` s of the touch (degrees of its baked flip_deg), or null when it is not shown */
+export function calendarPage(u: number | null, reduced: boolean, flipDeg = 321.4): number | null {
+  if (u === null || reduced) return null
+  const C = CALENDAR_FLIP
+  const s = u - C.from
+  if (s < 0) return null
+  if (s < C.s) return C.liftDeg * ease(s / C.s)
+  const f = (s - C.s) / C.fallS
+  return f >= 1 ? null : C.liftDeg + (flipDeg - C.liftDeg) * ease(f)
+}
+
+/** a habit's seeded times in the office hour `h` (ms), `HABIT_PER_HOUR` of them (working / resting), at least NO_REPEAT_S apart */
+export function habitTimes(kind: TouchKind, h: number, mode: 'work' | 'rest' = 'work'): number[] {
+  const n = HABIT_PER_HOUR[kind]?.[mode] ?? 0
+  if (n === 0) return []
+  const slot = 3_600_000 / Math.max(1, n)
+  const out: number[] = []
+  for (let k = 0; k < n; k++) out.push(h * 3_600_000 + k * slot + (hash(`${kind}|${mode}|${h}|${k}`) % Math.floor(slot - NO_REPEAT_S * 1000)))
+  return out
+}
+
+/** #370 B2 the swatch fan's spread at `u` s of its touch (0 as baked, 1 spread to twice), none with reduced motion */
+export function swatchSpread(u: number | null, reduced: boolean): number {
+  if (u === null || reduced) return 0
+  const [a, b] = SWATCH.open
+  const [c, d] = SWATCH.close
+  return u < c ? ease((u - a) / (b - a)) : 1 - ease((u - c) / (d - c))
+}
+
+/** #370 C4 what the mixer touch moves at `u` s: the fader's push (0..1, `dir`) and the knob's twist (degrees), or nothing */
+export function mixerAt(u: number | null, dir: number, reduced: boolean): Pick<TouchShown, 'faderPush' | 'knobTwist'> {
+  if (u === null) return { faderPush: null, knobTwist: null }
+  const e = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x))
+  const [a, b] = MIXER.push
+  const k = reduced ? (u >= a ? 1 : 0) : e((u - a) / (b - a))
+  const t = reduced ? (u >= a + MIXER.lag ? 1 : 0) : e((u - a - MIXER.lag) / (b - a))
+  return { faderPush: u <= b + 0.05 ? { k, dir } : null, knobTwist: u <= b + MIXER.lag + 0.05 ? MIXER.twistDeg * t : null }
+}

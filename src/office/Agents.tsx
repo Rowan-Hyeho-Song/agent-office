@@ -1,7 +1,7 @@
 import { Html } from '@react-three/drei'
 import { setDoorMessage } from '../room/doorMessage'
 import { BubbleLayer, type Anchor, type TagItem } from './bubbleLayer'
-import { statusTag, type BubbleItem } from './bubbles'
+import { BUBBLE, statusTag, type BubbleItem } from './bubbles'
 import { openDocs } from './docs/panel'
 import { seatName } from './meeting'
 import { captionOf } from './minutes'
@@ -11,15 +11,16 @@ import { BufferGeometry, CanvasTexture, Color, Float32BufferAttribute, Group, Li
 import { buildGraph, pathLength, patchSpots, shortestPath, type NavGraph } from './nav'
 import { buildGrid, cellAt, centre } from './grid'
 import { sideArea } from './sidePanel/store'
-import { requestOf, type Goal } from './director'
+import { requestOf, standSlot, type Goal } from './director'
 import { TrafficPlanner, type Request, type Sample } from './traffic'
 import { syncFridgeHold } from './lounge'
-import { musicWantsBreak, recordComing, resetDeck } from '../audio/speaker'
+import { musicWantsBreak, recordComing, resetDeck, speakerOn } from '../audio/speaker'
 import { demoRequest } from './trafficDemo'
 import { checkNav, edgeKey } from './navcheck'
 import { rasterFootprint } from './floorMask'
 import { meshesOf, useOffice } from './nodes'
 import { DeskLive } from './deskLive'
+import { DeskTouches } from './deskTouch'
 import { PaperPlanes } from './plane'
 import { ScreenLive } from './screenLive'
 import { deskProps } from './props'
@@ -38,11 +39,35 @@ import { STAMP_MS } from './props'
 import { ANXIOUS_AFTER_MS } from './faceMind'
 import { greetsOwner, questionFaceFor } from './liveFace'
 import { isLateHour } from './duty'
+import { getOmokVisit, workOmok } from './omokVisit/store'
+import { faceScreenRect } from './omokVisit/bubbleAnchor'
+import { closePingpong, getPingpongVisit } from './pingpongVisit/store'
+import { rallyOf } from '../play/visitorPingpong'
+import { WATCH } from './play'
+import { viewOf } from '../play/visitorOmok'
+
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
 import { NOTE_READ, pinnedAt, thanksNow } from './noteRead'
 import { notesStore } from './visit/notes'
 import { groundAt, readRugs, type Rug } from './ground'
 import type { RootState } from '@react-three/fiber'
+
+/** #137 ② the visitor's game as the stage draws it, while the visitor is at the board (not in the replay) */
+function omokView(now: number | null) {
+  const v = getOmokVisit()
+  if (now === null || v.phase === 'closed' || !v.agent || !v.game) return null
+  return { agent: v.agent, view: viewOf(v.game, now) }
+}
+
+/** #137 ③ where the near end's player watches the visitor's match: beside the table at the net, on the window side (out of the view down the table) */
+const PP_WATCH_STAND = { x: WATCH.pingpong.face.x, z: WATCH.pingpong.face.z - 1.15 }
+
+/** #137 ③ the visitor's match as the stage draws it, while they hold the paddle (not in the replay) */
+function pingpongView(on: boolean) {
+  const v = getPingpongVisit()
+  if (!on || v.phase === 'closed' || !v.agent || !v.match) return null
+  return { agent: v.agent, rally: rallyOf(v.match, v.paddle), tMs: v.match.t }
+}
 
 /**
  * Same rule as the design tokens (src/styles/tokens.css): html[data-motion="reduce"|"full"] (the setting shared
@@ -121,6 +146,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
   const tagAt = useRef<[number, number, number]>([0, 0, 0])
   // the LIVE desk props (#44): what each desk shows about its agent
   const desks = useMemo(() => new DeskLive(nodes), [nodes])
+  // #370 A a hand on a thing of its own desk: when, and what the desk shows of it
+  const touches = useMemo(() => new DeskTouches(), [])
   // the work monitors (#75); ?debug=1&screens=off leaves them blank (the frame-cost baseline)
   const maxAniso = useThree((s) => s.gl.capabilities.getMaxAnisotropy())
   const screens = useMemo(
@@ -313,6 +340,33 @@ export function Agents({ world }: { world: OfficeWorld }) {
     // ?debug=1: window.__office.forceSpots = { agent_0: 'whiteboard', ... } sends agents to spots (head-on tests, screenshots)
     if (world.debug && world.forceSpots) for (const id in world.forceSpots) if (goals[id]) goals[id] = { ...goals[id], spot: world.forceSpots[id], pose: 'idle', label: 'debug' }
     if (world.debug && world.forceGoal) for (const id in world.forceGoal) if (goals[id]) goals[id] = { ...goals[id], ...world.forceGoal[id], label: 'debug' }
+    // #137 ② a visitor plays omok with the agent at the board (this tab only): it stays in its chair for the game; called to work, it ends it (중단)
+    const visit = st ? null : getOmokVisit()
+    if (visit && visit.phase !== 'closed' && visit.agent && goals[visit.agent]) {
+      const s = status[visit.agent]
+      if (s && (s.state !== 'idle' || s.night === 'duty')) workOmok(now)
+      const g = getOmokVisit().game
+      if (g && !(g.end && (g.end.result === 'work' || visit.phase === 'leaving'))) goals[visit.agent] = { spot: 'game_a', pose: 'boardgame', label: '오목 · 방문자와 대국' }
+    }
+    // #137 ③ the visitor holds the near paddle: the agent plays from the far end; the one who played at the near end watches by the table (play.md 3.1).
+    // Called to work, the agent says so and the match ends
+    const ppVisit = st ? null : getPingpongVisit()
+    if (ppVisit && ppVisit.phase !== 'closed' && ppVisit.agent && goals[ppVisit.agent]) {
+      const s = status[ppVisit.agent]
+      if (ppVisit.phase !== 'leaving' && s && (s.state !== 'idle' || s.night === 'duty')) {
+        world.bubbles.say(ppVisit.agent, { kind: 'react', text: '일하러 가야 해요!', ms: 3000, whole: true }, now)
+        closePingpong()
+      } else if (ppVisit.phase !== 'leaving') {
+        // already at the far end: its goal as it is (its departure), only the words, and at the spot itself (no other play's standing place); else sent there
+        const g0 = goals[ppVisit.agent]
+        goals[ppVisit.agent] = g0.spot === 'pingpong_b' && g0.pose === 'pingpong' ? { ...g0, slot: undefined, label: '탁구 · 방문자와 경기' } : { spot: 'pingpong_b', pose: 'pingpong', label: '탁구 · 방문자와 경기' }
+        // anyone else the director sends to the table (the near end's player, one coming to join) watches from beside it, by the net: out of the
+        // visitor's view down the table (play.md 3.1)
+        for (const w of Object.keys(goals))
+          if (w !== ppVisit.agent && goals[w].pose === 'pingpong' && (goals[w].spot === 'pingpong_a' || goals[w].spot === 'pingpong_b'))
+            goals[w] = { spot: WATCH.pingpong.spot, pose: 'idle', ...standSlot({ stand: PP_WATCH_STAND, face: WATCH.pingpong.face }), watching: 'pingpong', label: WATCH.pingpong.label }
+      }
+    }
     if (!st) {
       // forget the departures no goal holds any more (a held one keeps its planner time: recomputed each frame it would drift and replan every frame,
       // #228). After the debug overrides: a forced spot keys the departure it is requested with; judged on the director's own spot, the forced one's
@@ -383,6 +437,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
         if (replay.landedVia === 'seek') {
           drawn.reset()
           resetDeck() // a seek forgets the turntable (speaker.ts)
+          touches.reset() // and nothing on a desk is touched for what was jumped over
         }
       }
       const speed = replay.getSnapshot().speed
@@ -427,8 +482,33 @@ export function Agents({ world }: { world: OfficeWorld }) {
       for (const id in rigs) rigs[id].track = rigs[id].traffic && planner.has(id) ? planner.sample(id, sim.current) : null
       for (const id in rigs) rigs[id].update(dt, t, graph, rigs, reduced, status[id])
     }
+    // #370 A the desk touches, on the hands' clock: who sits at its own desk now
+    const touchT = st ? st.now / 1000 : t
+    if (world.debug && world.forceTouch) {
+      touches.begin(world.forceTouch, touchT)
+      world.forceTouch = null
+    }
+    touches.step({
+      t: touchT,
+      now: scene ? atMs(scene.point) : now,
+      desk,
+      seated: (seat) => {
+        const r = rigs[`agent_${seat}`]
+        return !!r?.visible && r.arrived === `work_${seat}`
+      },
+      awake: (seat) => !!status[`agent_${seat}`] && status[`agent_${seat}`].state !== 'off',
+      working: (seat) => status[`agent_${seat}`]?.state === 'working',
+      // #370 C4 the speaker playing (에코's mixer), the tidy-up starting (its snap)
+      speaker: speakerOn(),
+      tidying: (seat) => (st ? undefined : goals[`agent_${seat}`])?.pose === 'tidy',
+    })
+    // the desk things first: a hand on one follows it where it is this frame (#370 A)
+    desks.update(touches.desk(desk), t, Math.min(dt, 0.1), reduced, touches.shown(touchT, reduced))
     // the hands: play from the office clock (nothing of it in the timelapse), grips on everything that is held or touched
     playStage.update({
+      touches: touches.all(touchT),
+      // #370 B3b the planner's IN pile (its tidy-up squares it when there is one)
+      inbox: desk.inbox,
       // the replay's games run on the replay's own time (the schedule at that KST time, 12.1), never the live clock
       now: st ? st.time : now,
       t: st ? st.now / 1000 : t,
@@ -443,7 +523,12 @@ export function Agents({ world }: { world: OfficeWorld }) {
       stamp: desk.stamp,
       colors: AGENT_COLORS,
       forcedSessions: world.debug ? world.forcedSessions : undefined,
-      bowlRest: world.director.bowlRest(),
+      visitorOmok: omokView(st ? null : now),
+      visitorPingpong: pingpongView(!st),
+      // #455 the treats in a hand (not in the replay: a treat is a live visitor's)
+      treats: st ? undefined : world.treats,
+      // #137 ② the visitor plays black from the empty chair, the agent white: its bowl rests by the agent (the corner by game_a) while they play
+      bowlRest: !st && omokView(now) ? 'corner' : world.director.bowlRest(),
       gripDemo: world.debug ? world.gripDemo : null,
     })
     const tag = playStage.tag
@@ -458,7 +543,6 @@ export function Agents({ world }: { world: OfficeWorld }) {
     planes.update(st ? st.now / 1000 : state.clock.elapsedTime, graph, rigs, reduced)
     props.hold(new Map(Object.values(rigs).map((r) => [r, r.want])))
     props.update(Math.min(dt, 0.1))
-    desks.update(desk, t, Math.min(dt, 0.1), reduced)
     // the monitors show what the director says each agent is doing now (#186); the timelapse shows its record's statuses
     const shownStatus = st ? status : world.director.shownStatus
     screens?.update({ t, now, status: shownStatus, reduced, camera: state.camera, forced: world.debug ? world.screens.force : undefined })
@@ -472,7 +556,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
     const byId = new Map<string, BubbleItem>()
     const replaying = replayNow.current !== null
     if (!replaying) {
-      for (const id in rigs) world.bubbles.goal(id, world.goals[id]?.bubble, now, world.goals[id]?.lookAt)
+      for (const id in rigs) world.bubbles.goal(id, world.goals[id]?.bubble ?? touches.bubble(id), now, world.goals[id]?.lookAt)
       for (const b of world.bubbles.items(now, reduced)) byId.set(b.id, b)
     }
     const meet = world.meeting.view(replayNow.current ?? now)
@@ -537,10 +621,21 @@ export function Agents({ world }: { world: OfficeWorld }) {
     const tags: TagItem[] = []
     // the replay shows the past: no live night / duty state (sleepers' z, status tags) reaches the bubble layer
     const status = replaying ? (replay.scene()?.status ?? {}) : world.source.getSnapshot()
+    const omok = getOmokVisit()
     for (const id in rigs) {
       const rig = rigs[id]
       head.set(rig.group.position.x, rig.parts.head.position.y + 0.3, rig.group.position.z).project(state.camera)
       anchors[id] = { x: rect.left + ((head.x + 1) / 2) * rect.width, y: rect.top + ((1 - head.y) / 2) * rect.height, visible: head.z < 1 && !rig.hidden }
+      // #137 ② C: at the board the head point is above the screen; the agent the visitor plays speaks from its face screen's corner
+      if (omok.phase === 'open' && omok.agent === id && rig.parts.face && anchors[id].y < rect.top + BUBBLE.safeTop) {
+        // a wide screen: beside the face at its lower right corner; a phone has no room there: over its top edge (the eyes and the hands stay clear)
+        const f = faceScreenRect(rig.parts.face, state.camera, rect)
+        if (f) {
+          const avoid = [...document.querySelectorAll('.omok-hud, .desk-link, .door-btn')].map((el) => el.getBoundingClientRect())
+          const beside = !narrow.matches
+          anchors[id] = { x: beside ? f.right : (f.left + f.right) / 2, y: beside ? f.bottom : f.top, visible: !rig.hidden, face: { below: f.bottom, avoid, beside } }
+        }
+      }
       if (anchors[id].x > area.w || anchors[id].y > area.h) anchors[id].visible = false
       const tag = replaying ? null : statusTag(world.director.shown[id]?.status ?? status[id], world.director.shown[id]?.detail)
       if (tag) tags.push({ id, seat: Number(id.split('_')[1]), ...tag })

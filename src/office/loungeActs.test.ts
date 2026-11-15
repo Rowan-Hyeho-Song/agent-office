@@ -11,6 +11,8 @@ import { GRAPH } from './navSpots.fixture'
 import { ACT_PLACE, DISPENSER, FRIDGE, FRIDGE_T, RECORD_T, recordBeats, sweptDistance, type ActKind, type RecordMode } from './lounge'
 import { deckNow, resetDeck } from '../audio/speaker'
 import type { Goal } from './director'
+import { MAT_STEP_S } from './loungeActs'
+import { DOOR_ROUND } from './doorRound'
 
 stubCanvas()
 const DT = 0.02
@@ -288,7 +290,7 @@ describe('the sofa', () => {
 })
 
 describe('the door', () => {
-  it('an agent at the door spot steps on the mat (cue mat.step, once) and presses the lever with its left hand (30°, then back); the grip stays on the lever', async () => {
+  it('an agent at the door spot steps on the mat (cue mat.step, a step every 0.3 s on it, #451) and presses the lever with its left hand (30°, then back); the grip stays on the lever', async () => {
     const w = await world()
     const walk = new Walk(w)
     for (const id of IDS) walk.status[id] = { state: 'working', activity: 'test', since: 0 }
@@ -298,13 +300,17 @@ describe('the door', () => {
     for (let k = 0; k < 10; k++) walk.step(DT, guard)
     walk.status.agent_1 = { state: 'idle', since: 0 }
     const fired: string[] = []
+    const stepsAt: number[] = []
     let min = 0
     let leftFrames = 0
     let worstGrip = 0
     const lever = w.nodes.door_lever
     for (let k = 0; k < 60 / DT; k++) {
       walk.step(DT, guard)
-      for (const f of w.stage.lounge.fired) fired.push(f.name)
+      for (const f of w.stage.lounge.fired) {
+        fired.push(f.name)
+        if (f.name === 'mat.step') stepsAt.push(k * DT)
+      }
       min = Math.min(min, w.stage.lounge.leverDeg())
       if (w.rigs.agent_1.drive.l) {
         leftFrames++
@@ -314,11 +320,33 @@ describe('the door', () => {
       }
     }
     expect(w.rigs.agent_1.arrived).toBe('door')
-    expect(fired.filter((n) => n === 'mat.step'), 'one step on the mat').toHaveLength(1)
+    // a step as it comes onto the mat and one every MAT_STEP_S while it walks on it; all before the lever (it stands still at the lever)
+    expect(stepsAt.length, 'steps on the mat').toBeGreaterThanOrEqual(1)
+    for (let i = 1; i < stepsAt.length; i++) expect(stepsAt[i] - stepsAt[i - 1]).toBeGreaterThanOrEqual(MAT_STEP_S - DT)
+    expect(fired.lastIndexOf('mat.step')).toBeLessThan(fired.indexOf('lever.down'))
     expect(fired.filter((n) => n.startsWith('lever.')), 'the latch at the bottom, the spring at the top, once each').toEqual(['lever.down', 'lever.up'])
     expect(min, 'pressed down 30°').toBeCloseTo(-30, 0)
     expect(Math.abs(w.stage.lounge.leverDeg()), 'and let up again').toBeLessThan(0.5)
     expect(leftFrames, 'the left hand held the lever').toBeGreaterThan(30)
     expect(worstGrip, 'the hand rides the lever while it is down (the spring lag of the hand)').toBeLessThan(0.05)
   }, 120000)
+
+  it('#451 the door round holds the lever down its own time: 1.2 s in the morning, 1 s at night', async () => {
+    for (const kind of ['morning', 'night'] as const) {
+      const w = await world()
+      const walk = new Walk(w)
+      for (const id of IDS) walk.status[id] = { state: 'working', activity: 'test', since: 0 }
+      const guard = new Guard(w)
+      const goals = walk.director.goals.bind(walk.director)
+      walk.director.goals = ((...a: Parameters<typeof goals>) => ({ ...goals(...a), agent_1: { spot: 'door', pose: 'idle', door: { kind, u: 0 }, label: '' } as Goal })) as typeof goals
+      walk.status.agent_1 = { state: 'idle', since: 0 }
+      let down = 0
+      for (let k = 0; k < 40 / DT; k++) {
+        walk.step(DT, guard)
+        if (w.stage.lounge.leverDeg() <= -29.9) down += DT
+      }
+      expect(w.rigs.agent_1.arrived).toBe('door')
+      expect(down, kind).toBeCloseTo(DOOR_ROUND.holdS[kind], 1)
+    }
+  }, 240000)
 })

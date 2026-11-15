@@ -226,11 +226,11 @@ export const cellName = (cell: number) => `${String.fromCharCode(65 + (cell % N)
 
 const RESULT_WORD: Record<EndResult, string> = { black: '흑 승', white: '백 승', draw: '무승부', resign: '흑 승 · 던짐', idle: '중단', work: '중단', quit: '중단' }
 
-/** the HUD's status line (play.md 2.2 · 2.5 · 5.2 · 5.3); the thinking dots grow one every 0.4 s */
+/** the HUD's status line (play.md 2.2 · 2.5 · 5.2 · 5.3); the thinking dots grow one every 0.4 s (a clock before the move began counts as its start: #536, repeat(-1) threw) */
 export function statusLine(g: VisitorGame, agentName: string, now: number): string {
   const n = g.moves.length
   if (g.end) return `${RESULT_WORD[g.end.result]} · ${n}수${g.undos && (g.end.result === 'black' || g.end.result === 'resign') ? ` · 무르기 ${g.undos}` : ''}`
-  if (g.pending) return `● 오목 · ${agentName}와 대국 · ${agentName}가 생각 중${'.'.repeat(1 + (Math.floor((now - g.pending.at) / 400) % 3))}`
+  if (g.pending) return `● 오목 · ${agentName}와 대국 · ${agentName}가 생각 중${'.'.repeat(1 + (Math.max(0, Math.floor((now - g.pending.at) / 400)) % 3))}`
   return `● 오목 · ${agentName}와 대국 · 당신(흑) 차례 · ${n + 1}수`
 }
 

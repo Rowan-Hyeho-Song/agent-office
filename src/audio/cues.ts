@@ -180,6 +180,19 @@ export const CUES = {
       noise(o, 0.04, { kind: 'pink', filter: 'lowpass', freq: 500, level: 0.09 })
     },
   },
+  'stamp.ink': {
+    label: '도장을 인주에 콕',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 120,
+    length: 0.07,
+    // #370 C3: the stamp dabbed on the ink pad, twice before the press: a soft damp rubber pat, far under the stamp's thud
+    play: (o) => {
+      tone(o, 180, 0.05, { type: 'sine', level: 0.012, slide: 0.7, attack: 0.002 })
+      noise(o, 0.035, { kind: 'pink', filter: 'lowpass', freq: 900, level: 0.02, attack: 0.002 })
+    },
+  },
   'omok.place': {
     label: '오목 돌 딱',
     kind: 'event',
@@ -686,6 +699,20 @@ export const CUES = {
       noise(o, 0.45, { freq: 7000, q: 1.5, level: 0.004, shape: 'swell' })
     },
   },
+  // #137 방문자 놀이 (play.md 표 '소리'): 경기가 끝나면 이긴 쪽 자리에서 한 번. 결재 승인(approve)과 같은 결, 작고 짧게
+  'match.win': {
+    label: '방문자 경기 끝 (이긴 쪽)',
+    kind: 'ui',
+    bus: 'sfx',
+    spatial: true,
+    gap: 1000,
+    length: 0.5,
+    // approve's rising triangle arpeggio made small: A4 · C5 · E5 (A minor pentatonic, on the music) 0.07 s apart, a little echo on the last
+    play: (o) => {
+      ;[69, 72].forEach((n, i) => tone(o, midi(n), 0.12, { level: 0.03, at: i * 0.07 }))
+      tone(o, midi(76), 0.22, { level: 0.03, at: 0.14, echo: true })
+    },
+  },
   'note.pin': {
     label: '쪽지가 게시판에 붙음',
     kind: 'ui',
@@ -710,8 +737,8 @@ export const CUES = {
     gap: 300,
     length: 0.05,
     play: (o) => {
-      noise(o, 0.02, { freq: 2100, q: 8, level: 0.12, attack: 0.0005 })
-      noise(o, 0.04, { freq: 5000, q: 0.7, level: 0.02, attack: 0.0005 })
+      noise(o, 0.02, { freq: 2100, q: 8, level: 0.19, attack: 0.0005 })
+      noise(o, 0.04, { freq: 5000, q: 0.7, level: 0.032, attack: 0.0005 })
     },
   },
   voice: {
@@ -783,7 +810,14 @@ export type CueOpts = {
   retried?: boolean
   /** typing: which key (#225 kinds); char when not given */
   keyKind?: KeyKind
+  /** #586 quieter for this call only (dB, 0 or below; a positive value is cut to 0): on top of the replay-speed rule */
+  db?: number
 }
+
+/** #370 D (desk-props.md 7.3): a visitor's press on a prop in the office sounds `ui.click` this much under the HUD's */
+export const PROP_CLICK_DB = -6
+/** the per-cue trim: the replay-speed factor `k` and the call's own `db` (never louder than the cue itself) */
+export const trimGain = (k: number, db = 0) => k * Math.pow(10, Math.min(0, Number.isFinite(db) ? db : 0) / 20)
 
 // ── replay speed (sound.md 6): ×1 as is, ×4 half the busywork and events −3 dB, ×16 events only at −6 dB ──
 let speed = 1
@@ -873,7 +907,7 @@ export function cue(name: CueName, opts: CueOpts = {}): boolean {
 
   let dest: AudioNode = g.bus[def.bus]
   const trim = g.ctx.createGain()
-  trim.gain.value = k
+  trim.gain.value = trimGain(k, opts.db)
   trim.connect(dest)
   dest = trim
   if (def.spatial && opts.pos) dest = panner(g.ctx, opts.pos, trim)

@@ -3,6 +3,7 @@
 
 import { CanvasTexture, MathUtils, MeshBasicMaterial, SRGBColorSpace, Vector3, type Color, type Mesh, type Object3D } from 'three'
 import type { DeskProps } from './props'
+import { MIXER, type TouchShown } from './deskTouch'
 import { TrayPile } from './tray'
 import { LiveAxis } from './liveAxis'
 import { PlaySounds } from '../audio/playSounds'
@@ -26,7 +27,6 @@ const WEEKDAY_EN = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 const OFF = 0.08
 /** the IN tray's amber dot when nothing waits: 15% of lit (designer, #64), dim enough not to read as "pending" */
 const APPROVAL_DOT_OFF = 0.15
-const HOURGLASS_EVERY = 6 // s: while the planner waits, it turns the hourglass over now and then
 const BLINK_HZ = 2.2
 
 /** echo's mixer (desks.md, #193): the woofer cones travel 3 mm, the level meter has 8 cells, 4 faders; every value comes from src/audio/speaker.ts */
@@ -56,16 +56,48 @@ export class EchoDesk {
     if (l && r) setSpeakerNodes(l, r)
   }
 
-  update(reduced: boolean) {
+  /** #370 C4 the fader and the knob a hand had: where it left them, and when (they go back to the level over MIXER.settleS) */
+  private handLeft: { fader: number; knob: number; from: number; t: number } | null = null
+  private handNow: { fader: number; knob: number } | null = null
+  private pushFrom: number | null = null
+
+  update(reduced: boolean, t = 0, touch?: TouchShown) {
     if (!this.present) return
     const cone = speakerCone()
-    const faders = faderLevels()
+    const faders = [...faderLevels()]
+    // fader_0 and knob_0 under 에코's hands: the fader follows the hand's push from where it was to the end the music went (up on, down off), the
+    // knob twists on top of its level's turn; once the hand is off they go back to the level, eased over MIXER.settleS (no jump)
+    // knob_0 under the left hand: where it stood as the hand took it (its level's turn then), plus the hand's twist; not its fader's turn meanwhile
+    const knobAt: (number | null)[] = [null, null, null, null]
+    const levelTurn = (v: number) => (v - 0.5) * 1.5 * Math.PI
+    if (touch?.faderPush || touch?.knobTwist != null) {
+      if (this.pushFrom === null) this.pushFrom = faders[0]
+      const p = touch.faderPush
+      const v = p ? this.pushFrom + ((p.dir ? 1 : 0) - this.pushFrom) * p.k : (this.handNow?.fader ?? faders[0])
+      const kt = ((touch.knobTwist ?? this.handNow?.knob ?? 0) * Math.PI) / 180
+      this.handNow = { fader: v, knob: (kt * 180) / Math.PI }
+      faders[0] = v
+      knobAt[0] = levelTurn(this.pushFrom) + kt
+    } else if (this.handNow) {
+      this.handLeft = { ...this.handNow, from: this.pushFrom ?? faders[0], t }
+      this.handNow = null
+      this.pushFrom = null
+    }
+    if (this.handLeft) {
+      const w = Math.exp(-(t - this.handLeft.t) / MIXER.settleS)
+      if (w < 0.01) this.handLeft = null
+      else {
+        const handKnob = levelTurn(this.handLeft.from) + (this.handLeft.knob * Math.PI) / 180
+        faders[0] = faders[0] + (this.handLeft.fader - faders[0]) * w
+        knobAt[0] = levelTurn(faders[0]) + (handKnob - levelTurn(faders[0])) * w
+      }
+    }
     // the cones: along their own +z (the speaker's push); reduced motion leaves them
     for (const c of this.spk) c.live.slide(c.travel * (reduced ? 0 : cone))
     // the faders: hook / piano / bass / drums, along their slot
     this.fader.forEach((f, k) => f.live.slide(f.travel * faders[k]))
     // the gain knobs turn with their fader (about 270 degrees end to end)
-    this.knob.forEach((o, k) => o.turn((faders[k] - 0.5) * 1.5 * Math.PI))
+    this.knob.forEach((o, k) => o.turn(knobAt[k] ?? levelTurn(faders[k])))
     this.led(speakerOn() ? 1 : OFF)
     // the level meter follows the speaker's cells only: no sound, no light (sound.md 5)
     const lit = MathUtils.clamp(speakerCells(), 0, 8)
@@ -97,7 +129,15 @@ export class DeskLive {
   private sounds = new PlaySounds()
   private echo: EchoDesk
   private calendar: { ctx: CanvasRenderingContext2D; texture: CanvasTexture; drawn: string } | null = null
-  private flip = { angle: 0, target: 0, nextAt: 0 }
+  /** #370 A the ring light's knob and the calendar's page (hidden at rest), turned by a hand (deskTouch.ts) */
+  private knob: LiveAxis | undefined
+  private page: { live: LiveAxis; sign: number } | undefined
+  /** #370 B2 휴's swatch chips: each about its own z, from its baked fan angle (rest_deg) */
+  private chips: { live: LiveAxis; rest: number }[] = []
+  /** #370 C3 the succulent's front leaf (a baked node with its pivot at the stem), swayed about its own x as it is stroked */
+  private leaf: LiveAxis | undefined
+  /** #370 C2 the headphones' near cup: a child of the headphones (it goes where they go), swivelled on its yoke */
+  private cup: LiveAxis | undefined
   private spin = 0
 
   constructor(nodes: Record<string, Object3D>) {
@@ -108,6 +148,27 @@ export class DeskLive {
     this.hourglass = hg && new LiveAxis(hg, new Vector3(1, 0, 0))
     this.turntable = tt && new LiveAxis(tt, new Vector3(0, 1, 0))
     this.ring = emitter(n('desk_1_ringlight'))
+    const kn = n('desk_1_ringlight_knob')
+    this.knob = kn && new LiveAxis(kn, new Vector3(1, 0, 0))
+    const pg = n('desk_0_calendar_page')
+    if (pg) this.page = { live: new LiveAxis(pg, new Vector3(1, 0, 0)), sign: Number(pg.userData.flip_sign) || 1 }
+    const lf = n('succulent_leaf')
+    if (lf) this.leaf = new LiveAxis(lf, new Vector3(1, 0, 0))
+    const hp = n('prop_headphones')
+    const cup = n('prop_headphones_cup')
+    if (hp && cup) {
+      if (cup.parent !== hp) {
+        hp.updateWorldMatrix(true, false)
+        cup.updateWorldMatrix(true, false)
+        hp.attach(cup)
+        delete cup.userData.liveRest
+      }
+      this.cup = new LiveAxis(cup, new Vector3(0, 1, 0))
+    }
+    for (let k = 0; k < 4; k++) {
+      const c = n(`desk_2_swatch_leaf_${k}`)
+      if (c) this.chips.push({ live: new LiveAxis(c, new Vector3(0, 0, 1)), rest: Number(c.userData.rest_deg) || 0 })
+    }
     this.tablet = emitter(n('desk_2_tablet'))
     this.approvalDot = emitter(n('neon_approval'))
     this.lamp = emitter(n('desk_2_lamp'))
@@ -164,27 +225,33 @@ export class DeskLive {
     return this.duck ? this.duck.getWorldPosition(out) : null
   }
 
-  update(p: DeskProps, t: number, dt: number, reduced: boolean) {
+  /** `touch`: what the hands move (#370 A, deskTouch.ts); without it all rests as baked */
+  update(p: DeskProps, t: number, dt: number, reduced: boolean, touch?: TouchShown) {
     // 메모: the trays hold as many sheets as there is work, 0.8 cm each; past five a '+' tab (#59, tray.ts)
     this.trays[0]?.set(p.inbox, p.inboxMore)
     this.trays[1]?.set(p.outbox, p.outboxMore)
     this.drawCalendar(p)
     this.approvalDot(p.inbox > 0 ? 1 : APPROVAL_DOT_OFF)
-    // the hourglass turns over every few seconds while the planner waits for an approval, else stays upright
+    // the hourglass is turned over only by the planner's hand, once as an approval starts waiting (#370 A: no longer every 6 s by itself)
     if (this.hourglass) {
-      if (p.hourglass && t >= this.flip.nextAt) {
-        this.flip.target += Math.PI
-        this.flip.nextAt = t + HOURGLASS_EVERY
-      }
-      if (!p.hourglass) this.flip.target = Math.round(this.flip.target / (2 * Math.PI)) * 2 * Math.PI
-      this.flip.angle = reduced ? this.flip.target : MathUtils.damp(this.flip.angle, this.flip.target, 5, dt)
-      // about its middle, lifted so the plates never go into the felt coaster it stands on (#493)
-      this.hourglass.turnResting(this.flip.angle)
+      // about its middle, lifted so the plates never go into the felt coaster it stands on (#493), and as the fingers lift it
+      this.hourglass.turnResting(touch?.hourglassTurn ?? 0)
+      this.hourglass.node.position.y += touch?.hourglassLift ?? 0
     }
-    // 메시: the turntable spins while baking; the ring light is on while baking and blinks after
-    if (this.turntable && p.turntable) {
-      this.spin += dt * (reduced ? 0.4 : 1.2)
-      this.turntable.turn(this.spin)
+    // 메시: the turntable spins while baking (and is pushed round by hand now and then); the ring light is on while baking and blinks after
+    if (this.turntable) {
+      if (p.turntable) this.spin += dt * (reduced ? 0.4 : 1.2)
+      this.turntable.turn(this.spin + (touch?.turntablePush ?? 0))
+    }
+    this.knob?.turn(touch?.knobTurn ?? 0)
+    this.leaf?.turn(((touch?.leafSway ?? 0) * Math.PI) / 180)
+    this.cup?.turn(((touch?.cupSwivel ?? 0) * Math.PI) / 180)
+    // the swatch spread by the designer's hand: each chip as far again past its rest
+    for (const c of this.chips) c.live.turn(((c.rest * (touch?.swatchSpread ?? 0)) * Math.PI) / 180)
+    if (this.page) {
+      const deg = touch?.calendarPage ?? null
+      this.page.live.node.visible = deg !== null
+      this.page.live.turn(((deg ?? 0) * this.page.sign * Math.PI) / 180)
     }
     const blink = reduced ? 1 : Math.sin(t * BLINK_HZ * Math.PI * 2) > 0 ? 1 : 0.25
     this.ring(p.ringlight === 'on' ? 1 : p.ringlight === 'blink' ? blink : OFF)
@@ -196,7 +263,7 @@ export class DeskLive {
     this.signal.y(p.signal === 'yellow' ? (reduced ? 1 : 0.65 + 0.35 * Math.sin(t * 6)) : OFF)
     this.signal.r(p.signal === 'red' ? 1 : OFF)
     // 에코: speaker cones, faders, knobs, level meter
-    this.echo.update(reduced)
+    this.echo.update(reduced, t, touch)
     this.sounds.signalLight(p.signal, this.signalAt ? this.signalAt.getWorldPosition(this.signalPos) : null)
   }
 }
