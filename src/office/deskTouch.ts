@@ -12,9 +12,9 @@
 import { hash } from './play'
 import type { DeskProps } from './props'
 
-export type TouchKind = 'signal' | 'lamp' | 'turntable' | 'knob' | 'calendar' | 'hourglass' | 'duck' | 'keycap' | 'shape' | 'swatch'
+export type TouchKind = 'signal' | 'lamp' | 'turntable' | 'knob' | 'calendar' | 'hourglass' | 'duck' | 'keycap' | 'shape' | 'swatch' | 'paper'
 
-export const TOUCH_SEAT: Record<TouchKind, number> = { signal: 3, lamp: 2, turntable: 1, knob: 1, calendar: 0, hourglass: 0, duck: 3, keycap: 3, shape: 1, swatch: 2 }
+export const TOUCH_SEAT: Record<TouchKind, number> = { signal: 3, lamp: 2, turntable: 1, knob: 1, calendar: 0, hourglass: 0, duck: 3, keycap: 3, shape: 1, swatch: 2, paper: 0 }
 
 /**
  * Each touch's times, s from its start: `len` the whole (the hand back at its end), `at` when its effect happens (the press, the page let go, the
@@ -41,7 +41,16 @@ export const TOUCH_S: Record<TouchKind, { len: number; at: number; back: number 
   shape: { len: 4.4, at: 0.5, back: 4.0 },
   // #370 B2 the swatch fan: the left hand holds its stand, the right index spreads the chips (0.6–1.2 s) and points at one (1.4–2.8 s)
   swatch: { len: 3.8, at: 1.2, back: 3.0 },
+  // #370 B3 메모 reads the IN pile's top sheet: pinched by 0.6 s, before the chest by 1.2 s (the left palm under it), read, laid back squared by 4.0 s
+  paper: { len: 4.6, at: 0.6, back: 4.0 },
 }
+
+/**
+ * the top sheet's reading (designer: as a sheet handed over is read, grips.md 낱장 옆 쥐고 읽기): taken by its corner at 0.6 s and lifted to 1.2 s; as
+ * it comes up (0.8–1.0 s) the right hand slides to the right long side and the left takes the left one; read 55° up toward the face until 3.4 s; the
+ * right hand back to the corner (3.4–3.6 s) as the left lets go, laid back squared by 4.0 s
+ */
+export const PAPER_READ = { take: [0.6, 1.2], sides: [0.8, 1.0], unside: [3.4, 3.6], put: [3.4, 4.0], tiltDeg: 55 } as const
 
 /** #370 B the props taken (their nodes) */
 export const TOUCH_PROP: Partial<Record<TouchKind, string>> = { duck: 'prop_duck', keycap: 'prop_keycap_0', shape: 'prop_shape_1' }
@@ -68,6 +77,7 @@ export const HABIT_PER_HOUR: Partial<Record<TouchKind, { work: number; rest: num
   keycap: { work: 2, rest: 3 },
   shape: { work: 2, rest: 3 },
   swatch: { work: 3, rest: 0 },
+  paper: { work: 4, rest: 0 },
 }
 export const NO_REPEAT_S = 120
 
@@ -170,11 +180,11 @@ export class DeskTouches {
     if (dayKey(desk.calendar) !== dayKey(this.calendar) && free(0) && i.awake(0)) start('calendar')
     // the habits at their seeded times this hour
     const hourMs = 3_600_000
-    for (const kind of ['turntable', 'knob', 'keycap', 'shape', 'swatch'] as const) {
+    for (const kind of ['turntable', 'knob', 'keycap', 'shape', 'swatch', 'paper'] as const) {
       const seat = TOUCH_SEAT[kind]
       const working = i.working(seat)
       // the turntable while it bakes; the knob and the shape while it works and does not bake; the keycap and the shape while it rests awake too
-      const on = kind === 'turntable' ? desk.turntable : kind === 'knob' ? working && !desk.turntable : kind === 'shape' ? i.awake(seat) && !desk.turntable : kind === 'swatch' ? working : i.awake(seat)
+      const on = kind === 'turntable' ? desk.turntable : kind === 'knob' ? working && !desk.turntable : kind === 'shape' ? i.awake(seat) && !desk.turntable : kind === 'swatch' ? working : kind === 'paper' ? working && desk.inbox > 0 : i.awake(seat)
       if (!on || !free(seat) || !(i.now > this.prevNow)) continue
       const last = this.lastStart.get(kind)
       if (last !== undefined && t - last < NO_REPEAT_S) continue

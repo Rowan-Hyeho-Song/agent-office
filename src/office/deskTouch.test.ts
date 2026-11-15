@@ -8,6 +8,7 @@ import { deskProps, type DeskProps } from './props'
 import { Guard, Walk, expectCleanAll, world } from './errandWorld.fixture'
 import { contactNormal, handGripMatrix } from './gripTargets'
 import { DeskLive } from './deskLive'
+import { HELD_T, TrayPile } from './tray'
 import type { AgentRig } from './rig'
 import type { StatusMap } from './status'
 
@@ -173,7 +174,7 @@ const tipWorld = (rig: AgentRig, f: number | 'thumb') => {
 }
 
 /** everyone working at their desk; then `kind` begun and its whole length stepped, the desk drawn by DeskLive with the touch, as Agents.tsx does */
-async function touchRun(kind: TouchKind, onFrame: (w: Awaited<ReturnType<typeof world>>, u: number) => void, withGuard = false) {
+async function touchRun(kind: TouchKind, onFrame: (w: Awaited<ReturnType<typeof world>>, u: number) => void, withGuard = false, deskOver: Partial<DeskProps> = {}) {
   const w = await world()
   const guard = withGuard ? new Guard(w) : undefined
   const walk = new Walk(w, Date.UTC(2026, 10, 9, 1, 0, 0))
@@ -181,7 +182,7 @@ async function touchRun(kind: TouchKind, onFrame: (w: Awaited<ReturnType<typeof 
   const live = new DeskLive(w.nodes)
   const touches = new DeskTouches()
   const dt = 1 / 60
-  const desk = base({ lamp: true })
+  const desk = base({ lamp: true, ...deskOver })
   for (let k = 0; k < 360; k++) walk.step(dt)
   const t0 = walk.t
   touches.begin(kind, t0)
@@ -373,5 +374,76 @@ describe('the swatch fan (#370 B2, grips.md 색견본 부채)', () => {
     expect(leftFar, 'the left hand on the stand').toBeLessThan(0.01)
     expect(far, 'the index on the chip').toBeLessThan(0.01)
     expect(into, 'not into it').toBeLessThanOrEqual(0.002)
+  }, 120_000)
+})
+
+describe('the top sheet of the IN pile read (#370 B3, grips.md 서류 한 장 집기 · 낱장 옆 쥐고 읽기)', () => {
+  it('pinched at its corner, read held by both long sides (thumbs on the face, the fingers behind), laid back squared; the pile keeps its count', async () => {
+    let lift = 0
+    let moved = 0
+    let restY = 0
+    const restP = new Vector3()
+    let corner = 0
+    let sides = 0
+    let through = -Infinity
+    const tipOf = (rig: AgentRig, side: 'l' | 'r', f: number | 'thumb') => {
+      const h = rig.parts.hands[side]
+      const j = f === 'thumb' ? h.thumb[2]!.node : h.fingers[f][2]!.node
+      j.updateWorldMatrix(true, false)
+      return (f === 'thumb' ? h.thumbTip! : h.tips[f]!).clone().applyMatrix4(j.matrixWorld)
+    }
+    const w = await touchRun(
+      'paper',
+      (w, u) => {
+        const rig = w.rigs.agent_0
+        const top = w.scene.getObjectByName('desk_0_in_top')!
+        const c = top.getWorldPosition(new Vector3())
+        if (u < 0.3) {
+          restY = c.y
+          restP.copy(c)
+        }
+        lift = Math.max(lift, c.y - restY)
+        moved = Math.max(moved, c.distanceTo(restP))
+        const at = (name: string) => w.scene.getObjectByName(name)!.getWorldPosition(new Vector3())
+        // the corner pinched as it is taken
+        if (u > 0.62 && u < 0.78) for (const [f, n] of [[0, 'index'], ['thumb', 'thumb']] as const) corner = Math.max(corner, tipOf(rig, 'r', f).distanceTo(at(`desk_0_in_top_contact_${n}`)))
+        if (u > 1.3 && u < 3.3) {
+          for (const side of ['l', 'r'] as const)
+            for (const [f, n] of [[0, 'index'], ['thumb', 'thumb']] as const) sides = Math.max(sides, tipOf(rig, side, f).distanceTo(at(`desk_0_in_top_grip_side_${side}_contact_${n}`)))
+          // no finger through the sheet: the four fingers are behind it (the thumbs and the palm blocks are on its face side, beside the edge), so over
+          // its footprint no vertex of a finger is in front of its back face
+          const inv = top.matrixWorld.clone().invert()
+          const box = top.userData.sheetBox as { min: number[]; max: number[] }
+          const v = new Vector3()
+          for (const side of ['l', 'r'] as const)
+            rig.parts.hands[side].node.traverseVisible((m) => {
+              const g = (m as Mesh).geometry?.getAttribute('position')
+              if (!(m as Mesh).isMesh || !g || !/_f\d/.test(m.name)) return
+              for (let k = 0; k < g.count; k++) {
+                v.fromBufferAttribute(g, k).applyMatrix4(m.matrixWorld)
+                const q = v.clone().applyMatrix4(inv)
+                if (q.x < box.min[0] + 0.005 || q.x > box.max[0] - 0.005 || q.z < box.min[2] || q.z > box.max[2]) continue
+                // in the sheet's own frame y is stretched by its drawn thinness: back to metres along its normal
+                const n = new Vector3(0, 1, 0).transformDirection(top.matrixWorld)
+                through = Math.max(through, v.clone().sub(c).dot(n))
+              }
+            })
+        }
+      },
+      true,
+      { inbox: 3 },
+    )
+    const pile = TrayPile.of(w.scene.getObjectByName('desk_0_in'))!
+    const end = new Vector3().setFromMatrixPosition(w.scene.getObjectByName('desk_0_in_top')!.matrixWorld)
+    const squared = new Vector3().setFromMatrixPosition(pile.topRest(true))
+    if (LOG) appendFileSync(LOG, `paper: lifted ${(lift * 100).toFixed(1)} cm (moved ${(moved * 100).toFixed(1)} cm), the corner pinch ${(corner * 1000).toFixed(1)} mm, both sides ${(sides * 1000).toFixed(1)} mm off their contacts, fingers at most ${(through * 1000).toFixed(1)} mm over the sheet's back (the sheet is ${HELD_T * 1000} mm), back ${(end.distanceTo(squared) * 1000).toFixed(2)} mm from its squared rest
+`)
+    expect(lift, 'lifted off the pile').toBeGreaterThan(0.08)
+    expect(moved, 'brought to the reader').toBeGreaterThan(0.15)
+    expect(corner, 'the corner pinched').toBeLessThan(0.006)
+    expect(sides, 'thumbs and indexes on the long sides').toBeLessThan(0.006)
+    // the sheet in a hand is HELD_T thick: a finger pad on its back (grips.md: within 1 mm) comes no further than 1 mm past its face
+    expect(through, 'no finger through the sheet').toBeLessThanOrEqual(HELD_T + 0.001)
+    expect(end.distanceTo(squared), 'laid back squared').toBeLessThan(0.001)
   }, 120_000)
 })

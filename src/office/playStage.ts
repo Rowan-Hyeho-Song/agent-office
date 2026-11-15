@@ -43,7 +43,8 @@ import { WATER_S } from './waterRun'
 import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFor, shakeAt, type HabitKind } from './waterFx'
 import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
-import { KEYCAP_ROLL, SHAPE_TURN, SWATCH, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, hourglassAt, type Touch } from './deskTouch'
+import { TrayPile } from './tray'
+import { KEYCAP_ROLL, PAPER_READ, SHAPE_TURN, SWATCH, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, hourglassAt, type Touch } from './deskTouch'
 import { SIP_TOP_S, TREAT_HOLD, TREAT_LOOK, TREAT_PROP, takeSounds, treatPhase, type SnackKind } from './treatHold'
 import { handsOf } from './paperRun'
 import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, pageTau, rowOf } from './shelfRun'
@@ -1841,6 +1842,8 @@ export class PlayStage {
       if (!c) return false
       c.updateWorldMatrix(true, false)
       this.indexOn(rig, c.getWorldPosition(new Vector3()), contactNormal(this.sceneRef, c), 0, false, inp, want)
+    } else if (kind === 'paper') {
+      if (!this.paperTouch(rig, u, inp)) return false
     } else if (kind === 'swatch') {
       if (!this.swatchTouch(rig, tc.k ?? 0, u, inp)) return false
     } else if (TOUCH_PROP[kind]) {
@@ -1857,7 +1860,49 @@ export class PlayStage {
       this.grip(rig, 'r', 'hourglass', 'desk_0_hourglass', want, held, inp)
     }
     // the shape takes both hands
-    if (goal.pose === 'type' && kind !== 'shape' && kind !== 'swatch') this.typeAtDesk(rig, inp, seat, true)
+    if (goal.pose === 'type' && kind !== 'shape' && kind !== 'swatch' && kind !== 'paper') this.typeAtDesk(rig, inp, seat, true)
+    return true
+  }
+
+  /**
+   * #370 B3 (grips.md 서류 한 장 집기, desk-props.md 4): the IN pile's top sheet pinched at its front-right corner, lifted before the chest and tipped
+   * 55° up toward the face, held by both long sides as a sheet handed over is read (grips.md 낱장 옆 쥐고 읽기), and laid back on the pile squared (the count never changes: IN is what waits for the
+   * owner). The sheet is the pile's own top sheet (TrayPile.lift), so nothing appears or goes.
+   */
+  private paperTouch(rig: AgentRig, u: number, inp: StageIn): boolean {
+    const pile = TrayPile.of(this.sceneRef.getObjectByName('desk_0_in'))
+    if (!pile) return false
+    const P = PAPER_READ
+    const S = TOUCH_S.paper
+    const rest = pile.topRest()
+    const squared = pile.topRest(true)
+    const root = rig.parts.root
+    root.updateWorldMatrix(true, false)
+    // read before the chest, the sheet's own yaw kept (its +z toward the reader), tipped up toward the face
+    const rq = new Quaternion().setFromRotationMatrix(rest)
+    const right = new Vector3(Math.cos(rig.heading), 0, -Math.sin(rig.heading))
+    const q = new Quaternion().setFromAxisAngle(right, P.tiltDeg * DEG).multiply(rq)
+    const read = new Matrix4().compose(root.localToWorld(new Vector3(0.02, rig.parts.headRestY - 0.2, -0.28)), q, ONE)
+    const k = (a: number, b: number) => ease(Math.min(1, Math.max(0, (u - a) / (b - a))))
+    const held = u < P.take[0] ? rest : u < P.put[0] ? blend(rest, read, k(P.take[0], P.take[1])) : blend(read, squared, k(P.put[0], P.put[1]))
+    if (u < S.back) pile.lift(u < P.take[0] ? null : held)
+    else pile.lift(null, true)
+    this.grip(rig, 'r', 'paper_corner', 'desk_0_in_top', u < S.back, u < S.back ? held : squared, inp)
+    // both hands on the long sides while it is read (0.2 s from the corner to the side as it comes up, and back before it is laid down)
+    const s2 = k(P.sides[0], P.sides[1]) * (1 - k(P.unside[0], P.unside[1]))
+    if (s2 > 0) {
+      const seat = Number(rig.id.split('_')[1])
+      const side = (h: 'l' | 'r') => {
+        const t = this.target('desk_0_in_top', 'paper_tray_side', h)
+        if (!t) return null
+        return { target: handFor(held, t.pg, handGripMatrix(rig.parts.hands[h])).multiply(offsetOf(t.key, seat)), angles: this.holdFit(rig, h, t).hold }
+      }
+      const r = side('r')
+      const d = rig.drive.r
+      if (r && d?.target && d.angles) rig.drive.r = { ...d, target: blend(d.target, r.target, s2), angles: d.angles.map((x, i) => x * (1 - s2) + r.angles[i] * s2), w: 1, wc: 1 }
+      const l = side('l')
+      if (l) rig.drive.l = { target: l.target, w: s2, curl: null, angles: l.angles, wc: s2, spread: null }
+    }
     return true
   }
 
