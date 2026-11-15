@@ -3,12 +3,14 @@
 import { appendFileSync } from 'node:fs'
 import { Box3, Matrix4, Quaternion, Vector3, type Mesh } from 'three'
 import { describe, expect, it } from 'vitest'
-import { DUCK_BUBBLE, DUCK_LINES, DeskTouches, HABIT_PER_HOUR, KNOB_TURN, TOUCH_PROP, NO_REPEAT_S, TOUCH_S, TURNTABLE_PUSH, calendarPage, habitTimes, hourglassAt, type TouchIn, type TouchKind } from './deskTouch'
+import { DUCK_BUBBLE, DUCK_LINES, DeskTouches, HABIT_PER_HOUR, KNOB_TURN, LEAF_STROKE, TOUCH_PROP, leafAt, NO_REPEAT_S, TOUCH_S, TURNTABLE_PUSH, calendarPage, habitTimes, hourglassAt, type TouchIn, type TouchKind } from './deskTouch'
 import { deskProps, type DeskProps } from './props'
 import { Guard, Walk, expectCleanAll, world } from './errandWorld.fixture'
 import { contactNormal, handGripMatrix } from './gripTargets'
 import { DeskLive } from './deskLive'
 import { HELD_T, TrayPile } from './tray'
+import { localBox } from './localBox'
+import { STAMP_INK } from './playStage'
 import { beatAt, tidyBeats, totalOf } from './wrap'
 import type { AgentRig } from './rig'
 import type { StatusMap } from './status'
@@ -569,5 +571,72 @@ describe('the IN pile squared at the tidy-up (#370 B3b, desk-props.md 4)', () =>
       moved = Math.max(moved, p.distanceTo(rest))
     })
     expect(moved).toBe(0)
+  }, 120_000)
+})
+
+describe('the succulent leaf stroked (#370 C3)', () => {
+  it('the index fingertip along the leaf from its start to its end, twice, riding it down as it gives (6°); the leaf back after', async () => {
+    let far = 0
+    let frames = 0
+    let sway = 0
+    const w = await touchRun('leaf', (w, u) => {
+      const lf = w.scene.getObjectByName('succulent_leaf')!
+      const r0 = (lf.userData.liveRest as { q: Quaternion }).q
+      sway = Math.max(sway, (lf.quaternion.angleTo(r0) * 180) / Math.PI)
+      const L = leafAt(u, false)
+      if (L.k < 0.1 || L.k > 0.9) return
+      frames++
+      const a = w.scene.getObjectByName('succulent_leaf_touch_0')!.getWorldPosition(new Vector3())
+      const b = w.scene.getObjectByName('succulent_leaf_touch_1')!.getWorldPosition(new Vector3())
+      const P = a.lerp(b, L.k)
+      const pv = lf.userData.pivot_at as number[]
+      const pivot = new Vector3(pv[0], pv[1], pv[2])
+      P.sub(pivot).applyQuaternion(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0).transformDirection(lf.matrixWorld), (L.sway * Math.PI) / 180)).add(pivot)
+      far = Math.max(far, tipWorld(w.rigs.agent_2, 0).distanceTo(P))
+    })
+    const lf = w.scene.getObjectByName('succulent_leaf')!
+    const back = (lf.quaternion.angleTo((lf.userData.liveRest as { q: Quaternion }).q) * 180) / Math.PI
+    if (LOG) appendFileSync(LOG, `leaf: the fingertip ${(far * 1000).toFixed(1)} mm off the stroke at most, the leaf gave ${sway.toFixed(1)}°, ${back.toFixed(2)}° after
+`)
+    expect(frames).toBeGreaterThan(20)
+    expect(far, 'on the leaf').toBeLessThan(0.006)
+    expect(sway).toBeGreaterThan(5)
+    expect(sway).toBeLessThanOrEqual(LEAF_STROKE.deg + 0.01)
+    expect(back).toBeLessThan(0.01)
+  }, 120_000)
+})
+
+describe('the stamp inked on the pad (#370 C3, desk-props.md 4)', () => {
+  it('dabbed twice on the felt (its face 2 mm into it, inside the pad), then pressed where it rests and back there; the stamp heard once', async () => {
+    const w = await world()
+    const walk = new Walk(w, Date.UTC(2026, 10, 9, 1, 0, 0))
+    walk.status = Object.fromEntries(['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4'].map((id) => [id, { state: 'working' as const, activity: 'edit', since: 0 }]))
+    const dt = 1 / 60
+    for (let k = 0; k < 360; k++) walk.step(dt)
+    const stamp = w.scene.getObjectByName('prop_stamp')!
+    const pad = w.scene.getObjectByName('desk_0_inkpad')!
+    const padP = pad.getWorldPosition(new Vector3())
+    const homeP = stamp.getWorldPosition(new Vector3())
+    const faceY = localBox(stamp).min.y
+    let deepest = 0
+    let off = 0
+    walk.stamp = true
+    const t0 = walk.t
+    while (walk.t - t0 < 2) {
+      walk.step(dt)
+      const s = walk.t - t0
+      if (s < STAMP_INK.dabs[0] || s > STAMP_INK.dabs[1]) continue
+      const face = stamp.localToWorld(new Vector3(0, faceY, 0))
+      deepest = Math.max(deepest, padP.y - face.y)
+      off = Math.max(off, Math.hypot(face.x - padP.x, face.z - padP.z))
+    }
+    walk.stamp = false
+    for (let k = 0; k < 90; k++) walk.step(dt)
+    const end = stamp.getWorldPosition(new Vector3()).distanceTo(homeP)
+    if (LOG) appendFileSync(LOG, `stamp: its face ${(deepest * 1000).toFixed(1)} mm into the felt at the deepest, ${(off * 1000).toFixed(1)} mm from the pad's middle at most, back ${(end * 1000).toFixed(2)} mm from its rest
+`)
+    expect(deepest, 'into the felt by its press').toBeCloseTo(Number(pad.userData.press) || 0.002, 3)
+    expect(off, 'on the pad').toBeLessThan(Number(pad.userData.dab_r) || 0.026)
+    expect(end, 'back where it rests').toBeLessThan(0.001)
   }, 120_000)
 })

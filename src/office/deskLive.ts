@@ -102,6 +102,8 @@ export class DeskLive {
   private page: { live: LiveAxis; sign: number } | undefined
   /** #370 B2 휴's swatch chips: each about its own z, from its baked fan angle (rest_deg) */
   private chips: { live: LiveAxis; rest: number }[] = []
+  /** #370 C3 the succulent's front leaf (a baked node with its pivot at the stem), swayed about its own x as it is stroked */
+  private leaf: LiveAxis | undefined
   private spin = 0
 
   constructor(nodes: Record<string, Object3D>) {
@@ -116,6 +118,8 @@ export class DeskLive {
     this.knob = kn && new LiveAxis(kn, new Vector3(1, 0, 0))
     const pg = n('desk_0_calendar_page')
     if (pg) this.page = { live: new LiveAxis(pg, new Vector3(1, 0, 0)), sign: Number(pg.userData.flip_sign) || 1 }
+    const lf = n('succulent_leaf')
+    if (lf) this.leaf = new LiveAxis(lf, new Vector3(1, 0, 0))
     for (let k = 0; k < 4; k++) {
       const c = n(`desk_2_swatch_leaf_${k}`)
       if (c) this.chips.push({ live: new LiveAxis(c, new Vector3(0, 0, 1)), rest: Number(c.userData.rest_deg) || 0 })
@@ -195,6 +199,7 @@ export class DeskLive {
       this.turntable.turn(this.spin + (touch?.turntablePush ?? 0))
     }
     this.knob?.turn(touch?.knobTurn ?? 0)
+    this.leaf?.turn(((touch?.leafSway ?? 0) * Math.PI) / 180)
     // the swatch spread by the designer's hand: each chip as far again past its rest
     for (const c of this.chips) c.live.turn(((c.rest * (touch?.swatchSpread ?? 0)) * Math.PI) / 180)
     if (this.page) {
