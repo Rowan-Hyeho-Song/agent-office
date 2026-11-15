@@ -357,7 +357,9 @@ export function Agents({ world }: { world: OfficeWorld }) {
         world.bubbles.say(ppVisit.agent, { kind: 'react', text: '일하러 가야 해요!', ms: 3000, whole: true }, now)
         closePingpong()
       } else if (ppVisit.phase !== 'leaving') {
-        goals[ppVisit.agent] = { spot: 'pingpong_b', pose: 'pingpong', label: '탁구 · 방문자와 경기' }
+        // already at the far end: its goal as it is (its departure), only the words, and at the spot itself (no other play's standing place); else sent there
+        const g0 = goals[ppVisit.agent]
+        goals[ppVisit.agent] = g0.spot === 'pingpong_b' && g0.pose === 'pingpong' ? { ...g0, slot: undefined, label: '탁구 · 방문자와 경기' } : { spot: 'pingpong_b', pose: 'pingpong', label: '탁구 · 방문자와 경기' }
         // anyone else the director sends to the table (the near end's player, one coming to join) watches from beside it, by the net: out of the
         // visitor's view down the table (play.md 3.1)
         for (const w of Object.keys(goals))

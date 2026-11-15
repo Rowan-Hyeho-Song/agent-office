@@ -291,7 +291,9 @@ export function PingpongVisitRig({ world }: { world: OfficeWorld }) {
 
     // the match's clock once the agent stands at the far end; its sounds and the agent's reactions (play.md 3.3)
     const agent = v.agent ? world.rigs[v.agent] : undefined
-    const ready = v.phase === 'open' && agent?.arrived === 'pingpong_b'
+    // at its end and standing there (the traffic's "arrived" alone has been seen while the body stood elsewhere)
+    const spot = world.graph?.spots.pingpong_b
+    const ready = v.phase === 'open' && agent?.arrived === 'pingpong_b' && !!spot && Math.hypot(agent.x - spot.x, agent.z - spot.z) < 0.3
     setPingpongReady(!!ready)
     if (ready) {
       stepPingpong(Math.min(dt, 0.1))
