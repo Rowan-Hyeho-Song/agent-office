@@ -111,15 +111,30 @@ describe('a visitor game', () => {
     expect(s.events).toContainEqual({ kind: 'face', face: 'joy' })
   })
 
-  it('nothing left to stop (two ways to five): the agent lays its stone down', () => {
+  it('nothing left to stop (two ways to five): the agent lays its stone down and leaves the winning move to the visitor (#491)', () => {
     // black (5..7, 7) open at both ends, white far away; black plays (8, 7): an open four
     const g = withMoves('agent_0', 5, [at(5, 7), at(0, 0), at(6, 7), at(0, 14), at(7, 7), at(14, 0)])
     const r = visitorMove(g, at(8, 7), 1000)!
-    expect(r.g.end?.result).toBe('resign')
+    expect(r.g.end, 'not over yet').toBeNull()
+    expect(r.g.pending, 'the agent does not play').toBeNull()
+    expect(visitorTurn(r.g)).toBe(true)
     expect(said(r.events)).toEqual([OMOK_LINES.resign])
-    expect(statusLine(r.g, '메모', 1000)).toBe('흑 승 · 7수')
+    expect(r.events).toContainEqual({ kind: 'face', face: 'nod' })
+    expect(canUndo(r.g)).toBe(false)
+    // the visitor plays the five: a win like any other (the line, the agent's words)
+    const five = visitorMove(r.g, at(9, 7), 2000)!
+    expect(five.g.end?.result).toBe('black')
+    expect(five.g.end?.line?.length).toBeGreaterThanOrEqual(5)
+    expect(said(five.events)).toEqual([OMOK_LINES.visitorWon])
+    // elsewhere: 흑 승 · 던짐
+    const away = visitorMove(r.g, at(0, 7), 2000)!
+    expect(away.g.end?.result).toBe('resign')
+    expect(statusLine(away.g, '메모', 2000)).toBe('흑 승 · 던짐 · 8수')
+    // or 90 s with no move: the same, without the idle words
+    const quiet = stepVisitorGame(r.g, 1000 + VISITOR_OMOK.idleMs)
+    expect(quiet.g.end?.result).toBe('resign')
+    expect(said(quiet.events)).toEqual([])
   })
-
   it('undo takes back a pair, three times a game; the first time the agent says it is fine', () => {
     let t = turn(startVisitorGame('agent_2', 9, 0), at(7, 7), 0)
     t = turn(t.g, free(t.g, at(6, 6)), t.now + 400)

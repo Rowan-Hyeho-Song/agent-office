@@ -29,7 +29,7 @@ export const OMOK_LINES = {
   good: '오, 좋은 수네요',
   visitorWon: '졌어요! 한 판 더?',
   agentWon: '제가 이겼네요 :)',
-  resign: '제가 졌어요',
+  resign: '제가 졌어요 · 마저 두세요',
   firstUndo: '괜찮아요, 다시 두세요',
   idle: '다음에 또 둬요',
   work: '일하러 가야 해요!',
@@ -37,7 +37,7 @@ export const OMOK_LINES = {
   strong: '진지하게 둘게요',
 } as const
 /** its own open four, by personality (play.md 2.4) */
-export const FOUR_LINES: Record<string, string> = { agent_0: '음… 여기네요', agent_1: '여기에 하나', agent_2: '모양이 예쁘죠?', agent_3: '끝낼게요' }
+export const FOUR_LINES: Record<string, string> = { agent_0: '음… 여기네요', agent_1: '여기에 하나', agent_2: '모양이 예쁘죠?', agent_3: '끝낼게요', agent_4: '한 박자 남았어요' }
 const fourLine = (agent: string) => FOUR_LINES[agent] ?? FOUR_LINES.agent_1
 
 export type Face = 'think' | 'surprised' | 'joy' | 'embarrassed' | 'nod'
@@ -65,11 +65,13 @@ export interface VisitorGame {
   /** the reaction lines already said this game (each at most once: three a game) */
   said: string[]
   lastInput: number
+  /** the agent has laid its stone down (nothing left to stop): it is the visitor's move to finish (play.md 5.2, #491) */
+  conceded: boolean
   end: { result: EndResult; at: number; line: number[] | null } | null
 }
 
 export function startVisitorGame(agent: string, seed: number, now: number, strength: Strength = 'normal', game = 0): VisitorGame {
-  return { agent, seed, game, strength, s: newGame(), moves: [], pending: null, landed: null, visitorAt: -Infinity, undos: 0, said: [], lastInput: now, end: null }
+  return { agent, seed, game, strength, s: newGame(), moves: [], pending: null, landed: null, visitorAt: -Infinity, undos: 0, said: [], lastInput: now, conceded: false, end: null }
 }
 
 /** the next game in the same sitting: same agent and strength */
@@ -109,6 +111,11 @@ export function visitorMove(g0: VisitorGame, cell: number, now: number): { g: Vi
   if (!s) return null
   const g: VisitorGame = { ...g0, s, moves: [...g0.moves, cell], visitorAt: now, lastInput: now, said: [...g0.said] }
   const ev: OmokEvent[] = []
+  // after the agent laid its stone down: five wins as any five; anywhere else ends it as the concession (흑 승 · 던짐)
+  if (g0.conceded && s.result !== 'black') {
+    g.end = { result: 'resign', at: now, line: null }
+    return { g, events: ev }
+  }
   if (s.result === 'black') {
     g.end = { result: 'black', at: now, line: s.line }
     say(g, OMOK_LINES.visitorWon, ev)
@@ -124,9 +131,11 @@ export function visitorMove(g0: VisitorGame, cell: number, now: number): { g: Vi
     say(g, OMOK_LINES.good, ev, true)
     ev.push({ kind: 'face', face: 'surprised' })
   }
-  // nothing left to stop (two ways to five): the agent lays its stone down (play.md 5.2)
+  // nothing left to stop (two ways to five): the agent lays its stone down and leaves the winning move to the visitor (play.md 5.2, #491).
+  // It does not play: black moves again.
   if (fiveCells(s.board, 1).length >= 2) {
-    g.end = { result: 'resign', at: now, line: null }
+    g.conceded = true
+    g.s = { ...s, toMove: 1 }
     say(g, OMOK_LINES.resign, ev)
     ev.push({ kind: 'face', face: 'nod' })
     return { g, events: ev }
@@ -146,7 +155,9 @@ export function stepVisitorGame(g0: VisitorGame, now: number): { g: VisitorGame;
     const s = play(g0.s, p.cell)!
     // the visitor's turn again: the idle clock counts from here
     const g: VisitorGame = { ...g0, s, moves: [...g0.moves, p.cell], pending: null, landed: p, lastInput: now, said: [...g0.said] }
-    if (fiveCells(before, 1).includes(p.cell)) say(g, OMOK_LINES.block, ev, true)
+    // a four it can stop (one way to five, play.md 2.4 · #491)
+    const fives = fiveCells(before, 1)
+    if (fives.length === 1 && fives[0] === p.cell) say(g, OMOK_LINES.block, ev, true)
     if (s.result === 'white') {
       g.end = { result: 'white', at: now, line: s.line }
       say(g, OMOK_LINES.agentWon, ev)
@@ -156,8 +167,9 @@ export function stepVisitorGame(g0: VisitorGame, now: number): { g: VisitorGame;
     return { g, events: ev }
   }
   if (!p && now - g0.lastInput >= VISITOR_OMOK.idleMs) {
-    const g = { ...g0, end: { result: 'idle' as const, at: now, line: null } }
-    say(g, OMOK_LINES.idle, ev)
+    // after the concession the game is the visitor's anyway (흑 승 · 던짐); otherwise it is let go
+    const g = { ...g0, end: { result: g0.conceded ? ('resign' as const) : ('idle' as const), at: now, line: null } }
+    if (!g0.conceded) say(g, OMOK_LINES.idle, ev)
     return { g, events: ev }
   }
   return { g: g0, events: ev }
@@ -173,7 +185,7 @@ export function idleLeft(g: VisitorGame, now: number): number | null {
   return left <= VISITOR_OMOK.warnMs ? Math.max(0, left) : null
 }
 
-export const canUndo = (g: VisitorGame) => !g.end && g.undos < VISITOR_OMOK.undoMax && g.moves.length > 0
+export const canUndo = (g: VisitorGame) => !g.end && !g.conceded && g.undos < VISITOR_OMOK.undoMax && g.moves.length > 0
 
 /** take back the visitor's last move and the agent's answer (or the answer it is still thinking about); null when not allowed */
 export function undo(g0: VisitorGame, now: number): { g: VisitorGame; events: OmokEvent[]; removed: number[] } | null {
@@ -212,7 +224,7 @@ export function endGame(g: VisitorGame, why: 'quit' | 'work', now: number): { g:
 /** a point's name: columns A–O left to right, rows 1–15 bottom to top as the visitor sees the board (H8 is the centre) */
 export const cellName = (cell: number) => `${String.fromCharCode(65 + (cell % N))}${N - ((cell / N) | 0)}`
 
-const RESULT_WORD: Record<EndResult, string> = { black: '흑 승', white: '백 승', draw: '무승부', resign: '흑 승', idle: '중단', work: '중단', quit: '중단' }
+const RESULT_WORD: Record<EndResult, string> = { black: '흑 승', white: '백 승', draw: '무승부', resign: '흑 승 · 던짐', idle: '중단', work: '중단', quit: '중단' }
 
 /** the HUD's status line (play.md 2.2 · 2.5 · 5.2 · 5.3); the thinking dots grow one every 0.4 s */
 export function statusLine(g: VisitorGame, agentName: string, now: number): string {
