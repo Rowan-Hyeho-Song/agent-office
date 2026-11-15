@@ -3,7 +3,7 @@
 import { appendFileSync } from 'node:fs'
 import { Box3, Matrix4, Quaternion, Vector3, type Mesh } from 'three'
 import { describe, expect, it } from 'vitest'
-import { DUCK_BUBBLE, DUCK_LINES, DeskTouches, HABIT_PER_HOUR, TOUCH_PROP, NO_REPEAT_S, TOUCH_S, TURNTABLE_PUSH, calendarPage, habitTimes, hourglassAt, type TouchIn, type TouchKind } from './deskTouch'
+import { DUCK_BUBBLE, DUCK_LINES, DeskTouches, HABIT_PER_HOUR, KNOB_TURN, TOUCH_PROP, NO_REPEAT_S, TOUCH_S, TURNTABLE_PUSH, calendarPage, habitTimes, hourglassAt, type TouchIn, type TouchKind } from './deskTouch'
 import { deskProps, type DeskProps } from './props'
 import { Guard, Walk, expectCleanAll, world } from './errandWorld.fixture'
 import { contactNormal, handGripMatrix } from './gripTargets'
@@ -274,7 +274,32 @@ describe('the hand on the desk thing (#370 A, grips.md)', () => {
       const rig = w.rigs.agent_0
       worst = Math.max(worst, tipWorld(rig, 0).distanceTo(index.getWorldPosition(new Vector3())), tipWorld(rig, 'thumb').distanceTo(thumb.getWorldPosition(new Vector3())))
     })
-    if (has) expect(worst, 'thumb and index on the pillars').toBeLessThan(0.01)
+    if (has && LOG) appendFileSync(LOG, `hourglass: thumb / index ${(worst * 1000).toFixed(1)} mm off the pillars at most while lifted and turned
+`)
+    if (has) expect(worst, 'thumb and index on the pillars').toBeLessThan(0.006)
+  }, 120_000)
+
+  it('the ring light knob: pinched (thumb and index on their contacts) while it turns, the knob turned 20°', async () => {
+    let worst = 0
+    let frames = 0
+    let turned = 0
+    const w = await touchRun('knob', (w, u) => {
+      const k = w.scene.getObjectByName('desk_1_ringlight_knob')!
+      const r0 = (k.userData.liveRest as { q: Quaternion } | undefined)?.q
+      if (r0) turned = Math.max(turned, k.quaternion.angleTo(r0))
+      const thumb = w.scene.getObjectByName('desk_1_ringlight_knob_contact_thumb')
+      const index = w.scene.getObjectByName('desk_1_ringlight_knob_contact_index')
+      if (!thumb || !index || u < KNOB_TURN.from || u > KNOB_TURN.from + KNOB_TURN.s) return
+      frames++
+      const rig = w.rigs.agent_1
+      worst = Math.max(worst, tipWorld(rig, 0).distanceTo(index.getWorldPosition(new Vector3())), tipWorld(rig, 'thumb').distanceTo(thumb.getWorldPosition(new Vector3())))
+    })
+    void w
+    if (LOG) appendFileSync(LOG, `ring light knob: thumb / index ${(worst * 1000).toFixed(1)} mm off its contacts while turning, turned ${((turned * 180) / Math.PI).toFixed(1)}°
+`)
+    expect(frames).toBeGreaterThan(5)
+    expect(worst, 'thumb and index on the knob').toBeLessThan(0.006)
+    expect((turned * 180) / Math.PI).toBeCloseTo(20, 0)
   }, 120_000)
 })
 

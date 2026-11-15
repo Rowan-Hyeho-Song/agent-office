@@ -97,6 +97,8 @@ export const GRIPS: Record<string, GripSpec> = {
     l: { pre: curlOf([0.15, 0.15, 0.2, 0.2], [0.1, 0.3]), hold: curlOf([0.25, 0.25, 0.3, 0.3], [0.35, 0.5]), after: REST, contacts: ['index', 'thumb'] },
     r: { pre: curlOf([0.15, 0.15, 0.2, 0.2], [0.1, 0.3]), hold: curlOf([0.25, 0.25, 0.3, 0.3], [0.35, 0.5]), after: REST, contacts: ['index', 'thumb'] },
   },
+  // #370 C (grips.md 링 조명 노브): the ring light's knob pinched by the thumb and the index tips, the wrist turning it 20°
+  ringknob: { r: { pre: curlOf([0.3, 0.3, 0.8, 0.85], [0.2, 0.6]), hold: curlOf([0.55, 0.55, 0.8, 0.85], [0.3, 0.7]), after: REST, contacts: ['thumb', 'index'] } },
   stamp: { r: { pre: all(0.3, [0.1, 0.3]), hold: curlOf([0.75, 0.8, 0.82, 0.85], [0.4, 0.9]), after: REST, contacts: ['palm'] } },
   // a hand gripping the mouse body (#305: it slides it about its pad): the palm over the body, the index on the left button, the middle on the right
   mouse: { r: { pre: all(0.2, [0.1, 0.3]), hold: curlOf([0.35, 0.35, 0.45, 0.5], [0.25, 0.6]), after: REST, contacts: ['palm', 'index', 'middle'] } },

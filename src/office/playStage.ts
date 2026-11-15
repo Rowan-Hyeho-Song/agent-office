@@ -56,7 +56,7 @@ export const PRESS_TAP = { m: 0.001, s: 0.08 }
 
 /** #370 B3b the IN pile squared at the tidy-up: lifted 4 cm, stood 70° on its near edge, tapped down 1.2 cm; the palms 2 mm off its sides (the hand frame 9 mm behind the palm), 2 cm in from its near edge */
 export const PILE_TIDY = { lift: 0.04, standDeg: 70, tap: 0.012, out: 0.002, palm: 0.009, near: 0.02 }
-import { KEYCAP_ROLL, PAPER_READ, SHAPE_TURN, SWATCH, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, hourglassAt, type Touch } from './deskTouch'
+import { KEYCAP_ROLL, PAPER_READ, SHAPE_TURN, SWATCH, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, type Touch } from './deskTouch'
 import { SIP_TOP_S, TREAT_HOLD, TREAT_LOOK, TREAT_PROP, takeSounds, treatPhase, type SnackKind } from './treatHold'
 import { handsOf } from './paperRun'
 import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, pageTau, rowOf } from './shelfRun'
@@ -1853,6 +1853,11 @@ export class PlayStage {
         const n = contactNormal(this.sceneRef, c).applyQuaternion(q)
         this.indexOn(rig, P, n, 0, false, inp, want)
       }
+    } else if (kind === 'knob' && node('desk_1_ringlight_knob_grip_r')) {
+      // #370 C (designer): the knob pinched by the thumb (over it) and the index (under it), the hand turning with it (DeskLive turns it 20°)
+      const k = node('desk_1_ringlight_knob')!
+      k.updateWorldMatrix(true, false)
+      this.grip(rig, 'r', 'ringknob', 'desk_1_ringlight_knob', want, k.matrixWorld.clone(), inp)
     } else if (kind === 'knob' || kind === 'calendar') {
       const c = node(kind === 'knob' ? 'desk_1_ringlight_knob_contact_index' : 'desk_0_calendar_page_contact_index')
       if (!c) return false
@@ -1870,9 +1875,12 @@ export class PlayStage {
       const hg = node('desk_0_hourglass')
       const rest = hg?.userData.liveRest as { p: Vector3; q: Quaternion } | undefined
       if (!hg || !rest || !node('desk_0_hourglass_contact_thumb')) return false
-      const held = new Matrix4().compose(rest.p, rest.q, ONE)
-      if (hg.parent) held.premultiply(hg.parent.matrixWorld)
-      held.elements[13] += hourglassAt(u, inp.reduced).lift
+      // where it is now (DeskLive lifts it by the touch and by as much as its turn would sink its plates into the coaster), turned as it rests: the
+      // pinch is on its turn axis, so the fingers stay on it as it turns between them
+      hg.updateWorldMatrix(true, false)
+      const rq = rest.q.clone()
+      if (hg.parent) rq.premultiply(new Quaternion().setFromRotationMatrix(hg.parent.matrixWorld))
+      const held = new Matrix4().compose(hg.getWorldPosition(new Vector3()), rq, ONE)
       this.grip(rig, 'r', 'hourglass', 'desk_0_hourglass', want, held, inp)
     }
     // the shape takes both hands
