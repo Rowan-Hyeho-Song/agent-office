@@ -42,7 +42,7 @@ import { WATER_S } from './waterRun'
 import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFor, shakeAt, type HabitKind } from './waterFx'
 import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
-import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, rowOf } from './shelfRun'
+import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, pageTau, rowOf } from './shelfRun'
 import { cue } from '../audio/cues'
 import { type Place, SEQ, ease, habitOf, placeSequence } from '../play/choreo'
 import { STEP, stepAt, strokeAt } from '../play/stroke'
@@ -226,6 +226,9 @@ export class PlayStage {
   private bookHalves: { l: Object3D; r: Object3D } | null = null
   /** #450 the second bookshelf's books' halves, by book */
   private shelfHalves = new Map<string, { l: Object3D; r: Object3D }>()
+  /** #450 the shelf books' turning leaves, and the turns already heard (book.page) */
+  private shelfLeaves = new Map<string, LeafBend>()
+  private shelfPaged = new Set<string>()
   /** #450 the shelf book cues already fired (book.out / book.in once per stage) */
   private shelfCued = new Set<string>()
   /** the one leaf that turns (#231): bent about the spine, hidden while the book is read without a turn */
@@ -354,6 +357,14 @@ export class PlayStage {
         node.attach(hl)
         node.attach(hr)
         this.shelfHalves.set(b.name, { l: hl, r: hr })
+        // its one leaf that turns (as the low table's book: grips.md "한 장 넘기기"), hidden between the turns
+        const page = nodes[`${b.name}_page`]
+        if (page) {
+          node.attach(page)
+          const lf = new LeafBend(page)
+          page.visible = false
+          this.shelfLeaves.set(b.name, lf)
+        }
       }
     }
     const book = nodes.prop_book
@@ -1559,6 +1570,27 @@ export class PlayStage {
       if (fromSpine && op?.target && op.angles)
         rig.drive.r = { ...op, target: blend(fromSpine.target, op.target, open), angles: op.angles.map((x, i) => fromSpine.angles[i] * (1 - open) + x * open), w: fromSpine.w * (1 - open) + op.w * open, wc: fromSpine.wc * (1 - open) + op.wc * open }
     }
+    // a page turns every 25–40 s while it is read (not with reduced motion), and book.page is heard as it starts
+    const lf = this.shelfLeaves.get(name)
+    if (lf) {
+      const gm = inp.reduced ? 0 : rig.gestureMin
+      const lead = Math.max(LEAD_S, gm)
+      const dur = Math.max(TURN_S, gm)
+      const back = Math.max(BACK_S, gm)
+      const tau = s.stage === 'read' && !inp.reduced ? pageTau({ agent: rig.id, block: s.block }, u, lead, dur, back) : null
+      if (tau === null) {
+        lf.node.visible = false
+        if (lf.theta !== 0) lf.set(0)
+      } else {
+        this.leafTurn(rig, name, lf, tau, lead, dur, back, pose)
+        const k = `${rig.id}:${s.block}:${name}:${Math.round((u - tau) * 10)}`
+        if (tau >= 0 && !this.shelfPaged.has(k)) {
+          this.shelfPaged.add(k)
+          if (this.shelfPaged.size > 64) this.shelfPaged.delete(this.shelfPaged.values().next().value!)
+          cue('book.page', { pos: node.getWorldPosition(new Vector3()), agent: rig.id, key: `lounge:book.page:${k}` })
+        }
+      }
+    }
     // the halves open with the reading grip
     const h = this.shelfHalves.get(name)
     if (h) {
@@ -1781,6 +1813,11 @@ export class PlayStage {
     if (inp.reduced || inp.t - openAt < 0.5 || c < 0) return this.hideLeaf()
     const tau = (c % Math.max(6, lead + dur + back + 1)) - lead
     if (tau >= dur + back) return this.hideLeaf()
+    this.leafTurn(rig, bookName, lf, tau, lead, dur, back, pose)
+  }
+
+  /** a leaf at `tau` s into its turn (from -lead to dur + back): the leaf bent, the right hand pinching its corner over the reading grip (#231) */
+  private leafTurn(rig: AgentRig, bookName: string, lf: LeafBend, tau: number, lead: number, dur: number, back: number, pose: Matrix4) {
     const theta = leafAngle(tau, dur, lead)
     lf.set(theta)
     lf.node.visible = theta < OPEN_ANGLE - 1e-3
