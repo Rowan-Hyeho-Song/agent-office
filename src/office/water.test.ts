@@ -44,8 +44,9 @@ describe('watering lands on the soil (#184)', () => {
 
   it('the schedule stands the watering agent at the spot that works for its plant, facing it', () => {
     let found: ReturnType<typeof playAt>[string] | null = null
+    // #490: the day plan, sampled every 30 s from a morning on
     for (let m = 0; m < 4000 && !found; m++) {
-      const a = playAt(m * 3, ['agent_0', 'agent_1', 'agent_2', 'agent_3'])
+      const a = playAt(Date.UTC(2026, 10, 9, 0, 0, 0) + m * 30_000, ['agent_0', 'agent_1', 'agent_2', 'agent_3'])
       found = Object.values(a).find((x) => x.kind === 'water') ?? null
     }
     const plant = WATER_PLANTS.find((p) => p.x === found?.face?.x && p.z === found?.face?.z)!

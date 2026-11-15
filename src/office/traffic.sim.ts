@@ -50,7 +50,8 @@ export function mismatch(a: string, sh: Shown | undefined, g: Goal, arrived: str
     case 'off':
       return (g.pose === 'doze' || g.pose === 'idle') && g.spot === desk && s === 'off' ? null : 'off: not at the desk dozing / resting'
     case 'duty':
-      return (g.pose === 'coffee' || g.pose === 'books') && s === 'idle' ? null : 'duty: not the night solo'
+      // the night solo, or the gap between two of them (#490 play.md 9.1: coffee, a gap, coffee)
+      return (g.pose === 'coffee' || g.pose === 'books' || g.pose === 'idle') && s === 'idle' ? null : 'duty: not the night solo'
     case 'meet':
       return sh.detail ? null : 'meet: no meeting words'
     case 'talk':
