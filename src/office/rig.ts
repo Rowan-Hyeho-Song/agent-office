@@ -24,8 +24,7 @@ import { aimPose, planGesture, type AimPose, type Plan } from './aim'
 import { DOZE } from './doze'
 import { FaceScreen } from './faceScreen'
 import { baseExpression, CallTracker, FaceMind, newInput, type FaceInput } from './faceMind'
-import { WRITE_ASIDE, WRITE_CARD, wrapBack, wrapHand, wrapHead, writePlace, type HandSpec, type PressAt, type WritePlace } from './wrapPose'
-import { WRITE_PRESS } from './writePress.data'
+import { WRITE_CARD, wrapBack, wrapHand, wrapHead, type HandSpec } from './wrapPose'
 import { WRAP } from './wrap'
 import type { Expression } from './faceModel'
 import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
@@ -1046,8 +1045,6 @@ export class AgentRig {
   setGoal(goal: Goal, g: NavGraph) {
     const prev = this.goal
     this.goal = goal
-    // writing at a desk that faces the default camera: the card lies beside the monitor (wrapPose.ts writePlace)
-    this.place = goal.pose === 'write' ? writePlace(g.spots, goal.spot) : null
     if (this.traffic) {
       this.placed = true
       return
@@ -1214,16 +1211,8 @@ export class AgentRig {
     stepBack.k = MathUtils.clamp(wantBack > stepBack.k ? Math.min(wantBack, stepBack.k + dt / 0.6) : Math.max(wantBack, stepBack.k - dt / 0.6), 0, 1)
     root.position.set((this.drawAt?.x ?? this.x) + this.lean.x + stepBack.dir.x * stepBack.k * WRAP.backM, -this.bodyDip, (this.drawAt?.z ?? this.z) + this.lean.z + stepBack.dir.y * stepBack.k * WRAP.backM)
     this.nudged.x = this.nudged.z = 0
-    // writing beside the monitor (#461): the whole body turns 20° toward the card and moves 4 cm toward it in 0.4 s (power2.inOut), and back when the writing is
-    // over; reduced motion at once. The hands and the card stay where they are on the desk (writeHand puts them back in the seat's frame)
-    if (this.place) this.writeSide = this.place.side
-    const wantTurn = resting && goal.pose === 'write' && this.place ? 1 : 0
-    this.writeK = reduced ? wantTurn : wantTurn > this.writeK ? Math.min(wantTurn, this.writeK + dt / WRITE_ASIDE.turnS) : Math.max(wantTurn, this.writeK - dt / WRITE_ASIDE.turnS)
-    const turnE = this.writeK < 0.5 ? 2 * this.writeK * this.writeK : 1 - (-2 * this.writeK + 2) ** 2 / 2
-    this.writeTurn = -this.writeSide * WRITE_ASIDE.turnDeg * (Math.PI / 180) * turnE
-    this.writeShift = this.writeSide * WRITE_ASIDE.shiftM * turnE
-    if (this.writeShift) root.position.addScaledVector(new Vector3(Math.cos(this.heading), 0, -Math.sin(this.heading)), this.writeShift)
-    root.rotation.set(0, this.heading + (this.aim?.body ?? 0) + this.writeTurn, 0)
+    // #532: the cards are written held in the hand (wrapup.md 9), facing the desk: the body no longer turns toward a card on the desk (#461)
+    root.rotation.set(0, this.heading + (this.aim?.body ?? 0), 0)
     this.bodyDip = 0
     root.updateMatrixWorld(true)
 
@@ -1438,8 +1427,8 @@ export class AgentRig {
       // the wrap-up (#186, wrap.ts): writing nods 2° every 0.6 s, re-reading turns the head ±3° (2 s loop), carrying looks at
       // the board and then at the poster while it waits, posting looks at the card after the last one, tidying leans back 3°
       case 'write':
-        // beside the monitor: the head turns a little toward the card as well as the body
-        return (({ pitch, yaw, roll }) => ({ pitch, yaw: yaw - (this.place?.side ?? 0) * 0.12, roll }))(wrapHead('write', this.goal?.beat, t, reduced))
+        // bowed toward the card held in front of the chest (#532)
+        return wrapHead('write', this.goal?.beat, t, reduced)
       case 'carry':
         return { pitch: 0.04, yaw: this.goal?.waiting ? (Math.floor(t / 2) % 2 === 0 ? 0 : 0.5) : 0, roll: 0 }
       case 'cardpost':
@@ -1476,46 +1465,19 @@ export class AgentRig {
 
   /** the wrap-up's stack of cards (#186): a thin card box on the left palm, one card thicker per card; hidden without a stack */
   private cards: Record<'l' | 'r', Mesh | null> = { l: null, r: null }
-  /** where the card is written (wrapPose.ts writePlace): beside the monitor on a desk facing the camera, else null; the body's turn toward it (rad) */
-  private place: WritePlace = null
-  /** #505: where this desk's other hand rests beside the card, instead of its own (writePress.data.ts, found per desk): the search sets it */
-  pressAt: PressAt | null = null
   /** #490 B: the stretch's hand height over the head's rest, instead of this agent's own (stretch.data.ts): the measuring sets it */
   stretchAt: number | null = null
-  private get press(): PressAt | undefined {
-    return this.pressAt ?? WRITE_PRESS[Number(this.id.split('_')[1])]
+  /** #532: the head's centre at rest in the body's frame (its node is at the middle of the head): the held cards are placed from it (wrapup.md 9.1) */
+  headCentre(): [number, number, number] {
+    return [this.headRest?.x ?? 0, this.parts.headRestY + this.seat, this.headRest?.z ?? 0]
   }
-  /** #461 the body's turn toward the card (rad, its yaw on top of the heading) and its move toward it (m, along the seat's right), their 0..1 progress, and the side */
-  private writeTurn = 0
-  private writeShift = 0
-  private writeK = 0
-  private writeSide: 1 | -1 = 1
-  /**
-   * A point the writing pose gives in the seat's frame (wrapPose.ts: where the card lies on the desk) in the turned and moved body's frame, so the card and the
-   * hands stay put on the desk while the body turns toward them (#461)
-   */
-  private seatToBody(p: [number, number, number]): [number, number, number] {
-    if (!this.writeTurn && !this.writeShift) return p
-    const q = new Vector3(p[0] - this.writeShift, p[1], p[2]).applyAxisAngle(UP, -this.writeTurn)
-    return [q.x, q.y, q.z]
-  }
-  private bodyToSeat(p: Vector3): [number, number, number] {
-    const q = p.clone().applyAxisAngle(UP, this.writeTurn)
-    return [q.x + this.writeShift, q.y, q.z]
-  }
-  /** #481: where the card is written (writePlace; null in front), for the card and the pen the stage draws */
-  get writingPlace(): WritePlace {
-    return this.place
-  }
-  /** #481: a point in the seat's frame (wrapPose.ts) in world: the desk does not turn with the body */
+  /** #481 · #532: a point in the body's frame in world (the cards held while writing are placed in it) */
   seatToWorld(x: number, y: number, z: number, out = new Vector3()): Vector3 {
-    const [bx, by, bz] = this.seatToBody([x, y, z])
-    return this.parts.root.localToWorld(out.set(bx, by, bz))
+    return this.parts.root.localToWorld(out.set(x, y, z))
   }
-  /** #481: the seat frame's rotation in world (the body's without its turn toward the card) */
+  /** #481 · #532: the body's rotation in world */
   seatQuat(out = new Quaternion()): Quaternion {
-    this.parts.root.getWorldQuaternion(out)
-    return out.multiply(this.tmpQuat2.setFromAxisAngle(UP, -this.writeTurn))
+    return this.parts.root.getWorldQuaternion(out)
   }
   /** where cards lie on a palm, in the hand's own frame: the palm's normal `n`, the card's turn (x across, y = n, z along the fingers) and its centre `base` */
   private palmFrame(side: 'l' | 'r') {
@@ -1536,14 +1498,14 @@ export class AgentRig {
     return out.multiplyMatrices(hand.matrixWorld, new Matrix4().compose(p.base.clone().addScaledVector(p.n, 0.012 + 0.004), p.q, new Vector3(1, 1, 1)))
   }
 
-  /** the palm the stack is carried on (the one that pressed the card): the left, or on the aisle-side desks the one opposite the pen */
+  /** the palm the stack is carried on: the left, the one that holds the bundle while writing (#532) */
   get cardSide(): 'l' | 'r' {
-    return this.place && this.place.side < 0 ? 'r' : 'l'
+    return 'l'
   }
 
   private updateCards(count: number, flat: boolean) {
-    // the stack is on the hand that presses the card: the left, or on the aisle-side desks the one opposite the pen
-    const side: 'l' | 'r' = this.place && this.goal?.pose === 'write' && this.place.side < 0 ? 'r' : 'l'
+    // the stack is on the hand that held the bundle while writing: the left
+    const side: 'l' | 'r' = 'l'
     const other = this.cards[side === 'l' ? 'r' : 'l']
     if (other) other.visible = false
     const hand = this.parts.hands[side]
@@ -1559,7 +1521,7 @@ export class AgentRig {
       this.cards[side] = m
     }
     const m = this.cards[side]!
-    // while writing the cards are on the desk (the stage draws them, #481 wrapup.md 9.1): the hand holds none
+    // while writing the bundle is the stage's (writeDesk.ts draws it held in this hand, #532 wrapup.md 9.1): none of its own
     m.visible = count > 0 && this.parts.root.visible && !flat
     if (!m.visible) return
     const n = m.userData.n as Vector3
@@ -1714,12 +1676,9 @@ export class AgentRig {
     }
     switch (pose) {
       case 'write':
-        // the pieces of writing (wrap.ts, wrapPose.ts): the right hand writes, the left presses the card flat, lifts it to read, pushes it to the stack
-      {
-        // in the seat's frame (the card on the desk), then into the turned body's (#461); the reading place in front of the face goes the other way first
-        const hs = wrapHand(side, 'write', wb, t, { rest: this.bodyToSeat(rest), read: this.bodyToSeat(this.readingPlace(this.place && this.place.side < 0 ? 'r' : 'l')), sit, m, reduced, place: this.place, press: this.press })
-        return this.wrapSpec(side, { ...hs, pos: this.seatToBody(hs.pos) }, down)
-      }
+        // the pieces of writing (wrap.ts, wrapPose.ts, #532): the left hand holds the bundle in front of the chest, the right writes on it; the stage drives
+        // both onto the bundle and the pen exactly (writeDesk.ts), these are the places under that drive
+        return this.wrapSpec(side, wrapHand(side, 'write', wb, t, { rest: [rest.x, rest.y, rest.z], head: this.headCentre(), sit, m, reduced }), down)
       case 'carry': {
         // the free hand (designer, #217): at the resting height 0.86 m, not hanging below the desk; it swings ±8 cm back and
         // forth with the walk (a stride a second), still when standing by the board
@@ -1729,7 +1688,7 @@ export class AgentRig {
       }
       case 'cardpost':
         // posting, then the pieces that touch the cards (stepping back to think, moving, swapping, straightening, pointing, the last look)
-        return this.wrapSpec(side, wrapHand(side, 'cardpost', wb, t, { rest: [rest.x, rest.y, rest.z], read: [0, 0, 0], sit, m, reduced }), down)
+        return this.wrapSpec(side, wrapHand(side, 'cardpost', wb, t, { rest: [rest.x, rest.y, rest.z], sit, m, reduced }), down)
       case 'tidy': {
         // gather the papers, tap them twice (palms facing each other), push the keyboard in with the right hand, lean back
         const u = wb?.u ?? 0

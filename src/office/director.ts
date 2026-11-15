@@ -43,7 +43,7 @@ export interface Goal {
   quiet?: boolean
   /** the wrap-up (#186): cards still in the left hand, the current beat of the hands, re-reading, standing by the taken board */
   carry?: number
-  beat?: { kind: BeatKind; u: number; k: number; piece: PieceKind; v?: number; end?: boolean }
+  beat?: { kind: BeatKind; u: number; k: number; piece: PieceKind; v?: number; end?: boolean; n?: number }
   reread?: boolean
   waiting?: boolean
   /** #481 the wrap-up's step while it lasts (the pen laid on the desk stays there until the tidy-up is over) */

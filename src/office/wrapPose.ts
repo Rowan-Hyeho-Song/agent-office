@@ -1,31 +1,9 @@
-// What the hands, the head and the body do in each piece of the wrap-up (docs/design/wrapup.md 2, 3, #229), as plain numbers in the agent's
-// own frame (x right, y up, z forward = negative; metres, radians) so they are tested without a rig. rig.ts turns them into hand poses.
+// What the hands, the head and the body do in each piece of the wrap-up (docs/design/wrapup.md 2, 3, 9, #229, #532), as plain numbers in the agent's
+// own frame (x right, y up, z forward = negative; metres, radians) so they are tested without a rig. rig.ts turns them into hand poses; writeDesk.ts
+// draws the held cards and the pen and drives both hands onto them.
 
 import type { BeatKind, PieceKind } from './wrap'
 import { WRAP, cellOf } from './wrap'
-import { DEFAULT_CAMERA } from './room'
-import { angleFromFront, rightOf } from './tour'
-
-/**
- * Where the writing happens (#229 designer): on a desk that faces the default camera (office-ui.md 10.3: the seat's facing direction and the direction to the
- * camera have a positive dot product) the card and the pen in front of the body hide behind the monitor, so the card lies on the empty desk top beside the monitor
- * on the side the default camera is on (the designer said the aisle side; that is the far side on two of the three facing desks, hidden by the monitor): seat-local x +-0.32, z -0.36. `side` is +1 for the body's right, -1 for its left; the hand on that
- * side holds the pen, the other presses the card, and the body turns 24 degrees toward it (#461). null: the card stays in front (the desks with their back to the camera).
- */
-// #461 (the designer, plan A): the whole body turns 24° toward the card and moves 4 cm toward it in 0.4 s (power2.inOut), stays turned while the card is
-// written on and touched, and turns back when the writing is over; reduced motion turns at once (the body's direction carries meaning)
-export const WRITE_ASIDE = { x: 0.32, z: -0.36, turnDeg: 24, shiftM: 0.04, turnS: 0.4 } as const
-export type WritePlace = { side: 1 | -1 } | null
-export function writePlace(spots: Record<string, { x: number; z: number; ry: number }>, spot: string, camera: readonly number[] = DEFAULT_CAMERA): WritePlace {
-  const seat = spots[spot]
-  if (!seat) return null
-  if (angleFromFront(seat, [camera[0], camera[1], camera[2]]) >= 90) return null
-  // the side the camera is on: from there the end of the monitor is seen past, so the pen is not behind it. (The aisle side, the side of the seat's
-  // desk_side spot, is the far side on two of the three facing desks: there the monitor hides the pen from the default camera.)
-  const [rx, rz] = rightOf(seat.ry)
-  const d = (camera[0] - seat.x) * rx + (camera[2] - seat.z) * rz
-  return { side: d >= 0 ? 1 : -1 }
-}
 
 export interface WrapBeat {
   kind: BeatKind
@@ -35,6 +13,8 @@ export interface WrapBeat {
   v?: number
   /** point: the last of its run */
   end?: boolean
+  /** #532 the cards written at the desk this sitting: the bundle held while writing is this many */
+  n?: number
 }
 
 export type Curl = 'pen' | 'support' | 'pinch' | 'point' | 'fist' | 'rest' | 'loose' | 'stamp'
@@ -55,6 +35,7 @@ const lerp = (a: number, b: number, k: number) => a + (b - a) * k
 const mix = (a: readonly number[], b: readonly number[], k: number): [number, number, number] => [lerp(a[0], b[0], k), lerp(a[1], b[1], k), lerp(a[2], b[2], k)]
 /** a 0 -> 1 -> 0 bump over u: up in the first `a`, held, down in the last `a` */
 const bump = (u: number, a: number) => Math.min(smooth(u / a), smooth((1 - u) / a))
+const DEG = Math.PI / 180
 
 /** where card k hangs on the board, relative to the body standing at the board (x sideways, y height above the seat offset, z forward) */
 export const CARD_AT = (k: number, sit: number): [number, number, number] => {
@@ -64,149 +45,166 @@ export const CARD_AT = (k: number, sit: number): [number, number, number] => {
 /** the cell card k goes to when it is moved: the other row of its column */
 export const MOVE_TO = (k: number) => (k < 3 ? k + 3 : k - 3)
 
-/** the writing hand's place on the card: line `row`, `x` across (m from the left end) */
-const NIB_X0 = 0.115
-const NIB_Y = 0.83
 /** a card holds five lines (0-4, #501) */
 export const LINES_MAX = 4
-const lineZ = (row: number) => -0.43 + 0.008 * Math.min(row, LINES_MAX)
-const LEFT_ON_CARD: [number, number, number] = [-0.13, 0.82, -0.42]
 
-/** #481 (wrapup.md 9.1): the card on the desk, the same 10 x 13 cm card the stack and the board carry (#499: the size of the hands); laid square to the seat */
+/** #481 · #532 (wrapup.md 9.1): the 10 x 13 cm card the bundle and the board carry (#499: the size of the hands), upright on its long side */
 export const WRITE_CARD = {
   w: 0.1,
   d: 0.13,
   t: 0.0004,
   paper: '#f3ead8',
-  /** the line's left end this far in from the card's left edge, the first line this far in from its far edge */
+  /** the line's left end this far in from the card's left edge, the first line this far down from its top edge; 5 cm lines 8 mm apart */
   inLeft: 0.012,
   inFar: 0.015,
-  /** the other hand rests its palm on the desk beside the card (#505): where, when a desk has no point of its own (writePress.data.ts) */
-  pressSide: 0.11,
-  pressBack: 0.03,
-  /** above the desk top under the card's centre */
-  lift: 0.0005,
+  lineLen: 0.05,
+  lineGap: 0.008,
 } as const
 
-/** #481 (wrapup.md 9.2 · 9.3): the pen and its ink */
+/**
+ * #532 (wrapup.md 9.1 · 9.4): the bundle held in the hand that does not hold the pen (the left), in front of the chest above the desk. The front card's centre
+ * is `fwd` ahead of the head's centre, `down` below it and `side` toward the holding hand; its face stands `tiltDeg` up from level, toward the face. The palm is
+ * `palmGap` behind the last card; a card is drawn `step` thick (thicker than paper, so the bundle shows); each written card behind is turned ±`turnDeg`.
+ * Reading: up to `readFwd` in front of the face (`readDown` below its centre), the face `readTiltDeg` up. Waiting at the desk for the board (6) over
+ * `waitS`: the hand `waitDown` lower and the face `waitTiltDeg` up.
+ */
+export const HELD = {
+  fwd: 0.3,
+  down: 0.22,
+  side: 0.05,
+  tiltDeg: 40,
+  palmGap: 0.003,
+  step: 0.0012,
+  turnDeg: 3,
+  readFwd: 0.22,
+  readDown: 0.06,
+  readTiltDeg: 72,
+  waitS: 20,
+  waitDown: 0.05,
+  waitTiltDeg: 20,
+  /** the palm under the bundle: its centre this far toward the holding hand's side and down the card from the front card's centre (m); the fingers turned this far in from straight up the card */
+  palmOut: 0.02,
+  palmDown: 0.02,
+  fingersInDeg: 45,
+} as const
+
+/** #481 · #532 (wrapup.md 9.2 · 9.3): the pen and its ink */
 export const PEN = {
-  len: 0.13,
-  r: 0.0045,
+  /** #532 (designer): 18 cm, 5 mm round, for the 18 cm robot hand (a hand : a ballpoint as 18 : 14), 11.5 cm of it out behind the grip */
+  len: 0.18,
+  r: 0.005,
   tipLen: 0.012,
   capLen: 0.01,
   dark: '#2b2f3a',
-  /** grips.md: grip.pos 3 cm from the tip (prop_tablet_pen_grip_r: z -0.04 from the centre, the tip at -0.07) */
-  gripZ: -0.04,
-  tipZ: -0.07,
-  /** 45° to the desk; its back end toward the body and out toward the pen hand, 70° out (#499: the pen hand's palm away from the pressing hand) */
-  elevDeg: 45,
-  outDeg: 70,
-  /** ink: where the tip passes within this height of the card, 1.5 mm wide */
+  /**
+   * #532: the hand takes the pen 6.5 cm from the tip (z -0.025 from the centre, the tip at -0.09), not grips.md's 3 cm: the robot hand (18 x 14 x 7 cm)
+   * held 3 cm from the tip at 50° to the card had its fingers 21 mm through the card at every roll; 6.5 cm keeps them 2.5 mm off it (writeDesk.test.ts)
+   */
+  gripZ: -0.025,
+  tipZ: -0.09,
+  /** the roll about the pen's axis that keeps the pen hand's fingers off the card and 2 cm from the holding hand (measured over every 15°, then 5°) */
+  rollDeg: 220,
+  /** 50° to the card's face; its back end toward the body (down the card) and out toward the pen hand, 60° out */
+  elevDeg: 50,
+  outDeg: 60,
+  /** ink: where the tip passes within this of the front card, 1.5 mm wide */
   touchM: 0.002,
   inkM: 0.0015,
   ink: '#3b3f4a',
   fadeInS: 0.2,
+  fadeOutS: 0.2,
 } as const
 
-/**
- * #481 (wrapup.md 9.4, P): the done cards stay where they were written, the new card laid on top of them. A card is `step` thick on the stack (thicker
- * than paper, so the cards show), so the writing rises a step per card; each done card is turned up to ±`turnDeg` and moved up to `offM` toward the
- * pressing side (seeded per card), so their edges show under the top one. In 'next' the pressing hand reaches `reach` in to the done card's edge and
- * back; the pen is laid `penOut` beyond the card's edge on the pen side, along the seat's z, tip toward the monitor.
- */
-export const STACK = { step: 0.0015, turnDeg: 5, offM: 0.01, reach: 0.02, penOut: 0.03 } as const
+/** #532 'next' (wrapup.md 9.4, 0.6 s): 0–0.15 s the pen hand's forefinger to the front card's top corner, 0.15–0.45 s the card over the top to the back, 0.45–0.6 s back */
+export const NEXT_FLIP = { from: 0.15, to: 0.45 } as const
+/** how far the front card has gone over to the back in 'next' (0 in front, 1 at the back); reduced motion: no turning over */
+export function flipOf(b: WrapBeat | undefined, reduced = false): number {
+  if (b?.kind !== 'next' || reduced) return 0
+  const s = b.u * WRAP.next
+  return Math.min(1, Math.max(0, (s - NEXT_FLIP.from) / (NEXT_FLIP.to - NEXT_FLIP.from)))
+}
 
-/** the share of the gathering (WRAP.collect) that lays the pen down; the rest takes the stack onto the palm */
-export const COLLECT_PEN = WRAP.penDown / WRAP.collect
-
-/** the done cards under the card at a beat: card k is written on cards 0..k-1; in 'next' card k joins them halfway (reduced motion: at once) */
-export function stackCount(b: WrapBeat | undefined, reduced = false): number {
+/** the written cards behind the front one at a beat: card k is on the front; in 'next' it is at the back once it has gone over (reduced motion: at once) */
+export function doneBehind(b: WrapBeat | undefined, reduced = false): number {
   if (!b) return 0
-  if (b.kind === 'next') return b.k + (reduced || b.u >= 0.5 ? 1 : 0)
+  if (b.kind === 'next') return b.k + (reduced || flipOf(b) >= 1 ? 1 : 0)
   return b.k
 }
 
-/** how far the done card has turned to its place on the stack in 'next' (0 square, 1 turned; it is on the stack from halfway) */
-export function cardTwist(b: WrapBeat | undefined, reduced = false): number {
-  if (b?.kind !== 'next') return 0
-  return reduced ? 1 : smooth(b.u * 2)
+/**
+ * The front card's centre (relative to the head's centre, in the agent's frame) and its face's tilt up from level (rad), in a beat: held in front of the chest,
+ * up in front of the face while it is read (not in reduced motion: the head bows instead), a little lower and flatter while it waits long at the desk.
+ */
+export function heldCard(b: WrapBeat | undefined, o: { reduced: boolean; waitS?: number }): { c: [number, number, number]; tilt: number } {
+  let c: [number, number, number] = [-HELD.side, -HELD.down, -HELD.fwd]
+  let tilt = HELD.tiltDeg * DEG
+  const wait = smooth(((o.waitS ?? 0) - HELD.waitS) / 1.5)
+  if (wait > 0) {
+    c = [c[0], c[1] - HELD.waitDown * wait, c[2]]
+    tilt = lerp(tilt, HELD.waitTiltDeg * DEG, wait)
+  }
+  if (b?.kind === 'readUp' && !o.reduced) {
+    const k = bump(b.u, 0.25)
+    c = mix(c, [0, -HELD.readDown, -HELD.readFwd], k)
+    tilt = lerp(tilt, HELD.readTiltDeg * DEG, k)
+  }
+  return { c, tilt }
 }
+
+/** where line `row` is on the card `along` from its left end, in the card's frame (x across from its centre, z down the card from its centre) */
+const lineAt = (row: number, along: number): [number, number] => [-WRITE_CARD.w / 2 + WRITE_CARD.inLeft + along, -WRITE_CARD.d / 2 + WRITE_CARD.inFar + WRITE_CARD.lineGap * Math.min(row, LINES_MAX)]
 
 /**
- * The pressing hand toward the cards (0..1): in 'next' in to the done card's edge (STACK.reach) and back in the first half; while gathering, over to the
- * stack's middle (from the pen laid down on), to take it onto the palm. None in reduced motion.
+ * Where the pen's tip is in a beat (wrapup.md 9.2 · 9.3), in the front card's frame: x across from its centre, the height above its face, z down the card from
+ * its centre. On the card while it writes a line or strikes one out (the ink is its trace), a centimetre off on the new line, 1.6 cm off between the taps,
+ * off the card while it is read, to the top corner and up while the card goes over in 'next'.
  */
-export function pressReach(b: WrapBeat | undefined, reduced = false): number {
-  if (reduced) return 0
-  if (b?.kind === 'next') return b.u < 0.5 ? Math.sin(b.u * 2 * Math.PI) : 0
-  if (b?.kind === 'collect') return smooth((b.u - COLLECT_PEN) / (1 - COLLECT_PEN))
-  return 0
-}
-
-/** the card's centre in front of the body (the desks with their back to the camera) */
-const FRONT_CARD = { x: 0, z: -0.41 } as const
-
-/** the card's centre on the desk in the seat's frame, the pen side (+1 right), and where the pressing palm goes (wrapup.md 9.1, #495: the card is the writing place itself) */
-/**
- * Where the other hand rests its palm on the desk beside the card (#505, found per desk: writePress.data.ts): its centre `side` from the card's centre toward
- * the pressing side, `back` from it toward the body (m)
- */
-export interface PressAt {
-  side: number
-  back: number
-  /** the palm's height: its underside 0-2 mm above the desk (found per desk); the support pose's own when not given */
-  y?: number
-}
-
-export function writeCard(place: WritePlace | undefined, press: PressAt = { side: WRITE_CARD.pressSide, back: WRITE_CARD.pressBack }): { x: number; z: number; s: 1 | -1; pressX: number; pressZ: number } {
-  const s = place?.side ?? 1
-  const x = place ? WRITE_ASIDE.x * s : FRONT_CARD.x
-  const z = place ? WRITE_ASIDE.z : FRONT_CARD.z
-  // the body is toward +z: the near short edge is at z + d/2
-  return { x, z, s, pressX: x - s * press.side, pressZ: z + press.back }
-}
-
-/** the line's left end (seat frame x) on the card: 1.2 cm in from its left edge; `dz` moves the rows (lineZ) so the first is 1.5 cm in from its far edge */
-const lineStart = (place: WritePlace | undefined) => {
-  const c = writeCard(place)
-  const z = c.z - WRITE_CARD.d / 2 + WRITE_CARD.inFar
-  return { s: c.s, x: c.x - WRITE_CARD.w / 2 + WRITE_CARD.inLeft, z, dz: z - lineZ(0) }
-}
-
-/**
- * Where the pen's tip is in a beat (wrapup.md 2 · 9.2 · 9.3), in the seat's frame: x, the height ABOVE THE CARD's top, z. On the card while it writes a line or
- * strikes one out (the ink is its trace), a centimetre up on the new line, 1.6 cm up between the taps, standing on the card while the card is read.
- */
-export function nibAt(b: WrapBeat | undefined, t: number, o: { place?: WritePlace; reduced: boolean; m: number }): [number, number, number] {
-  const L = lineStart(o.place)
+export function nibAt(b: WrapBeat | undefined, t: number, o: { reduced: boolean; m: number }): [number, number, number] {
   const u = b?.u ?? 0
   const row = b?.v ?? 0
-  const at = (x: number, lift: number, z: number): [number, number, number] => [L.x + (x - NIB_X0), lift, z + L.dz]
+  const L = WRITE_CARD.lineLen
+  const at = (along: number, lift: number, r: number, dz = 0): [number, number, number] => {
+    const [x, z] = lineAt(r, along)
+    return [x, lift, z + dz]
+  }
   // handwriting: a small loop as it goes along (letters)
-  const hand = (x: number, z: number) => at(x + 0.0012 * Math.sin(t * 31) * o.m, 0, z + 0.0016 * Math.sin(t * 23 + 1) * o.m)
-  const kind = o.reduced ? 'line' : b?.kind
+  const hand = (along: number, r: number): [number, number, number] => {
+    const p = at(along + 0.0012 * Math.sin(t * 31) * o.m, 0, r)
+    return [p[0], p[1], p[2] + 0.0016 * Math.sin(t * 23 + 1) * o.m]
+  }
+  const kind = o.reduced && b?.kind !== 'next' && b?.kind !== 'collect' && b?.kind !== 'readUp' ? 'line' : b?.kind
   switch (kind) {
     case 'line':
-      return hand(NIB_X0 + 0.05 * (o.reduced ? 0.5 : u), lineZ(row))
+      return hand(L * (o.reduced ? 0.5 : u), row)
     case 'newline':
-      return at(lerp(NIB_X0 + 0.05, NIB_X0, smooth(u)), 0.01 * Math.sin(u * Math.PI), lineZ(row) + 0.008 * smooth(u))
+      return at(lerp(L, 0, smooth(u)), 0.01 * Math.sin(u * Math.PI), row, WRITE_CARD.lineGap * smooth(u))
     case 'tapPen':
-      return at(NIB_X0 + 0.05, 0.016 * (0.5 - 0.5 * Math.cos(u * 4 * Math.PI)), lineZ(row))
+      return at(L, 0.016 * (0.5 - 0.5 * Math.cos(u * 4 * Math.PI)), row)
     case 'strike': {
       const cut = 0.3 / WRAP.strike
-      if (u < cut) return at(NIB_X0 + 0.025 + 0.025 * Math.sin((u / cut) * Math.PI * 3), 0, lineZ(row))
-      return hand(NIB_X0 + 0.02 + 0.03 * ((u - cut) / (1 - cut)), lineZ(row))
+      if (u < cut) return at(L / 2 + (L / 2) * Math.sin((u / cut) * Math.PI * 3), 0, row)
+      return hand(0.02 + 0.03 * ((u - cut) / (1 - cut)), row)
     }
     case 'readUp':
-      return at(NIB_X0 + 0.05, 0, lineZ(row))
-    case 'next':
-      // off the card while it goes to the stack, down at the new card's first line
-      return at(lerp(NIB_X0 + 0.05, NIB_X0, smooth(u)), 0.012 * Math.sin(u * Math.PI), lineZ(0))
+      // off the card while it is held up to be read (writeDesk.ts rests the pen hand in front of the chest)
+      return at(L, 0.03, row)
+    case 'next': {
+      // to the top corner on the pen side (the forefinger beside it), up 3 cm with the card going over, back down at the new card's first line
+      if (o.reduced) return at(0, 0, 0)
+      const s = u * WRAP.next
+      const corner: [number, number, number] = [WRITE_CARD.w / 2 - 0.01, 0.012, -WRITE_CARD.d / 2 + 0.008]
+      const end = at(L, 0, row)
+      if (s < NEXT_FLIP.from) return mix(end, corner, smooth(s / NEXT_FLIP.from))
+      if (s < NEXT_FLIP.to) {
+        const k = (s - NEXT_FLIP.from) / (NEXT_FLIP.to - NEXT_FLIP.from)
+        return [corner[0], corner[1] + 0.03 * Math.sin(k * Math.PI), corner[2]]
+      }
+      return mix(corner, at(0, 0, 0), smooth((s - NEXT_FLIP.to) / (WRAP.next - NEXT_FLIP.to)))
+    }
     case 'collect':
-      // where it stopped writing: the stage lays it down from here (wrapup.md 9.3)
-      return at(NIB_X0 + 0.05, 0, lineZ(row))
+      return at(L, 0.01, row)
     default:
-      return at(NIB_X0, 0, lineZ(row))
+      return at(0, 0, row)
   }
 }
 
@@ -226,64 +224,28 @@ function along(route: Route, u: number): { pos: [number, number, number]; curl: 
 }
 
 /**
- * One hand in a beat. `rest` is the hand's resting place (the rig's), `read` where a held card is read (0.25 m in front of the face),
- * `sit` the seat height offset, `m` the ambient motion (0.3 in reduced motion, which keeps the writing posture and nothing else).
+ * One hand in a beat. `rest` is the hand's resting place (the rig's), `head` the head's centre at rest (the held bundle is placed from it), `sit` the seat
+ * height offset, `m` the ambient motion. While writing the stage (writeDesk.ts) drives both hands onto the bundle and the pen exactly: these are the places
+ * under that drive (near them, so its weight fades in and out with no jump), and the carrying hold the bundle goes to when the writing is done.
  */
-export function wrapHand(side: 'l' | 'r', pose: 'write' | 'cardpost', b: WrapBeat | undefined, t: number, o: { rest: [number, number, number]; read: [number, number, number]; sit: number; m: number; reduced: boolean; place?: WritePlace; press?: PressAt }): HandSpec {
+export function wrapHand(side: 'l' | 'r', pose: 'write' | 'cardpost', b: WrapBeat | undefined, t: number, o: { rest: [number, number, number]; head?: [number, number, number]; sit: number; m: number; reduced: boolean; waitS?: number }): HandSpec {
   const u = b?.u ?? 0
-  const row = b?.v ?? 0
-  const { rest, sit, m } = o
+  const { rest, sit } = o
   if (pose === 'write') {
-    // the card's place: in front (default) or beside the monitor on the aisle side; the pen hand is the one on that side, the other presses the card
-    const s = o.place?.side ?? 1
-    const L = lineStart(o.place)
-    const r = o.place ? side === (s > 0 ? 'r' : 'l') : side === 'r'
-    // the other hand rests its palm on the desk beside the card (#481, #505)
-    const card = writeCard(o.place, o.press)
-    const left: HandSpec = { pos: [card.pressX, o.press?.y ?? LEFT_ON_CARD[1], card.pressZ], palm: 'down', curl: 'support' }
-    // the pen hand over the pen's tip on the card (the stage puts the hand exactly on the pen it draws, #481)
-    const penAt = (x: number, y: number, z: number): HandSpec => ({ pos: [L.x + (x - NIB_X0), y, z + L.dz], palm: 'down', curl: 'pen' })
-    const kind = o.reduced && b?.kind !== 'next' && b?.kind !== 'collect' ? 'line' : b?.kind
-    // the pen in small steady strokes: the wrist moves within 1 cm, a small up and down every 0.12 s
-    const stroke = (x: number, z: number) => penAt(x + 0.012 * Math.sin(t * 9) * m * 0.3, NIB_Y + 0.004 * Math.sin((t * Math.PI * 2) / 0.12) * m, z + 0.01 * Math.sin(t * 6.5 + 1) * m)
-    switch (kind) {
-      case 'line':
-        // 4–6 cm from the left to the right along the line
-        return r ? stroke(NIB_X0 + 0.05 * (o.reduced ? 0.5 : u), lineZ(row)) : left
-      case 'newline':
-        // lifts a centimetre and goes back to the left end, a line (8 mm) down
-        return r ? penAt(lerp(NIB_X0 + 0.05, NIB_X0, smooth(u)), NIB_Y + 0.01 * Math.sin(u * Math.PI), lineZ(row) + 0.008 * smooth(u)) : left
-      case 'tapPen':
-        // taps the card twice (0.15 s each in 0.8 s: the pen lifts and comes down, twice)
-        return r ? penAt(NIB_X0 + 0.05, NIB_Y + 0.016 * (0.5 - 0.5 * Math.cos(u * 4 * Math.PI)), lineZ(row)) : left
-      case 'strike': {
-        // crosses part of the last line quickly (0.3 s of 1.4), then writes over it (1.1 s)
-        const cut = 0.3 / WRAP.strike
-        if (!r) return left
-        if (u < cut) return penAt(NIB_X0 + 0.025 + 0.025 * Math.sin((u / cut) * Math.PI * 3), NIB_Y + 0.004, lineZ(row))
-        return stroke(NIB_X0 + 0.02 + 0.03 * ((u - cut) / (1 - cut)), lineZ(row))
-      }
-      case 'readUp': {
-        // the left hand lifts the card to 0.25 m in front of the face and lowers it; the pen hand rests on the desk
-        if (r) return penAt(NIB_X0 + 0.05, NIB_Y, lineZ(row))
-        const k = bump(u, 0.25)
-        return { pos: mix(left.pos, o.read, k), palm: k > 0.5 ? 'up' : 'down', curl: 'support' }
-      }
-      case 'next': {
-        // the fingertips to the done card's edge, turning it a little to its place on the stack, and back (0.3 s); a new card appears on it (0.3 s)
-        const into = pressReach(b, o.reduced) * STACK.reach
-        return r ? penAt(NIB_X0, NIB_Y, lineZ(0)) : { pos: [left.pos[0] + s * into, left.pos[1], left.pos[2]], palm: 'down', curl: 'support' }
-      }
-      case 'collect': {
-        // the pen hand lays the pen down beside the card (the stage puts it there) and goes back to rest; the other goes over the stack (its middle, its
-        // top) and takes it onto the palm
-        const k = pressReach(b, o.reduced)
-        if (r) return u < COLLECT_PEN && !o.reduced ? penAt(NIB_X0 + 0.05, NIB_Y, lineZ(row)) : { pos: rest, palm: 'none', curl: 'rest' }
-        return { pos: [lerp(left.pos[0], card.x, k), left.pos[1] + k * ((b?.k ?? 0) + 1) * STACK.step, lerp(left.pos[2], card.z, k)], palm: 'down', curl: 'support' }
-      }
-      default:
-        return r ? stroke(NIB_X0, lineZ(row)) : left
+    const head = o.head ?? [0, 1.25 + sit, 0]
+    const held = heldCard(b, o)
+    const centre: [number, number, number] = [head[0] + held.c[0], head[1] + held.c[1], head[2] + held.c[2]]
+    if (side === 'l') {
+      // the holding hand a little behind the bundle; once the writing is done it takes the bundle to the carrying hold (palm up at chest height, wrapup.md 9.4)
+      const behind: [number, number, number] = [centre[0] - HELD.palmOut, centre[1] - 0.03 * Math.cos(held.tilt), centre[2] - 0.03 * Math.sin(held.tilt)]
+      if (b?.kind === 'collect') return { pos: mix(behind, [-0.13, 1.0 + sit, -0.3], smooth(u)), palm: 'up', curl: 'support' }
+      return { pos: behind, palm: 'up', curl: 'support' }
     }
+    // the pen hand above the tip, the grip up the pen (out and toward the body)
+    const nib = nibAt(b, t, o)
+    const pos: [number, number, number] = [centre[0] + nib[0] + 0.03, centre[1] + 0.05, centre[2] + 0.03]
+    if (b?.kind === 'collect') return u * WRAP.collect < PEN.fadeOutS && !o.reduced ? { pos, palm: 'down', curl: 'pen' } : { pos: rest, palm: 'none', curl: 'rest' }
+    return { pos, palm: 'down', curl: 'pen' }
   }
   // at the board
   const r = side === 'r'
@@ -384,25 +346,26 @@ export function wrapHand(side: 'l' | 'r', pose: 'write' | 'cardpost', b: WrapBea
 /** the head in a beat, on top of what the rig gives the pose: pitch (+ down), yaw, roll */
 export function wrapHead(pose: 'write' | 'cardpost', b: WrapBeat | undefined, t: number, reduced: boolean): { pitch: number; yaw: number; roll: number } {
   const u = b?.u ?? 0
-  const DEG = Math.PI / 180
   if (pose === 'write') {
+    // bowed 18° toward the held card (wrapup.md 9.1, #532), a 2° nod every 0.6 s
+    const bow = -18 * DEG
     const nod = Math.max(0, Math.sin((t / 0.6) * Math.PI * 2)) * 0.035
-    const base = { pitch: -0.14 + nod, yaw: 0, roll: 0 }
-    if (reduced) return { ...base, pitch: -0.14 }
+    const base = { pitch: bow + nod, yaw: 0, roll: 0 }
+    if (reduced) return { ...base, pitch: b?.kind === 'readUp' ? bow - bump(u, 0.25) * 4 * DEG : bow }
     switch (b?.kind) {
       case 'line':
         // 2° along with the pen
         return { ...base, yaw: (u - 0.5) * 2 * DEG }
       case 'tapPen':
         // 3° tilt of the head
-        return { pitch: -0.12, yaw: 0, roll: Math.sin(u * Math.PI) * 3 * DEG }
+        return { pitch: bow + 0.02, yaw: 0, roll: Math.sin(u * Math.PI) * 3 * DEG }
       case 'readUp': {
         const k = bump(u, 0.25)
-        // up to read, 2° down twice
-        return { pitch: lerp(-0.14, -0.02, k) + Math.sin(u * 4 * Math.PI) * 2 * DEG * k, yaw: 0, roll: 0 }
+        // up to the card held before the face, 2° down twice
+        return { pitch: lerp(bow, -0.02, k) + Math.sin(u * 4 * Math.PI) * 2 * DEG * k, yaw: 0, roll: 0 }
       }
       case 'strike':
-        return { pitch: -0.1, yaw: 0, roll: 0 }
+        return { pitch: bow + 0.04, yaw: 0, roll: 0 }
       default:
         return base
     }
