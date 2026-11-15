@@ -5,6 +5,7 @@ import { dutyOf, dutyStatus } from './duty'
 import { DESK_SIDES } from './nav'
 import { DOOR_LABEL, DOOR_ROUND, LEVER, doorAgent, doorDue, doorU, stepDoor, type DoorKind, type DoorRun } from './doorRound'
 import { nightDuty } from './duty'
+import { BROWSE, SHELF_MORE, nextShelf, SHELF_LABEL, SHELF_STAND, shelfTurn, callAway as shelfCallAway, holding as shelfHolding, startShelf, stepShelf, type ShelfRun, type ShelfStage } from './shelfRun'
 import { hallNear, playAt, PLAYS, restNear, schedulePose, soloAt, type GapKind, type PlayAssignment, type PlayKind } from './play'
 import { gapPace } from './gapMotion'
 import { activityLabel, type AgentStatus, type OfficeMessage, type StatusMap } from './status'
@@ -22,7 +23,7 @@ import { habitFor, type HabitKind } from './waterFx'
 import { startWrap, stepWrap, viewOf, WALKING_TO_DESK, type BeatKind, type PieceKind, type Shown, type WrapRun, type WrapStep } from './wrap'
 
 /** `write` / `carry` / `cardpost` / `tidy` are the wrap-up's own (#186, wrap.ts) */
-export type Pose = 'idle' | 'type' | 'post' | 'talk' | 'listen' | 'leave' | 'doze' | 'write' | 'carry' | 'cardpost' | 'tidy' | 'bowl' | PlayKind
+export type Pose = 'idle' | 'type' | 'post' | 'talk' | 'listen' | 'leave' | 'doze' | 'write' | 'carry' | 'cardpost' | 'tidy' | 'bowl' | 'shelfbook' | PlayKind
 
 export interface Goal {
   spot: string
@@ -62,6 +63,10 @@ export interface Goal {
   drink?: DrinkView
   /** #451 (doorRound.ts): the morning opening / the night lock-up at the door: which, s since arriving (-1 on the way) */
   door?: { kind: DoorKind; u: number }
+  /** #450 (shelfRun.ts): a book from the second bookshelf: its stage, the book, s into the stage, the stay it belongs to (the page turns' seed) */
+  shelf?: { stage: ShelfStage; book: string; u: number; block: number }
+  /** #450 the stay's rest before the second bookshelf, browsing the spines (the head turns along the rows) */
+  browse?: boolean
   /** #4 notes 2b (noteRead.ts): at the cork board for its notes; s since arriving (-1 on the way) */
   note?: { u: number; ids: number[] }
   /** #490 B (play.md 9.2 · 9.3): a gap between two stays (a stretch, a slower stroll, breathing at the window), or the game it watches (a cheer now and then) */
@@ -172,6 +177,11 @@ export class Director {
   /** #451 the door round under way, and the start of the last one begun (each is begun once) */
   private door: DoorRun | null = null
   private doorBegun = 0
+  /** #450 the shelf book being read (one stand, one reader), and the book each agent read last */
+  private shelf: ShelfRun | null = null
+  private shelfLast: Record<string, string> = {}
+  /** #450 the one browsing the spines till its book stay ends */
+  private shelfBrowse: { agent: string; block: number; until: number } | null = null
   /** when the needle went down (office ms): the arm is not lifted for the break being over until it has been down a while */
   private needleAt = 0
   /** #527: when the needle last came up (office ms) */
@@ -295,6 +305,17 @@ export class Director {
     delete this.acts[agent]
     const block = this.stayNow(agent, now)
     this.reads[agent] = startRead(seat, block, now)
+    this.readDone[agent] = block
+  }
+
+  /** #450 tests and the debug panel: `agent` reads `book` from the second bookshelf now (for `readS` s), whatever its schedule says */
+  forceShelf(agent: string, now: number, book?: string, readS?: number) {
+    this.clearReads()
+    delete this.waters[agent]
+    delete this.acts[agent]
+    const block = this.stayNow(agent, now)
+    const run = startShelf(agent, block, now, this.shelfLast[agent])
+    this.shelf = { ...run, ...(book ? { book: book as ShelfRun['book'] } : {}), ...(readS !== undefined ? { readS } : {}) }
     this.readDone[agent] = block
   }
 
@@ -484,13 +505,44 @@ export class Director {
       } else this.reads[a] = r.run
     }
     if (!Object.keys(this.reads).length) {
-      const a = this.agents.find((x) => play[x]?.kind === 'books' && this.readDone[x] !== stayOf(x) && !this.acts[x] && !this.waters[x] && this.bowl?.agent !== x && resting(x) && steady(x))
+      const a = this.agents.find((x) => play[x]?.kind === 'books' && this.readDone[x] !== stayOf(x) && this.shelf?.agent !== x && this.shelfBrowse?.agent !== x && !this.acts[x] && !this.waters[x] && this.bowl?.agent !== x && resting(x) && steady(x))
       if (a) {
-        // seat 0 when nobody rests on it or is heading for it, else seat 1, else this reading is skipped (the stay counts as read)
         this.readDone[a] = stayOf(a)
-        const seat = chooseSeat((spot) => this.agents.some((x) => x !== a && (this.lastGoal[x]?.spot === spot || arrivedAt(x) === spot)))
-        if (seat !== null) this.reads[a] = startRead(seat, stayOf(a), now)
+        // #450: a book stay is read at the second bookshelf (one stand, one reader) or at the low table, by the stay's seed
+        if (!this.shelf && shelfTurn(a, stayOf(a))) this.shelf = startShelf(a, stayOf(a), now, this.shelfLast[a])
+        else {
+          // seat 0 when nobody rests on it or is heading for it, else seat 1, else this reading is skipped (the stay counts as read)
+          const seat = chooseSeat((spot) => this.agents.some((x) => x !== a && (this.lastGoal[x]?.spot === spot || arrivedAt(x) === spot)))
+          if (seat !== null) this.reads[a] = startRead(seat, stayOf(a), now)
+        }
       }
+    }
+    // #450 (lounge-props.md 6): the book from the second bookshelf, read standing before it and put back in its slot. Called away with it out, it is put
+    // back first; on the way, nothing is out
+    if (this.shelf) {
+      let cur = this.shelf
+      const a = cur.agent
+      if (!resting(a) || a in this.meet) {
+        if (!shelfHolding(cur)) cur = null as unknown as ShelfRun
+        else cur = shelfCallAway(cur, now)
+      }
+      if (!cur) this.shelf = null
+      else {
+        const r = stepShelf(cur, { now, arrived: arrivedAt(a) === SHELF_STAND.spot })
+        if (r.done) {
+          this.shelfLast[a] = cur.book
+          this.shelf = null
+          // #450 (designer): the stay goes on: another book, or the spines browsed till it ends
+          const p = play[a]
+          const left = r.run.stage === 'put' && p?.kind === 'books' && p.stay === cur.block && resting(a) && !(a in this.meet) ? (p.until - now) / 1000 : 0
+          if (left >= SHELF_MORE.minLeftS && cur.n < SHELF_MORE.max) this.shelf = nextShelf(cur, now, left)
+          else if (left > 0 && p) this.shelfBrowse = { agent: a, block: cur.block, until: p.until }
+        } else this.shelf = r.run
+      }
+    }
+    if (this.shelfBrowse) {
+      const b = this.shelfBrowse
+      if (now >= b.until || !resting(b.agent) || b.agent in this.meet || play[b.agent]?.stay !== b.block) this.shelfBrowse = null
     }
     // #137 ① the white bowl (bowlRun.ts): a record placed alone first has the bowl carried to the corner by game_a; when nobody places one any more,
     // somebody free carries it back (the one who placed the record first). Called away before the bowl is in the hands: nothing has moved; with it
@@ -618,7 +670,7 @@ export class Director {
       }
     }
     // whoever is on an errand is not free for the schedule's other plays (a game partner left alone goes to a solo)
-    const away = [...Object.keys(this.waters), ...Object.keys(this.acts), ...Object.keys(this.reads), ...Object.keys(this.noteRuns), ...(this.door ? [this.door.agent] : [])]
+    const away = [...Object.keys(this.waters), ...Object.keys(this.acts), ...Object.keys(this.reads), ...Object.keys(this.noteRuns), ...(this.door ? [this.door.agent] : []), ...(this.shelf ? [this.shelf.agent] : []), ...(this.shelfBrowse ? [this.shelfBrowse.agent] : [])]
     // #137 ① the white bowl: the one fetching it keeps its record placed alone (it holds game_a, so nobody else is handed the record meanwhile);
     // the one taking it home is away from the schedule. While the bowl is not home there is no pair game at the board, and while it is taken
     // home no new record either, so nobody sits where it is set down or taken from. A re-plan may hand those out again: re-plan until it does not
@@ -712,6 +764,28 @@ export class Director {
         shown[a] = free
           ? { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
           : { status: s, kind: s.state === 'working' ? 'work' : s.state === 'wrapping' ? 'wrap' : s.state === 'off' ? 'off' : 'duty', detail: READ_LABEL[rr.stage], ...(s.state === 'wrapping' ? { step: 'seat' as const } : {}) }
+        continue
+      }
+      // #450 the shelf book: the stand before the second bookshelf, the hands and the book drawn from the stage
+      const sr = this.shelf?.agent === a ? this.shelf : null
+      if (sr) {
+        out[a] = {
+          spot: SHELF_STAND.spot,
+          pose: 'shelfbook',
+          face: SHELF_STAND.face,
+          ...standSlot(SHELF_STAND),
+          shelf: { stage: sr.stage, book: sr.book, u: (now - sr.t0) / 1000, block: sr.block },
+          label: SHELF_LABEL[sr.stage],
+        }
+        const free = (s.state === 'idle' && s.night !== 'duty') || (s.state === 'wrapping' && !this.runs[a])
+        shown[a] = free
+          ? { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
+          : { status: s, kind: s.state === 'working' ? 'work' : s.state === 'wrapping' ? 'wrap' : s.state === 'off' ? 'off' : 'duty', detail: SHELF_LABEL[sr.stage], ...(s.state === 'wrapping' ? { step: 'seat' as const } : {}) }
+        continue
+      }
+      if (this.shelfBrowse?.agent === a) {
+        out[a] = { spot: SHELF_STAND.spot, pose: 'idle', face: SHELF_STAND.face, ...standSlot(SHELF_STAND), browse: true, label: BROWSE.label }
+        shown[a] = { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
         continue
       }
       // a lounge act: its own place and hands for as long as it lasts

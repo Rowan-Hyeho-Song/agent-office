@@ -42,6 +42,8 @@ import { WATER_S } from './waterRun'
 import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFor, shakeAt, type HabitKind } from './waterFx'
 import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
+import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, rowOf } from './shelfRun'
+import { cue } from '../audio/cues'
 import { type Place, SEQ, ease, habitOf, placeSequence } from '../play/choreo'
 import { STEP, stepAt, strokeAt } from '../play/stroke'
 import { BOWL_CORNER, BOWL_S, SOLO_LEAD_MS } from './bowlRun'
@@ -222,6 +224,10 @@ export class PlayStage {
   private fxT = -1
   private spout: Object3D | undefined
   private bookHalves: { l: Object3D; r: Object3D } | null = null
+  /** #450 the second bookshelf's books' halves, by book */
+  private shelfHalves = new Map<string, { l: Object3D; r: Object3D }>()
+  /** #450 the shelf book cues already fired (book.out / book.in once per stage) */
+  private shelfCued = new Set<string>()
   /** the one leaf that turns (#231): bent about the spine, hidden while the book is read without a turn */
   private leaf: LeafBend | null = null
   private leafTargets = new Map<string, GripTarget | null>()
@@ -339,6 +345,17 @@ export class PlayStage {
     scene.add(drops)
     this.drops = drops
     this.fx = new WaterScene(scene, drops, this.plants, mobile)
+    // #450 the second bookshelf's books open the same way: their halves hang on them
+    for (const b of SHELF_BOOKS) {
+      const node = nodes[b.name]
+      const hl = nodes[`${b.name}_l`]
+      const hr = nodes[`${b.name}_r`]
+      if (node && hl && hr) {
+        node.attach(hl)
+        node.attach(hr)
+        this.shelfHalves.set(b.name, { l: hl, r: hr })
+      }
+    }
     const book = nodes.prop_book
     const l = nodes.prop_book_l
     const r = nodes.prop_book_r
@@ -376,7 +393,8 @@ export class PlayStage {
    */
   private holdFit(rig: AgentRig, side: 'l' | 'r', t: GripTarget) {
     const seat = Number(rig.id.split('_')[1])
-    const key = `${t.key}:${seat}`
+    // the grip kind too: two grips of one hand on one object (#450: a shelf book's spine and its open cover) fit their own fingers
+    const key = `${t.kind}:${t.key}:${seat}`
     if (!this.fits.has(key)) {
       const spec = GRIPS[t.kind][side]!
       const hold = rig.curlVec(side, spec.hold)
@@ -414,8 +432,8 @@ export class PlayStage {
     // the mouse body is live but not a prop (#305): the hand is placed on the body where it is now, wherever the typist has slid it
     const body = kind === 'mouse' ? tgt.obj : null
     if (body) body.updateWorldMatrix(true, false)
-    // the closed book's grip is the same prop as the open one (PropBank knows props by their own kind)
-    const propKind = kind === 'bookclosed' ? 'book' : kind
+    // the closed book's grip (and #450 a shelf book's spine grip) is the same prop as the open one (PropBank knows props by their own kind)
+    const propKind = kind === 'bookclosed' || kind === 'bookspine' ? 'book' : kind
     const info = tgt.obj && !body ? this.props.info(rig, propKind, prefer ?? objName) : null
     const home = body ? body.matrixWorld.clone() : tgt.obj ? this.props.homeWorld(tgt.obj) : new Matrix4()
     let pose = home
@@ -1199,8 +1217,10 @@ export class PlayStage {
     }
     // the reading errand (readRun.ts): the book from the low table to the sofa seat and back
     if (goal.pose === 'books' && goal.read) return this.readErrand(rig, goal.read, inp)
+    // #450 the shelf book (shelfRun.ts): out of its slot, read standing, back in the same slot
+    if (goal.pose === 'shelfbook' && goal.shelf) return this.shelfErrand(rig, goal.shelf, inp)
     if (goal.pose === 'books' && resting) {
-      const book = this.props.info(rig, 'book')
+      const book = this.props.info(rig, 'book', 'prop_book')
       if (book) {
         // before the shelf the book is closed in the hand; it opens in 0.5 s and a page turns every 6 s
         // the page faces the reader (tipped up 30°), the spine runs down, the left page on the reader's left
@@ -1409,7 +1429,7 @@ export class PlayStage {
    */
   private readErrand(rig: AgentRig, r: NonNullable<Goal['read']>, inp: StageIn) {
     if (r.stage === 'fetch') return
-    const book = this.props.info(rig, 'book')
+    const book = this.props.info(rig, 'book', 'prop_book')
     if (!book) return
     const t = inp.t
     const name = book.node.name
@@ -1451,6 +1471,108 @@ export class PlayStage {
     this.reading = r.stage === 'read' ? { rig, openAt: t - r.u, turnAt: r.u, closeAt: t - (r.u - closeFrom) } : null
     if (attached && tr && w >= 1) this.turnLeaf(rig, name, r.u, t - r.u, this.lastObjPose, inp)
     else this.hideLeaf()
+  }
+
+  /**
+   * #450 (lounge-props.md 6): a book from the second bookshelf. Pull: the right hand takes the spine (bookspine), the book comes 0.15 m out of its slot and
+   * up before the chest (the low row: the body sinks 0.25 m and rises). Open: the left hand takes its open-book grip, the right one goes from the spine to the
+   * other cover, the halves open. Read: before the face (0.28 m ahead, 0.18 m under the head), the open face 50° up. Close: it shuts and the right hand takes
+   * the spine again. Put: before its slot, then pushed in with the spine to exactly its home, and let go. The book is never moved by anything but the hands.
+   */
+  private shelfErrand(rig: AgentRig, s: NonNullable<Goal['shelf']>, inp: StageIn) {
+    if (s.stage === 'fetch') return
+    const node = this.sceneRef.getObjectByName(s.book)
+    if (!node) return
+    const name = s.book
+    const root = rig.parts.root
+    const yaw = new Quaternion().setFromAxisAngle(UP, rig.heading)
+    const right = new Vector3(Math.cos(rig.heading), 0, -Math.sin(rig.heading))
+    const quat = (upDeg: number) => {
+      const face = new Vector3(0, Math.cos((upDeg * Math.PI) / 180), Math.sin((upDeg * Math.PI) / 180)).applyQuaternion(yaw).normalize()
+      return new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(right, face, new Vector3().crossVectors(right, face)))
+    }
+    // before the chest closed (the cover to the reader, tipped 30°, as the low table's book is carried); open before the face, the pages 50° up
+    const chest = new Matrix4().compose(root.localToWorld(new Vector3(-0.02, 1.0, -0.32)), quat(60), ONE)
+    const head = rig.parts.headRestY
+    const reading = new Matrix4().compose(root.localToWorld(new Vector3(0, head - 0.18, -0.28)), quat(40), ONE)
+    const home = this.props.homeWorld(node)
+    // out of the slot: toward the room (the spines face it), along the stand's line
+    const out = home.clone().premultiply(new Matrix4().makeTranslation(Math.sin(rig.heading) * SHELF_PULL_M, 0, Math.cos(rig.heading) * SHELF_PULL_M))
+    const lowRow = rowOf(name) === 1
+    const u = s.u
+    let held = chest
+    let spine = false
+    let open = 0
+    let left = false
+    const clockR = this.clocks.get(`${rig.id}:r`)
+    if (s.stage === 'pull') {
+      spine = true
+      // the book stays in its slot until the hand has it, then 0.15 m out (to 0.6 s) and up before the chest (to 1.0 s)
+      const got = clockR?.attachedAt
+      const since = got == null ? -1 : inp.t - got
+      held = since < 0 ? home : since < SHELF_S.pullOut ? blend(home, out, ease(since / SHELF_S.pullOut)) : blend(out, chest, ease((since - SHELF_S.pullOut) / SHELF_S.toChest))
+      if (since >= 0) this.shelfCue('book.out', rig, node, `${s.block}:out`)
+    } else if (s.stage === 'open') {
+      // (designer) the right hand keeps the spine while the left comes to its grip; only once the left has the book does the right go over to the other
+      // cover and the book open: a hand is on the book in every frame
+      left = true
+      spine = true
+      const gotL = this.clocks.get(`${rig.id}:l`)?.attachedAt
+      const sinceL = gotL == null ? -1 : inp.t - gotL
+      open = inp.reduced ? 1 : sinceL < 0 ? 0 : ease(sinceL / SHELF_S.openSwap)
+      held = blend(chest, reading, open)
+    } else if (s.stage === 'read') {
+      left = true
+      spine = true
+      open = 1
+      held = reading
+    } else if (s.stage === 'close') {
+      left = true
+      spine = true
+      open = inp.reduced ? 0 : 1 - ease(u / SHELF_S.close)
+      held = blend(chest, reading, open)
+    } else {
+      // put: before the slot (half the time), then pushed in to its home; the hand lets go once it is there
+      // home by SHELF_S.putIn, a few frames there in the hand, then it lets go (the rest of the stage the hand opens and goes)
+      spine = u < SHELF_S.putIn + 0.06
+      const half = SHELF_S.putIn / 2
+      held = inp.reduced || u >= SHELF_S.putIn ? home : u < half ? blend(chest, out, ease(u / half)) : blend(out, home, ease((u - half) / half))
+      if (u >= SHELF_S.putIn / 2) this.shelfCue('book.in', rig, node, `${s.block}:in`)
+    }
+    // the low row: the body sinks while the book is taken out and put back (hover lower), up again as it comes away (or once it is in)
+    if (lowRow && !inp.reduced) {
+      const sink = s.stage === 'pull' ? Math.min(ease(u / 0.5), ease((SHELF_S.pull - u) / 0.5)) : s.stage === 'put' ? Math.min(ease(u / 0.35), ease((SHELF_S.put + 0.4 - u) / 0.4)) : 0
+      rig.bodyDip = Math.max(rig.bodyDip, SHELF_SINK_M * Math.max(0, sink))
+    }
+    // the left hand on the open book first, then the right one's spine grip, which places the book (it has held it since the pull: the left's own lift
+    // from where the book rests would pull it back to its slot), and the right hand goes over to the other cover as the book opens (its drive only)
+    if (left) this.grip(rig, 'l', 'book', name, true, held, inp)
+    this.grip(rig, 'r', 'bookspine', name, spine, held, inp)
+    const pose = this.lastObjPose.clone()
+    const tr = this.target(name, 'book', 'r')
+    // the right hand from the spine grip to the other cover by the opening, blended (target, fingers, weight): never back to its own pose between the two
+    const sp = rig.drive.r
+    const fromSpine = sp?.target && sp.angles ? { target: sp.target.clone(), angles: [...sp.angles], w: sp.w, wc: sp.wc } : null
+    if (left && tr && open > 0) {
+      this.partner(rig, 'book', 'r', tr, pose, 'l', 1)
+      const op = rig.drive.r
+      if (fromSpine && op?.target && op.angles)
+        rig.drive.r = { ...op, target: blend(fromSpine.target, op.target, open), angles: op.angles.map((x, i) => fromSpine.angles[i] * (1 - open) + x * open), w: fromSpine.w * (1 - open) + op.w * open, wc: fromSpine.wc * (1 - open) + op.wc * open }
+    }
+    // the halves open with the reading grip
+    const h = this.shelfHalves.get(name)
+    if (h) {
+      h.l.rotation.z = halfAngle('l') * open
+      h.r.rotation.z = LIFT * open
+    }
+  }
+
+  private shelfCue(name: 'book.out' | 'book.in', rig: AgentRig, node: Object3D, key: string) {
+    const k = `${rig.id}:${key}`
+    if (this.shelfCued.has(k)) return
+    this.shelfCued.add(k)
+    if (this.shelfCued.size > 64) this.shelfCued.delete(this.shelfCued.values().next().value!)
+    cue(name, { pos: node.getWorldPosition(new Vector3()), agent: rig.id, key: `lounge:${name}:${k}` })
   }
 
   private setExtra(rig: AgentRig, side: 'l' | 'r', objName: string, fn: (pose: Matrix4) => void) {
