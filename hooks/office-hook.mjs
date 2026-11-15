@@ -16,13 +16,18 @@
 //     "projects": ["**/agent-office*", …],          optional: folders that may report (default in classify.mjs)
 //     "outside": "private",                         optional: outside them, say only "비공개 작업 중"
 //     "repos": ["agent-office", "rowansong.dev"],   optional: repos a declared task may name (#182)
-//     "log": true }                                    optional: one line per event in ~/.agent-office/hook.log
+//     "log": true,                                     optional: one line per event in ~/.agent-office/hook.log
 //                                                    (event, seat, what was sent; no titles or content)
+//     "backgroundMinutes": 20 }                        optional (#535): a turn that ended with background work still running says so
+//                                                    (background / bg_test / bg_build / bg_delegate); if the session has not woken this
+//                                                    long after, the hook ends it with a stop
 // AGENT_OFFICE_SEAT=0..4 in the environment pins the seat for sessions started from that shell.
 
+import { spawn } from 'node:child_process'
 import { appendFileSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { DEFAULT_PROJECTS, DEFAULT_SEATS, insideProjects, signalFor } from './classify.mjs'
+import { fileURLToPath } from 'node:url'
+import { BACKGROUND, BACKGROUND_MINUTES, DEFAULT_PROJECTS, DEFAULT_SEATS, backgroundOver, insideProjects, signalFor } from './classify.mjs'
 import { DEFAULT_REPOS, taskFor } from './task.mjs'
 import { HOME, SESSIONS, readConfig, readJson, readStdin, resolveSeat, sessionFile } from './session.mjs'
 
@@ -35,9 +40,29 @@ function sweep() {
   }
 }
 
+/**
+ * #535: the background wait's end, run detached by the hook after it said a session waits on background work: after the time it ends the wait with a
+ * stop, unless the session has said anything since (it woke when the work was done). Sends only { seat, kind: 'stop' }.
+ */
+async function expire(file, at, minutes, config) {
+  await new Promise((r) => setTimeout(r, Math.max(0, at + minutes * 60000 - Date.now())))
+  const saved = readJson(file)
+  if (!backgroundOver(saved, at, Date.now(), minutes)) return
+  const res = await fetch(config.endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${config.token}` },
+    body: JSON.stringify({ seat: saved.seat, kind: 'stop' }),
+    signal: AbortSignal.timeout(4000),
+  })
+  if (config.log) appendFileSync(join(HOME, 'hook.log'), `${new Date().toISOString()} BackgroundExpire seat=${saved.seat} stop → ${res.status}\n`)
+  if (res.ok) writeFileSync(file, JSON.stringify({ ...saved, kind: 'stop', activity: undefined, sentAt: Date.now() }))
+}
+
 async function main() {
   const config = readConfig()
   if (!config?.endpoint || !config?.token) return
+  // #535: the detached end of a background wait (node office-hook.mjs --expire <session file> <sent at> <minutes>)
+  if (process.argv[2] === '--expire') return expire(process.argv[3], Number(process.argv[4]), Number(process.argv[5]), config)
   const input = await readStdin()
   let signal = signalFor(input, undefined, config.seats ?? DEFAULT_SEATS)
   if (!signal || typeof input.session_id !== 'string') return
@@ -95,6 +120,11 @@ async function main() {
   const detail = signal.activity ? `/${signal.activity}` : 'to' in signal ? ` to seat ${signal.to}` : ''
   log(`${signal.kind}${detail}${'ok' in signal ? (signal.ok ? ' pass' : ' fail') : ''} → ${res.status}`)
   if (res.ok) writeFileSync(file, JSON.stringify({ seat, kind: signal.kind, activity: signal.activity, task: taskKey, sentAt: now }))
+  // #535: a background wait ends by itself after backgroundMinutes if the session does not wake (a process of its own: the hook returns now)
+  if (res.ok && signal.kind === 'activity' && BACKGROUND.includes(signal.activity)) {
+    const minutes = Number(config.backgroundMinutes) > 0 ? Number(config.backgroundMinutes) : BACKGROUND_MINUTES
+    spawn(process.execPath, [fileURLToPath(import.meta.url), '--expire', file, String(now), String(minutes)], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
+  }
 }
 
 main()

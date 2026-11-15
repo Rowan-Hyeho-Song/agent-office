@@ -27,6 +27,7 @@ import { baseExpression, CallTracker, FaceMind, newInput, type FaceInput } from 
 import { WRITE_ASIDE, WRITE_CARD, wrapBack, wrapHand, wrapHead, writePlace, type HandSpec, type PressAt, type WritePlace } from './wrapPose'
 import { WRITE_PRESS } from './writePress.data'
 import { WRAP } from './wrap'
+import { isWaiting } from './screens'
 import type { Expression } from './faceModel'
 import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
 import { GLOW } from './nodes'
@@ -88,6 +89,25 @@ const LIFT = 0.06 // extra hover height while moving
  */
 const LIE = { headY: 0.62, faceUpRad: (80 * Math.PI) / 180, southM: 0.255, handsSouthM: 0.38, handsWestM: 0.03, handsApartM: 0.1, handY: 0.48 }
 const SEAT: Record<string, number> = { sofa: -0.3, stool: -0.2 }
+const DEG_R = Math.PI / 180
+/** #535 (typing.md 4 'background'): waiting on background work the head is lowDeg lower; a look at the monitor (upDeg over the typing head) every 20–40 s, 1.2 s */
+export const BG_WAIT = { lowDeg: 6, upDeg: 4, lookS: 1.2 } as const
+/**
+ * How far into a look at the monitor the head is at `t` (0 … 1 … 0): one look in each 30 s, 15 ± 5 s into it (seeded by the agent and the slot, so
+ * every visitor sees the same; looks 20–40 s apart), each 1.2 s with a fifth of it up and down
+ */
+export function bgGlance(agent: string, t: number): number {
+  const slot = Math.floor(t / 30)
+  const look = slot * 30 + 15 + (((hashStr(`${agent}|bgglance|${slot}`) % 1000) / 999) * 2 - 1) * 5
+  const u = (t - look) / BG_WAIT.lookS
+  if (u <= 0 || u >= 1) return 0
+  return Math.min(1, u / 0.2, (1 - u) / 0.2)
+}
+const hashStr = (s: string) => {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619)
+  return h >>> 0
+}
 /** where the beam of light ends when the agent hovers over furniture (else the floor) */
 const SURFACE: Record<string, number> = { work: 0.76, stool: 0.525, sofa: 0.44 }
 /** through the door: how far past the door spot an agent glides before it's out of the room */
@@ -1092,6 +1112,7 @@ export class AgentRig {
 
   update(dt: number, t: number, g: NavGraph, others: Record<string, AgentRig>, reduced: boolean, status?: AgentStatus) {
     if (!this.goal) return
+    this.bgWait = status?.state === 'working' && isWaiting(status.activity)
     dt = Math.min(dt, 0.1)
     let wantHeading = this.heading
     let moving = false
@@ -1421,6 +1442,9 @@ export class AgentRig {
       case 'move':
         return { pitch: 0, yaw: 0, roll: 0 }
       case 'type':
+        // #535 (typing.md 4 'background'): waiting on background work, the head 6° lower; every 20–40 s up to the monitor for 1.2 s (4° over the
+        // typing head); reduced motion: still
+        if (this.bgWait) return { pitch: -0.08 - BG_WAIT.lowDeg * DEG_R + (reduced ? 0 : bgGlance(this.id, t) * (BG_WAIT.lowDeg + BG_WAIT.upDeg) * DEG_R), yaw: 0, roll: 0 }
         return { pitch: -0.08, yaw: 0, roll: 0 }
       case 'listen': {
         const o = this.goal?.lookAt ? others[this.goal.lookAt] : undefined
@@ -1480,6 +1504,8 @@ export class AgentRig {
   private place: WritePlace = null
   /** #505: where this desk's other hand rests beside the card, instead of its own (writePress.data.ts, found per desk): the search sets it */
   pressAt: PressAt | null = null
+  /** #535: working, waiting on background work (the hook's background / bg_* after a Stop): the head waits (BG_WAIT) */
+  private bgWait = false
   /** #490 B: the stretch's hand height over the head's rest, instead of this agent's own (stretch.data.ts): the measuring sets it */
   stretchAt: number | null = null
   private get press(): PressAt | undefined {

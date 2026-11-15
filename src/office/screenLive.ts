@@ -3,7 +3,7 @@
 // (progress strip, elapsed time); a monitor outside the view is not drawn at all.
 
 import { CanvasTexture, Color, Frustum, LinearMipmapLinearFilter, Matrix4, MeshBasicMaterial, SRGBColorSpace, Sphere, type Camera, type Mesh, type Object3D } from 'three'
-import { hasStill, LIVE_OPS, screenPlan, screenState, ICONS, WRAP_FIELDS, type IconName, type Op, type ScreenState } from './screens'
+import { hasStill, isWaiting, LIVE_OPS, screenPlan, screenState, ICONS, SPIN, spinFrame, WRAP_FIELDS, type IconName, type Op, type ScreenState } from './screens'
 import { clip, PRIVATE_TASK_LABEL, taskNumber, taskOf, type AgentStatus, type AgentTask, type StatusMap } from './status'
 import { AGENT_INFO } from './world'
 
@@ -174,7 +174,9 @@ export class ScreenLive {
       const phase = state === 'rest' ? Math.round(f.t * 8) : state === 'off' ? (f.reduced || Math.floor(f.t * 0.8) % 2 === 0 ? 1 : 0) : 0
       const minute = Math.floor(f.now / 60000)
       const task = state === 'work' || state === 'wrap' || state === 'private' ? taskOf(f.status[`agent_${m.seat}`]) : undefined
-      const key = `${state}|${state === 'work' ? activity : ''}|${f.reduced}|${minute}|${phase}|${task ? taskNumber2(task) : ''}`
+      // #535: the wait's turning bar is in the middle, not the live band: its frame is part of the key (a whole draw 4 times a second, while waiting only)
+      const spin = state === 'work' && isWaiting(activity) ? spinFrame(f.t, f.reduced) : ''
+      const key = `${state}|${state === 'work' ? activity : ''}|${f.reduced}|${minute}|${phase}|${task ? taskNumber2(task) : ''}|${spin}`
       const plan = screenPlan(state, activity)
       if (key !== m.key) {
         m.key = key
@@ -223,7 +225,7 @@ export class ScreenLive {
       if (bandOnly && !LIVE_OPS.has(o.op) && o.op !== 'bg' && o.op !== 'hatch') continue
       switch (o.op) {
         case 'bg':
-          g.fillStyle = o.tone === 'off' ? tk.off : o.tone === 'lock' ? mix(bg, tk.lock, 0.05) : mix(bg, col, o.tone === 'rest' ? tk.tint * 0.35 : tk.tint)
+          g.fillStyle = o.tone === 'off' ? tk.off : o.tone === 'lock' ? mix(bg, tk.lock, 0.05) : mix(bg, col, o.tone === 'rest' ? tk.tint * 0.35 : o.tone === 'wait' ? tk.tint * 0.5 : tk.tint)
           g.fillRect(0, 0, MW, MH)
           break
         case 'hatch':
@@ -254,8 +256,18 @@ export class ScreenLive {
         case 'icon':
           icon(o.icon, pad, 172 - ic / 2, ic, tone(o.tone))
           break
+        case 'spin':
+          // #535: the turning bar in the icon's place, 48 px, in the agent's ink
+          g.font = pixel(48, true)
+          g.fillStyle = ink
+          g.textAlign = 'center'
+          g.textBaseline = 'middle'
+          g.fillText(SPIN[spinFrame(f.t, f.reduced)], pad + ic / 2, 174)
+          g.textAlign = 'left'
+          g.textBaseline = 'top'
+          break
         case 'label':
-          g.font = pixel(fsL, true)
+          g.font = pixel(fsL, !o.light)
           g.fillStyle = tone(o.tone)
           g.textBaseline = 'middle'
           g.fillText(o.text, pad + ic + 24, 174)
@@ -263,7 +275,7 @@ export class ScreenLive {
           break
         case 'strip': {
           const c = o.tone === 'lock' ? tk.lock : col
-          const head = f.reduced ? -1 : Math.floor(f.t * 8) % 12
+          const head = f.reduced ? -1 : Math.floor(f.t * (o.half ? 4 : 8)) % 12
           for (let i = 0; i < 12; i++) {
             const lit = f.reduced ? true : (i - head + 12) % 12 < 3
             g.fillStyle = lit ? c : mix(c, bg, 0.8)
@@ -277,7 +289,8 @@ export class ScreenLive {
           g.fillStyle = tk.muted
           g.textAlign = 'right'
           g.textBaseline = 'middle'
-          g.fillText([s / 3600, (s / 60) % 60, s % 60].map((v) => two(Math.floor(v))).join(':'), MW - pad, stripY + 6)
+          // #535: the wait shows minutes:seconds (3:12)
+          g.fillText(o.short ? `${Math.floor(s / 60)}:${two(s % 60)}` : [s / 3600, (s / 60) % 60, s % 60].map((v) => two(Math.floor(v))).join(':'), MW - pad, stripY + 6)
           g.textAlign = 'left'
           g.textBaseline = 'top'
           break

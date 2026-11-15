@@ -12,7 +12,7 @@ describe('parseSignal', () => {
   })
 
   it('accepts every listed activity', () => {
-    for (const a of ['edit', 'read', 'test', 'build', 'install', 'git', 'run', 'other', 'delegate', 'think']) {
+    for (const a of ['edit', 'read', 'test', 'build', 'install', 'git', 'run', 'other', 'delegate', 'think', 'background', 'bg_test', 'bg_build', 'bg_delegate']) {
       expect(parseSignal({ seat: 0, kind: 'activity', activity: a })).toEqual({ seat: 0, kind: 'activity', activity: a })
     }
   })
@@ -32,6 +32,8 @@ describe('parseSignal', () => {
   it('requires a valid activity for kind activity', () => {
     expect(parseSignal({ seat: 0, kind: 'activity' })).toBeNull()
     expect(parseSignal({ seat: 0, kind: 'activity', activity: 'rm -rf /' })).toBeNull()
+    // #535: only the four background kinds are new; anything else like them is still refused
+    for (const a of ['bg_run', 'bg_', 'Background', 'bg_test ']) expect(parseSignal({ seat: 0, kind: 'activity', activity: a })).toBeNull()
     expect(parseSignal({ seat: 0, kind: 'activity', activity: 1 })).toBeNull()
     expect(parseSignal({ seat: 0, kind: 'activity', activity: null })).toBeNull()
   })

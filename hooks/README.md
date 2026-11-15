@@ -66,6 +66,10 @@ node hooks/task.mjs                    # 지금 선언된 것 보기
 | PreToolUse | Bash · PowerShell, 앱·스크립트 실행 | `run` | 앱 실행 중 |
 | PreToolUse | 그 밖의 명령과 도구 | `other` | 명령 실행 중 |
 | (허용 폴더 밖, `"outside": "private"`일 때만) | 모든 활동 | `private` | 비공개 작업 중 |
+| Stop, 백그라운드 일이 남음(#535) | 테스트 명령 | `bg_test` | 테스트 결과 기다리는 중 |
+| Stop, 백그라운드 일이 남음 | 빌드 명령 | `bg_build` | 빌드 기다리는 중 |
+| Stop, 백그라운드 일이 남음 | 백그라운드 하위 에이전트 | `bg_delegate` | 맡긴 일 기다리는 중 |
+| Stop, 백그라운드 일이 남음 | 그 밖의 것이나 여러 가지가 섞임 | `background` | 백그라운드 작업 중 |
 
 - Bash 명령은 `&&`, `;`, `|`로 나눈 조각 중에서 준비 단계(`cd`, 환경 변수, `echo`, `ls` …)가 아닌 첫 조각으로 판단합니다. 규칙은 `classify.mjs`의 `BASH_RULES`에 있습니다.
 - 같은 활동이 이어지면 30초에 한 번만 보냅니다(`keepaliveSeconds`).
@@ -73,13 +77,22 @@ node hooks/task.mjs                    # 지금 선언된 것 보기
 | 그 밖의 이벤트 | kind | 사무실 상태 |
 |---|---|---|
 | SessionStart | `start` | 출근(쉬는 중) |
-| Stop(턴이 끝남) | `stop` | 카드 정리 중 → 2분 뒤 쉬는 중 |
+| Stop(턴이 끝남, 백그라운드 일 없음) | `stop` | 카드 정리 중 → 2분 뒤 쉬는 중 |
+| Stop(턴이 끝남, 백그라운드 일이 남음, #535) | `activity` `background` · `bg_*` | 일하는 중(백그라운드 기다림). 다음 신호로 바뀜. `backgroundMinutes`(기본 20분) 동안 세션이 깨지 않으면 훅이 `stop`을 보냄 |
 | SessionEnd | `end` | 퇴근 |
 | PostToolUse / PostToolUseFailure(Bash·PowerShell, test·build 명령만) | `result` + `ok` | 루프 신호등 초록/빨강, 메시 링 조명(#44) |
 
 **성공/실패 값(#44)**: Claude Code는 셸 명령이 성공하면 PostToolUse를, 0이 아닌 코드로 끝나면 PostToolUseFailure를 부릅니다. 훅은 **어느 이벤트가 불렸는지만** 보고 `ok`(true/false)를 정합니다. 명령의 출력(`tool_response`)과 오류 문구(`error`)는 읽지도 보내지도 않습니다. test·build로 분류된 명령만 보내고, 허용 폴더 밖이나 `"outside": "private"` 세션은 보내지 않습니다. Blender 굽기(`blender …`, `build-*.sh`)는 build로 셉니다.
 
-신호가 끊기면 페이지가 시간으로 판단합니다. 작업 중에 3분 동안 신호가 없으면 쉬는 중으로, 2시간 동안 없으면 퇴근으로 봅니다.
+**백그라운드 기다림(#535)**: Claude Code는 Stop 훅에 `background_tasks`(아직 도는 백그라운드 작업: 종류 · 상태, 셸이면 명령)를 넘깁니다. 훅은 남은 일이 있으면 `stop` 대신 위 표의 활동을 보냅니다.
+- **분류 규칙**: 셸 명령은 `BASH_RULES`로 나눕니다. 하위 에이전트는 `bg_delegate`이고, 둘 이상이 섞이면 `background`입니다.
+- **세지 않는 것**: 끝난 작업, 개발 서버 · 미리보기 · `--watch` 같은 띄워 두는 명령, 모니터는 세지 않습니다.
+- **명령을 다루는 범위**: 명령은 PC 안에서 분류에만 쓰고 남기거나 보내지 않습니다. 세션 파일에는 지금까지처럼 자리 · 보낸 kind · activity · 시각만 남습니다.
+- **끝나는 때**: 백그라운드 일이 끝나 세션이 깨어나면 그 다음 신호로 풀립니다. 깨어나지 않으면 `backgroundMinutes`(hook.json, 기본 20분)가 지난 뒤 훅이 따로 띄운 작은 프로세스가 `stop`을 보냅니다. 그 사이 다른 신호가 갔다면 보내지 않습니다.
+
+신호가 끊기면 페이지가 시간으로 판단합니다. 작업 중에 3분 동안 신호가 없으면 쉬는 중으로, 2시간 동안 없으면 퇴근으로 봅니다. 다만 다음 둘은 기준이 다릅니다(#535).
+- **셸 명령**(test · build · install · run · other): 시작(PreToolUse)과 끝(PostToolUse) 사이에 신호가 없으므로 10분까지 작업 중으로 봅니다. 긴 스크립트가 쉬는 중으로, 밤에는 조는 중으로 보이던 것을 막습니다.
+- **백그라운드 기다림**: 30분까지 작업 중으로 봅니다. 훅의 `stop`이 오지 않을 때를 대비한 것입니다.
 
 ## 설치
 
@@ -88,6 +101,8 @@ node hooks/task.mjs                    # 지금 선언된 것 보기
    ```json
    { "endpoint": "https://<사무실 주소>/api/events", "token": "<OFFICE_HOOK_TOKEN과 같은 값>" }
    ```
+
+   백그라운드 기다림을 끝내는 시간은 `"backgroundMinutes": 20`(분, #535)으로 바꿀 수 있습니다. 페이지는 30분이 넘으면 따로 끝내므로 30 이하로 둡니다.
 
    설치를 확인할 때는 `"log": true`를 더합니다. `~/.agent-office/hook.log`에 이벤트마다 한 줄이 남습니다(이벤트, 자리, 보낸 것, 응답 코드만 기록).
 
