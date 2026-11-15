@@ -25,7 +25,7 @@ import {
 } from 'three'
 import type { Goal } from './director'
 import type { GripDemo } from './debugPlay'
-import { GRIPS, GripClock, STONE_ABD, STONE_FALLBACK_M, STONE_H, STONE_PITCH, STONE_PITCH_FLAT, handFor, stoneGrip, stoneRoll, tipAt, type StoneGrip } from './grip'
+import { GRIPS, GripClock, STONE_ABD, STONE_FALLBACK_M, STONE_H, STONE_PITCH, STONE_PITCH_FLAT, handFor, objectFor, stoneGrip, stoneRoll, tipAt, type StoneGrip } from './grip'
 import { DIP_K, POSES, fingerFromC, toVec } from './handPose'
 import { contactNormal, fitFingers, handGripMatrix, offsetOf, resolveTarget, type GripTarget } from './gripTargets'
 import { fingerModelOf, type AgentRig, type PropBank } from './rig'
@@ -42,8 +42,10 @@ import { WATER_S } from './waterRun'
 import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFor, shakeAt, type HabitKind } from './waterFx'
 import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
+import { SIP_TOP_S, TREAT_HOLD, TREAT_LOOK, TREAT_PROP, takeSounds, treatPhase, type SnackKind } from './treatHold'
+import { handsOf } from './paperRun'
 import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, rowOf } from './shelfRun'
-import { cue } from '../audio/cues'
+import { cue, cue as treatCue } from '../audio/cues'
 import { type Place, SEQ, ease, habitOf, placeSequence } from '../play/choreo'
 import { STEP, stepAt, strokeAt } from '../play/stroke'
 import { BOWL_CORNER, BOWL_S, SOLO_LEAD_MS } from './bowlRun'
@@ -117,6 +119,8 @@ export interface StageIn {
   forcedSessions?: PlaySession[]
   /** #137 ② a visitor's game with the agent at the board (omokVisit/store.ts): drawn instead of the board's own game, in this tab only */
   visitorOmok?: { agent: string; view: OmokView } | null
+  /** #455 the treats taken in a hand: which, and when it landed (office ms) */
+  treats?: Record<string, { kind: SnackKind; at: number }>
   /** #137 ① where the white bowl rests when no hand has it (Director.bowlRest): its home by game_b, or the corner by game_a */
   bowlRest?: 'home' | 'corner'
   gripDemo?: GripDemo | null
@@ -571,10 +575,13 @@ export class PlayStage {
     this.demo(inp)
     this.putBack(inp)
     for (const id of ids) if (!this.typed.has(id)) this.typist.fade(inp.rigs[id], inp.dt)
+    // #455 a treat in a free hand: over whatever that hand was doing
+    this.treatHands(inp)
     for (const id of ids) {
       inp.rigs[id].applyDrive('l', inp.t, inp.reduced)
       inp.rigs[id].applyDrive('r', inp.t, inp.reduced)
     }
+    this.treatDraw(inp)
     for (const id of ids) this.writeDesk.draw(inp.rigs[id], inp.goals[id], inp)
     this.lounge.update(inp)
     this.book(inp)
@@ -1471,6 +1478,134 @@ export class PlayStage {
     this.reading = r.stage === 'read' ? { rig, openAt: t - r.u, turnAt: r.u, closeAt: t - (r.u - closeFrom) } : null
     if (attached && tr && w >= 1) this.turnLeaf(rig, name, r.u, t - r.u, this.lastObjPose, inp)
     else this.hideLeaf()
+  }
+
+  /** #455 each treat held: its hand, its prop, its pose this frame, its own materials (to fade it), the cues fired */
+  private treatsHeld = new Map<string, { at: number; side: 'l' | 'r'; prop: string; kind: SnackKind; mats: Material[] | null; opacity: number; cued: Set<string>; pg?: Matrix4 }>()
+
+  /**
+   * #455 (office-ui.md 12.2): the treat taken in the free hand (paper-pass.md 3: the right one, the left when the right is busy; both busy: not held, the icon
+   * shows as before), held before the chest, a coffee sipped once (#457's height), faded after TREAT_HOLD.holdS. The hand is driven to the treat's grip at
+   * the hold (the bake's _grip_<side>), the fingers fitted to its contacts; the prop is out of the PropBank while it is held (drawn in treatDraw).
+   */
+  private treatHands(inp: StageIn) {
+    const want = inp.treats ?? {}
+    for (const [id, h] of [...this.treatsHeld]) {
+      const t = want[id]
+      if (!t || t.at !== h.at || !treatPhase(h.kind, (inp.now - h.at) / 1000, inp.reduced)) this.treatEnd(id)
+    }
+    for (const [id, t] of Object.entries(want)) {
+      const rig = inp.rigs[id]
+      if (!rig?.visible) continue
+      const u = (inp.now - t.at) / 1000
+      const ph = treatPhase(t.kind, u, inp.reduced)
+      if (!ph) continue
+      let h = this.treatsHeld.get(id)
+      if (!h) {
+        const hands = handsOf(rig)
+        if (hands.both) continue
+        const side: 'l' | 'r' = hands.busy === 'r' ? 'l' : 'r'
+        h = { at: t.at, side, prop: TREAT_PROP[t.kind], kind: t.kind, mats: null, opacity: 1, cued: new Set() }
+        this.treatsHeld.set(id, h)
+        const node = this.sceneRef.getObjectByName(h.prop)
+        if (node) this.props.borrowed.add(node)
+      }
+      const tgt = this.target(h.prop, `treat_${h.kind}`, h.side)
+      if (!tgt) continue
+      const hand = rig.parts.hands[h.side]
+      const root = rig.parts.root
+      root.updateWorldMatrix(true, false)
+      const rq = root.getWorldQuaternion(new Quaternion())
+      const sx = h.side === 'r' ? 1 : -1
+      const head = rig.parts.head.position
+      const H = TREAT_HOLD.hold
+      const S = TREAT_HOLD.sip
+      // before the chest; a sip lifts it before the face and tips it back
+      const at = root.localToWorld(new Vector3(sx * H.side * (1 - ph.sip), head.y - H.belowHead + (H.belowHead - S.belowHead) * ph.sip, -H.forward + (H.forward - S.forward) * ph.sip))
+      const right = new Vector3(1, 0, 0).applyQuaternion(rq)
+      const q = new Quaternion().setFromAxisAngle(right, ((S.tiltDeg * Math.PI) / 180) * ph.sip).multiply(rq)
+      const pose = new Matrix4().compose(at, q, ONE)
+      const seat = Number(rig.id.split('_')[1])
+      h.pg = this.treatGrip(h.kind, tgt.pg, ph.sip)
+      const target = handFor(pose, h.pg, handGripMatrix(hand)).multiply(offsetOf(tgt.key, seat))
+      const fit = this.holdFit(rig, h.side, tgt)
+      rig.drive[h.side] = { target, w: ph.w, curl: null, angles: fit.hold, wc: ph.w, spread: null }
+      h.opacity = ph.opacity
+      // the sounds: the hand has it (not when that is within 0.2 s of the arrival), the coffee's sip at its top (none with reduced motion)
+      const pos = at.clone()
+      if (u >= TREAT_HOLD.takeAtS && takeSounds() && !h.cued.has('take')) {
+        h.cued.add('take')
+        treatCue('treat.take', { pos, agent: id, key: `treat:take:${id}:${t.at}` })
+      }
+      if (h.kind === 'coffee' && !inp.reduced && u >= SIP_TOP_S && !h.cued.has('sip')) {
+        h.cued.add('sip')
+        treatCue('drink.sip', { pos, agent: id, key: `treat:sip:${id}:${t.at}` })
+      }
+    }
+  }
+
+  /** #455 the treat's grip as it is drawn (TREAT_LOOK): its place scaled with the treat, lowered down it, turned about its up in a sip */
+  private treatGrip(kind: SnackKind, pg: Matrix4, sip: number): Matrix4 {
+    const look = TREAT_LOOK[kind]
+    const p = new Vector3()
+    const q = new Quaternion()
+    const sc = new Vector3()
+    pg.decompose(p, q, sc)
+    p.multiplyScalar(look.scale)
+    p.y -= look.gripDown
+    const m = new Matrix4().compose(p, q, ONE)
+    if (look.sipYawDeg && sip > 0) m.premultiply(new Matrix4().makeRotationY(((look.sipYawDeg * Math.PI) / 180) * sip))
+    return m
+  }
+
+  /** #455 after the drives: each held treat where its hand's grip has it, faded in / out */
+  private treatDraw(inp: StageIn) {
+    for (const [id, h] of this.treatsHeld) {
+      const rig = inp.rigs[id]
+      const node = this.sceneRef.getObjectByName(h.prop)
+      const tgt = this.target(h.prop, `treat_${h.kind}`, h.side)
+      if (!rig || !node || !tgt) continue
+      const hand = rig.parts.hands[h.side]
+      hand.node.updateMatrixWorld(true)
+      objectFor(hand.node.matrixWorld, handGripMatrix(hand), h.pg ?? tgt.pg).decompose(node.position, node.quaternion, node.scale)
+      node.scale.setScalar(TREAT_LOOK[h.kind].scale)
+      node.visible = rig.visible && h.opacity > 0.01
+      if (!h.mats) {
+        h.mats = []
+        for (const m of meshesOf(node)) {
+          m.material = (m.material as Material).clone()
+          h.mats.push(m.material as Material)
+        }
+      }
+      for (const mat of h.mats) {
+        mat.transparent = h.opacity < 1
+        mat.opacity = h.opacity
+        mat.depthWrite = h.opacity >= 1
+      }
+    }
+  }
+
+  /** #455 a treat is over: back to the PropBank, hidden where it rests */
+  private treatEnd(id: string) {
+    const h = this.treatsHeld.get(id)
+    if (!h) return
+    this.treatsHeld.delete(id)
+    const node = this.sceneRef.getObjectByName(h.prop)
+    if (node) {
+      this.props.borrowed.delete(node)
+      node.visible = false
+      node.scale.set(1, 1, 1)
+    }
+    for (const mat of h.mats ?? []) {
+      mat.transparent = false
+      mat.opacity = 1
+      mat.depthWrite = true
+    }
+  }
+
+  /** #455 tests and the debug panel: the hand a treat is in, or null */
+  treatSide(agent: string) {
+    return this.treatsHeld.get(agent)?.side ?? null
   }
 
   /**
