@@ -1,12 +1,12 @@
 // #370 A (desk-props.md 4, grips.md): when a hand touches a thing of its own desk, what the desk shows of it, and the hand on the baked model.
 /// <reference types="node" />
 import { appendFileSync } from 'node:fs'
-import { Box3, Quaternion, Vector3, type Mesh } from 'three'
+import { Box3, Matrix4, Quaternion, Vector3, type Mesh } from 'three'
 import { describe, expect, it } from 'vitest'
 import { DUCK_BUBBLE, DUCK_LINES, DeskTouches, HABIT_PER_HOUR, TOUCH_PROP, NO_REPEAT_S, TOUCH_S, TURNTABLE_PUSH, calendarPage, habitTimes, hourglassAt, type TouchIn, type TouchKind } from './deskTouch'
 import { deskProps, type DeskProps } from './props'
 import { Guard, Walk, expectCleanAll, world } from './errandWorld.fixture'
-import { contactNormal } from './gripTargets'
+import { contactNormal, handGripMatrix } from './gripTargets'
 import { DeskLive } from './deskLive'
 import type { AgentRig } from './rig'
 import type { StatusMap } from './status'
@@ -330,4 +330,48 @@ describe('the prop in the hand (#370 B, grips.md)', () => {
       }
     }, 120_000)
   }
+})
+
+describe('the swatch fan (#370 B2, grips.md 색견본 부채)', () => {
+  it('the left hand on the stand, the fan spread twice its rest and closed again, the right index on the chip it points at, not into it', async () => {
+    let leftFar = 0
+    let far = 0
+    let into = 0
+    let spreadMax = 0
+    let rest0 = 0
+    const w = await touchRun('swatch', (w, u) => {
+      const rig = w.rigs.agent_2
+      const gl = w.scene.getObjectByName('desk_2_swatch_grip_l')!
+      const c3 = w.scene.getObjectByName('desk_2_swatch_leaf_3')!
+      const c0 = w.scene.getObjectByName('desk_2_swatch_leaf_0')!
+      const a = new Vector3(0, 1, 0).transformDirection(c0.matrixWorld).angleTo(new Vector3(0, 1, 0).transformDirection(c3.matrixWorld))
+      if (u < 0.1) rest0 = a
+      spreadMax = Math.max(spreadMax, a)
+      // the hand's own grip point (its grip frame) on the stand's
+      const hl = rig.parts.hands.l
+      hl.node.updateWorldMatrix(true, false)
+      const g = new Vector3().setFromMatrixPosition(new Matrix4().multiplyMatrices(hl.node.matrixWorld, handGripMatrix(hl)))
+      if (u > 0.8 && u < 2.8) leftFar = Math.max(leftFar, g.distanceTo(gl.getWorldPosition(new Vector3())))
+      if (u > 1.6 && u < 2.6) {
+        const c = w.scene.getObjectByName('desk_2_swatch_leaf_1')!
+        const tip = w.scene.getObjectByName('desk_2_swatch_leaf_1_tip')!
+        const up = new Vector3(0, 1, 0).transformDirection(c.matrixWorld)
+        const n = new Vector3(0, 0, 1).transformDirection(c.matrixWorld)
+        if (n.dot(rig.parts.root.position.clone().sub(c.getWorldPosition(new Vector3()))) < 0) n.negate()
+        const P = tip.getWorldPosition(new Vector3()).addScaledVector(up, -0.025)
+        const t = tipWorld(rig, 0)
+        far = Math.max(far, t.distanceTo(P))
+        into = Math.max(into, -t.clone().sub(P).dot(n))
+      }
+    })
+    const c0 = w.scene.getObjectByName('desk_2_swatch_leaf_0')!
+    const c3 = w.scene.getObjectByName('desk_2_swatch_leaf_3')!
+    const after = new Vector3(0, 1, 0).transformDirection(c0.matrixWorld).angleTo(new Vector3(0, 1, 0).transformDirection(c3.matrixWorld))
+    if (LOG) appendFileSync(LOG, `swatch: fan ${((rest0 * 180) / Math.PI).toFixed(0)}° → ${((spreadMax * 180) / Math.PI).toFixed(0)}° → ${((after * 180) / Math.PI).toFixed(0)}°, left hand ${(leftFar * 1000).toFixed(1)} mm from the stand's grip, index ${(far * 1000).toFixed(1)} mm from the chip, ${(into * 1000).toFixed(1)} mm into it\n`)
+    expect(spreadMax / rest0, 'spread to about twice').toBeGreaterThan(1.8)
+    expect(Math.abs(after - rest0), 'closed again').toBeLessThan(0.01)
+    expect(leftFar, 'the left hand on the stand').toBeLessThan(0.01)
+    expect(far, 'the index on the chip').toBeLessThan(0.01)
+    expect(into, 'not into it').toBeLessThanOrEqual(0.002)
+  }, 120_000)
 })

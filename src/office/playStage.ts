@@ -43,7 +43,7 @@ import { WATER_S } from './waterRun'
 import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFor, shakeAt, type HabitKind } from './waterFx'
 import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
-import { KEYCAP_ROLL, SHAPE_TURN, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, hourglassAt, type Touch } from './deskTouch'
+import { KEYCAP_ROLL, SHAPE_TURN, SWATCH, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, hourglassAt, type Touch } from './deskTouch'
 import { SIP_TOP_S, TREAT_HOLD, TREAT_LOOK, TREAT_PROP, takeSounds, treatPhase, type SnackKind } from './treatHold'
 import { handsOf } from './paperRun'
 import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, pageTau, rowOf } from './shelfRun'
@@ -1841,6 +1841,8 @@ export class PlayStage {
       if (!c) return false
       c.updateWorldMatrix(true, false)
       this.indexOn(rig, c.getWorldPosition(new Vector3()), contactNormal(this.sceneRef, c), 0, false, inp, want)
+    } else if (kind === 'swatch') {
+      if (!this.swatchTouch(rig, tc.k ?? 0, u, inp)) return false
     } else if (TOUCH_PROP[kind]) {
       if (!this.deskProp(rig, kind, u, inp)) return false
     } else {
@@ -1855,7 +1857,36 @@ export class PlayStage {
       this.grip(rig, 'r', 'hourglass', 'desk_0_hourglass', want, held, inp)
     }
     // the shape takes both hands
-    if (goal.pose === 'type' && kind !== 'shape') this.typeAtDesk(rig, inp, seat, true)
+    if (goal.pose === 'type' && kind !== 'shape' && kind !== 'swatch') this.typeAtDesk(rig, inp, seat, true)
+    return true
+  }
+
+  /**
+   * #370 B2 (grips.md 색견본 부채): the left hand closes round the fan's stand (desk_2_swatch_grip_l), the right index on the outermost chip's face as
+   * the fan spreads (DeskLive turns the chips), then on chip `k`'s face 2.5 cm under its tip, pointing at it; both let go as the fan closes.
+   */
+  private swatchTouch(rig: AgentRig, k: number, u: number, inp: StageIn): boolean {
+    const gl = this.sceneRef.getObjectByName('desk_2_swatch_grip_l')
+    const chip = (i: number) => this.sceneRef.getObjectByName(`desk_2_swatch_leaf_${i}`)
+    if (!gl || !chip(0)) return false
+    const S = TOUCH_S.swatch
+    // the left hand on the stand
+    const hl = rig.parts.hands.l
+    const wl = ease(Math.min(1, Math.max(0, u / 0.5))) * (1 - ease(Math.min(1, Math.max(0, (u - S.back) / 0.4))))
+    gl.updateWorldMatrix(true, false)
+    const spec = GRIPS.swatch.l!
+    rig.drive.l = { target: handFor(gl.matrixWorld, new Matrix4(), handGripMatrix(hl)), w: wl, curl: spec.hold, wc: wl, spread: null }
+    // the right index: on the outermost chip while it spreads, then on the chip pointed at
+    const c = chip(u < SWATCH.point[0] ? 3 : k)
+    const tip = c && this.sceneRef.getObjectByName(`${c.name}_tip`)
+    if (!c || !tip) return true
+    c.updateWorldMatrix(true, true)
+    const up = new Vector3(0, 1, 0).transformDirection(c.matrixWorld)
+    const n = new Vector3(0, 0, 1).transformDirection(c.matrixWorld)
+    // the face toward the designer
+    if (n.dot(rig.parts.root.position.clone().sub(c.getWorldPosition(new Vector3()))) < 0) n.negate()
+    const P = tip.getWorldPosition(new Vector3()).addScaledVector(up, -0.025).addScaledVector(n, 0.0015)
+    this.indexOn(rig, P, n, 0, false, inp, u >= 0.3 && u < S.back)
     return true
   }
 
