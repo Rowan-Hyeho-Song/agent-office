@@ -44,7 +44,9 @@ export const SHELF_S = {
   pull: 1.2,
   pullOut: 0.35,
   toChest: 0.4,
-  open: 0.5,
+  /** the left hand comes to its open-book grip (about 0.42 s) holding the right one on the spine, then the right goes over and it opens (openSwap) */
+  open: 0.8,
+  openSwap: 0.35,
   /** read for this long (a seed in it per stay), a page every 25–40 s */
   read: [150, 330] as const,
   pageEvery: [25, 40] as const,

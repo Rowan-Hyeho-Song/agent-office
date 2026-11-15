@@ -1513,9 +1513,13 @@ export class PlayStage {
       held = since < 0 ? home : since < SHELF_S.pullOut ? blend(home, out, ease(since / SHELF_S.pullOut)) : blend(out, chest, ease((since - SHELF_S.pullOut) / SHELF_S.toChest))
       if (since >= 0) this.shelfCue('book.out', rig, node, `${s.block}:out`)
     } else if (s.stage === 'open') {
+      // (designer) the right hand keeps the spine while the left comes to its grip; only once the left has the book does the right go over to the other
+      // cover and the book open: a hand is on the book in every frame
       left = true
       spine = true
-      open = inp.reduced ? 1 : ease(u / SHELF_S.open)
+      const gotL = this.clocks.get(`${rig.id}:l`)?.attachedAt
+      const sinceL = gotL == null ? -1 : inp.t - gotL
+      open = inp.reduced ? 1 : sinceL < 0 ? 0 : ease(sinceL / SHELF_S.openSwap)
       held = blend(chest, reading, open)
     } else if (s.stage === 'read') {
       left = true
@@ -1546,7 +1550,15 @@ export class PlayStage {
     this.grip(rig, 'r', 'bookspine', name, spine, held, inp)
     const pose = this.lastObjPose.clone()
     const tr = this.target(name, 'book', 'r')
-    if (left && tr && open > 0) this.partner(rig, 'book', 'r', tr, pose, 'l', open)
+    // the right hand from the spine grip to the other cover by the opening, blended (target, fingers, weight): never back to its own pose between the two
+    const sp = rig.drive.r
+    const fromSpine = sp?.target && sp.angles ? { target: sp.target.clone(), angles: [...sp.angles], w: sp.w, wc: sp.wc } : null
+    if (left && tr && open > 0) {
+      this.partner(rig, 'book', 'r', tr, pose, 'l', 1)
+      const op = rig.drive.r
+      if (fromSpine && op?.target && op.angles)
+        rig.drive.r = { ...op, target: blend(fromSpine.target, op.target, open), angles: op.angles.map((x, i) => fromSpine.angles[i] * (1 - open) + x * open), w: fromSpine.w * (1 - open) + op.w * open, wc: fromSpine.wc * (1 - open) + op.wc * open }
+    }
     // the halves open with the reading grip
     const h = this.shelfHalves.get(name)
     if (h) {

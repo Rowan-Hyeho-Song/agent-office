@@ -4,7 +4,7 @@
 //  - the stage on the baked model, with the planner walking the body: the stages in order, the book out of its slot and before the face while read, the
 //    halves open, the low row read with the body sunk, and the book back exactly in its slot (1 mm, 0.5°); nothing loose or jumping (Guard).
 import { describe, expect, it } from 'vitest'
-import { Matrix4, Quaternion, Vector3 } from 'three'
+import { Box3, Matrix4, Quaternion, Vector3, type Mesh } from 'three'
 import { stubCanvas } from './glbLoad'
 import { Guard, IDS, Walk, expectCleanAll, world } from './errandWorld.fixture'
 import { SHELF_BOOKS, SHELF_LABEL, SHELF_S, SHELF_STAND, callAway, chooseBook, holding, pageAt, rowOf, shelfTurn, startShelf, stepShelf } from './shelfRun'
@@ -105,6 +105,7 @@ describe('a book from the second bookshelf on the baked model', () => {
       let readSeen = false
       let openSeen = 0
       let sunk = 0
+      let worstHold = 0
       const { stages, ended } = runShelf(w, 'agent_1', book, guard, (walk, st) => {
         node.updateWorldMatrix(true, false)
         const p = new Vector3().setFromMatrixPosition(node.matrixWorld)
@@ -120,6 +121,21 @@ describe('a book from the second bookshelf on the baked model', () => {
           if (half) openSeen = Math.max(openSeen, Math.abs(half.rotation.z))
         }
         if (st === 'pull' || st === 'put') sunk = Math.max(sunk, -rig.parts.root.position.y)
+        // (designer) a hand on the book in every frame while it is opened, read and closed: the nearer hand within 1 cm of the book as drawn
+        if (st === 'open' || st === 'read' || st === 'close') {
+          w.scene.updateMatrixWorld(true)
+          const box = new Box3().setFromObject(node)
+          const near = (side: 'l' | 'r') => {
+            let d = Infinity
+            rig.parts.hands[side].node.traverseVisible((m) => {
+              const g = (m as Mesh).geometry?.getAttribute('position')
+              if (!(m as Mesh).isMesh || !g) return
+              for (let i = 0; i < g.count; i += 3) d = Math.min(d, box.distanceToPoint(new Vector3().fromBufferAttribute(g, i).applyMatrix4(m.matrixWorld)))
+            })
+            return d
+          }
+          worstHold = Math.max(worstHold, Math.min(near('r'), near('l')))
+        }
         void walk
       })
       expect(stages).toEqual(['fetch', 'pull', 'open', 'read', 'close', 'put'])
@@ -127,6 +143,7 @@ describe('a book from the second bookshelf on the baked model', () => {
       expect(readSeen).toBe(true)
       expect(maxOut, 'it came out of the slot').toBeGreaterThan(0.3)
       expect(openSeen, 'the halves open').toBeGreaterThan(1)
+      expect(worstHold, 'a hand on the book in every frame of the opening, the reading and the closing').toBeLessThanOrEqual(0.01)
       if (rowOf(book) === 1) expect(sunk, 'the low row: the body sinks').toBeGreaterThan(0.15)
       else expect(sunk, 'the top row: the body does not sink').toBeLessThan(0.01)
       // back exactly in its slot
