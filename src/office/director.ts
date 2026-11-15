@@ -3,7 +3,8 @@
 
 import { dutyOf, dutyStatus } from './duty'
 import { DESK_SIDES } from './nav'
-import { playAt, PLAYS, schedulePose, soloAt, type PlayAssignment, type PlayKind } from './play'
+import { playAt, PLAYS, schedulePose, soloAt, type GapKind, type PlayAssignment, type PlayKind } from './play'
+import { gapPace } from './gapMotion'
 import { activityLabel, type AgentStatus, type OfficeMessage, type StatusMap } from './status'
 import type { Request } from './traffic'
 import { actSpot, actU, deckAfter, startAct, stepAct, type ActRun } from './actRun'
@@ -57,6 +58,11 @@ export interface Goal {
   drink?: DrinkView
   /** #4 notes 2b (noteRead.ts): at the cork board for its notes; s since arriving (-1 on the way) */
   note?: { u: number; ids: number[] }
+  /** #490 B (play.md 9.2 · 9.3): a gap between two stays (a stretch, a slower stroll, breathing at the window), or the game it watches (a cheer now and then) */
+  gap?: GapKind
+  watching?: 'pingpong' | 'boardgame'
+  /** at the ping-pong table before the partner is there (play.md 9.2): the ball is bounced on the paddle. Not set for a pair whose rally is not shown (the timelapse) */
+  partnerWait?: boolean
   /** what it's doing, for the debug panel */
   label: string
 }
@@ -65,7 +71,7 @@ export interface Goal {
 export const requestOf = (goal: Goal, pace: number, notBefore?: number): Request => ({
   spot: goal.spot,
   ...(goal.slot ? { slot: goal.slot } : {}),
-  pace,
+  pace: pace * gapPace(goal.gap),
   avoid: goal.quiet ? DESK_SIDES : undefined,
   ...(notBefore !== undefined ? { notBefore } : {}),
 })
@@ -713,7 +719,7 @@ export class Director {
       }
       if (p) playing.push(a)
       // a gap between two stays (a stretch where it was, a stroll, the window) and watching a game stand still: the label says which (#490)
-      out[a] = p ? { spot: p.spot, pose: schedulePose(p.kind), face: p.face, ...standSlot(p), label: p.label } : deskIdle(desk)
+      out[a] = p ? { spot: p.spot, pose: schedulePose(p.kind), face: p.face, ...standSlot(p), ...(p.gap ? { gap: p.gap } : {}), ...(p.watch ? { watching: p.watch } : {}), ...(p.kind === 'pingpong' && !p.partner ? { partnerWait: true } : {}), label: p.label } : deskIdle(desk)
     }
     this.settle(out, playing, deskIdle)
     this.putAway(now, out)
