@@ -37,21 +37,36 @@ export function holdState(h: Hold | null, want: MusicState, t: number, hold = HO
 }
 
 /**
- * #280 the turntable (sound.md 4.4, planning 2026-11-10): when the music should go to break and an agent is on the way
- * to the turntable, the break music waits for the needle; lifting the arm takes it back down to work music for the rest
- * of that break. Nobody at the turntable = break at once, as before.
- *  - `coming`  an agent is going to put a record on (needle not down yet)
+ * #280 / #492 the turntable (sound.md 4.4): work ↔ break swaps on the needle, not on the agents' rule.
+ * The order is rule → somebody sent → needle → music. When the rule turns to break, the work music keeps playing
+ * while somebody is picked and walks over, and the break music starts as the needle meets the groove. When the
+ * break ends with the needle still down, the break music keeps playing until the arm comes up. If nobody comes
+ * (nobody is free, or they gave up), the music follows the rule DECK_GRACE_S after it changed. A late agent
+ * does not take it back. Lifting the arm during a break takes the music down to work for the rest of that break.
+ *  - `coming`  an agent is on the way to the turntable: to put a record on (needle up) or to lift the arm (needle down)
  *  - `down`    the needle is in the groove
  *  - `lifted`  the arm came up during this break (cleared when the break ends)
  */
 export type Deck = { coming: boolean; down: boolean; lifted: boolean }
 export const DECK_IDLE: Deck = { coming: false, down: false, lifted: false }
-/** what the speakers play, from the held agent state and the turntable (pure, tested) */
-export function deckState(held: MusicState, d: Deck): MusicState {
-  if (held !== 'break') return held
-  if (d.down) return 'break'
-  if (d.lifted || d.coming) return 'work'
-  return 'break'
+/** nobody comes to the turntable: the music follows the rule this long (scene s) after the rule changed */
+export const DECK_GRACE_S = 6
+/**
+ * what the speakers play (pure, tested). `held` is the agents' state after its 8 s hold. `playing` is what the
+ * speakers play now (null after a seek or on a fresh scene: follow the rule at once). `waited` is the scene time
+ * since `held` last changed.
+ */
+export function deckState(held: MusicState, d: Deck, playing: MusicState | null = null, waited = Infinity): MusicState {
+  if (held === 'off') return 'off'
+  if (held === 'break') {
+    if (d.down) return 'break'
+    if (d.lifted) return 'work'
+    if (playing !== 'work') return 'break' // already break (a late agent does not take it back), or coming from night / a seek
+    return d.coming || waited < DECK_GRACE_S ? 'work' : 'break'
+  }
+  // work: only a needle left down from the break holds the break music (a record put on during work changes nothing)
+  if (playing !== 'break' || !d.down) return 'work'
+  return d.coming || waited < DECK_GRACE_S ? 'break' : 'work'
 }
 
 /** the 8-cell meter: RMS −48 → −12 dBFS in 4.5 dB steps */
@@ -124,6 +139,10 @@ let night = false
 let dist: MusicDist = 'room'
 let force: MusicState | null = null
 let hold: Hold | null = null
+/** what the turntable rule says the speakers play (before `force`), when the held state last changed, the scene clock */
+let played: MusicState | null = null
+let changedAt = 0
+let sceneNow = 0
 let meterS: Meter = { cells: 0, next: 0 }
 const out = { cells: 0, cone: 0, on: false, glow: 0, faders: [0, 0, 0, 0] as [number, number, number, number] }
 const pos = new Vector3()
@@ -190,30 +209,40 @@ export const getMusicDist = () => dist
 let deck: Deck = DECK_IDLE
 /** the agents' rule says break (after its 8 s hold): the coder sends someone to the turntable then (ECHO first if resting) */
 export const musicWantsBreak = () => hold?.state === 'break'
-/** an agent is going to put a record on (true), or gave up (false): the break music waits for the needle meanwhile */
+/** apply the turntable rule now (every frame, and on the needle's own frame so the crossfade starts with its cue) */
+function follow() {
+  if (!hold) return
+  played = deckState(hold.state, deck, played, sceneNow - changedAt)
+  const want = force ?? played
+  if (want !== getMusicState()) setMusicState(want)
+}
+/** an agent is on its way to the turntable, to put a record on or lift the arm (true), or gave up (false): the music waits for the needle */
 export function recordComing(on: boolean) {
   deck = { ...deck, coming: on }
 }
-/** the needle meets the groove (with cue 'record.needle'): break music starts */
+/** the needle meets the groove (with cue 'record.needle'): break music starts in this frame */
 export function needleDown() {
   deck = { coming: false, down: true, lifted: false }
+  follow()
 }
-/** the arm comes up (with cue 'record.lift'): back to work music for the rest of this break */
+/** the arm comes up (with cue 'record.lift'): work music starts in this frame (for the rest of this break, or because it ended) */
 export function needleUp() {
   deck = { coming: false, down: false, lifted: musicWantsBreak() }
+  follow()
 }
 /** the turntable as the speakers see it (debug panel, tests) */
 export const deckNow = (): Readonly<Deck> => deck
 /** a seek / a fresh scene: forget the turntable */
 export function resetDeck() {
   deck = DECK_IDLE
+  played = null
 }
 
 /** debug: play this state whatever the agents do (null = follow them again) */
 export function forceMusic(s: MusicState | null) {
   force = s
   if (s) setMusicState(s)
-  else if (hold) setMusicState(hold.state)
+  else if (hold) setMusicState(played ?? hold.state)
 }
 export const forcedMusic = () => force
 
@@ -229,10 +258,12 @@ const silent = () => {
  */
 export function speakerFrame(resting: number, playing: boolean, isNight: boolean, sceneS: number) {
   night = isNight
+  const prev = hold?.state
   hold = holdState(hold, wantedState(resting, isNight), sceneS)
+  if (hold.state !== prev || sceneS < changedAt) changedAt = sceneS // a scrub back starts the grace again
+  sceneNow = sceneS
   if (hold.state !== 'break' && deck.lifted) deck = { ...deck, lifted: false }
-  const want = force ?? deckState(hold.state, deck)
-  if (want !== getMusicState()) setMusicState(want)
+  follow()
   holdDuck('music', playing ? PINGPONG_DUCK_DB : 0)
 
   const g = audioGraph()

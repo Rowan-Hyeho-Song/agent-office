@@ -96,6 +96,24 @@ describe('the turntable through the Director', () => {
     expect(d.deckState()).toEqual({ recordOn: true, needle: true })
   })
 
+  it('lift (#492): recordComing is true on the way to lift the arm, false once it is up', () => {
+    const d = new Director(IDS)
+    d.forceAct('agent_4', 'record', T0, 'put')
+    drive(d, 0, 10, stands(ACT_PLACE.record.spot, 0.5), {})
+    expect(d.deckState().needle).toBe(true)
+    d.forceAct('agent_4', 'record', T0 + 20_000, 'lift')
+    let coming = false
+    let comingAfter = true
+    const beats = recordBeats('lift', true)
+    drive(d, 20, 30, stands(ACT_PLACE.record.spot, 20.5), {}, (t) => {
+      if (t > 21 && t < 20.5 + beats.down - 0.2) coming ||= d.recordComing()
+      if (t > 20.5 + beats.down + 0.2) comingAfter = d.recordComing()
+    })
+    expect(coming, 'on its way to lift the arm').toBe(true)
+    expect(comingAfter, 'not any more once the arm is up').toBe(false)
+    expect(d.deckState().needle).toBe(false)
+  })
+
   it('the music wants a break and nobody is at the turntable: echo (agent_4) goes first, and it puts the record on; the next one asks nothing more of anybody', () => {
     const d = new Director(IDS)
     const starter: string[] = []

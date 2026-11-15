@@ -217,8 +217,8 @@ export class Director {
   /** the turntable as the acts have left it (a record on the platter, the needle down) */
   deckState = () => this.deck
 
-  /** an agent is on its way to put a record on (the needle is not down yet): the break music waits for it (speaker.ts recordComing) */
-  recordComing = () => Object.values(this.acts).some((r) => r.kind === 'record' && (r.mode ?? 'put') === 'put' && !this.deck.needle)
+  /** an agent is on its way to put the needle down or lift it (the needle is not that way yet): the music waits for it (speaker.ts recordComing, #492) */
+  recordComing = () => Object.values(this.acts).some((r) => r.kind === 'record' && ((r.mode ?? 'put') === 'put' ? !this.deck.needle : this.deck.needle))
 
   /** the agent that has the fridge door in use, if any (the planner keeps everybody else off the area it sweeps, traffic.ts reserve) */
   fridgeUser = (): string | null => Object.entries(this.acts).find(([, r]) => r.kind === 'fridge')?.[0] ?? null
