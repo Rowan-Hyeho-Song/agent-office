@@ -613,7 +613,7 @@ export class Director {
       // called to work (or into a talk) on the way: the round is dropped (the lever can wait for tomorrow)
       if (busyNow(d.agent) || d.agent in this.meet) this.door = null
       else {
-        const r = stepDoor(d, { now, arrived: arrivedAt(d.agent) === DOOR_ROUND.spot })
+        const r = stepDoor(d, { now, arrived: arrivedAt(d.agent) === DOOR_ROUND.spot, minS: opts.gm ?? 0 })
         this.door = r.done || r.giveUp ? null : r.run
       }
     }

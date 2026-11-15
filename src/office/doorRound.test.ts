@@ -102,3 +102,12 @@ describe('the rounds in the Director (a day around 09:00 and 23:00)', () => {
     expect(drive(at('12:00'), at('12:10'), idle).atDoor).toEqual({})
   })
 })
+
+describe('the replay (x16, a rewind)', () => {
+  it('at the door at least the gesture minimum, so the lever is seen to go down and up once', () => {
+    const r = stepDoor({ agent: 'agent_0', kind: 'morning', at: 0, arrived: null }, { now: 1000, arrived: true, minS: 16 }).run
+    expect(stepDoor(r, { now: 1000 + atDoorS('morning') * 1000 + 1, arrived: true, minS: 16 }).done).toBe(false)
+    expect(stepDoor(r, { now: 1000 + 16_000, arrived: true, minS: 16 }).done).toBe(true)
+    expect(stepDoor(r, { now: 1000 + atDoorS('morning') * 1000, arrived: true, minS: 0 }).done).toBe(true)
+  })
+})
