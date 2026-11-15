@@ -1240,8 +1240,8 @@ export class PlayStage {
             this.stampInked = i + 1
             cue('stamp.ink', { pos: pad.getWorldPosition(new Vector3()), agent: rig.id, key: `stamp.ink:${Math.round(this.stampAt * 1000)}:${i}` })
           }
-        // the stamp heard as it comes down on the paper, once a decision
-        if (s >= STAMP_INK.press[0] && !this.stampHeard) {
+        // the stamp heard as it meets the paper (the middle of the press, where it has come down from its hover), once a decision
+        if (s >= (STAMP_INK.press[0] + STAMP_INK.press[1]) / 2 && !this.stampHeard) {
           this.stampHeard = true
           cue('stamp', { pos: home.node.getWorldPosition(new Vector3()) })
         }
