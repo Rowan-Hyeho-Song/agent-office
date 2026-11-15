@@ -58,9 +58,10 @@ export const BUTTON_TRAVEL: Record<string, number> = { coffee_button: 0, water_t
 /** #559 the press's tap: the hand 1 mm in and back over 0.08 s as it starts */
 export const PRESS_TAP = { m: 0.001, s: 0.08 }
 
+
 /** #370 B3b the IN pile squared at the tidy-up: lifted 4 cm, stood 70° on its near edge, tapped down 1.2 cm; the palms 2 mm off its sides (the hand frame 9 mm behind the palm), 2 cm in from its near edge */
 export const PILE_TIDY = { lift: 0.04, standDeg: 70, tap: 0.012, out: 0.002, palm: 0.009, near: 0.02 }
-import { KEYCAP_ROLL, LEAF_STROKE, PAPER_READ, SHAPE_TURN, SWATCH, leafAt, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, type Touch } from './deskTouch'
+import { HEADPHONES, KEYCAP_ROLL, cupSwivel, LEAF_STROKE, PAPER_READ, SHAPE_TURN, SWATCH, leafAt, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, type Touch } from './deskTouch'
 import { SIP_TOP_S, TREAT_HOLD, TREAT_LOOK, TREAT_PROP, takeSounds, treatPhase, type SnackKind } from './treatHold'
 import { handsOf } from './paperRun'
 import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, pageTau, rowOf } from './shelfRun'
@@ -2084,6 +2085,69 @@ export class PlayStage {
   private stampFace: number | undefined
 
   /**
+   * #370 C2 where the headphones are held for one cup to the right ear: the cup axis (their x, from the near cup to the far) along the head's side
+   * turned HEADPHONES.tiltDeg out, the headband up, the near cup (swivelled HEADPHONES.swivelDeg: its cushion now faces their -z, the head) with its
+   * cushion's centre on the side of the head at the ear's height. The head is the head's box at rest.
+   */
+  private headphoneHold(rig: AgentRig): { pos: Vector3; q: Quaternion } | null {
+    const cup = this.sceneRef.getObjectByName('prop_headphones_cup')
+    const hp = this.sceneRef.getObjectByName('prop_headphones')
+    if (!cup || !hp) return null
+    // the cushion in the headphones' frame as swivelled: the cup's rest (as attached to them) turned on its yoke, its cushion face (its own +x) at its
+    // middle; the cushion's normal is the cup's +x
+    const rest = cup.userData.liveRest as { p: Vector3; q: Quaternion } | undefined
+    if (!rest) return null
+    const c = (this.cushionAt ??= (() => {
+      const box = localBox(cup)
+      return new Vector3(box.max.x, (box.min.y + box.max.y) / 2, (box.min.z + box.max.z) / 2)
+    })())
+    const sw = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), (HEADPHONES.swivelDeg * Math.PI) / 180)
+    const cq = rest.q.clone().multiply(sw)
+    const cushion = c.clone().applyQuaternion(cq).add(rest.p)
+    const nHp = new Vector3(1, 0, 0).applyQuaternion(cq)
+    // the head as it is now (it turns and nods as the agent works): the headphones go with it
+    const head = rig.parts.head
+    head.updateWorldMatrix(true, true)
+    const hq = head.getWorldQuaternion(new Quaternion())
+    const right = new Vector3(1, 0, 0).applyQuaternion(hq)
+    const fwd = new Vector3(0, 0, -1).applyQuaternion(hq)
+    const up = new Vector3(0, 1, 0).applyQuaternion(hq)
+    // the cushion faces into the head, turned tiltDeg toward the front (the far cup out from the head's side), the headband up
+    const t = (HEADPHONES.tiltDeg * Math.PI) / 180
+    const nW = right.clone().multiplyScalar(-Math.cos(t)).addScaledVector(fwd, Math.sin(t))
+    const basis = (n: Vector3, u: Vector3) => {
+      const z = new Vector3().crossVectors(n, u).normalize()
+      const y = new Vector3().crossVectors(z, n).normalize()
+      return new Matrix4().makeBasis(n.clone().normalize(), y, z)
+    }
+    const q = new Quaternion().setFromRotationMatrix(basis(nW, up).multiply(basis(nHp, new Vector3(0, 1, 0)).invert()))
+    // the ear: the head's right side at its middle height (the head's box in its own frame, measured once)
+    const ear = (this.earAt ??= new Map()).get(rig.id) ?? (() => {
+      const b = localBox(head)
+      const e = new Vector3(b.max.x, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2)
+      this.earAt!.set(rig.id, e)
+      return e
+    })()
+    const E = head.localToWorld(ear.clone())
+    return { pos: E.sub(cushion.applyQuaternion(q)), q }
+  }
+  /** #370 C2 the right hand on the near cup's shell (prop_headphones_cup_grip_r) where the cup is with the headphones where grip() put them */
+  private cupHand(rig: AgentRig, u: number, inp: StageIn) {
+    const d = rig.drive.r
+    const cup = this.sceneRef.getObjectByName('prop_headphones_cup')
+    const rest = cup?.userData.liveRest as { p: Vector3; q: Quaternion } | undefined
+    const t = this.target('prop_headphones_cup', 'headphones_cup', 'r')
+    if (!d?.target || !cup || !rest || !t) return
+    const sw = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), (cupSwivel(u, inp.reduced) * Math.PI) / 180)
+    const cupWorld = this.lastObjPose.clone().multiply(new Matrix4().compose(rest.p, rest.q.clone().multiply(sw), ONE))
+    const seat = Number(rig.id.split('_')[1])
+    const target = handFor(cupWorld, t.pg, handGripMatrix(rig.parts.hands.r)).multiply(offsetOf(t.key, seat))
+    rig.drive.r = { ...d, target, angles: this.holdFit(rig, 'r', t).hold }
+  }
+  private cushionAt: Vector3 | undefined
+  private earAt: Map<string, Vector3> | undefined
+
+  /**
    * #370 B a prop taken from the desk (grips.md): reached, lifted to where it is held (its own rotation as it rests: the duck still faces its owner),
    * held, put back exactly where it rests from back - PUT_S, let go at back. The duck before the face and squeezed once; the keycap before the chest,
    * rolled ±15° between the fingers; the shape at eye height, turned 30° slowly, the left hand open under it.
@@ -2102,7 +2166,12 @@ export class PlayStage {
     const fwd = new Vector3(-Math.sin(rig.heading), 0, -Math.cos(rig.heading))
     let pos: Vector3
     let q = hq.clone()
-    if (kind === 'duck') pos = at(0.02, head - 0.04, -0.2)
+    if (kind === 'headphones') {
+      const h = this.headphoneHold(rig)
+      if (!h) return false
+      pos = h.pos
+      q = h.q
+    } else if (kind === 'duck') pos = at(0.02, head - 0.04, -0.2)
     else if (kind === 'keycap') {
       pos = at(0.06, head - 0.38, -0.24)
       const R = KEYCAP_ROLL
@@ -2118,6 +2187,9 @@ export class PlayStage {
     const k = ease(Math.min(1, Math.max(0, (u - (S.back - PUT_S)) / PUT_S)))
     const held = k > 0 ? blend(hold, home, k) : hold
     this.grip(rig, 'r', kind, name, u < S.back, held, inp, name)
+    // #370 C2 (designer, #574): the headphones are carried by the near cup, the palm round its shell pressing it to the ear (the DJ's one-ear
+    // listen), not by the headband: the hand's drive goes to the cup's own grip where the cup is now (on the headphones, swivelled on its yoke)
+    if (kind === 'headphones') this.cupHand(rig, u, inp)
     // the duck squeezed once (every finger +0.15 of its curl, 0.15 s)
     const d = rig.drive.r
     if (kind === 'duck' && u >= S.at && u < S.at + 0.15 && d?.angles) rig.drive.r = { ...d, angles: d.angles.map((a) => a * 1.15) }

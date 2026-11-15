@@ -99,6 +99,10 @@ export const GRIPS: Record<string, GripSpec> = {
   },
   // #370 C (grips.md 링 조명 노브): the ring light's knob pinched by the thumb and the index tips, the wrist turning it 20°
   ringknob: { r: { pre: curlOf([0.3, 0.3, 0.8, 0.85], [0.2, 0.6]), hold: curlOf([0.55, 0.55, 0.8, 0.85], [0.3, 0.7]), after: REST, contacts: ['thumb', 'index'] } },
+  // #370 C2 (grips.md 헤드폰 한쪽): the headband's middle held in the hand
+  headphones: { r: { pre: all(0.3, [0.2, 0.5]), hold: curlOf([0.7, 0.75, 0.8, 0.8], [0.4, 0.9]), after: REST, contacts: ['palm'] } },
+  // #370 C2 (designer, #574): the headphones' near cup held by its shell, the palm round its back pressing it to the ear, the fingers round it 0.35
+  headphones_cup: { r: { pre: all(0.25, [0.2, 0.4]), hold: curlOf([0.35, 0.35, 0.35, 0.35], [0.3, 0.5]), after: REST, contacts: ['palm'] } },
   stamp: { r: { pre: all(0.3, [0.1, 0.3]), hold: curlOf([0.75, 0.8, 0.82, 0.85], [0.4, 0.9]), after: REST, contacts: ['palm'] } },
   // a hand gripping the mouse body (#305: it slides it about its pad): the palm over the body, the index on the left button, the middle on the right
   mouse: { r: { pre: all(0.2, [0.1, 0.3]), hold: curlOf([0.35, 0.35, 0.45, 0.5], [0.25, 0.6]), after: REST, contacts: ['palm', 'index', 'middle'] } },

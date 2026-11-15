@@ -31,6 +31,8 @@ const OBJECTS: [string, string, 'l' | 'r'][] = [
   // #370 B the desk props taken for a moment: the duck, the keycap, a plaster shape
   // #370 C the hourglass pinched at two pillars across (thumb -x, index +x)
   ['desk_0_hourglass', 'hourglass', 'r'],
+  // #370 C2 the headphones' near cup held by its shell (the palm only: no finger contacts)
+  ['prop_headphones_cup', 'headphones_cup', 'r'],
   // #370 C the ring light's knob pinched (thumb over, index under)
   ['desk_1_ringlight_knob', 'ringknob', 'r'],
   ['prop_duck', 'duck', 'r'], ['prop_keycap_0', 'keycap', 'r'], ['prop_shape_1', 'shape', 'r'],

@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { DUCK_BUBBLE, DUCK_LINES, DeskTouches, HABIT_PER_HOUR, KNOB_TURN, LEAF_STROKE, TOUCH_PROP, leafAt, NO_REPEAT_S, TOUCH_S, TURNTABLE_PUSH, calendarPage, habitTimes, hourglassAt, type TouchIn, type TouchKind } from './deskTouch'
 import { deskProps, type DeskProps } from './props'
 import { Guard, Walk, expectCleanAll, world } from './errandWorld.fixture'
+import { SHOULDER } from './reach'
 import { contactNormal, handGripMatrix } from './gripTargets'
 import { DeskLive } from './deskLive'
 import { HELD_T, TrayPile } from './tray'
@@ -557,8 +558,7 @@ describe('the IN pile squared at the tidy-up (#370 B3b, desk-props.md 4)', () =>
     const p = new Vector3()
     const q = new Quaternion()
     node.matrixWorld.decompose(p, q, new Vector3())
-    if (LOG) appendFileSync(LOG, `pile tidy: stood ${((stood * 180) / Math.PI).toFixed(0)}°, hands ${(into * 1000).toFixed(1)} mm into the pile at most, palms ${(gap.l * 1000).toFixed(1)} / ${(gap.r * 1000).toFixed(1)} mm off its sides, back ${(p.distanceTo(restP!) * 1000).toFixed(2)} mm / ${((q.angleTo(restQ!) * 180) / Math.PI).toFixed(2)}° from its rest
-`)
+    if (LOG) appendFileSync(LOG, `pile tidy: stood ${((stood * 180) / Math.PI).toFixed(0)}°, hands ${(into * 1000).toFixed(1)} mm into the pile at most, palms ${(gap.l * 1000).toFixed(1)} / ${(gap.r * 1000).toFixed(1)} mm off its sides, back ${(p.distanceTo(restP!) * 1000).toFixed(2)} mm / ${((q.angleTo(restQ!) * 180) / Math.PI).toFixed(2)}° from its rest\n`)
     expect((stood * 180) / Math.PI, 'stood up').toBeGreaterThan(60)
     expect(into, 'no hand into the pile').toBeLessThanOrEqual(0.002)
     expect(Math.max(gap.l, gap.r), 'the palms on its sides').toBeLessThan(0.006)
@@ -653,5 +653,79 @@ describe('the stamp inked on the pad (#370 C3, desk-props.md 4)', () => {
     expect(stampAt.length).toBe(1)
     // as it meets the paper: the middle of the press (1.575 s)
     expect(stampAt[0]).toBeCloseTo((STAMP_INK.press[0] + STAMP_INK.press[1]) / 2, 1)
+  }, 120_000)
+})
+
+describe('one headphone cup to the ear (#370 C2, grips.md 헤드폰 한쪽)', () => {
+  it("the near cup's cushion on the right ear facing the head (±20°), the far cup 4–8 cm off it, all back where it rests, the cup swivelled back", async () => {
+    let facing = Infinity
+    let onEar = Infinity
+    let farOff = { min: Infinity, max: -Infinity }
+    let frames = 0
+    let twist = 0
+    let onCup = 0
+    let homeP: Vector3 | null = null
+    const w = await touchRun(
+      'headphones',
+      (w, u) => {
+        const hp = w.scene.getObjectByName('prop_headphones')!
+        homeP ??= hp.getWorldPosition(new Vector3())
+        if (u < 1.6 || u > 3.4) return
+        frames++
+        const rig = w.rigs.agent_4
+        // the head in its own frame (it turns and nods): its box, its centre, its right side
+        const hn = rig.parts.head
+        hn.updateWorldMatrix(true, true)
+        const inv = hn.matrixWorld.clone().invert()
+        const head = localBox(hn)
+        const root = hn
+        const centre = root.localToWorld(head.getCenter(new Vector3()))
+        const cup = w.scene.getObjectByName('prop_headphones_cup')!
+        const box = localBox(cup)
+        const cushion = cup.localToWorld(new Vector3(box.max.x, (box.min.y + box.max.y) / 2, (box.min.z + box.max.z) / 2))
+        const normal = new Vector3(1, 0, 0).transformDirection(cup.matrixWorld)
+        facing = Math.min(facing, 90 - (Math.acos(Math.min(1, normal.dot(centre.clone().sub(cushion).normalize()))) * 180) / Math.PI)
+        const ear = root.localToWorld(new Vector3(head.max.x, (head.min.y + head.max.y) / 2, (head.min.z + head.max.z) / 2))
+        onEar = Math.min(onEar, cushion.distanceTo(ear))
+        // the far cup (the headphones' own +x cup, mirrored from the near one) off the head's box
+        const far = hp.localToWorld(new Vector3(-cup.position.x - box.max.x, cup.position.y + (box.min.y + box.max.y) / 2, 0)).applyMatrix4(inv)
+        const d = head.distanceToPoint(far)
+        farOff = { min: Math.min(farOff.min, d), max: Math.max(farOff.max, d) }
+        // the wrist's twist: about the line from the shoulder to the hand, the palm (the hand's z) against the palm turned in to the body (the body's -x)
+        const body = rig.parts.root
+        body.updateWorldMatrix(true, false)
+        const hand = rig.parts.hands.r.node
+        const at = hand.getWorldPosition(new Vector3())
+        const arm = at.clone().sub(body.localToWorld(new Vector3(SHOULDER.x, SHOULDER.y, SHOULDER.z))).normalize()
+        const flat = (v: Vector3) => v.addScaledVector(arm, -v.dot(arm)).normalize()
+        const palm = flat(new Vector3(0, 0, 1).transformDirection(hand.matrixWorld))
+        const inward = flat(new Vector3(-1, 0, 0).transformDirection(body.matrixWorld))
+        twist = Math.max(twist, (palm.angleTo(inward) * 180) / Math.PI)
+        // the hand on the cup's shell: its grip point on the cup's grip (#574)
+        const g = w.scene.getObjectByName('prop_headphones_cup_grip_r')
+        if (g) {
+          const hr = rig.parts.hands.r
+          hr.node.updateWorldMatrix(true, false)
+          const gp = new Vector3().setFromMatrixPosition(new Matrix4().multiplyMatrices(hr.node.matrixWorld, handGripMatrix(hr)))
+          onCup = Math.max(onCup, gp.distanceTo(g.getWorldPosition(new Vector3())))
+        }
+      },
+      true,
+    )
+    const hp = w.scene.getObjectByName('prop_headphones')!
+    const cup = w.scene.getObjectByName('prop_headphones_cup')!
+    const r0 = (cup.userData.liveRest as { q: Quaternion }).q
+    const angleOff = 90 - facing
+    if (LOG) appendFileSync(LOG, `headphones: the cushion ${angleOff.toFixed(1)}° off facing the head, ${(onEar * 1000).toFixed(1)} mm from the ear, the far cup ${(farOff.min * 100).toFixed(1)}–${(farOff.max * 100).toFixed(1)} cm off the head, back ${(hp.getWorldPosition(new Vector3()).distanceTo(homeP!) * 1000).toFixed(2)} mm from its rest, the cup ${((cup.quaternion.angleTo(r0) * 180) / Math.PI).toFixed(2)}° from its rest, the wrist twisted ${twist.toFixed(0)}° at most, the hand ${(onCup * 1000).toFixed(1)} mm off the cup's grip\n`)
+    expect(frames).toBeGreaterThan(30)
+    expect(angleOff, 'the cushion faces the head').toBeLessThanOrEqual(20)
+    expect(onEar, 'on the ear').toBeLessThan(0.015)
+    // designer (desk-props.md 6.1): 4–8 cm, so it neither touches the head nor goes into it
+    expect(farOff.min, 'the far cup off the head').toBeGreaterThanOrEqual(0.04)
+    expect(farOff.max).toBeLessThanOrEqual(0.08)
+    expect(hp.getWorldPosition(new Vector3()).distanceTo(homeP!), 'back where they rest').toBeLessThan(0.001)
+    expect(cup.quaternion.angleTo(r0), 'the cup back').toBeLessThan(1e-4)
+    expect(twist, 'the wrist within 45°').toBeLessThanOrEqual(45)
+    expect(onCup, "the hand on the cup's shell").toBeLessThan(0.01)
   }, 120_000)
 })
