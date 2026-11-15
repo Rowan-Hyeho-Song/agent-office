@@ -23,6 +23,8 @@ Node contract (the app reads glTF extras):
                                    sign, deg, open_s, close_s}), shelf_wall_trophy_band (the app paints it), frame_<k>_art
                                    (screen slots for the posters; 0 = this site, 1 = agent office, 2 = desk room),
                                    hit_frame_<k>; props prop_pillow_0|1 (two-hand grips), prop_record (hidden at rest).
+                                   #455 prop_treat_coffee|_cookie|_apple: the visitor's snacks, hidden at rest, homes on the
+                                   coffee bar counter, _grip_r|_l (coffee "wrap") + _contact_* (_l suffix for the left hand).
                                    Empties table_low_slot_0..3 (extras for), fridge_door_grip, water_tap_0|1,
                                    soil_plant_hang_0|1; nav_sofa_0..3 (#280 3 corner sofa: 0 / 1 the south row, 2 the corner
                                    facing north-west (last), 3 the east seat facing west, lie, head [x, z] = the north
@@ -5406,6 +5408,72 @@ def build_beanbag():
     return l2("beanbag", p)
 
 
+def build_treats():
+    """#455 (designer, issue comment): the visitor's snacks taken in hand: prop_treat_coffee | _cookie | _apple, live
+    prop, hidden at rest (the app shows one in the receiving hand), out of the bake. Homes on the coffee bar counter.
+    Grips for both hands (the empty one takes it, paper-pass.md 3): coffee wrapped round its sleeve, the cookie
+    pinched at its rim (thumb on top, index under), the apple resting on the palm. Contacts sit on mesh vertices
+    (lathe / sphere azimuths every 30 deg) so the hand-fit check's 2 mm holds"""
+    G = "export"
+    top = 0.94  # the counter top (x 4.16-4.80, z -0.27-0.47): its front strip, clear of the baked cup stack (4.43, -0.10)
+    # the coffee: a paper cup 9 cm, r 2.8 -> 3.5 cm, kraft sleeve, dark lid with a sip hole; origin at mid height
+    cream = plastic("#f3ead8", 0.7, 0, 0.1, "treat_cup")
+    kraft = plastic("#d9a05b", 0.85, 0, 0.3, "treat_kraft")
+    lid_m = plastic("#3a3530", 0.5, 0, 0.0, "treat_lid")
+    rb, rt, hb, ht = 0.028, 0.035, -0.045, 0.040
+    r_at = lambda y: rb + (y - hb) / (ht - hb) * (rt - rb)
+    ya, yb = -0.012, 0.022
+    cup = [lathe("treat_cup_body", [(0, hb), (rb, hb), (rt, ht), (0, ht)], (0, 0, 0), cream, G, seg=12),
+           lathe("treat_cup_sleeve", [(r_at(ya) + 0.0015, ya), (r_at(yb) + 0.0015, yb), (r_at(yb), yb)], (0, 0, 0), kraft, G, seg=12),
+           lathe("treat_cup_lid", [(0, ht), (0.036, ht), (0.036, ht + 0.007), (0.031, ht + 0.011), (0, ht + 0.011)], (0, 0, 0), lid_m, G, seg=12),
+           box("treat_cup_hole", (0.010, 0.001, 0.005), (0.020, ht + 0.0115, 0), plastic("#151311", 0.6, 0, 0.0, "treat_hole"), G)]
+    o = live(prop("prop_treat_coffee", "treat_coffee", cup, (4.24, top - hb, -0.08), (0.0, 0.0, 0.0)), "prop")
+    yc, rc = 0.005, r_at(0.005) + 0.0015  # the sleeve, its outer face
+    for side, fz in (("r", -1.0), ("l", 1.0)):  # the palm on +x, the fingers round the far side
+        g = grip_at(o, side, (rc + 0.012, yc, 0), (0, 0, fz), (-1, 0, 0))
+        g["pose"] = "wrap"
+        sfx = "" if side == "r" else "l"
+        contact(o, "palm", (rc, yc, 0), (1, 0, 0), sfx)
+        contact(o, "index", (0, yc, fz * rc), (0, 0, fz), sfx)
+        contact(o, "thumb", (0, yc, -fz * rc), (0, 0, -fz), sfx)
+    o["hidden_at_rest"] = True
+    # the cookie: r 3.5 cm x 8 mm, five chips on top
+    dough = plastic("#d9a05b", 0.9, 0, 0.5, "treat_cookie")
+    chip = plastic("#5a3418", 0.6, 0, 0.1, "treat_chip")
+    ck = [cyl("treat_cookie", 0.035, 0.008, (0, 0, 0), dough, G, 16)]
+    for a, d in ((20, 0.020), (110, 0.016), (200, 0.022), (290, 0.012), (0, 0.0)):
+        ck.append(cyl("treat_chip", 0.004, 0.002, (d * math.cos(math.radians(a)), 0.0045, d * math.sin(math.radians(a))), chip, G, 6))
+    o = live(prop("prop_treat_cookie", "treat_cookie", ck, (4.31, top + 0.004, -0.19), (0.0, 0.0, 0.0)), "prop")
+    for side, pz in (("r", 1.0), ("l", -1.0)):  # from +x, the fingers to the middle, thumb up (palm sideways)
+        grip_at(o, side, (0.045, 0, 0), (-1, 0, 0), (0, 0, pz))
+        sfx = "" if side == "r" else "l"
+        contact(o, "thumb", (0.025, 0.004, 0), (0, 1, 0), sfx)
+        contact(o, "index", (0.025, -0.004, 0), (0, -1, 0), sfx)
+    o["hidden_at_rest"] = True
+    # the apple: r 4 cm, 0.92 tall, a light band near the top, a stem and a leaf
+    red = plastic("#e0483e", 0.45, 0, 0.1, "treat_apple")
+    band = plastic("#ffb3a7", 0.45, 0, 0.1, "treat_apple_band")
+    R_, SY, RINGS = 0.04, 0.92, 7
+    ap = sphere("treat_apple", R_, (0, 0, 0), red, G, scale=(1, SY, 1), seg=12, rings=RINGS)
+    ap.data.materials.append(band)
+    for f in ap.data.polygons:  # the band: faces whose middle is 55-80% of the way up
+        if 0.55 * R_ * SY < f.center.z < 0.80 * R_ * SY:
+            f.material_index = 1
+    hy = R_ * SY
+    apl = [ap, segment("treat_apple_stem", (0, hy - 0.004, 0), (0.003, hy + 0.012, 0.001), 0.0018, plastic("#6b3f22", 0.7, 0, 0.2, "treat_stem"), G, verts=5),
+           sphere("treat_apple_leaf", 0.011, (0.010, hy + 0.008, 0.003), plastic("#4fb06a", 0.6, 0, 0.1, "treat_leaf"), G, scale=(1, 0.25, 0.5), seg=6, rings=3)]
+    o = live(prop("prop_treat_apple", "treat_apple", apl, (4.22, top + hy, -0.205), (0.0, 0.0, 0.0)), "prop")
+    lat = math.radians(-90 + 2 * 180 / RINGS)  # a ring of vertices below the middle
+    cy_, cr_ = R_ * SY * math.sin(lat), R_ * math.cos(lat)
+    for side, tx in (("r", 1.0), ("l", -1.0)):  # palm up under it, fingers forward (-z) curling round, thumb to the side
+        grip_at(o, side, (0, -hy - 0.012, 0), (0, 0, -1), (0, 1, 0))
+        sfx = "" if side == "r" else "l"
+        contact(o, "palm", (0, -hy, 0), (0, -1, 0), sfx)
+        contact(o, "index", (0, cy_, -cr_), (0, math.sin(lat), -math.cos(lat)), sfx)
+        contact(o, "thumb", (tx * cr_, cy_, 0), (tx * math.cos(lat), math.sin(lat), 0), sfx)
+    o["hidden_at_rest"] = True
+
+
 PILLOW_NAP = (4.12, 0.50, 2.66)  # #519: the nap pillow's centre on the east seat (cushion top 0.44 + 0.12 = arm top 0.56)
 
 
@@ -5464,6 +5532,7 @@ print(f"library: {sum(len(p.vertices) - 2 for o, _ in lib for p in o.data.polygo
 lounge, shade, lamp_pos = build_lounge()
 baked(lounge, "lounge")
 build_lounge2()  # #280 PR 2
+build_treats()  # #455
 for o in FRIDGE_NODES:  # #457: the fridge's inside, baked with its door open and its light on
     baked(o, "fridge")
 for o, dens in L2_NODES:
