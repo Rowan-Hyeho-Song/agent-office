@@ -3,7 +3,7 @@
 
 import { CanvasTexture, MathUtils, MeshBasicMaterial, SRGBColorSpace, Vector3, type Color, type Mesh, type Object3D } from 'three'
 import type { DeskProps } from './props'
-import type { TouchShown } from './deskTouch'
+import { MIXER, type TouchShown } from './deskTouch'
 import { TrayPile } from './tray'
 import { LiveAxis } from './liveAxis'
 import { PlaySounds } from '../audio/playSounds'
@@ -56,16 +56,48 @@ export class EchoDesk {
     if (l && r) setSpeakerNodes(l, r)
   }
 
-  update(reduced: boolean) {
+  /** #370 C4 the fader and the knob a hand had: where it left them, and when (they go back to the level over MIXER.settleS) */
+  private handLeft: { fader: number; knob: number; from: number; t: number } | null = null
+  private handNow: { fader: number; knob: number } | null = null
+  private pushFrom: number | null = null
+
+  update(reduced: boolean, t = 0, touch?: TouchShown) {
     if (!this.present) return
     const cone = speakerCone()
-    const faders = faderLevels()
+    const faders = [...faderLevels()]
+    // fader_0 and knob_0 under 에코's hands: the fader follows the hand's push from where it was to the end the music went (up on, down off), the
+    // knob twists on top of its level's turn; once the hand is off they go back to the level, eased over MIXER.settleS (no jump)
+    // knob_0 under the left hand: where it stood as the hand took it (its level's turn then), plus the hand's twist; not its fader's turn meanwhile
+    const knobAt: (number | null)[] = [null, null, null, null]
+    const levelTurn = (v: number) => (v - 0.5) * 1.5 * Math.PI
+    if (touch?.faderPush || touch?.knobTwist != null) {
+      if (this.pushFrom === null) this.pushFrom = faders[0]
+      const p = touch.faderPush
+      const v = p ? this.pushFrom + ((p.dir ? 1 : 0) - this.pushFrom) * p.k : (this.handNow?.fader ?? faders[0])
+      const kt = ((touch.knobTwist ?? this.handNow?.knob ?? 0) * Math.PI) / 180
+      this.handNow = { fader: v, knob: (kt * 180) / Math.PI }
+      faders[0] = v
+      knobAt[0] = levelTurn(this.pushFrom) + kt
+    } else if (this.handNow) {
+      this.handLeft = { ...this.handNow, from: this.pushFrom ?? faders[0], t }
+      this.handNow = null
+      this.pushFrom = null
+    }
+    if (this.handLeft) {
+      const w = Math.exp(-(t - this.handLeft.t) / MIXER.settleS)
+      if (w < 0.01) this.handLeft = null
+      else {
+        const handKnob = levelTurn(this.handLeft.from) + (this.handLeft.knob * Math.PI) / 180
+        faders[0] = faders[0] + (this.handLeft.fader - faders[0]) * w
+        knobAt[0] = levelTurn(faders[0]) + (handKnob - levelTurn(faders[0])) * w
+      }
+    }
     // the cones: along their own +z (the speaker's push); reduced motion leaves them
     for (const c of this.spk) c.live.slide(c.travel * (reduced ? 0 : cone))
     // the faders: hook / piano / bass / drums, along their slot
     this.fader.forEach((f, k) => f.live.slide(f.travel * faders[k]))
     // the gain knobs turn with their fader (about 270 degrees end to end)
-    this.knob.forEach((o, k) => o.turn((faders[k] - 0.5) * 1.5 * Math.PI))
+    this.knob.forEach((o, k) => o.turn(knobAt[k] ?? levelTurn(faders[k])))
     this.led(speakerOn() ? 1 : OFF)
     // the level meter follows the speaker's cells only: no sound, no light (sound.md 5)
     const lit = MathUtils.clamp(speakerCells(), 0, 8)
@@ -231,7 +263,7 @@ export class DeskLive {
     this.signal.y(p.signal === 'yellow' ? (reduced ? 1 : 0.65 + 0.35 * Math.sin(t * 6)) : OFF)
     this.signal.r(p.signal === 'red' ? 1 : OFF)
     // 에코: speaker cones, faders, knobs, level meter
-    this.echo.update(reduced)
+    this.echo.update(reduced, t, touch)
     this.sounds.signalLight(p.signal, this.signalAt ? this.signalAt.getWorldPosition(this.signalPos) : null)
   }
 }

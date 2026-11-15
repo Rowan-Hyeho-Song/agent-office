@@ -33,6 +33,8 @@ const OBJECTS: [string, string, 'l' | 'r'][] = [
   ['desk_0_hourglass', 'hourglass', 'r'],
   // #370 C2 the headphones' near cup held by its shell (the palm only: no finger contacts)
   ['prop_headphones_cup', 'headphones_cup', 'r'],
+  // #370 C4 에코's mixer knob pinched by the left thumb and index
+  ['desk_4_knob_0', 'mixerknob', 'l'],
   // #370 C the ring light's knob pinched (thumb over, index under)
   ['desk_1_ringlight_knob', 'ringknob', 'r'],
   ['prop_duck', 'duck', 'r'], ['prop_keycap_0', 'keycap', 'r'], ['prop_shape_1', 'shape', 'r'],

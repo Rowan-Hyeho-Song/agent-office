@@ -3,7 +3,7 @@
 import { appendFileSync } from 'node:fs'
 import { Box3, Matrix4, Quaternion, Vector3, type Mesh } from 'three'
 import { describe, expect, it, vi } from 'vitest'
-import { DUCK_BUBBLE, DUCK_LINES, DeskTouches, HABIT_PER_HOUR, KNOB_TURN, LEAF_STROKE, TOUCH_PROP, leafAt, NO_REPEAT_S, TOUCH_S, TURNTABLE_PUSH, calendarPage, habitTimes, hourglassAt, type TouchIn, type TouchKind } from './deskTouch'
+import { DUCK_BUBBLE, DUCK_LINES, DeskTouches, HABIT_PER_HOUR, KNOB_TURN, LEAF_STROKE, MIXER, SNAP, TOUCH_PROP, leafAt, NO_REPEAT_S, TOUCH_S, TURNTABLE_PUSH, calendarPage, habitTimes, hourglassAt, type TouchIn, type TouchKind } from './deskTouch'
 import { deskProps, type DeskProps } from './props'
 import { Guard, Walk, expectCleanAll, world } from './errandWorld.fixture'
 import { SHOULDER } from './reach'
@@ -727,5 +727,91 @@ describe('one headphone cup to the ear (#370 C2, grips.md 헤드폰 한쪽)', ()
     expect(cup.quaternion.angleTo(r0), 'the cup back').toBeLessThan(1e-4)
     expect(twist, 'the wrist within 45°').toBeLessThanOrEqual(45)
     expect(onCup, "the hand on the cup's shell").toBeLessThan(0.01)
+  }, 120_000)
+})
+
+describe("에코's mixer and snap (#370 C4)", () => {
+  it('the speaker going on or off at its desk starts the mixer (which way in k); its tidy-up starting starts the snap', () => {
+    const d = new DeskTouches()
+    d.step({ ...inp(0, base()), speaker: false })
+    d.step({ ...inp(0.1, base()), speaker: true })
+    expect(d.of(4, 0.1)).toMatchObject({ kind: 'mixer', k: 1 })
+    d.step({ ...inp(5, base()), speaker: true })
+    d.step({ ...inp(5.1, base()), speaker: false })
+    expect(d.of(4, 5.1)).toMatchObject({ kind: 'mixer', k: 0 })
+    const e = new DeskTouches()
+    e.step({ ...inp(0, base()), tidying: () => false })
+    e.step({ ...inp(0.1, base()), tidying: () => true })
+    expect(e.of(4, 0.1)?.kind).toBe('snap')
+    // away from its desk: nothing
+    const f = new DeskTouches()
+    f.step({ ...inp(0, base(), { seated: () => false }), speaker: false })
+    f.step({ ...inp(0.1, base(), { seated: () => false }), speaker: true })
+    expect(f.of(4, 0.1)).toBe(null)
+  })
+
+  it('the fingertip on fader_0 as it pushes it up; the fader follows the hand and goes back to its level with no jump', async () => {
+    let far = 0
+    let frames = 0
+    let jump = 0
+    let top = 0
+    let prev: number | null = null
+    let knob0: Quaternion | null = null
+    let twist = 0
+    let leftFar = 0
+    await touchRun('mixer', (w, u) => {
+      const f = w.scene.getObjectByName('desk_4_fader_0')!
+      const rest = (f.userData.liveRest as { p: Vector3 }).p
+      const travel = Number(f.userData.travel) || 0.045
+      const v = f.position.distanceTo(rest) / travel
+      if (prev !== null) jump = Math.max(jump, Math.abs(v - prev))
+      prev = v
+      top = Math.max(top, v)
+      // the left hand on knob_0 (thumb and index on its contacts) while it twists, MIXER.lag after the push; the knob turned past its level's turn
+      const kn = w.scene.getObjectByName('desk_4_knob_0')!
+      if (u < MIXER.push[0] + MIXER.lag) knob0 = kn.quaternion.clone()
+      else if (knob0 && u < MIXER.push[1] + MIXER.lag) twist = Math.max(twist, (kn.quaternion.angleTo(knob0) * 180) / Math.PI)
+      if (u > MIXER.push[0] + MIXER.lag + 0.15 && u < MIXER.push[1] + MIXER.lag) {
+        const rig = w.rigs.agent_4
+        for (const [fi, n] of [[0, 'index'], ['thumb', 'thumb']] as const) {
+          const h = rig.parts.hands.l
+          const j = fi === 'thumb' ? h.thumb[2]!.node : h.fingers[fi][2]!.node
+          j.updateWorldMatrix(true, false)
+          const tip = (fi === 'thumb' ? h.thumbTip! : h.tips[fi]!).clone().applyMatrix4(j.matrixWorld)
+          leftFar = Math.max(leftFar, tip.distanceTo(w.scene.getObjectByName(`desk_4_knob_0_contact_${n}`)!.getWorldPosition(new Vector3())))
+        }
+      }
+      if (u < MIXER.push[0] + 0.05 || u > MIXER.push[1]) return
+      frames++
+      const c = w.scene.getObjectByName('desk_4_fader_0_contact_index')!.getWorldPosition(new Vector3()).add(f.position.clone().sub(rest))
+      far = Math.max(far, tipWorld(w.rigs.agent_4, 0).distanceTo(c))
+    })
+    if (LOG) appendFileSync(LOG, `mixer: the fingertip ${(far * 1000).toFixed(1)} mm off the fader's cap at most, the fader up to ${(top * 100).toFixed(0)} % of its travel, ${(jump * 100).toFixed(1)} % a frame at most, the left thumb / index ${(leftFar * 1000).toFixed(1)} mm off knob_0's contacts, the knob ${twist.toFixed(0)}° turned at most\n`)
+    expect(frames).toBeGreaterThan(10)
+    expect(far, 'on the cap').toBeLessThan(0.01)
+    expect(top, 'pushed up').toBeGreaterThan(0.9)
+    expect(jump, 'no jump').toBeLessThan(0.08)
+    expect(leftFar, 'the left hand on the knob').toBeLessThan(0.006)
+    expect(twist, 'the knob twisted').toBeGreaterThan(40)
+    expect(twist, 'by the hand only').toBeLessThan(50)
+  }, 120_000)
+
+  it('the snap: the right hand beside the face screen, palm forward, then down again', async () => {
+    let near = Infinity
+    let w1 = 0
+    const w = await touchRun('snap', (w, u) => {
+      const rig = w.rigs.agent_4
+      const d = rig.drive.r
+      if (d?.w) w1 = Math.max(w1, d.w)
+      if (u < SNAP.flick[0] || u > SNAP.flick[1]) return
+      const head = rig.parts.head
+      const b = localBox(head)
+      const at = head.localToWorld(new Vector3(b.max.x + SNAP.out, (b.min.y + b.max.y) / 2, b.min.z))
+      near = Math.min(near, rig.parts.hands.r.node.getWorldPosition(new Vector3()).distanceTo(at))
+    })
+    void w
+    if (LOG) appendFileSync(LOG, `snap: the hand ${(near * 1000).toFixed(1)} mm from its place beside the face as it flicks\n`)
+    expect(w1).toBeCloseTo(1, 2)
+    expect(near).toBeLessThan(0.01)
   }, 120_000)
 })
