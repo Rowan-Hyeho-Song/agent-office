@@ -105,7 +105,7 @@ export const PERSONAS: Record<string, Persona> = {
 export const personaOf = (agent: string): Persona => PERSONAS[agent] ?? NORMAL
 
 /** what the work does with the hands (typing.md 4): which segments alternate */
-export type Mode = 'edit' | 'read' | 'cmd' | 'think' | 'delegate' | 'tablet'
+export type Mode = 'edit' | 'read' | 'cmd' | 'think' | 'delegate' | 'tablet' | 'wait'
 export function modeOf(activity: string | undefined): Mode {
   switch (activity) {
     case 'read':
@@ -119,6 +119,12 @@ export function modeOf(activity: string | undefined): Mode {
       return 'cmd'
     case 'think':
       return 'think'
+    // #535: the turn ended with background work running: the hands off the keys, waiting (typing.md 4 'background')
+    case 'background':
+    case 'bg_test':
+    case 'bg_build':
+    case 'bg_delegate':
+      return 'wait'
     case 'delegate':
       return 'delegate'
     // #461 휴 drawing on the pen tablet: the left hand on the keyboard's left, a shortcut now and then
@@ -545,6 +551,12 @@ function plan(b: Builder, mode: Mode, mouse: boolean) {
       rest(U(b, 4, 8))
       if (b.at > LAST_MOUSE_AT - 1.5) break
       if (mouse && rng() < 0.7) mouseEpisode(b, { len: U(b, 0.8, 1.4), clicks: 1, wheel: 0 })
+    } else if (mode === 'wait') {
+      // #535 (typing.md 4): no keys; once in 60–120 s the right hand to the mouse and the wheel 2–3 times (reading the log down). A chunk is
+      // CHUNK_S long: the wheel comes in about one chunk of seven
+      if (mouse && rng() < CHUNK_S / 90) mouseEpisode(b, { len: U(b, 1.4, 2.2), clicks: 0, wheel: 2 + Math.floor(rng() * 2) })
+      rest(LAST_KEY_AT)
+      break
     } else if (mode === 'tablet') {
       // #461 (the designer): the right hand draws on the tablet; the left rests on the keyboard's left third and presses a shortcut (two fingers,
       // about 0.15 s) every 3–6 s, as a designer's left hand does
@@ -584,8 +596,8 @@ export function makeChunk(agent: string, index: number, activity: string | undef
   const gestures: Gesture[] = []
   const longPauses = b.pauses.filter((q) => q.t1 - q.t0 >= GESTURE_MIN_PAUSE_S)
   for (const q of longPauses) {
-    // drawing on the tablet: the left hand stays on the keyboard (#461), no chin rest or head tap
-    if (mode === 'tablet') break
+    // drawing on the tablet: the left hand stays on the keyboard (#461), no chin rest or head tap; nor while waiting on background work (#535)
+    if (mode === 'tablet' || mode === 'wait') break
     const hit = g() < GESTURE_RATE
     const chin = g() < (CHIN_PREFER[agent] ?? 0.5)
     let hand: Hand = g() < 0.5 ? 'l' : 'r'

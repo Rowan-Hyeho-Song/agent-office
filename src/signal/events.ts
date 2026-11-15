@@ -7,7 +7,12 @@
 
 /** the five desks (#193: seat 4 = 에코, sound) */
 export const SEATS = [0, 1, 2, 3, 4] as const
-export const ACTIVITIES = ['edit', 'read', 'test', 'build', 'install', 'git', 'run', 'other', 'delegate', 'think', 'private'] as const
+/**
+ * #535 (office-ui.md 3): the turn ended with background work still running (a command started with run_in_background, a background subagent): the
+ * session still works. `background` when the hook knows no one kind (or several), else the kind that is left
+ */
+export const BACKGROUND_ACTIVITIES = ['background', 'bg_test', 'bg_build', 'bg_delegate'] as const
+export const ACTIVITIES = ['edit', 'read', 'test', 'build', 'install', 'git', 'run', 'other', 'delegate', 'think', 'private', ...BACKGROUND_ACTIVITIES] as const
 export type Activity = (typeof ACTIVITIES)[number]
 /** the activities whose outcome is reported (the coder's signal light, the 3D turntable, #44) */
 export const RESULT_ACTIVITIES = ['test', 'build'] as const

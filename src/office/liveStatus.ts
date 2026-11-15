@@ -10,6 +10,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AgentState, AgentStatus, AgentTask, OfficeMessage, StatusMap, StatusSource } from './status'
+import { BACKGROUND_ACTIVITIES } from '../signal/events'
 
 export interface StatusRow {
   seat: number
@@ -36,6 +37,21 @@ export interface StatusRow {
 export const COLUMNS = '*'
 
 export const WORKING_FOR = 3 * 60_000
+/**
+ * #535: a background wait (the turn ended with work still running) is quiet by nature: it is working this long with no new signal. The hook ends it
+ * itself after backgroundMinutes (20 by default); this is the page's own end in case the hook's timer never ran
+ */
+export const BACKGROUND_FOR = 30 * 60_000
+const BACKGROUND: readonly string[] = BACKGROUND_ACTIVITIES
+/**
+ * #535 (the designer saw 휴 go from '명령 실행 중' straight to '조는 중' at night): a shell command says nothing between its start (PreToolUse) and its
+ * end (PostToolUse), so a script or a bake longer than WORKING_FOR looked like a rest, and at night like sleep. A command is working this long quiet
+ */
+export const COMMAND_FOR = 10 * 60_000
+const COMMANDS: readonly string[] = ['test', 'build', 'install', 'run', 'other']
+/** how long a working row may stay quiet and still be working */
+export const workingFor = (activity: string | null | undefined) =>
+  BACKGROUND.includes(activity ?? '') ? BACKGROUND_FOR : COMMANDS.includes(activity ?? '') ? COMMAND_FOR : WORKING_FOR
 export const WRAPPING_FOR = 2 * 60_000
 export const OFF_AFTER = 2 * 3_600_000
 
@@ -56,7 +72,7 @@ export function effective(row: StatusRow, now: number): AgentStatus {
   let s: AgentStatus
   if (row.state === 'off') s = { state: 'off', since, offReason: 'ended' }
   else if (quiet > OFF_AFTER) s = { state: 'off', since: updated + OFF_AFTER, offReason: 'quiet' }
-  else if (row.state === 'working' && quiet > WORKING_FOR) s = { state: 'idle', since: updated + WORKING_FOR }
+  else if (row.state === 'working' && quiet > workingFor(row.activity)) s = { state: 'idle', since: updated + workingFor(row.activity) }
   else if (row.state === 'wrapping' && quiet > WRAPPING_FOR) s = { state: 'idle', since: updated + WRAPPING_FOR }
   else s = row.activity ? { state: row.state, activity: row.activity, since } : { state: row.state, since }
   return { ...s, ...result, ...(s.state === 'working' || s.state === 'wrapping' ? task : {}) }

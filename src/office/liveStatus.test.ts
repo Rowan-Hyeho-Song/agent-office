@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { COLUMNS, liveStatusFor, LiveStatusSource, OFF_AFTER, WORKING_FOR, WRAPPING_FOR, effective, toHandoff, toStatusMap, type EventRow, type StatusRow } from './liveStatus'
+import { BACKGROUND_FOR, COLUMNS, COMMAND_FOR, liveStatusFor, LiveStatusSource, OFF_AFTER, WORKING_FOR, WRAPPING_FOR, effective, toHandoff, toStatusMap, type EventRow, type StatusRow } from './liveStatus'
 
 const MIN = 60_000
 const NOW = Date.parse('2026-03-15T12:00:00.000Z')
@@ -39,6 +39,26 @@ describe('effective', () => {
     const e = effective(r, NOW)
     expect(e).toEqual({ state: 'idle', since: Date.parse(r.updated_at) + WORKING_FOR })
     expect(e).not.toHaveProperty('activity')
+  })
+
+  it('#535: a shell command is quiet until it ends: working up to 10 min (a long script no longer looks like a rest, or at night like sleep)', () => {
+    for (const activity of ['test', 'build', 'install', 'run', 'other']) {
+      expect(effective(row({ activity, quietMs: 8 * MIN }), NOW)).toMatchObject({ state: 'working', activity })
+      const r = row({ activity, quietMs: COMMAND_FOR + 1 })
+      expect(effective(r, NOW)).toEqual({ state: 'idle', since: Date.parse(r.updated_at) + COMMAND_FOR })
+    }
+    // the rest keep 3 min
+    for (const activity of ['edit', 'read', 'think', 'git', 'delegate']) expect(effective(row({ activity, quietMs: WORKING_FOR + 1 }), NOW).state).toBe('idle')
+    expect(COMMAND_FOR).toBe(10 * MIN)
+  })
+
+  it('#535: a background wait stays working while quiet, up to 30 min (the hook ends it at 20)', () => {
+    for (const activity of ['background', 'bg_test', 'bg_build', 'bg_delegate']) {
+      expect(effective(row({ activity, quietMs: WORKING_FOR + 60_000 }), NOW)).toMatchObject({ state: 'working', activity })
+      const r = row({ activity, quietMs: BACKGROUND_FOR + 1 })
+      expect(effective(r, NOW)).toEqual({ state: 'idle', since: Date.parse(r.updated_at) + BACKGROUND_FOR })
+    }
+    expect(BACKGROUND_FOR).toBe(30 * MIN)
   })
 
   it('wrapping fresh stays, > 2 min becomes idle', () => {
