@@ -391,11 +391,9 @@ describe('messages', () => {
     const d = new Director(AGENTS)
     const st = allIdle()
     const { fn } = makeArrived()
-    // 13:00 KST (time 0 is 09:00 KST, the morning door round #451)
-    const T = 4 * 3_600_000
     d.receive(msg('agent_0', 'agent_1'))
-    expect(d.goals(T, MINUTE, st, fn).agent_0.spot).toBe('meet_talk_0')
-    expectPlan(d.goals(T + 30_000, MINUTE, st, fn).agent_0, playAt(T + 30_000, AGENTS).agent_0)
+    expect(d.goals(0, MINUTE, st, fn).agent_0.spot).toBe('meet_talk_0')
+    expectPlan(d.goals(30_000, MINUTE, st, fn).agent_0, playAt(30_000, AGENTS).agent_0)
   })
 
   it('a second talk goes to the chat spots by the window; a third waits', () => {

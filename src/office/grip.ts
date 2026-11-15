@@ -51,6 +51,8 @@ export const GRIPS: Record<string, GripSpec> = {
     l: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.3, 0.3, 0.3, 0.3], [0.3, 0.4]), after: REST, contacts: ['index', 'middle', 'ring', 'little', 'thumb'] },
     r: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.3, 0.3, 0.3, 0.3], [0.3, 0.4]), after: REST, contacts: ['index', 'middle', 'ring', 'little', 'thumb'] },
   },
+  // #450 a book taken out of its slot by the spine and pushed back in (grips.md 2.1, the bake's <book>_grip_r and contacts): the index over the head, the thumb on the cover
+  bookspine: { r: { pre: all(0.15, [0.1, 0.3]), hold: curlOf([0.4, 0.35, 0.35, 0.35], [0.35, 0.6]), after: REST, contacts: ['index', 'thumb'] } },
   // the closed book carried in front of the chest (#280, the bake's prop_book_grip_l / _contact_thumb_l, children of the book itself): the left hand under it, the thumb on its edge
   bookclosed: { l: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.3, 0.3, 0.3, 0.3], [0.3, 0.4]), after: REST, contacts: ['thumb'] } },
   // the right thumb and index pinching the corner of the one leaf that turns (#231): the index 0.6, the thumb (0.25, 0.85), the others 0.3
