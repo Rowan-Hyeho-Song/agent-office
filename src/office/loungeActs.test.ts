@@ -4,6 +4,7 @@
 import { playAt } from './play'
 import { describe, expect, it } from 'vitest'
 import { Vector3 } from 'three'
+import { LIE_POSE } from './lie.data'
 import { stubCanvas } from './glbLoad'
 import { Guard, IDS, Walk, expectCleanAll, world, type World } from './errandWorld.fixture'
 import { GRAPH } from './navSpots.fixture'
@@ -239,7 +240,7 @@ describe('the sofa', () => {
     expect(hug!.hugged).toBeGreaterThan(50)
   }, 240000)
 
-  it('the east seat lies down: the head goes to the head point of the model, face up, whatever way that point lies (nav extras lie + head, no direction in the code)', async () => {
+  it('the east seat lies down: the head goes from the head point of the model 25.5 cm toward the seat (on the pillow, #519), face up, whatever way that point lies (nav extras lie + head, no direction in the code)', async () => {
     const ud = (await world()).scene.getObjectByName('nav_sofa_3')!.userData as { lie?: boolean; head?: number[] }
     expect(ud.lie).toBe(true)
     const spot = GRAPH.spots.sofa_3
@@ -260,9 +261,11 @@ describe('the sofa', () => {
         expect(rig.arrived).toBe('sofa_3')
         w.scene.updateMatrixWorld(true)
         const at = rig.parts.head.getWorldPosition(new Vector3())
-        expect(Math.hypot(at.x - head.x, at.z - head.z), 'the head is at the head point').toBeLessThan(0.02)
-        expect(at.y, 'low, on the cushion').toBeLessThan(0.75)
-        expect(at.y).toBeGreaterThan(0.5)
+        // #519: on the pillow, south of the armrest: from the head point toward the seat's spot
+        const len = Math.hypot(spot.x - head.x, spot.z - head.z)
+        const want = { x: head.x + ((spot.x - head.x) / len) * 0.255, z: head.z + ((spot.z - head.z) / len) * 0.255 }
+        expect(Math.hypot(at.x - want.x, at.z - want.z), 'the head on the pillow').toBeLessThan(0.02)
+        expect(at.y, 'its own height (lie.data.ts)').toBeCloseTo(LIE_POSE[2].headY, 2)
         // the face (the head's -z) looks up
         const face = new Vector3(0, 0, -1).transformDirection(rig.parts.head.matrixWorld)
         expect(face.y, 'face up').toBeGreaterThan(0.9)

@@ -3,6 +3,7 @@
 // rally and the same stones in every browser, in timelapse and after seeking. Pure: no Date, no random.
 
 import { PLAYS, hash, playAt } from '../office/play'
+import type { OmokView } from './omok'
 
 export type SessionKind = 'pingpong' | 'boardgame'
 export interface PlaySession {
@@ -16,7 +17,12 @@ export interface PlaySession {
   startMs: number
   /** #137: one agent placing a game record alone (players = [it, it]): it plays both colours, the other chair is empty */
   solo?: boolean
+  /** #137 ② a visitor's game against the agent (players = [agent, VISITOR], the visitor black): the view comes from the visitor's game, not the seed */
+  visitor?: OmokView
 }
+
+/** the visitor's place in a session's players (no rig: their stones appear without a hand) */
+export const VISITOR = 'visitor'
 
 /** time for the players to walk over and sit down before the first serve / move */
 export const SETTLE_MS = 15_000

@@ -5,6 +5,7 @@ import { HOME_POS, HOME_TARGET, setHomeAspect, useCameraBusy } from '../room/Doo
 import { clearCamera, clearFurnitureForDev } from './clearance'
 import type { OfficeWorld } from './world'
 import { isBoardActive } from './boardView/store'
+import { isOmokActive } from './omokVisit/store'
 import { isTouring } from './tourStore'
 import { KEY_DIR, NO_KEYS, VIEW, clampTarget, easeVelocity, focusAllowsCameraKeys, keySpeed, wantDir, type Keys } from './view'
 
@@ -78,7 +79,7 @@ export function CameraRig({ limits, world }: { limits: boolean; world: OfficeWor
     if (!controls || !limits) return
     const fix = () => {
       if (isTouring()) return // the tour owns the camera (#207)
-      if (isBoardActive()) return // so does the whiteboard close view (#234)
+      if (isBoardActive() || isOmokActive()) return // so do the whiteboard close view (#234) and the visitor's omok (#137 ②)
       clampNow(controls)
       clearNow(controls)
     }
@@ -108,14 +109,14 @@ export function CameraRig({ limits, world }: { limits: boolean; world: OfficeWor
     if (!limits) return
     const reset = () => {
       const c = live.current.controls
-      if (!c || live.current.busy || isBoardActive()) return
+      if (!c || live.current.busy || isBoardActive() || isOmokActive()) return
       if (reduced) {
         camera.position.copy(HOME_POS)
         c.target.copy(HOME_TARGET)
         c.update()
       } else anim.current = { fromP: camera.position.clone(), fromT: c.target.clone(), t0: performance.now() }
     }
-    const usable = (e: KeyboardEvent) => !isBoardActive() && !e.ctrlKey && !e.metaKey && !e.altKey && focusAllowsCameraKeys(document.activeElement, document.body, document.documentElement)
+    const usable = (e: KeyboardEvent) => !isBoardActive() && !isOmokActive() && !e.ctrlKey && !e.metaKey && !e.altKey && focusAllowsCameraKeys(document.activeElement, document.body, document.documentElement)
     const down = (e: KeyboardEvent) => {
       keys.current.shift = e.shiftKey
       if (!usable(e) || e.isComposing) return
@@ -148,7 +149,7 @@ export function CameraRig({ limits, world }: { limits: boolean; world: OfficeWor
 
   useFrame((_, dt) => {
     const c = live.current.controls
-    if (!c || !limits || isTouring() || isBoardActive()) return // the tour (#207) and the whiteboard close view (#234) own the camera
+    if (!c || !limits || isTouring() || isBoardActive() || isOmokActive()) return // the tour (#207), the whiteboard close view (#234) and the visitor's omok (#137 ②) own the camera
     const a = anim.current
     if (a) {
       const k = Math.min(1, (performance.now() - a.t0) / VIEW.resetMs)

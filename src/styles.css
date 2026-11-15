@@ -1000,3 +1000,40 @@ html[data-motion='reduce'] .badge-sheet { animation: sound-sheet-fade 120ms line
 .nv-sheet-list .nv-card { position: relative; min-height: 110px; }
 .nv-sheet-list .nv-text { -webkit-line-clamp: 6; }
 .nv-sheet .nv-open { position: fixed; }
+
+/* #137 ② the visitor's omok (play.md 2.1 · 2.2 · 4): the tag over the empty chair, the HUD at the bottom, the board as a keyboard grid */
+.omok-tag {
+  position: fixed; z-index: 22; translate: -50% -100%; display: flex; align-items: center; gap: 6px; padding: 4px 10px; border: 0; cursor: pointer;
+  background: var(--color-surface-alpha); color: var(--color-text); box-shadow: inset 0 0 0 1px #f3ead8; font-family: var(--font-pixel); font-size: 13px; white-space: nowrap;
+  animation: omok-float 4s var(--ease-out) infinite;
+}
+.omok-tag span { color: #111318; text-shadow: 0 0 0 #111318, 0 0 1px #f3ead8; }
+.omok-tag:hover, .omok-tag:focus-visible { box-shadow: inset 0 0 0 1px var(--color-cyan); color: var(--color-cyan); outline: none; }
+@keyframes omok-float { 0%, 85%, 100% { transform: none; } 92% { transform: translateY(-4px); } }
+.omok-hud {
+  position: fixed; z-index: 30; bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px)); left: 50%; translate: -50% 0;
+  display: flex; align-items: center; gap: 6px; box-sizing: border-box; min-height: 48px; width: min(860px, calc(100vw - 32px)); padding: 6px 10px;
+  background: var(--color-surface-alpha); color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-line); font-family: var(--font-pixel); font-size: var(--font-size-1);
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
+}
+.omok-status { flex: 1; min-width: 0; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.omok-idle { color: var(--color-text-muted); }
+.omok-cell { flex: none; min-width: 3ch; color: var(--color-text-muted); }
+.omok-hud button { flex: none; height: 32px; padding: 0 10px; border: 0; background: none; color: var(--color-text); font: inherit; cursor: pointer; box-shadow: inset 0 0 0 1px var(--color-line); }
+.omok-hud button:hover:not(:disabled) { color: var(--color-cyan); }
+.omok-hud button:disabled { color: var(--color-text-muted); opacity: 0.5; cursor: default; }
+.omok-hud button:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: -2px; }
+.omok-hud kbd { font: inherit; color: var(--color-text-muted); }
+.omok-strength { flex: none; display: flex; }
+.omok-strength button { padding: 0 8px; }
+.omok-strength button[aria-checked='true'] { color: var(--color-cyan); box-shadow: inset 0 0 0 1px var(--color-cyan); }
+.omok-here { color: var(--color-cyan) !important; box-shadow: inset 0 0 0 1px var(--color-cyan) !important; }
+/* the keyboard's board: out of sight (the cursor ring on the 3D board shows where it is), still focusable and read */
+.omok-grid { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* at the board: the docks, the agent list, the tour bar and the hints step aside (play.md 2.2 · 8) */
+html[data-omok] .corner-dock, html[data-omok] .agent-list, html[data-omok] .tour-bar, html[data-omok] .cam-hint, html[data-omok] .edge-hint, html[data-omok] .omok-tag, html[data-omok] .hud { display: none; }
+@media (max-width: 640px) {
+  .omok-hud { flex-wrap: wrap; width: 100vw; bottom: 0; padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px)); clip-path: none; }
+  .omok-status { flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .omok-tag { animation: none; } }

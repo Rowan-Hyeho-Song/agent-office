@@ -35,6 +35,7 @@ import { noteTourEvent } from './tourEvents'
 import { meshesOf } from './nodes'
 import type { StatusMap } from './status'
 import { gameAt, N, type OmokView } from '../play/omok'
+import { hash } from './play'
 import { rallyAt, type Dims, type Rally, type V3 } from '../play/pingpong'
 import { CARRY_HOLD, HOLD_DEFAULT, PLANTS, POUR_TILT, canPose, dropAt, landing, lerpHold, plantsFrom, pourAt, solvePour, spoutOf, type Plant } from './water'
 import { WATER_S } from './waterRun'
@@ -44,7 +45,7 @@ import { READ_HOLD, READ_S } from './readRun'
 import { type Place, SEQ, ease, habitOf, placeSequence } from '../play/choreo'
 import { STEP, stepAt, strokeAt } from '../play/stroke'
 import { BOWL_CORNER, BOWL_S, SOLO_LEAD_MS } from './bowlRun'
-import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
+import { VISITOR, sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
 import { Typist } from './typist'
 import { LoungeActs } from './loungeActs'
@@ -112,6 +113,8 @@ export interface StageIn {
   colors: Record<string, string>
   /** ?debug=1: pair games started by hand (debugPlay.ts) instead of the schedule's, and a grip demo to loop */
   forcedSessions?: PlaySession[]
+  /** #137 ② a visitor's game with the agent at the board (omokVisit/store.ts): drawn instead of the board's own game, in this tab only */
+  visitorOmok?: { agent: string; view: OmokView } | null
   /** #137 ① where the white bowl rests when no hand has it (Director.bowlRest): its home by game_b, or the corner by game_a */
   bowlRest?: 'home' | 'corner'
   gripDemo?: GripDemo | null
@@ -188,6 +191,8 @@ export class PlayStage {
   /** where the white bowl is drawn now, and (reduced motion) its swap from one rest to the other: out at the old, in at the new, 0.12 s each */
   private bowlShown: 'home' | 'corner' = 'home'
   private bowlSwap: { from: 'home' | 'corner'; to: 'home' | 'corner'; t0: number } | null = null
+  /** #137 ② whether the last frame drew a visitor's game (its bowl's rest changes by a fade, not a walk) */
+  private visitorBowl = false
   private bowlMats: Material[] | null = null
   /** tests: the white bowl's opacity now */
   bowlOpacity = 1
@@ -536,6 +541,9 @@ export class PlayStage {
       if (s.kind === 'pingpong') pp = s
       else og = s
     }
+    // #137 ② the visitor sat down opposite: their game on the board (the agent at game_a, the visitor at the empty chair, no hand of theirs)
+    const vo = inp.visitorOmok
+    if (vo) og = inp.rigs[vo.agent]?.arrived === 'game_a' ? { kind: 'boardgame', spot: 'game_a', players: [vo.agent, VISITOR], seed: hash(`visitor|${vo.agent}`), startMs: 0, visitor: vo.view } : null
     this.pingpong(pp, inp)
     this.omok(og, inp)
     for (const e of this.carry.values()) e.seen = false
@@ -653,6 +661,24 @@ export class PlayStage {
     return out.set(g.o.x + (cell % g.n) * g.cell, g.o.y, g.o.z + Math.floor(cell / g.n) * g.cell)
   }
 
+  /** #137 ② for the visitor's input: the board's points (origin, count, step: column i is +x, row j is +z), null before the model */
+  get omokGrid(): { o: Vector3; n: number; cell: number } | null {
+    return this.grid
+  }
+  /** the point a world point is over (within half a step of it), or null */
+  omokCellAt(p: Vector3): number | null {
+    const g = this.grid
+    if (!g) return null
+    const i = Math.round((p.x - g.o.x) / g.cell)
+    const j = Math.round((p.z - g.o.z) / g.cell)
+    if (i < 0 || j < 0 || i >= g.n || j >= g.n) return null
+    return Math.hypot(p.x - (g.o.x + i * g.cell), p.z - (g.o.z + j * g.cell)) <= g.cell / 2 + 1e-9 ? j * g.n + i : null
+  }
+  /** a point's place on the board (world), or null before the model */
+  omokPoint(cell: number, out = new Vector3()): Vector3 | null {
+    return this.grid ? this.cellPos(cell, out) : null
+  }
+
   /** which finger's contact on the go stone faces up (it presses from above) */
   private stoneTop(): 'index' | 'middle' {
     const n = this.sceneRef.getObjectByName('prop_piece_a_contact_index')
@@ -690,8 +716,12 @@ export class PlayStage {
    * rest to draw this frame.
    */
   private bowlSwapStep(want: 'home' | 'corner', inp: StageIn): 'home' | 'corner' {
+    // #137 ② a visitor sitting down or leaving moves the bowl with no hand to carry it: it fades over as with reduced motion
+    const visitor = !!inp.visitorOmok
+    const byVisitor = visitor !== this.visitorBowl
+    this.visitorBowl = visitor
     if (!this.bowlSwap && want !== this.bowlShown) {
-      if (!inp.reduced) this.bowlShown = want
+      if (!inp.reduced && !byVisitor) this.bowlShown = want
       else this.bowlSwap = { from: this.bowlShown, to: want, t0: inp.t }
     }
     const sw = this.bowlSwap
@@ -773,12 +803,12 @@ export class PlayStage {
     }
     // a record placed alone starts once the white bowl has been brought over (#137 ①)
     // (reduced motion: no fetching, so no delay, #456)
-    const tMs = sessionTime(s, inp.now) - (s.solo && !inp.reduced ? SOLO_LEAD_MS : 0)
+    const tMs = s.visitor ? 0 : sessionTime(s, inp.now) - (s.solo && !inp.reduced ? SOLO_LEAD_MS : 0)
     if (tMs < 0) {
       this.sweep(inp)
       return
     }
-    const view = gameAt(s.seed, s.players, tMs, inp.reduced)
+    const view = s.visitor ?? gameAt(s.seed, s.players, tMs, inp.reduced)
     this.sounds.omokStone(s.seed, view.game, view.moveIndex, view.lastMove >= 0 ? this.cellPos(view.lastMove) : null)
     this.sweepState = { start: null, board: view.board.slice() }
     // stones on the board
@@ -849,7 +879,7 @@ export class PlayStage {
     }
     // the faces of the result: the winner is glad (기쁨), the loser embarrassed (당황); an expression is information, reduced motion keeps it
     // a record placed alone has no winner to be glad and no loser to clap (#137 ①)
-    if (view.phase === 'won' && view.winner && view.wonMs > 500 && !s.solo) {
+    if (view.phase === 'won' && view.winner && view.wonMs > 500 && !s.solo && !s.visitor) {
       const fk = `${key}:${view.game}`
       if (!this.faced.has(fk)) {
         this.faced.add(fk)
@@ -861,8 +891,17 @@ export class PlayStage {
     if (inp.reduced) return
     // the hands
     this.omokHands(s, view, inp)
+    // #137 ② against the visitor (play.md 2.5): the agent claps three times when the visitor won, makes a small fist when it did (its face and words come with the game)
+    if (view.phase === 'won' && view.winner && s.visitor) {
+      const k = `${key}:visitor:${view.game}`
+      const rig = inp.rigs[s.players[0]]
+      if (rig && view.wonMs > 500 && this.reactedGame.get(k) === undefined) {
+        this.reactedGame.set(k, inp.t)
+        rig.reaction = view.winner === 2 ? { kind: 'fist', t0: inp.t, dur: 1.0 } : { kind: 'clap', t0: inp.t + 0.4, dur: 1.4 }
+      }
+    }
     // reactions (play.md 2.5): the winner's small fist, the loser's three claps and a bow (not when one agent placed both sides)
-    if (view.phase === 'won' && view.winner && !s.solo) {
+    if (view.phase === 'won' && view.winner && !s.solo && !s.visitor) {
       const winnerIdx = view.winner === 1 ? view.black : (1 - view.black) as 0 | 1
       const k = `${key}:${view.game}`
       const wr = inp.rigs[s.players[winnerIdx]]
