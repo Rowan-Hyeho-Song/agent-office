@@ -30,12 +30,11 @@ export function RoomUi() {
     if (!ROOM_MODE) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || isLocked()) return
-      // A panel first, then the desk. Capture phase: we look before the panels' own Esc handlers run, so one press
-      // is one step (the approval box and the docs viewer step back or close by themselves; a closing panel must not
-      // also exit).
+      // Esc closes the top panel, one press one step. It never leaves the office (#487, the user: an Esc meant for a panel must not
+      // throw the visitor out); the ways out are the door button, '← 책상으로' and the browser's back. Capture phase: we look
+      // before the panels' own Esc handlers run (the approval box and the docs viewer step back or close by themselves).
       if (isApprovalBoxOpen() || isDocsOpen() || isReplayActive()) return
       if (anyPanelOpen()) closeTopPanel()
-      else leaveOffice('esc')
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
