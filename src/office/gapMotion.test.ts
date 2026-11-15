@@ -137,3 +137,19 @@ describe('the bounce sound (play.md 9.2: the paddle click as it is)', () => {
     expect(cued).toEqual([])
   })
 })
+
+describe('the break counts its gaps and watchers (#527)', () => {
+  it('a gap between two plays and watching a game are resting (the music counts them); sitting at the desk idle is not', async () => {
+    const { scene, nodes } = await loadOffice()
+    const rig = new AgentRig('agent_1', 1, buildRig(scene, nodes, 1), '#ffffff')
+    const at = (g: Partial<Goal>) => {
+      rig.setGoal({ spot: 'hall_north', pose: 'idle', label: '', ...g } as Goal, GRAPH)
+      return rig.resting
+    }
+    expect(at({ gap: 'window' })).toBe(true)
+    expect(at({ gap: 'wander', spot: 'hall_mid' })).toBe(true)
+    expect(at({ watching: 'pingpong', spot: 'hall_back' })).toBe(true)
+    expect(at({ spot: 'coffee', pose: 'coffee' })).toBe(true)
+    expect(at({ spot: 'work_1', pose: 'idle' })).toBe(false)
+  })
+})

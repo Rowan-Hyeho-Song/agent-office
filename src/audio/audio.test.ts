@@ -144,6 +144,16 @@ describe('cues', () => {
       expect(CUES[n].bus).toBe('sfx')
     }
   })
+  it('#530: the door (#451), the second bookshelf (#450) and the snack taken in hand (#455) are small events in the room; the page turn is a repeat', () => {
+    for (const n of ['door.open', 'door.close', 'book.out', 'book.in', 'treat.take'] as const) {
+      expect(CUES[n].spatial).toBe(true)
+      expect(CUES[n].kind).toBe('event')
+      expect(CUES[n].bus).toBe('sfx')
+    }
+    expect(CUES['book.page'].kind).toBe('repeat')
+    expect(CUES['book.page'].spatial).toBe(true)
+    expect(CUES['treat.take'].length).toBeLessThan(CUES['treat.arrive'].length)
+  })
   it('only room sounds are spatial', () => {
     expect(CUES.approve.spatial).toBe(false)
     expect(CUES['omok.place'].spatial).toBe(true)
