@@ -5,7 +5,7 @@ import { Door } from '../room/Door'
 import { Frames } from './Frames'
 import { ReadyPing } from '../room/RoomUi'
 import { ClockRig } from './ClockRig'
-import { SpeakerClick } from './SpeakerClick'
+import { PropPress } from './PropPress'
 import { BadgePick } from './badge/BadgePick'
 import { TreatRig } from './visit/TreatRig'
 import { Bulletin } from './visit/Bulletin'
@@ -38,7 +38,7 @@ export function Office({ world }: { world: OfficeWorld }) {
       <Bulletin world={world} scene={scene} />
       <TrayClick scene={scene} nodes={nodes} />
       <ClockRig scene={scene} nodes={nodes} />
-      <SpeakerClick nodes={nodes} />
+      <PropPress world={world} nodes={nodes} />
       <TurntablePick scene={scene} />
       <Shelf world={world} scene={scene} nodes={nodes} />
       <Whiteboard world={world} scene={scene} />

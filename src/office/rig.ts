@@ -72,6 +72,8 @@ const TURN_RATE = 4.5 * PACE // rad/s
 const ARRIVE_TURN_RATE = Math.PI / 0.35 // rad/s
 // a meeting listener's nod (#141): how long it takes, how far the head dips, how long the addressee's hand stays up
 const NOD_S = 0.5
+/** #370 D a visitor's press (desk-props.md 7.4): the owner looks this long (s), and (resting) its nod starts this far in, ending with the look */
+export const PROP_LOOK = { s: 1, nodAt: 0.5 } as const
 /** where a caught paper / plane is held to be looked at, from the head (paper-pass.md 5, #273) */
 export const LOOK_AT = { ahead: 0.22, down: 0.1, side: 0.06 }
 /** the coder's loop ring (agent_3_tip) turns the way its arrowhead points: clockwise from above, i.e. negative about its local y (#479) */
@@ -895,6 +897,11 @@ export class AgentRig {
   bodyDip = 0
   /** a point the head glances at, up to `glanceMax` rad of yaw (the opponent's last stone) */
   glance: { at: Vector3; max: number } | null = null
+  /**
+   * #370 D a visitor pressed one of this agent's desk things (desk-props.md 7.4): the head turns to it for PROP_LOOK.s and (resting)
+   * nods once on the way; the hands go on as they were. Set by PropPress; started (t0) and ended by update().
+   */
+  propLook: { at: Vector3; nod: boolean; t0: number | null } | null = null
   /** a short reaction on top of the hand pose: the winner's fist, the loser's three claps (play.md 2.5) */
   reaction: { kind: 'fist' | 'clap'; t0: number; dur: number } | null = null
   /** the left hand at the chin, its fingers drumming (the omok thinker 메시) */
@@ -1244,6 +1251,8 @@ export class AgentRig {
     // the head: lifts while moving, sits lower on seats, bobs, leans into turns and forward with speed
     const pose = resting ? goal.pose : moving ? 'move' : 'idle'
     const lookTarget = this.headLook(pose, t, reduced, others)
+    const pl = this.propLookAt(t, pose)
+    if (pl) Object.assign(lookTarget, pl)
     lookTarget.pitch -= this.nodDip(goal, t, reduced)
     if (this.glance && pose !== 'move') {
       const dx = this.glance.at.x - this.x
@@ -1341,6 +1350,27 @@ export class AgentRig {
       : pen
         ? { kind: 'pen', side: 'r' }
         : null
+  }
+
+  /** #370 D the head toward the pressed desk thing (yaw and pitch, no tilt), the nod started once at PROP_LOOK.nodAt; null when none */
+  private propLookAt(t: number, pose: string): { pitch: number; yaw: number; roll: number } | null {
+    const pl = this.propLook
+    if (!pl) return null
+    if (pl.t0 === null) pl.t0 = t
+    const u = t - pl.t0
+    if (u >= PROP_LOOK.s || pose === 'move') {
+      this.propLook = null
+      return null
+    }
+    if (pl.nod && u >= PROP_LOOK.nodAt) {
+      pl.nod = false
+      this.nod = { t0: t, hand: false }
+    }
+    const dx = pl.at.x - this.x
+    const dz = pl.at.z - this.z
+    const yaw = MathUtils.clamp(wrap(Math.atan2(-dx, -dz) - this.heading), -1.2, 1.2)
+    const pitch = MathUtils.clamp(Math.atan2(pl.at.y - (this.parts.headRestY + this.seat), Math.hypot(dx, dz)), -0.6, 0.3)
+    return { pitch, yaw, roll: 0 }
   }
 
   /** a goal's gesture starts once per new key; the head dips NOD_DEG over NOD_S (rad now; 0 when still or with reduced motion) */
