@@ -117,6 +117,14 @@ async function main() {
     log(`task dropped → ${res.status}`)
     res = await send(false)
   }
+  // #535: a server from before #535 does not know the background waits and answers 400: say the turn's end as it was said before (stop), once,
+  // so taking this hook before that deploy never loses the end of a turn
+  if (res.status === 400 && signal.kind === 'activity' && BACKGROUND.includes(signal.activity)) {
+    log(`activity/${signal.activity} → ${res.status}, said as stop`)
+    signal = { kind: 'stop' }
+    res = await send(true)
+    if (res.status === 400 && task) res = await send(false)
+  }
   const detail = signal.activity ? `/${signal.activity}` : 'to' in signal ? ` to seat ${signal.to}` : ''
   log(`${signal.kind}${detail}${'ok' in signal ? (signal.ok ? ' pass' : ' fail') : ''} → ${res.status}`)
   if (res.ok) writeFileSync(file, JSON.stringify({ seat, kind: signal.kind, activity: signal.activity, task: taskKey, sentAt: now }))

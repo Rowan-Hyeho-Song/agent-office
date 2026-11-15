@@ -116,3 +116,50 @@ describe('office-hook: a Stop with background work (#535)', () => {
     expect(sent.slice(3)).toEqual([{ seat: 3, kind: 'stop' }])
   }, 30_000)
 })
+
+describe('office-hook: a server from before #535 (400 to the background waits)', () => {
+  it('the wait is said again once as the stop it was before; nothing else is sent twice', async () => {
+    const { spawn } = await import('node:child_process')
+    const { createServer } = await import('node:http')
+    const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join, resolve } = await import('node:path')
+    const bodies: Record<string, unknown>[] = []
+    const server = createServer((req, res) => {
+      let body = ''
+      req.on('data', (c) => (body += c))
+      req.on('end', () => {
+        const b = JSON.parse(body)
+        bodies.push(b)
+        // the old allow list: no background activities
+        const old = typeof b.activity === 'string' && (b.activity === 'background' || b.activity.startsWith('bg_'))
+        res.writeHead(old ? 400 : 200, { 'content-type': 'application/json' }).end(old ? '{"error":"bad"}' : '{"ok":true}')
+      })
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    const port = (server.address() as { port: number }).port
+    const home = mkdtempSync(join(tmpdir(), 'office-hook-bg-old-'))
+    writeFileSync(join(home, 'hook.json'), JSON.stringify({ endpoint: `http://127.0.0.1:${port}/api/events`, token: 't', keepaliveSeconds: 0 }))
+    const run = (input: Record<string, unknown>) =>
+      new Promise<void>((done) => {
+        const env = { ...process.env, AGENT_OFFICE_HOME: home, AGENT_OFFICE_SEAT: '3' }
+        delete env.AGENT_OFFICE_CONFIG
+        delete env.AGENT_OFFICE_TASK
+        const p = spawn(process.execPath, [resolve('hooks/office-hook.mjs')], { env, stdio: ['pipe', 'ignore', 'ignore'] })
+        p.on('exit', () => done())
+        p.stdin.end(JSON.stringify({ session_id: 'old', cwd: resolve('.'), ...input }))
+      })
+    try {
+      await run({ hook_event_name: 'Stop', background_tasks: [shell('pnpm build')] })
+      await run({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: {} })
+    } finally {
+      server.close()
+      rmSync(home, { recursive: true, force: true })
+    }
+    expect(bodies).toEqual([
+      { seat: 3, kind: 'activity', activity: 'bg_build' },
+      { seat: 3, kind: 'stop' },
+      { seat: 3, kind: 'activity', activity: 'edit' },
+    ])
+  }, 30_000)
+})
