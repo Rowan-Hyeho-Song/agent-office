@@ -77,6 +77,21 @@ export function grow(r: Rect, min: number): Rect {
   return { left: r.left - w, right: r.right + w, top: r.top - h, bottom: r.bottom + h }
 }
 
+/** the tag's gap to the outline, and the margin it keeps from the screen's edges (px) */
+export const TAG_GAP = 6
+export const TAG_MARGIN = 8
+
+/**
+ * where the tag goes (top-left, screen px): centred over the outline, pulled in sideways to stay TAG_MARGIN inside the screen; below
+ * the outline when there is no room above it (#480 designer: the rack at a phone's left edge cut '주인 로그인 ·' off)
+ */
+export function tagPlace(r: Rect, w: number, h: number, screenW: number): { left: number; top: number } {
+  const centred = (r.left + r.right) / 2 - w / 2
+  const left = Math.max(TAG_MARGIN, Math.min(centred, screenW - TAG_MARGIN - w))
+  const above = r.top - TAG_GAP - h
+  return { left, top: above >= TAG_MARGIN ? above : r.bottom + TAG_GAP }
+}
+
 /** the model's hit_keyrack as the press box, 1.5x on touch; null while the model has none */
 export function keyRackTarget(scene: Object3D, touch: boolean): Mesh | null {
   const box = hitBox(scene, 'keyrack')

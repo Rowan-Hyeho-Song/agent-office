@@ -1,7 +1,7 @@
 import { Object3D, Scene } from 'three'
 import { describe, expect, it } from 'vitest'
 import { loadOffice } from './glbLoad'
-import { KEY_RACK, KEY_RACK_TAG, grow, keyAppear, keyRackTarget, keySwing, press, rackNormal, rackTag } from './keyRackRules'
+import { KEY_RACK, KEY_RACK_TAG, TAG_GAP, TAG_MARGIN, grow, keyAppear, keyRackTarget, keySwing, press, rackNormal, rackTag, tagPlace } from './keyRackRules'
 import { wallOf } from './walls'
 
 // #475 (office-ui.md 13.3–13.6): the key rack by the entrance door signs the owner in.
@@ -86,5 +86,17 @@ describe('the baked rack (office.glb, #478)', () => {
     // the key hangs inside the press box
     expect(Math.abs(key.position.z - box.position.z)).toBeLessThan(0.2)
     expect(Math.abs(key.position.y - box.position.y)).toBeLessThan(0.12)
+  })
+})
+
+describe('the tag stays on the screen (#480)', () => {
+  it('over the rack, centred; pulled 8 px inside at either edge; below the rack when there is no room above', () => {
+    const mid = { left: 180, right: 220, top: 300, bottom: 340 }
+    expect(tagPlace(mid, 100, 20, 390)).toEqual({ left: 150, top: 300 - TAG_GAP - 20 })
+    // the designer's case: a rack at a phone's left edge (x 32), a 238 px tag
+    const edge = { left: 10, right: 54, top: 300, bottom: 344 }
+    expect(tagPlace(edge, 238, 44, 390).left).toBe(TAG_MARGIN)
+    expect(tagPlace({ left: 360, right: 400, top: 300, bottom: 340 }, 238, 44, 390).left).toBe(390 - TAG_MARGIN - 238)
+    expect(tagPlace({ left: 180, right: 220, top: 20, bottom: 60 }, 100, 20, 390).top).toBe(60 + TAG_GAP)
   })
 })

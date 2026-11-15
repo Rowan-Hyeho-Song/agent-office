@@ -5,7 +5,7 @@ import { Quaternion, Vector3, type BoxGeometry, type Material, type Object3D } f
 import { isReplayActive } from '../replay/store'
 import { useCameraBusy } from '../room/Door'
 import { useRole } from './ApprovalBox'
-import { KEY_RACK, KEY_RACK_LABEL, grow, keyAppear, keyRackTarget, keySwing, press, rackNormal, rackTag, type Rect } from './keyRackRules'
+import { KEY_RACK, KEY_RACK_LABEL, grow, keyAppear, keyRackTarget, keySwing, press, rackNormal, rackTag, tagPlace, type Rect } from './keyRackRules'
 import { meshesOf } from './nodes'
 import { useCanvasPick } from './pick'
 import { isTouring } from './tourStore'
@@ -204,6 +204,12 @@ export function KeyRack({ world, scene, nodes }: { world: OfficeWorld; scene: Ob
     u.el.style.transform = `translate(${b.left}px, ${b.top}px)`
     u.el.style.width = `${b.right - b.left}px`
     u.el.style.height = `${b.bottom - b.top}px`
+    // the tag stays on the screen (#480): measured, then placed against the outline's inside corner (inside its border)
+    if (show) {
+      const at = tagPlace(b, u.tag.offsetWidth, u.tag.offsetHeight, window.innerWidth)
+      u.tag.style.left = `${at.left - b.left - u.el.clientLeft}px`
+      u.tag.style.top = `${at.top - b.top - u.el.clientTop}px`
+    }
   })
 
   // ?debug: where the rack is on the screen and what it shows (the smoke test and the designer's check)
