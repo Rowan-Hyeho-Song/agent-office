@@ -68,6 +68,8 @@ const ARRIVE_TURN_RATE = Math.PI / 0.35 // rad/s
 const NOD_S = 0.5
 /** where a caught paper / plane is held to be looked at, from the head (paper-pass.md 5, #273) */
 export const LOOK_AT = { ahead: 0.22, down: 0.1, side: 0.06 }
+/** the coder's loop ring (agent_3_tip) turns the way its arrowhead points: clockwise from above, i.e. negative about its local y (#479) */
+export const LOOP_RING_DIR = -1
 /** a received plane / toss: how long the eyes stay wide before the nod (paper-pass.md 4) */
 const PAPER_SURPRISE_S = 1.2
 const NOD_DEG = 5
@@ -2070,7 +2072,7 @@ export class AgentRig {
     if (ring) {
       // the coder's loop: slow, fast while tests run, stopped and red when they failed
       this.spin.ring += dt * (failed ? 0 : running ? 5 : 0.6) * m
-      ring.rotation.y = this.spin.ring
+      ring.rotation.y = LOOP_RING_DIR * this.spin.ring
       tint(ring, (base) => (failed ? FAIL_RED : base))
     }
     tint(this.parts.ear, (base) => this.tmpColor.copy(base).multiplyScalar(working ? 1 : 0.15))
