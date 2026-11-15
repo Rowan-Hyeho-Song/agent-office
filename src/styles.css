@@ -114,7 +114,7 @@ body,
 [data-seat='x'] { --agent: var(--agent-x); --agent-ink: var(--agent-x-ink); }
 /* visually hidden, still read: the negative margin keeps the 1px box from adding a row of scroll at the page bottom */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; border: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
-.approval-box :focus-visible, .approval-launcher:focus-visible, .owner-tag button:focus-visible, .door-key:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+.approval-box :focus-visible, .approval-launcher:focus-visible, .owner-tag button:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
 /* ═════════ 결재함 패널 ═════════ */
 .approval-box {
   color-scheme: dark; scrollbar-color: var(--bubble-dim-line) transparent; scrollbar-width: thin; /* dark scrollbars, table scroll, textarea grip (designer) */
@@ -258,11 +258,12 @@ button.secret-cover:hover .bar { background: var(--color-line); }
 .props-debug td:first-child { color: #9aa3b2; width: 3em; }
 .props-debug td:last-child { color: #f3ead8; }
 
-/* approval box (#64): launcher, owner tag, door key dot, decided cards, narrow screens */
+/* approval box (#64): launcher, owner tag, decided cards, narrow screens */
 .owner-tag { position: fixed; left: 16px; bottom: 44px; z-index: 20; }
-.door-key { pointer-events: auto; transform: translate(-50%, -50%); width: 20px; height: 20px; display: grid; place-items: center; background: none; border: 0; padding: 0; color: var(--door-phosphor-dim); opacity: 0.25; cursor: pointer; }
-.door-key svg { width: 12px; height: 12px; }
-.door-key:hover, .door-key:focus-visible { opacity: 1; color: var(--door-hover); }
+/* the key rack led here (#475, office-ui.md 13.3): two blinks, ivory and amber 0.3 s each */
+.owner-tag[data-blink='1'] { animation: owner-blink 0.6s steps(1, end) 2; }
+@keyframes owner-blink { 0% { background: var(--color-text); } 50% { background: var(--approval-accent); } }
+@media (prefers-reduced-motion: reduce) { :root:not([data-motion='full']) .owner-tag[data-blink] { animation: none; } }
 .approval-stamp text { font-family: var(--font-pixel); }
 
 /* the way out: standalone only, same look as the desk's "← 책상으로" button (.btn). In a room the desk draws its own
@@ -851,6 +852,16 @@ html[data-motion='reduce'] .sound-panel.sheet { animation: sound-sheet-fade 120m
 .tt-tag { position: absolute; left: 50%; bottom: calc(100% + 6px); translate: -50% 0; white-space: nowrap; padding: 2px 8px; background: var(--color-surface-alpha); color: var(--color-text);
   box-shadow: inset 0 0 0 1px var(--color-cyan); font: 12px var(--font-pixel, monospace); }
 .tt-outline[data-hover='0'] .tt-tag { display: none; }
+/* the key rack by the door (KeyRack, #475 office-ui.md 13.3): the same outline and tag; a transparent 44 px button on it for the keyboard */
+.kr-outline { position: fixed; left: 0; top: 0; z-index: 25; pointer-events: none; box-sizing: border-box; border: 2px solid var(--color-cyan); border-radius: 4px; display: none; }
+.kr-outline[data-show='1'] { display: block; }
+.kr-outline[data-press='1'] { background: rgb(77 243 255 / 0.25); box-shadow: 0 0 8px var(--color-cyan); }
+.kr-tag { position: absolute; left: 50%; bottom: calc(100% + 6px); translate: -50% 0; white-space: nowrap; padding: 2px 8px; background: var(--color-surface-alpha); color: var(--color-text);
+  box-shadow: inset 0 0 0 1px var(--color-cyan); font: 12px var(--font-pixel, monospace); }
+/* touch, armed: the second tap may land on the tag */
+.kr-outline[data-armed='1'] .kr-tag { pointer-events: auto; cursor: pointer; display: flex; align-items: center; min-height: 44px; box-sizing: border-box; padding: 0 12px; }
+.key-rack-btn { pointer-events: auto; transform: translate(-50%, -50%); width: 44px; height: 44px; padding: 0; background: none; border: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.key-rack-btn:focus-visible { outline: none; }
 
 /* ---- the agent's badge (사원증, office-ui.md 12.1a, #4) ------------------------------------------------------------------ */
 .agent-list .agent-card-btn { all: unset; pointer-events: auto; cursor: pointer; display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 2px; color: var(--color-text-muted); font-size: 12px; line-height: 1; }
