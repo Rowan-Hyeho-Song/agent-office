@@ -125,13 +125,15 @@ Node contract (the app reads glTF extras):
                                    succulent_leaf (baked desk_props + pivot_at, no live: the stroked front leaf, tier
                                    1, pivot = its base, extras sway_axis x, sway_deg 6 = +-6, + = tip down; the touch
                                    anchors on it carry extras leaf);
-                                   desk_4_knob_0 extras turn_axis y, turn_deg 45 + _contact_thumb|index (a pinch);
+                                   desk_4_knob_0 extras turn_axis y, turn_deg 45 + _contact_thumb|index (a pinch),
+                                   _grip_l (3.5 cm over its top, palm down, fingers -z);
                                    desk_1_ringlight_knob_grip_r (on its axis, 2 cm past the end face: a pinch);
                                    desk_0_hourglass: four posts (was three); _contact_thumb (-x post) | _index (+x post)
                                    on its x axis, _grip_r 5 cm in front, all its children (turned over about x);
                                    prop_headphones_cup (live bot, out of the bake: the -x cup + cushion + cable; extras
                                    cup_of prop_headphones, swivel_axis y, swivel_deg [0, 90]; pivot = the yoke line);
-                                   prop_headphones_grip_r + _contact_palm on the band's middle (the cup-back palm gone)
+                                   prop_headphones_grip_r + _contact_palm on the band's middle (unused now);
+                                   prop_headphones_cup_grip_r + _contact_palm: the palm on its outer shell (DJ hold)
   prop_omok_bowl_w                 (#137) prop: the white bowl (body, heap, floor; the lid baked), origin = its bottom
                                    centre; children omok_bowl_w, omok_bowl_w_contact_index, _grip_r|l, _contact_palm|_palm_l
   pp_net                           live "bot" (#280 3): the net's navy 1 cm lattice (static; the posts, clamps and white
@@ -3903,6 +3905,12 @@ def build_hands():
     # palm on the +x cup's back is gone: unused)
     grip_at(O["prop_headphones"], R, (0, 0.019, 0), (0, 0, -1), (0, -1, 0))
     contact(O["prop_headphones"], "palm", (0, 0.009, 0), (0, 1, 0))
+    # #370 (designer, DJ hold): the right palm cups the held cup's outer shell and presses it to the ear (the band's
+    # middle sat 13 cm over the ear: the arm near upright, the wrist turned 140 deg). In the cup's frame (origin = the
+    # yoke line, the headphones' axes): its outer face is at x -0.028 (the cup -0.097 +- 0.015, the pivot -0.084);
+    # the palm on its middle, the grip 1 cm out, the fingers up round its rim (toward the yoke), the palm toward it
+    grip_at(O["prop_headphones_cup"], R, (-0.038, 0, 0), (0, 1, 0), (1, 0, 0))
+    contact(O["prop_headphones_cup"], "palm", (-0.028, 0, 0), (-1, 0, 0))
     # pens (tripod): MEMO's pen (tip = the capped end, -z), the tablet pen, the markers
     tripod(O["agent_0_pen"], -0.085, 0.009)
     tripod(O["prop_tablet_pen"], -0.07, 0.006)
@@ -3953,6 +3961,9 @@ def build_hands():
     c45 = 0.0065 * math.sqrt(0.5)
     contact(o, "thumb", (c45, 0.005, c45), (1, 0, 1))
     contact(o, "index", (-c45, 0.005, -c45), (-1, 0, -1))
+    # #370 C4 (coder): the left hand's grip over it: on its axis 3.5 cm over the top (8 mm), palm down, the fingers
+    # forward (away from ECHO, -z); with them the thumb comes on the right (+x), as the contacts above
+    grip_at(o, "l", (0, 0.008 + 0.035, 0), (0, 0, -1), (0, -1, 0))
     # MEMO's left hand steadies the ink tin: thumb on its wall front-left, index on the rim's top at the left
     ix_, iz_ = 0.47, 0.13
     contact("desk_0_inkpad", "thumb", (ix_ - 0.03 * math.sqrt(0.5), h + 0.006, iz_ + 0.03 * math.sqrt(0.5)), (-1, 0, 1), M=Fd[0])
