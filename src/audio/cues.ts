@@ -796,7 +796,14 @@ export type CueOpts = {
   retried?: boolean
   /** typing: which key (#225 kinds); char when not given */
   keyKind?: KeyKind
+  /** #586 quieter for this call only (dB, 0 or below; a positive value is cut to 0): on top of the replay-speed rule */
+  db?: number
 }
+
+/** #370 D (desk-props.md 7.3): a visitor's press on a prop in the office sounds `ui.click` this much under the HUD's */
+export const PROP_CLICK_DB = -6
+/** the per-cue trim: the replay-speed factor `k` and the call's own `db` (never louder than the cue itself) */
+export const trimGain = (k: number, db = 0) => k * Math.pow(10, Math.min(0, Number.isFinite(db) ? db : 0) / 20)
 
 // ── replay speed (sound.md 6): ×1 as is, ×4 half the busywork and events −3 dB, ×16 events only at −6 dB ──
 let speed = 1
@@ -886,7 +893,7 @@ export function cue(name: CueName, opts: CueOpts = {}): boolean {
 
   let dest: AudioNode = g.bus[def.bus]
   const trim = g.ctx.createGain()
-  trim.gain.value = k
+  trim.gain.value = trimGain(k, opts.db)
   trim.connect(dest)
   dest = trim
   if (def.spatial && opts.pos) dest = panner(g.ctx, opts.pos, trim)

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { BLEND_MIN, PERIODS } from '../office/outside'
 import { PERIOD_LEVELS, ambienceAt } from './ambience'
-import { AGENT_PITCH, CUES, CUE_NAMES, speedRule } from './cues'
+import { AGENT_PITCH, CUES, CUE_NAMES, PROP_CLICK_DB, speedRule, trimGain } from './cues'
 import { momentaryMax } from './levels'
 import { CHORDS, HISS_LEVEL, HOOK, LAYERS, WORK_LAYERS, stepEvents } from './music'
 import { BUS_CATEGORY } from './engine'
@@ -159,6 +159,13 @@ describe('cues', () => {
     expect(CUES['stamp.ink'].spatial).toBe(true)
     expect(CUES['stamp.ink'].length).toBeLessThan(CUES.stamp.length)
     expect(CUES['stamp.ink'].gap).toBeLessThan(200)
+  })
+  it('#586 db: a call can be quieter (a prop press is ui.click −6 dB, desk-props.md 7.3), never louder, and it stacks with the replay speed', () => {
+    expect(trimGain(1)).toBe(1)
+    expect(trimGain(1, PROP_CLICK_DB)).toBeCloseTo(0.501, 3)
+    expect(trimGain(0.71, -6)).toBeCloseTo(0.71 * 0.501, 3)
+    expect(trimGain(1, 6)).toBe(1)
+    expect(trimGain(1, Number.NaN)).toBe(1)
   })
   it('only room sounds are spatial', () => {
     expect(CUES.approve.spatial).toBe(false)
