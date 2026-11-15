@@ -79,7 +79,8 @@ describe('office-hook: a Stop with background work (#535)', () => {
     const SECRET = 'pnpm test -- --token=SECRET_abc123 C:/Users/someone/private'
     const run = (session: string, input: Record<string, unknown>) =>
       new Promise<void>((done) => {
-        const env = { ...process.env, AGENT_OFFICE_HOME: home, AGENT_OFFICE_SEAT: '3' }
+        // the wait's end is run below by the test itself, after the session woke (not by the hook's own timer: under load it raced the wake)
+        const env = { ...process.env, AGENT_OFFICE_HOME: home, AGENT_OFFICE_SEAT: '3', AGENT_OFFICE_BG_EXPIRE: 'manual' }
         delete env.AGENT_OFFICE_CONFIG
         delete env.AGENT_OFFICE_TASK
         const p = spawn(process.execPath, [resolve('hooks/office-hook.mjs')], { env, stdio: ['pipe', 'ignore', 'ignore'] })
@@ -91,12 +92,20 @@ describe('office-hook: a Stop with background work (#535)', () => {
       await run('a', { hook_event_name: 'Stop', background_tasks: [shell(SECRET)] })
       // b: the same, but the session wakes (a tool) before the time is up
       await run('b', { hook_event_name: 'Stop', background_tasks: [{ id: 'x', type: 'subagent', status: 'running' }] })
+      const sessionAt = (id: string) => (JSON.parse(readFileSync(join(home, 'sessions', `${id}.json`), 'utf8')) as { sentAt: number }).sentAt
+      const aAt = sessionAt('a')
+      const bAt = sessionAt('b')
       await run('b', { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: {} })
-      // a's wait ends by itself after 1.2 s (a detached process: under a loaded run it may take longer to start): wait until its stop has come
-      // (at most 20 s), then 1.5 s more, so a stop of b (which woke, and must send none) would have come too
-      const until = Date.now() + 20_000
-      while (!bodies.some((b) => b.body.kind === 'stop') && Date.now() < until) await new Promise((r) => setTimeout(r, 100))
-      await new Promise((r) => setTimeout(r, 1500))
+      // now both waits' ends, as the hook's own process runs them (it waits out what is left of the 1.2 s, then looks): a never woke, b did
+      const expire = (id: string, at: number) =>
+        new Promise<void>((done) => {
+          const env = { ...process.env, AGENT_OFFICE_HOME: home, AGENT_OFFICE_SEAT: '3' }
+          delete env.AGENT_OFFICE_CONFIG
+          delete env.AGENT_OFFICE_TASK
+          const p = spawn(process.execPath, [resolve('hooks/office-hook.mjs'), '--expire', join(home, 'sessions', `${id}.json`), String(at), '0.02'], { env, stdio: 'ignore' })
+          p.on('exit', () => done())
+        })
+      await Promise.all([expire('a', aAt), expire('b', bAt)])
       const files = readdirSync(join(home, 'sessions')).map((f) => readFileSync(join(home, 'sessions', f), 'utf8'))
       // nothing of the command is kept on the PC
       for (const f of files) {
