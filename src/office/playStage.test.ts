@@ -7,7 +7,7 @@ import { Object3D, Vector3 } from 'three'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { loadOffice, stubCanvas } from './glbLoad'
 import { contactNormal } from './gripTargets'
-import { PlayStage, type StageIn } from './playStage'
+import { PlayStage, VISITOR_RING, type StageIn } from './playStage'
 import { STONE_DISC_R } from './grip'
 import { AgentRig, PropBank, buildRig } from './rig'
 import type { Goal } from './director'
@@ -399,5 +399,29 @@ describe('PlayStage', () => {
     expect(Math.min(...back.map((f) => f.o))).toBeLessThan(0.2)
     expect(back.at(-1)!.x).toBeCloseTo(homeX, 4)
     expect(back.at(-1)!.o).toBe(1)
+  })
+  it('#137 ② (play.md 2.5): a visitor win rings the five in ivory; an agent win rings them in the agent colour', async () => {
+    const w = await world()
+    const goals = Object.fromEntries(IDS.map((id) => [id, { spot: 'work_0', pose: 'idle', label: '' } as Goal]))
+    const r = w.rigs.agent_0
+    r.at = 'game_a'
+    r.x = -2.2
+    r.z = 2.2
+    r.heading = -Math.PI / 2
+    r.parts.root.position.set(r.x, 0, r.z)
+    r.parts.root.rotation.set(0, r.heading, 0)
+    r.parts.root.updateMatrixWorld(true)
+    goals.agent_0 = { spot: 'game_a', pose: 'boardgame', label: '' }
+    const g = startVisitorGame('agent_0', 7, 0)
+    const line = [110, 111, 112, 113, 114]
+    const look = (winner: 1 | 2) => {
+      const view = { ...viewOf(g, 9_000), phase: 'won' as const, winner, line, wonMs: 900 }
+      w.stage.update(inp(w, goals, 10_000, 1, { dt: 0.02, colors: { agent_0: '#4a90d9' }, visitorOmok: { agent: 'agent_0', view } }))
+      const st = w.stage as unknown as { rings: { visible: boolean; material: { color: { getHexString(): string } } }[]; line: { visible: boolean; material: { color: { getHexString(): string } } } }
+      const shown = st.rings.filter((x) => x.visible)
+      return { n: shown.length, rings: [...new Set(shown.map((x) => '#' + x.material.color.getHexString()))], line: st.line.visible ? '#' + st.line.material.color.getHexString() : null }
+    }
+    expect(look(1)).toEqual({ n: 5, rings: [VISITOR_RING], line: VISITOR_RING }) // the visitor holds black
+    expect(look(2)).toEqual({ n: 5, rings: ['#4a90d9'], line: '#4a90d9' })
   })
 })

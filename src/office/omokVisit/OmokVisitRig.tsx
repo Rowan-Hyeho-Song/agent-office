@@ -233,7 +233,7 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
     if (v.phase !== 'closed' && v.agent) {
       stepOmok(now)
       for (const ev of drainOmokEvents()) {
-        if (ev.kind === 'say') world.bubbles.say(v.agent, { kind: 'react', text: ev.text, ms: 3500 }, now)
+        if (ev.kind === 'say') world.bubbles.say(v.agent, { kind: 'react', text: ev.text, ms: 3500, whole: true }, now)
         else world.rigs[v.agent]?.faceEvent(FACE[ev.face], state.clock.elapsedTime)
       }
       // a game it let go (quiet) or left for work closes by itself after the agent's word

@@ -46,6 +46,9 @@ import { READ_HOLD, READ_S } from './readRun'
 import { TrayPile } from './tray'
 import { localBox } from './localBox'
 
+/** #137 ② (play.md 2.5) the win ring and line when the visitor won: ivory */
+export const VISITOR_RING = '#f3ead8'
+
 /** #370 C3 the stamping, s from the decision (props.ts STAMP_MS = 2 s): to the ink pad, two dabs, back and pressed on the paper; hover 1 cm, arc 4 cm */
 export const STAMP_INK = { toPad: [0.35, 0.7], dabs: [0.7, 1.1], press: [1.45, 1.7], hover: 0.01, arc: 0.04 } as const
 
@@ -914,7 +917,8 @@ export class PlayStage {
     if (this.line) this.line.visible = false
     if (showWin) {
       const winnerIdx = view.winner === 1 ? view.black : (1 - view.black) as 0 | 1
-      const col = inp.colors[s.players[winnerIdx]] ?? '#ffffff'
+      // the visitor's own colour is ivory (play.md 2.5: the visitor has no agent colour)
+      const col = s.players[winnerIdx] === VISITOR ? VISITOR_RING : (inp.colors[s.players[winnerIdx]] ?? '#ffffff')
       const cells = [...view.line!].sort((a, b) => a - b).slice(0, 5)
       cells.forEach((cell, i) => {
         const ring = this.rings[i]
