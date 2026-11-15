@@ -2,7 +2,7 @@
 /// <reference types="node" />
 import { appendFileSync } from 'node:fs'
 import { Box3, Matrix4, Quaternion, Vector3, type Mesh } from 'three'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { DUCK_BUBBLE, DUCK_LINES, DeskTouches, HABIT_PER_HOUR, KNOB_TURN, LEAF_STROKE, TOUCH_PROP, leafAt, NO_REPEAT_S, TOUCH_S, TURNTABLE_PUSH, calendarPage, habitTimes, hourglassAt, type TouchIn, type TouchKind } from './deskTouch'
 import { deskProps, type DeskProps } from './props'
 import { Guard, Walk, expectCleanAll, world } from './errandWorld.fixture'
@@ -16,6 +16,10 @@ import type { AgentRig } from './rig'
 import type { StatusMap } from './status'
 
 const LOG = process.env.FIT_LOG
+// the cues the stage fires (the stamp's, #370 C3), with when (the walk's clock, set by the test)
+const cued: { name: string; at: number }[] = []
+let cueClock = 0
+vi.mock('../audio/cues', async (orig) => ({ ...(await orig<typeof import('../audio/cues')>()), cue: (name: string) => void cued.push({ name, at: cueClock }) }))
 const NOW = Date.UTC(2026, 10, 16, 1, 0, 0)
 const base = (over: Partial<DeskProps> = {}): DeskProps => ({
   ...deskProps({ status: {} as StatusMap, pending: 0, waitingSeats: [], decidedAt: null, handoffsToday: 0, now: NOW }),
@@ -622,7 +626,9 @@ describe('the stamp inked on the pad (#370 C3, desk-props.md 4)', () => {
     let off = 0
     walk.stamp = true
     const t0 = walk.t
+    cued.length = 0
     while (walk.t - t0 < 2) {
+      cueClock = walk.t - t0
       walk.step(dt)
       const s = walk.t - t0
       if (s < STAMP_INK.dabs[0] || s > STAMP_INK.dabs[1]) continue
@@ -638,5 +644,14 @@ describe('the stamp inked on the pad (#370 C3, desk-props.md 4)', () => {
     expect(deepest, 'into the felt by its press').toBeCloseTo(Number(pad.userData.press) || 0.002, 3)
     expect(off, 'on the pad').toBeLessThan(Number(pad.userData.dab_r) || 0.026)
     expect(end, 'back where it rests').toBeLessThan(0.001)
+    // heard: a soft stamp.ink at each dab (0.8 s, 1.0 s), the stamp once as it presses (sound.md 4.1, #576)
+    const ink = cued.filter((c) => c.name === 'stamp.ink').map((c) => c.at)
+    expect(ink.length).toBe(2)
+    expect(ink[0]).toBeCloseTo(0.8, 1)
+    expect(ink[1]).toBeCloseTo(1.0, 1)
+    const stampAt = cued.filter((c) => c.name === 'stamp').map((c) => c.at)
+    expect(stampAt.length).toBe(1)
+    // as it meets the paper: the middle of the press (1.575 s)
+    expect(stampAt[0]).toBeCloseTo((STAMP_INK.press[0] + STAMP_INK.press[1]) / 2, 1)
   }, 120_000)
 })

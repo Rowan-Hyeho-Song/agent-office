@@ -1232,8 +1232,16 @@ export class PlayStage {
         if (this.stampAt === null) this.stampAt = inp.t
         const s = inp.t - this.stampAt
         this.grip(rig, 'r', 'stamp', home.node.name, true, this.stampPose(home.node, s, inp), inp)
-        // the stamp heard as it comes down on the paper, once a decision
-        if (s >= STAMP_INK.press[0] && !this.stampHeard) {
+        // each dab heard soft as the face meets the felt (the middle of each half of the dabs: 0.8 s, 1.0 s; not with reduced motion: no dabs)
+        const pad = this.sceneRef.getObjectByName('desk_0_inkpad')
+        const [d0, d1] = STAMP_INK.dabs
+        for (const [i, at] of [d0 + (d1 - d0) / 4, d0 + ((d1 - d0) * 3) / 4].entries())
+          if (pad && !inp.reduced && s >= at && this.stampInked < i + 1) {
+            this.stampInked = i + 1
+            cue('stamp.ink', { pos: pad.getWorldPosition(new Vector3()), agent: rig.id, key: `stamp.ink:${Math.round(this.stampAt * 1000)}:${i}` })
+          }
+        // the stamp heard as it meets the paper (the middle of the press, where it has come down from its hover), once a decision
+        if (s >= (STAMP_INK.press[0] + STAMP_INK.press[1]) / 2 && !this.stampHeard) {
           this.stampHeard = true
           cue('stamp', { pos: home.node.getWorldPosition(new Vector3()) })
         }
@@ -1244,6 +1252,7 @@ export class PlayStage {
     if (seat === 0) {
       this.stampAt = null
       this.stampHeard = false
+      this.stampInked = 0
     }
     if (goal.pose === 'coffee' && resting) {
       // press the machine's button with the index fingertip, then take the mug and drink now and then
@@ -2071,6 +2080,7 @@ export class PlayStage {
   }
   private stampAt: number | null = null
   private stampHeard = false
+  private stampInked = 0
   private stampFace: number | undefined
 
   /**
