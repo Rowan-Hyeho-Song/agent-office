@@ -15,6 +15,8 @@ export interface WrapBeat {
   end?: boolean
   /** #532 the cards written at the desk this sitting: the bundle held while writing is this many */
   n?: number
+  /** #532 waiting at the desk for the board, s since the writing was done (the held cards are lowered after HELD.waitS) */
+  wait?: number
 }
 
 export type Curl = 'pen' | 'support' | 'pinch' | 'point' | 'fist' | 'rest' | 'loose' | 'stamp'
@@ -138,7 +140,7 @@ export function doneBehind(b: WrapBeat | undefined, reduced = false): number {
 export function heldCard(b: WrapBeat | undefined, o: { reduced: boolean; waitS?: number }): { c: [number, number, number]; tilt: number } {
   let c: [number, number, number] = [-HELD.side, -HELD.down, -HELD.fwd]
   let tilt = HELD.tiltDeg * DEG
-  const wait = smooth(((o.waitS ?? 0) - HELD.waitS) / 1.5)
+  const wait = smooth(((o.waitS ?? b?.wait ?? 0) - HELD.waitS) / 1.5)
   if (wait > 0) {
     c = [c[0], c[1] - HELD.waitDown * wait, c[2]]
     tilt = lerp(tilt, HELD.waitTiltDeg * DEG, wait)

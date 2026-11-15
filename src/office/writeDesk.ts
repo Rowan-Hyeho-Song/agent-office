@@ -39,6 +39,8 @@ export const PALM_SKIN = 0.0225
 const PALM_CARD = 0.016
 /** the share of 'next' in which the card goes over the top (the rest it slides down behind the bundle) */
 const OVER = 0.66
+/** #532 rereading: the back card's turn to the front and back, each way, s */
+const REREAD_TURN_S = 0.3
 const smooth01 = (x: number) => {
   const c = Math.min(1, Math.max(0, x))
   return c * c * (3 - 2 * c)
@@ -372,7 +374,15 @@ export class WriteDesk {
         c.group.userData.ink = 'clean'
       }
     }
+    // #532 (wrapup.md 9.4): rereading after the last card (the board taken), the back-most written card comes over the top to the front for the reading
+    // and goes back after it (the 'next' turn, 0.3 s each way); reduced motion: none
+    let reread = -1
+    if (goal.reread && b?.kind === 'readUp' && done > 0 && !inp.reduced) {
+      const s = b.u * WRAP.readUp
+      reread = s < REREAD_TURN_S ? 1 - s / REREAD_TURN_S : s > WRAP.readUp - REREAD_TURN_S ? (s - (WRAP.readUp - REREAD_TURN_S)) / REREAD_TURN_S : 0
+    }
     for (let j = 0; j < done; j++) {
+      if (j === 0 && reread >= 0) continue
       // written card j at the back, the latest last: turned over (face toward the palm) and a little turned
       const depth = (1 + clean + j + 1) * HELD.step
       const turn = this.turnOf(rig.id, j)
@@ -385,6 +395,19 @@ export class WriteDesk {
         else this.writtenLines(c.ctx)
         c.tex.needsUpdate = true
         c.group.userData.ink = j
+      }
+    }
+    if (reread >= 0) {
+      // card 0 between the back (1) and the front (0): just over the front card's face when there (it is read on top of it)
+      const m = this.overTop(front, Math.min(1, Math.max(0, reread)), n * HELD.step)
+      if (reread <= 0) m.multiply(new Matrix4().makeTranslation(0, 0.0005, 0))
+      const c = at(slot++, m)
+      if (c.group.userData.ink !== 0) {
+        const ink = d.done.get(0)
+        if (ink) c.ctx.drawImage(ink, 0, 0)
+        else this.writtenLines(c.ctx)
+        c.tex.needsUpdate = true
+        c.group.userData.ink = 0
       }
     }
     if (flipping) {

@@ -27,6 +27,12 @@ describe('the bundle held in front of the chest (#532, wrapup.md 9.1 · 9.4)', (
     expect(heldCard(beat('readUp', 0.5), { reduced: true })).toEqual(heldCard(beat('line', 0), { reduced: true }))
     expect(wrapHead('write', { kind: 'readUp', u: 0.5, k: 0 }, 0, true).pitch).toBeLessThan(wrapHead('write', { kind: 'line', u: 0.5, k: 0 }, 0, true).pitch)
   })
+  it('the wait comes with the beat (wrap.ts viewOf: the reread beat carries how long it has waited)', () => {
+    const b = (wait: number) => ({ kind: 'readUp', u: 0, k: 3, wait }) as unknown as Parameters<typeof heldCard>[0]
+    expect(heldCard(b(HELD.waitS - 1), { reduced: false }).tilt).toBeCloseTo(HELD.tiltDeg * DEG, 9)
+    expect(heldCard(b(HELD.waitS + 5), { reduced: false }).c[1]).toBeCloseTo(-HELD.down - HELD.waitDown, 9)
+  })
+
   it('waiting long at the desk for the board: 5 cm lower and 20° up', () => {
     const w = heldCard(beat('readUp', 0), { reduced: false, waitS: HELD.waitS + 5 })
     expect(w.c[1]).toBeCloseTo(-HELD.down - HELD.waitDown, 9)

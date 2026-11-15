@@ -26,8 +26,10 @@ export class LiveAxis {
   readonly along: Vector3
 
   constructor(readonly node: Object3D, fallback: Vector3) {
-    this.rest = node.position.clone()
-    this.restQ = node.quaternion.clone()
+    // the baked pose, kept on the node the first time (a second LiveAxis on it, or the hand that holds it, sees the same rest: #370 A)
+    const r = (node.userData.liveRest ??= { p: node.position.clone(), q: node.quaternion.clone() }) as { p: Vector3; q: Quaternion }
+    this.rest = r.p.clone()
+    this.restQ = r.q.clone()
     this.axis = axisOf(node.userData.axis, fallback)
     this.along = this.axis.clone().applyQuaternion(this.restQ)
   }

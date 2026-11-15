@@ -65,13 +65,13 @@ describe('the stages (shelfRun.ts)', () => {
 })
 
 /** a shelf book read through the planner: the stages, and what is seen along the way */
-function runShelf(w: Awaited<ReturnType<typeof world>>, agent: string, book: string, guard: Guard, onStep?: (walk: Walk, stage: string | undefined) => void) {
+function runShelf(w: Awaited<ReturnType<typeof world>>, agent: string, book: string, guard: Guard, onStep?: (walk: Walk, stage: string | undefined) => void, readS = 6) {
   const dt = 0.03
   const walk = new Walk(w, undefined, false)
   for (const id of IDS) walk.status[id] = { state: 'working', activity: 'test', since: 0 }
   for (let k = 0; k < 10; k++) walk.step(dt, guard)
   walk.status[agent] = { state: 'idle', since: 0 }
-  walk.director.forceShelf(agent, walk.t0 + walk.t * 1000, book, 6)
+  walk.director.forceShelf(agent, walk.t0 + walk.t * 1000, book, readS)
   const stages: string[] = []
   let ended = -1
   const started = walk.t
@@ -199,4 +199,42 @@ describe('a book stay at the second bookshelf in the Director (#450 designer)', 
     // browsing came only with less than 150 s left (or the third book done)
     if (browseFrom) expect(read.length === 3 || until - browseFrom < 150_000 + 5_000).toBe(true)
   }, 120_000)
+})
+
+describe('the shelf book pages (#450)', () => {
+  it('a turn every 25–40 s: the leaf clock from -lead to dur + back, none between', async () => {
+    const { pageTau } = await import('./shelfRun')
+    const r = { agent: 'agent_1', block: 4 }
+    const starts: number[] = []
+    let prev: number | null = null
+    for (let u = 0; u < 200; u += 0.05) {
+      const t = pageTau(r, u, 0.2, 0.75, 0.3)
+      if (t !== null && prev === null) starts.push(u)
+      if (t !== null) {
+        expect(t).toBeGreaterThanOrEqual(-0.2 - 1e-9)
+        expect(t).toBeLessThanOrEqual(0.75 + 0.3 + 1e-9)
+      }
+      prev = t
+    }
+    const gaps = starts.slice(1).map((s, i) => s - starts[i])
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(25 - 0.1)
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(40 + 1.2)
+  })
+
+  it('on the baked model a leaf of the book read turns (and is hidden between the turns)', async () => {
+    const w = await world()
+    const guard = new Guard(w)
+    const book = SHELF_BOOKS[3].name
+    const leaf = w.scene.getObjectByName(`${book}_page`)!
+    let shown = 0
+    let readFrames = 0
+    runShelf(w, 'agent_1', book, guard, (_walk, st) => {
+      if (st !== 'read') return
+      readFrames++
+      if (leaf.visible) shown++
+    }, 45)
+    expect(readFrames).toBeGreaterThan(100)
+    expect(shown, 'a turn shows').toBeGreaterThan(5)
+    expect(shown, 'hidden between the turns').toBeLessThan(readFrames / 2)
+  }, 240_000)
 })

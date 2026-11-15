@@ -150,3 +150,19 @@ export function pageAt(r: Pick<ShelfRun, 'agent' | 'block'>, u: number): { n: nu
   }
   return { n: 40, k: 0 }
 }
+
+/**
+ * #450 the page turn under way at `u` s of reading, as the leaf's own clock: s since the turn began (from -lead, the hand coming, to dur + back, the hand
+ * gone), or null between turns. The turns begin at pageAt's times (25–40 s apart, seeded per agent and stay).
+ */
+export function pageTau(r: Pick<ShelfRun, 'agent' | 'block'>, u: number, lead: number, dur: number, back: number): number | null {
+  const [a, b] = SHELF_S.pageEvery
+  let at = 0
+  for (let n = 0; n < 40; n++) {
+    at += a + ((hash(`${r.agent}|page|${r.block}|${n}`) % 1000) / 999) * (b - a)
+    if (u < at - lead) return null
+    if (u <= at + dur + back) return u - at
+    at += SHELF_S.pageS
+  }
+  return null
+}

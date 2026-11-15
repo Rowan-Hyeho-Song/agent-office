@@ -76,8 +76,12 @@ export interface DoorRun {
 /** seconds at the door (-1 on the way) */
 export const doorU = (r: DoorRun, now: number) => (r.arrived === null ? -1 : (now - r.arrived) / 1000)
 
-export function stepDoor(r: DoorRun, o: { now: number; arrived: boolean }): { run: DoorRun; done: boolean; giveUp: boolean } {
+/**
+ * `minS`: the replay's gesture minimum (office s, 0 live): at x16 and in a rewind the round stays at the door at least that long, the lever's press
+ * stretched over it (loungeActs.ts), so it is seen to go down and up once (lounge-props.md 7)
+ */
+export function stepDoor(r: DoorRun, o: { now: number; arrived: boolean; minS?: number }): { run: DoorRun; done: boolean; giveUp: boolean } {
   const run = r.arrived === null && o.arrived ? { ...r, arrived: o.now } : r
-  if (run.arrived === null) return { run, done: false, giveUp: o.now - run.at > DOOR_ROUND.giveUpS * 1000 }
-  return { run, done: (o.now - run.arrived) / 1000 >= atDoorS(run.kind), giveUp: false }
+  if (run.arrived === null) return { run, done: false, giveUp: o.now - run.at > Math.max(DOOR_ROUND.giveUpS, (o.minS ?? 0) * 4) * 1000 }
+  return { run, done: (o.now - run.arrived) / 1000 >= Math.max(atDoorS(run.kind), o.minS ?? 0), giveUp: false }
 }

@@ -92,7 +92,11 @@ describe('office-hook: a Stop with background work (#535)', () => {
       // b: the same, but the session wakes (a tool) before the time is up
       await run('b', { hook_event_name: 'Stop', background_tasks: [{ id: 'x', type: 'subagent', status: 'running' }] })
       await run('b', { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: {} })
-      await new Promise((r) => setTimeout(r, 3500))
+      // a's wait ends by itself after 1.2 s (a detached process: under a loaded run it may take longer to start): wait until its stop has come
+      // (at most 20 s), then 1.5 s more, so a stop of b (which woke, and must send none) would have come too
+      const until = Date.now() + 20_000
+      while (!bodies.some((b) => b.body.kind === 'stop') && Date.now() < until) await new Promise((r) => setTimeout(r, 100))
+      await new Promise((r) => setTimeout(r, 1500))
       const files = readdirSync(join(home, 'sessions')).map((f) => readFileSync(join(home, 'sessions', f), 'utf8'))
       // nothing of the command is kept on the PC
       for (const f of files) {
