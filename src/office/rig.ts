@@ -985,7 +985,9 @@ export class AgentRig {
   }
 
   get resting(): boolean {
-    return !!this.goal && RESTING_POSES.has(this.goal.pose)
+    // #527: a gap between two plays and watching a game are the break too (#490: a good share of it); counted out, the break's crowd flickered around
+    // two and the music sent the turntable's arm up and down
+    return !!this.goal && (RESTING_POSES.has(this.goal.pose) || !!this.goal.gap || !!this.goal.watching)
   }
   /** a throw / catch is under way this frame (set in update) */
   private gesturing = false
