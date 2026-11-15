@@ -52,6 +52,7 @@ export function stampPressed(prevT: number | null, t: number): boolean {
 /** sounds for one PlayStage (one per office). Call sites are one line each. */
 export class PlaySounds {
   private pp: PingpongPrev | null = null
+  private bounce = new Map<string, number>()
   private omok: { seed: number; game: number; moves: number } | null = null
   private stampT: number | null = null
   private pourUntil = 0
@@ -69,6 +70,21 @@ export class PlaySounds {
       else if (e === 'bounce') cue('pingpong.bounce', { pos, key })
       else cue('pingpong.dull', { pos, key })
     }
+  }
+
+  /**
+   * #490 B (play.md 9.2): one agent waiting at the ping-pong table bounces the ball on its paddle; each new bounce (n one more than last
+   * frame's) is the rally's own paddle click. A jump or the first frame stays quiet; n < 0 (not bouncing) forgets it.
+   */
+  paddleBounce(who: string, n: number, key: string, at: Vec | null) {
+    const prev = this.bounce.get(who)
+    if (n < 0) {
+      this.bounce.delete(who)
+      return
+    }
+    this.bounce.set(who, n)
+    if (prev === undefined || n !== prev + 1 || !at) return
+    cue('pingpong.hit', { pos: { x: at.x, y: at.y, z: at.z }, key })
   }
 
   /** omok: a new stone on the board is the "딱" (gameAt adds it at the hand's PLACE_AT) */

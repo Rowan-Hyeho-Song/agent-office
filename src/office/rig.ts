@@ -52,6 +52,8 @@ import {
 } from './handPose'
 import { CRUISE, CRUISE_TUNED, TRAFFIC, type Sample } from './traffic'
 import type { AgentStatus } from './status'
+import { gapHead, stretchLift } from './gapMotion'
+import { STRETCH_ABOVE } from './stretch.data'
 import { musicGlow, speakerCone, speakerOn } from '../audio/speaker'
 
 /** the poses of the play schedule (play.ts PlayKind): what "resting" means (sound.md 5) */
@@ -664,6 +666,11 @@ const HOLD_POSE = POSES.wrap
 const PINCH_POSE = POSES.ok
 const POINT_POSE = POSES.point
 const WAVE_POSE = POSES.spread
+/**
+ * #490 B the stretch: the hands out in a V, each this far to its side, this far along the body (− forward), m; how high: per agent, the hand's place this far
+ * above the head's rest so its underside is 6 cm over the top of the head and what it wears (stretch.data.ts), else `aboveM`
+ */
+const STRETCH_HAND = { sideM: 0.24, aboveM: 0.38, z: 0.02 } as const
 const FRAME_POSE = VARIANTS.frame
 const STAMP_POSE = VARIANTS.stamp
 const YIELD_POSE = POSES.sweep
@@ -805,6 +812,9 @@ export class AgentRig {
   /** the meeting reaction in progress (#141): when it started on the scene clock, whether a hand lifts with it; the key it answered last */
   private nod: { t0: number; hand: boolean } | null = null
   private nodKey = ''
+  /** #490 B: the goal it rests at (spot | pose | gap; empty on the way) and since when (scene clock, s) */
+  private restKey = ''
+  private restT0 = 0
   /** a received paper / plane (#267, paper-pass.md 4): the wide eyes of surprise until `until`, then a nod at `nodAt` */
   private paperFace: { until: number; nodAt: number | null } | null = null
 
@@ -1139,6 +1149,10 @@ export class AgentRig {
 
     const goal = this.goal
     const resting = !moving && this.arrived === goal.spot
+    // #490 B: since when it has stood (or sat) at this goal; a new pose or gap at the same spot (a stretch where the coffee was) starts again
+    const restKey = resting ? `${goal.spot}|${goal.pose}|${goal.gap ?? ''}` : ''
+    if (restKey !== this.restKey) this.restT0 = t
+    this.restKey = restKey
     // seated on arrival, and kept seated while sliding from one seat to the next (sofa_1 → sofa_2)
     const kindOf = (id: string | null | undefined) => (id ? g.spots[id]?.kind : undefined)
     const seatKind = resting ? kindOf(goal.spot) : moving && kindOf(this.from) === kindOf(this.path[0]) ? kindOf(this.from) : undefined
@@ -1363,6 +1377,9 @@ export class AgentRig {
     const m = reduced ? 0.3 : this.ambient
     const s = (f: number, o = 0) => Math.sin(t * f + this.phase + o) * m
     const idle = { pitch: 0, yaw: reduced ? 0 : s(0.35) * 0.25, roll: 0 }
+    // #490 B a gap (play.md 9.3): the head back with the stretch, breathing at the window, one look left and right after a stroll
+    const gh = pose === 'idle' && this.restKey ? gapHead(this.goal?.gap, t - this.restT0, reduced) : null
+    if (gh) return { pitch: gh.pitch, yaw: gh.yaw ?? idle.yaw, roll: 0 }
     // looking at something on the desk (the duck): turn toward it and look down at it
     if (this.watch && pose !== 'move') {
       const dx = this.watch.x - this.x
@@ -1434,6 +1451,8 @@ export class AgentRig {
   private place: WritePlace = null
   /** #505: where this desk's other hand rests beside the card, instead of its own (writePress.data.ts, found per desk): the search sets it */
   pressAt: PressAt | null = null
+  /** #490 B: the stretch's hand height over the head's rest, instead of this agent's own (stretch.data.ts): the measuring sets it */
+  stretchAt: number | null = null
   private get press(): PressAt | undefined {
     return this.pressAt ?? WRITE_PRESS[Number(this.id.split('_')[1])]
   }
@@ -1637,6 +1656,13 @@ export class AgentRig {
     const wg = this.goal
     if (side === 'l' && wg?.carry && pose !== 'write' && pose !== 'tidy') return at(-0.13, 1.0 + sit, -0.3, down.clone().invert(), STAMP_POSE)
     const wb = wg?.beat
+    // #490 B 기지개 (play.md 9.3): both hands up over the head and down again, palms up; reduced motion: none (only the label)
+    const lift = pose === 'idle' && wg?.gap === 'stretch' && this.restKey ? stretchLift(t - this.restT0, reduced) : 0
+    if (lift > 0) {
+      const above = this.stretchAt ?? STRETCH_ABOVE[Number(this.id.split('_')[1])] ?? STRETCH_HAND.aboveM
+      const top = v(sx * STRETCH_HAND.sideM, this.parts.headRestY + sit + above, STRETCH_HAND.z)
+      return at(rest.x + (top.x - rest.x) * lift, rest.y + (top.y - rest.y) * lift, rest.z + (top.z - rest.z) * lift, NONE.clone().slerp(down.clone().invert(), lift), WAVE_POSE)
+    }
     switch (pose) {
       case 'write':
         // the pieces of writing (wrap.ts, wrapPose.ts): the right hand writes, the left presses the card flat, lifts it to read, pushes it to the stack
