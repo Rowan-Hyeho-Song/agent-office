@@ -13,6 +13,7 @@ import { officeNow, prefersReducedMotion, type OfficeWorld } from '../world'
 import { moodOf, reactionOf, type Reaction } from './reaction'
 import { pixelSvg } from './pixelIcons'
 import { listenTreats, onTreat, type Treat } from './treats'
+import { handsOf } from '../paperRun'
 
 export const FLY_MS = 600
 const FADE_MS = 400
@@ -25,6 +26,8 @@ interface Flight {
   arrived: number | null
   reaction: Reaction | null
   hearts: HTMLElement[]
+  /** #455 taken in a hand as the 3D treat (not the icon) */
+  inHand?: boolean
   /** where the snack rests (world), fixed at the arrival for desk / floor */
   restAt: Vector3 | null
 }
@@ -127,8 +130,9 @@ export function TreatRig({ world }: { world: OfficeWorld }) {
     if (r.rest === 'floor') f.restAt = new Vector3(rig.x, 0.05, rig.z).addScaledVector(fwd, -0.6)
     const at = f.restAt ?? hand
     cue('treat.arrive', { pos: { x: at.x, y: at.y, z: at.z }, key, agent: id })
-    // #455: resting or playing, the robot takes it in a free hand: the 3D treat (PlayStage), not the icon
-    if (r.rest === 'hand') {
+    // #455: resting or playing, the robot takes it in a free hand: the 3D treat (PlayStage), not the icon; with both hands busy, the icon at the hand as before
+    f.inHand = r.rest === 'hand' && !handsOf(rig).both
+    if (f.inHand) {
       world.treats[id] = { kind: f.treat.kind, at: officeNow(world) }
       f.el.remove()
     }
@@ -160,7 +164,7 @@ export function TreatRig({ world }: { world: OfficeWorld }) {
       return false
     }
     // #455 in the hand: the stage holds the 3D treat now
-    if (r.rest === 'hand') return false
+    if (f.inHand) return false
     const stay = REST_MS[r.rest ?? 'hand']
     const p = toScreen(f.restAt ?? hand)
     const o = since < stay ? 1 : 1 - (since - stay) / FADE_MS

@@ -2,10 +2,10 @@
 // #455 (office-ui.md 12.2): a visitor's treat taken in a free hand by a robot resting or playing: held before the chest for 8 s (a coffee sipped once),
 // then faded and put away. Two levels: the times (treatHold.ts), and the baked model: the treat in the hand's grip while held, out of sight after.
 import { describe, expect, it } from 'vitest'
-import { Vector3 } from 'three'
+import { Box3, Vector3, type Mesh } from 'three'
 import { stubCanvas } from './glbLoad'
 import { Guard, IDS, Walk, world } from './errandWorld.fixture'
-import { SIP_TOP_S, TREAT_HOLD, TREAT_PROP, takeSounds, treatPhase } from './treatHold'
+import { SIP_TOP_S, TREAT_HOLD, TREAT_LOOK, TREAT_PROP, takeSounds, treatPhase } from './treatHold'
 
 stubCanvas()
 
@@ -62,5 +62,35 @@ describe('a treat in the hand on the baked model', () => {
     for (let k = 0; k < 20; k++) walk.step(dt, guard)
     expect(node.visible, 'put away after').toBe(false)
     expect(w.stage.treatSide('agent_2')).toBeNull()
+  }, 120_000)
+
+  it("the coffee (designer): drawn 1.35 times its size, held by its lower half: the cup's top 4 cm or more over the hand", async () => {
+    const w = await world()
+    const guard = new Guard(w)
+    const walk = new Walk(w)
+    for (const id of IDS) walk.status[id] = { state: 'working', activity: 'test', since: 0 }
+    const dt = 0.03
+    for (let k = 0; k < 20; k++) walk.step(dt, guard)
+    walk.status.agent_2 = { state: 'idle', since: 0 }
+    for (let k = 0; k < 60; k++) walk.step(dt, guard)
+    const node = w.scene.getObjectByName(TREAT_PROP.coffee)!
+    const t0 = walk.t0 + walk.t * 1000
+    walk.treats.agent_2 = { kind: 'coffee', at: t0 }
+    let over = Infinity
+    for (let k = 0; k < 2 / dt; k++) {
+      walk.step(dt, guard)
+      if (walk.t0 + walk.t * 1000 - t0 < 700) continue
+      w.scene.updateMatrixWorld(true)
+      const cup = new Box3().setFromObject(node)
+      let hand = -Infinity
+      w.rigs.agent_2.parts.hands[w.stage.treatSide('agent_2') ?? 'r'].node.traverseVisible((m) => {
+        const g = (m as Mesh).geometry?.getAttribute('position')
+        if (!(m as Mesh).isMesh || !g) return
+        for (let i = 0; i < g.count; i++) hand = Math.max(hand, new Vector3().fromBufferAttribute(g, i).applyMatrix4(m.matrixWorld).y)
+      })
+      over = Math.min(over, cup.max.y - hand)
+    }
+    expect(node.scale.x).toBeCloseTo(TREAT_LOOK.coffee.scale, 6)
+    expect(over, "the lid and the sleeve band over the fingers").toBeGreaterThanOrEqual(0.04)
   }, 120_000)
 })

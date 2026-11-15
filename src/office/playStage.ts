@@ -42,7 +42,7 @@ import { WATER_S } from './waterRun'
 import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFor, shakeAt, type HabitKind } from './waterFx'
 import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
-import { SIP_TOP_S, TREAT_HOLD, TREAT_PROP, takeSounds, treatPhase, type SnackKind } from './treatHold'
+import { SIP_TOP_S, TREAT_HOLD, TREAT_LOOK, TREAT_PROP, takeSounds, treatPhase, type SnackKind } from './treatHold'
 import { handsOf } from './paperRun'
 import { cue as treatCue } from '../audio/cues'
 import { type Place, SEQ, ease, habitOf, placeSequence } from '../play/choreo'
@@ -1462,7 +1462,7 @@ export class PlayStage {
   }
 
   /** #455 each treat held: its hand, its prop, its pose this frame, its own materials (to fade it), the cues fired */
-  private treatsHeld = new Map<string, { at: number; side: 'l' | 'r'; prop: string; kind: SnackKind; mats: Material[] | null; opacity: number; cued: Set<string> }>()
+  private treatsHeld = new Map<string, { at: number; side: 'l' | 'r'; prop: string; kind: SnackKind; mats: Material[] | null; opacity: number; cued: Set<string>; pg?: Matrix4 }>()
 
   /**
    * #455 (office-ui.md 12.2): the treat taken in the free hand (paper-pass.md 3: the right one, the left when the right is busy; both busy: not held, the icon
@@ -1507,7 +1507,8 @@ export class PlayStage {
       const q = new Quaternion().setFromAxisAngle(right, ((S.tiltDeg * Math.PI) / 180) * ph.sip).multiply(rq)
       const pose = new Matrix4().compose(at, q, ONE)
       const seat = Number(rig.id.split('_')[1])
-      const target = handFor(pose, tgt.pg, handGripMatrix(hand)).multiply(offsetOf(tgt.key, seat))
+      h.pg = this.treatGrip(h.kind, tgt.pg, ph.sip)
+      const target = handFor(pose, h.pg, handGripMatrix(hand)).multiply(offsetOf(tgt.key, seat))
       const fit = this.holdFit(rig, h.side, tgt)
       rig.drive[h.side] = { target, w: ph.w, curl: null, angles: fit.hold, wc: ph.w, spread: null }
       h.opacity = ph.opacity
@@ -1524,6 +1525,20 @@ export class PlayStage {
     }
   }
 
+  /** #455 the treat's grip as it is drawn (TREAT_LOOK): its place scaled with the treat, lowered down it, turned about its up in a sip */
+  private treatGrip(kind: SnackKind, pg: Matrix4, sip: number): Matrix4 {
+    const look = TREAT_LOOK[kind]
+    const p = new Vector3()
+    const q = new Quaternion()
+    const sc = new Vector3()
+    pg.decompose(p, q, sc)
+    p.multiplyScalar(look.scale)
+    p.y -= look.gripDown
+    const m = new Matrix4().compose(p, q, ONE)
+    if (look.sipYawDeg && sip > 0) m.premultiply(new Matrix4().makeRotationY(((look.sipYawDeg * Math.PI) / 180) * sip))
+    return m
+  }
+
   /** #455 after the drives: each held treat where its hand's grip has it, faded in / out */
   private treatDraw(inp: StageIn) {
     for (const [id, h] of this.treatsHeld) {
@@ -1533,8 +1548,8 @@ export class PlayStage {
       if (!rig || !node || !tgt) continue
       const hand = rig.parts.hands[h.side]
       hand.node.updateMatrixWorld(true)
-      objectFor(hand.node.matrixWorld, handGripMatrix(hand), tgt.pg).decompose(node.position, node.quaternion, node.scale)
-      node.scale.set(1, 1, 1)
+      objectFor(hand.node.matrixWorld, handGripMatrix(hand), h.pg ?? tgt.pg).decompose(node.position, node.quaternion, node.scale)
+      node.scale.setScalar(TREAT_LOOK[h.kind].scale)
       node.visible = rig.visible && h.opacity > 0.01
       if (!h.mats) {
         h.mats = []
@@ -1560,6 +1575,7 @@ export class PlayStage {
     if (node) {
       this.props.borrowed.delete(node)
       node.visible = false
+      node.scale.set(1, 1, 1)
     }
     for (const mat of h.mats ?? []) {
       mat.transparent = false

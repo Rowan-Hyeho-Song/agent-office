@@ -33,6 +33,17 @@ const smooth = (x: number) => {
   return c * c * (3 - 2 * c)
 }
 
+/**
+ * #455 (designer): how each treat is drawn in the hand and where it is held. The coffee is drawn 1.35 times its baked size (r 4.7 / 3.8 cm × 12.2 cm) and
+ * held by its lower half (the grip 3 cm under the middle), so the sleeve band and the lid show above the fingers; in the sip the grip turns 40° about the
+ * cup's own up, the hand beside the cup and not before it.
+ */
+export const TREAT_LOOK: Record<SnackKind, { scale: number; gripDown: number; sipYawDeg: number }> = {
+  coffee: { scale: 1.35, gripDown: 0.03, sipYawDeg: 40 },
+  cookie: { scale: 1, gripDown: 0, sipYawDeg: 0 },
+  apple: { scale: 1, gripDown: 0, sipYawDeg: 0 },
+}
+
 /** the hold at `u` s since the treat landed: the hand's weight, how much of the treat shows, how far a sip has lifted it (0 … 1); null once it is over */
 export function treatPhase(kind: SnackKind, u: number, reduced: boolean): { w: number; opacity: number; sip: number } | null {
   const end = TREAT_HOLD.holdS + Math.max(TREAT_HOLD.fadeS, TREAT_HOLD.letGoS)
