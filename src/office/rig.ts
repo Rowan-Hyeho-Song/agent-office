@@ -26,6 +26,7 @@ import { FaceScreen } from './faceScreen'
 import { baseExpression, CallTracker, FaceMind, newInput, type FaceInput } from './faceMind'
 import { WRITE_CARD, wrapBack, wrapHand, wrapHead, type HandSpec } from './wrapPose'
 import { WRAP } from './wrap'
+import { DOOR_ROUND, LEVER } from './doorRound'
 import type { Expression } from './faceModel'
 import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
 import { GLOW } from './nodes'
@@ -87,6 +88,8 @@ const LIFT = 0.06 // extra hover height while moving
  */
 const LIE = { headY: 0.62, faceUpRad: (80 * Math.PI) / 180, southM: 0.255, handsSouthM: 0.38, handsWestM: 0.03, handsApartM: 0.1, handY: 0.48 }
 const SEAT: Record<string, number> = { sofa: -0.3, stool: -0.2 }
+/** #451 the lever is down this long after the door round reaches the door, s */
+const DOOR_PRESS_S = LEVER.grab + LEVER.pressS
 /** where the beam of light ends when the agent hovers over furniture (else the floor) */
 const SURFACE: Record<string, number> = { work: 0.76, stool: 0.525, sofa: 0.44 }
 /** through the door: how far past the door spot an agent glides before it's out of the room */
@@ -1396,6 +1399,8 @@ export class AgentRig {
     const s = (f: number, o = 0) => Math.sin(t * f + this.phase + o) * m
     const idle = { pitch: 0, yaw: reduced ? 0 : s(0.35) * 0.25, roll: 0 }
     // #490 B a gap (play.md 9.3): the head back with the stretch, breathing at the window, one look left and right after a stroll
+    // #451 at the door with the lever: the head straight at the door's screen (0°), no idle glance
+    if (pose === 'idle' && (this.goal?.door?.u ?? -1) >= 0) return { pitch: 0, yaw: 0, roll: 0 }
     const gh = pose === 'idle' && this.restKey ? gapHead(this.goal?.gap, t - this.restT0, reduced) : null
     if (gh) return { pitch: gh.pitch, yaw: gh.yaw ?? idle.yaw, roll: 0 }
     // looking at something on the desk (the duck): turn toward it and look down at it
@@ -1465,6 +1470,8 @@ export class AgentRig {
 
   /** the wrap-up's stack of cards (#186): a thin card box on the left palm, one card thicker per card; hidden without a stack */
   private cards: Record<'l' | 'r', Mesh | null> = { l: null, r: null }
+  /** #451 the door round whose joy was shown (once per round) */
+  private doorFace = ''
   /** #490 B: the stretch's hand height over the head's rest, instead of this agent's own (stretch.data.ts): the measuring sets it */
   stretchAt: number | null = null
   /** #532: the head's centre at rest in the body's frame (its node is at the middle of the head): the held cards are placed from it (wrapup.md 9.1) */
@@ -2225,6 +2232,13 @@ export class AgentRig {
     // the wrap-up's faces (wrapup.md 5, #229): writing is focused, tapping the pen and thinking at the board are thinking; striking out is a 0.6 s question, the last look a 1 s pride
     const wb = status?.state === 'wrapping' && (pose === 'write' || pose === 'cardpost') ? this.goal?.beat : undefined
     const wrapFace = !wb ? undefined : wb.kind === 'tapPen' || wb.kind === 'think' || wb.kind === 'back' ? 'thinking' : pose === 'write' ? 'focused' : undefined
+    // #451 (lounge-props.md 7): the morning opening greets the day, 2 s of joy from the lever's press
+    const dg = pose === 'idle' ? this.goal?.door : undefined
+    const pressed = dg?.kind === 'morning' && dg.u >= DOOR_PRESS_S ? `${dg.kind}` : ''
+    if (pressed !== this.doorFace) {
+      if (pressed && !reduced) mind.fire('joy', t, DOOR_ROUND.smileS)
+      this.doorFace = pressed
+    }
     if (wb?.kind !== this.wrapKind) {
       this.wrapKind = wb?.kind
       if (!reduced && wb?.kind === 'strike') mind.fire('question', t, 0.6)
