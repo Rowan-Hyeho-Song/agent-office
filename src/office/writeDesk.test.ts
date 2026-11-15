@@ -1,19 +1,24 @@
-// #481 (docs/design/wrapup.md 9.5): the card and the pen on the writing desk, on the baked model. While writing, the pen's tip is on the card's top
-// (a line, a strike: within 1 mm; lifted at most the beat's own lift), inside the card; the other hand rests its palm on the desk beside it (#505); the
-// pen is at 45°. (The two hands 1 cm apart: writePress.test.ts, per desk.)
-import { Vector3, type Mesh, type Object3D } from 'three'
+/// <reference types="node" />
+// #532 (docs/design/wrapup.md 9.5): the bundle held in the hand while writing, on the baked model. On every desk (0–4, 휴 too), in every piece and line,
+// the cards, both hands and the pen stay over the desk and its things: every point at least 3 cm above what is under it (a ray straight down onto the
+// desk and the things baked on it: nothing goes into them). While writing the pen's tip is on the front card (a line, a strike: within 1 mm; lifted at
+// most the beat's own lift), inside it; the pen at 50° to it; the two hands 1 cm apart; the palm 3 mm behind the last card; the bundle is the cards of
+// this sitting. Numbers are appended to FIT_LOG when set (the PR's table).
+import { appendFileSync } from 'node:fs'
+import { Matrix4, Raycaster, Vector3, type Mesh, type Object3D } from 'three'
 import { describe, expect, it } from 'vitest'
 import type { Goal } from './director'
 import { loadOffice, stubCanvas } from './glbLoad'
 import { GRAPH } from './navSpots.fixture'
 import { AgentRig, buildRig } from './rig'
-import { PEN, STACK, WRITE_CARD, writeCard, writePlace } from './wrapPose'
-import { WriteDesk, deskTop } from './writeDesk'
+import { HELD, PEN, WRITE_CARD } from './wrapPose'
+import { WriteDesk } from './writeDesk'
 
 const ctx: Record<string, unknown> = new Proxy({ fillStyle: '' } as Record<string, unknown>, { get: (t, k: string) => (k in t ? t[k] : () => ({ addColorStop() {} })), set: (t, k: string, v) => ((t[k] = v), true) })
 ;(globalThis as { document?: unknown }).document = { createElement: () => ({ width: 0, height: 0, getContext: () => ctx }) }
 stubCanvas()
 const DT = 1 / 60
+const LOG = process.env.FIT_LOG
 
 async function writer(seat: number) {
   const { scene, nodes } = await loadOffice()
@@ -38,53 +43,14 @@ async function writer(seat: number) {
   }
   const idle = { spot: spot.id, pose: 'idle', label: '' } as Goal
   for (let k = 0; k < 120; k++) step(idle)
-  return { rig, desk, spot, step, scene }
+  // the desk and everything baked on it (what the cards, the hands and the pen must stay over)
+  const things = scene.children.filter((o) => o.name === `desk_${seat}` || o.name.startsWith(`desk_${seat}_`))
+  return { rig, desk, spot, step, scene, things }
 }
 
-const write = (spot: string, kind: string, u: number, v = 0) => ({ spot, pose: 'write', label: '', beat: { kind, u, k: 0, v } }) as unknown as Goal
+const beat = (spot: string, kind: string, u: number, k: number, v = 0, n = 4) => ({ spot, pose: 'write', label: '', wrapStep: 'write', beat: { kind, u, k, v, n } }) as unknown as Goal
 
-describe('the card and the pen while writing (#481)', () => {
-  for (const seat of [0, 2, 4]) {
-    it(`desk ${seat}: the tip on the card (a line, a strike: within 1 mm), inside it; the pen at 45°; the other hand rests its palm on the desk beside it`, async () => {
-      const w = await writer(seat)
-      const place = writePlace(GRAPH.spots, `work_${seat}`)
-      // settle into the pose (the body turns toward the card, #461; the hand takes the pen)
-      for (let k = 0; k < 60; k++) w.step(write(w.spot.id, 'line', 0))
-      // reading the card held up last: the resting hand lifts it then, and comes back down after (wrapup.md 9.4, the card follows it in the second step)
-      const lifts: Record<string, number> = { line: 0.001, strike: 0.001, newline: 0.0105, tapPen: 0.0165, readUp: 0.001 }
-      const restSide = place && place.side < 0 ? 'r' : 'l'
-      for (const kind of Object.keys(lifts))
-        for (let i = 0; i <= 30; i++) {
-          w.step(write(w.spot.id, kind, i / 30, 2))
-          const s = w.desk.state(w.rig.id)!
-          expect(s.card, 'the card on the desk').not.toBeNull()
-          expect(s.tip, 'the pen in the hand').not.toBeNull()
-          const above = s.tip!.y - s.top!
-          expect(above, `${kind} tip above the card`).toBeLessThanOrEqual(lifts[kind])
-          expect(above, `${kind} tip not through the card`).toBeGreaterThanOrEqual(-0.0005)
-          // inside the card: the tip in the card's own frame
-          const c = writeCard(place)
-          const at = w.rig.seatToWorld(c.x, 0, c.z)
-          const local = s.tip!.clone().sub(at).applyQuaternion(w.rig.seatQuat().invert())
-          expect(Math.abs(local.x), `${kind} across`).toBeLessThan(WRITE_CARD.w / 2)
-          expect(Math.abs(local.z), `${kind} along`).toBeLessThan(WRITE_CARD.d / 2)
-          // the pen at 45° to the desk
-          const axis = s.grip!.clone().sub(s.tip!).normalize()
-          expect(Math.asin(axis.y) * (180 / Math.PI)).toBeCloseTo(45, 0)
-          // #505: the other hand's palm rests on the desk beside the card: its underside 0-2 mm above the desk, never through it (the place: writePress.test.ts)
-          if (kind !== 'readUp') {
-            const hand = w.rig.parts.hands[restSide].node
-            const top = deskTop(w.scene, seat, hand.getWorldPosition(new Vector3()))!
-            const low = Math.min(...points(hand).map((p) => p.y)) - top
-            expect(low, `${kind} resting hand through the desk`).toBeGreaterThanOrEqual(-0.0005)
-            expect(low, `${kind} resting hand on the desk`).toBeLessThanOrEqual(0.003)
-          }
-        }
-    })
-  }
-})
-
-/** every vertex of a hand's visible meshes, in world */
+/** every vertex of the visible meshes under `o`, in world */
 function points(o: Object3D): Vector3[] {
   const out: Vector3[] = []
   o.updateMatrixWorld(true)
@@ -96,150 +62,170 @@ function points(o: Object3D): Vector3[] {
   return out
 }
 
-// #481 2단계 (wrapup.md 9.4, #514): the done cards' stack beside the card, the resting hand on it, the next card, the card read up, the cards gathered
-/** a world point in the seat's frame, from the card's centre */
-const toSeat = (rig: AgentRig, p: Vector3, c: { x: number; z: number }) => p.clone().sub(rig.seatToWorld(c.x, 0, c.z)).applyQuaternion(rig.seatQuat().invert())
-const beat = (spot: string, kind: string, u: number, k: number, v = 0) => ({ spot, pose: 'write', label: '', wrapStep: 'write', beat: { kind, u, k, v } }) as unknown as Goal
+/** the palm block's vertices only (the hand's own meshes, not its fingers' chains) */
+function palmPoints(hand: Object3D): Vector3[] {
+  const own = new RegExp(`^${hand.name}_\\d+$`)
+  return hand.children.filter((c) => (c as Mesh).isMesh && own.test(c.name)).flatMap((m) => points(m))
+}
 
-describe('the done cards under the card (#481, wrapup.md 9.4 P)', () => {
+/** how far `p` is above the desk or the thing under it (a ray straight down from above everything), or null over nothing of the desk */
+const ray = new Raycaster()
+function above(things: Object3D[], p: Vector3): number | null {
+  ray.set(new Vector3(p.x, 2, p.z), new Vector3(0, -1, 0))
+  ray.far = 2
+  const hit = ray.intersectObjects(things, true)[0]
+  return hit ? p.y - hit.point.y : null
+}
+
+/** the closest two point sets come */
+function gap(a: Vector3[], b: Vector3[]): number {
+  let best = Infinity
+  for (const p of a) for (const q of b) best = Math.min(best, p.distanceToSquared(q))
+  return Math.sqrt(best)
+}
+
+/** every piece of the writing, each swept through (k: the card on the front) */
+const PIECES: { kind: string; k: number; v?: number }[] = [
+  { kind: 'line', k: 0, v: 0 },
+  { kind: 'line', k: 0, v: 4 },
+  { kind: 'newline', k: 0, v: 2 },
+  { kind: 'tapPen', k: 0, v: 3 },
+  { kind: 'strike', k: 0, v: 3 },
+  { kind: 'readUp', k: 1, v: 2 },
+  { kind: 'next', k: 1, v: 4 },
+  { kind: 'line', k: 2, v: 1 },
+  { kind: 'collect', k: 3, v: 0 },
+]
+
+describe('the bundle held in the hand while writing (#532, wrapup.md 9.5)', () => {
   for (const seat of [0, 1, 2, 3, 4]) {
-    it(`desk ${seat}: with 0, 2 and 4 cards written the card is 1.5 mm higher per card and the pen writes on it (1 mm); two or more edges show under it; the other hand stays on the desk`, async () => {
+    it(`desk ${seat}: the cards, both hands and the pen at least 3 cm over the desk and its things in every piece; the bundle is the sitting's cards`, async () => {
       const w = await writer(seat)
-      const place = writePlace(GRAPH.spots, `work_${seat}`)
-      const c = writeCard(place)
-      const restSide = place && place.side < 0 ? 'r' : 'l'
-      const hand = w.rig.parts.hands[restSide].node
-      let first = 0
-      for (const n of [0, 2, 4]) {
-        for (let k = 0; k < 60; k++) w.step(beat(w.spot.id, 'line', 0.5, n, 1))
-        let s = w.desk.state(w.rig.id)!
-        if (n === 0) first = s.top!
-        expect(s.stack, 'cards under it').toBe(n)
-        expect(s.top! - first, 'a step per card').toBeCloseTo(n * STACK.step, 9)
-        for (let i = 0; i <= 20; i++) {
-          w.step(beat(w.spot.id, 'line', i / 20, n, 1))
-          s = w.desk.state(w.rig.id)!
-          expect(s.tip!.y - s.top!, 'the tip on the top card').toBeLessThanOrEqual(0.001)
-          expect(s.tip!.y - s.top!, 'not through it').toBeGreaterThanOrEqual(-0.0005)
-        }
-        // the cards under the top one: turned ±5° and moved up to 1 cm toward the pressing side, so their corners show beyond its edges
-        if (n > 0) {
-          const top = s.cardAt!
-          const showing = Array.from({ length: n }, (_, i) => w.scene.getObjectByName(`${w.rig.id}_write_card_stack_${i}`)!).filter((g) => {
-            g.updateMatrixWorld(true)
-            return [-1, 1].some((a) => [-1, 1].some((b) => {
-              const p = new Vector3((a * WRITE_CARD.w) / 2, 0, (b * WRITE_CARD.d) / 2).applyMatrix4(g.matrixWorld).sub(top.p).applyQuaternion(top.q.clone().invert())
-              return Math.abs(p.x) > WRITE_CARD.w / 2 + 0.001 || Math.abs(p.z) > WRITE_CARD.d / 2 + 0.001
-            }))
-          })
-          if (n >= 2) expect(showing.length, `${n} cards: edges showing`).toBeGreaterThanOrEqual(2)
-          for (let i = 0; i < n; i++) {
-            const g = w.scene.getObjectByName(`${w.rig.id}_write_card_stack_${i}`)!
-            const p = toSeat(w.rig, g.getWorldPosition(new Vector3()), c)
-            expect(-c.s * p.x, 'moved toward the pressing side').toBeGreaterThanOrEqual(-1e-9)
-            expect(Math.hypot(p.x, p.z), 'at most 1 cm').toBeLessThanOrEqual(STACK.offM + 1e-9)
+      for (let k = 0; k < 40; k++) w.step(beat(w.spot.id, 'line', 0, 0))
+      let low = Infinity
+      let where = ''
+      for (const p of PIECES)
+        for (let i = 0; i <= 24; i++) {
+          w.step(beat(w.spot.id, p.kind, i / 24, p.k, p.v))
+          const s = w.desk.state(w.rig.id)!
+          if (p.kind !== 'collect') expect(s.cards, `${p.kind}: the bundle`).toBe(4)
+          const pts = [...s.cardGroups.flatMap(points), ...points(w.rig.parts.hands.l.node), ...points(w.rig.parts.hands.r.node), ...(s.pen ? points(s.pen) : [])]
+          // the lowest point in each 5 mm column (a ray per column: what is under it is the same within it)
+          const cols = new Map<string, Vector3>()
+          for (const q of pts) {
+            const key = `${Math.round(q.x / 0.005)}:${Math.round(q.z / 0.005)}`
+            const c = cols.get(key)
+            if (!c || q.y < c.y) cols.set(key, q)
+          }
+          for (const q of cols.values()) {
+            const h = above(w.things, q)
+            if (h !== null && h < low) {
+              low = h
+              where = `${p.kind} u ${(i / 24).toFixed(2)}`
+            }
           }
         }
-        // the resting hand: its palm on the desk as before (#505)
-        const low = Math.min(...points(hand).map((p) => p.y)) - deskTop(w.scene, seat, hand.getWorldPosition(new Vector3()))!
-        expect(low).toBeGreaterThanOrEqual(-0.0005)
-        expect(low).toBeLessThanOrEqual(0.003)
-      }
-    })
+      if (LOG) appendFileSync(LOG, `desk ${seat}: lowest over the desk ${(low * 100).toFixed(1)} cm (${where})\n`)
+      expect(low, `lowest point over the desk (${where})`).toBeGreaterThanOrEqual(0.03)
+    }, 60_000)
   }
+})
 
-  it('next card: the done card is turned to its place where it lies by the pressing hand reaching its edge (0.3 s), then a new square card appears on it, 1.5 mm higher', async () => {
-    const w = await writer(0)
-    const place = writePlace(GRAPH.spots, 'work_0')
-    const c = writeCard(place)
-    const restSide = place && place.side < 0 ? 'r' : 'l'
-    const hand = w.rig.parts.hands[restSide].node
-    for (let k = 0; k < 60; k++) w.step(beat(w.spot.id, 'line', 1, 1, 3))
-    const s0 = w.desk.state(w.rig.id)!
-    const hand0 = toSeat(w.rig, hand.getWorldPosition(new Vector3()), c)
-    let reached = 0
-    const N = 36
-    for (let i = 1; i <= N; i++) {
-      const u = i / N
-      w.step(beat(w.spot.id, 'next', u, 1, 4))
+describe('the pen on the held card (#532, wrapup.md 9.2 · 9.3)', () => {
+  for (const seat of [0, 2, 4]) {
+    it(`desk ${seat}: the tip on the front card (a line, a strike: within 1 mm; a new line 1 cm, a tap 1.6 cm), inside it; the pen at 50° to it; the hands 1 cm apart; the palm 3 mm behind the last card`, async () => {
+      const w = await writer(seat)
+      for (let k = 0; k < 40; k++) w.step(beat(w.spot.id, 'line', 0, 0, 2))
+      const lifts: Record<string, number> = { line: 0.001, strike: 0.001, newline: 0.0105, tapPen: 0.0165 }
+      let handsGap = Infinity
+      let palm = { lo: Infinity, hi: -Infinity }
+      let penFingers = Infinity
+      let holdFingers = -Infinity
+      for (const kind of [...Object.keys(lifts), 'next'])
+        for (let i = 0; i <= 30; i++) {
+          w.step(beat(w.spot.id, kind, i / 30, 1, 2))
+          const s = w.desk.state(w.rig.id)!
+          expect(s.tip, 'the pen in the hand').not.toBeNull()
+          const inv = new Matrix4().copy(s.front!).invert()
+          const l = s.tip!.clone().applyMatrix4(inv)
+          if (kind !== 'next') {
+            expect(l.y, `${kind}: tip above the card`).toBeLessThanOrEqual(lifts[kind])
+            expect(l.y, `${kind}: tip not through the card`).toBeGreaterThanOrEqual(-0.0005)
+            expect(Math.abs(l.x), `${kind}: across`).toBeLessThan(WRITE_CARD.w / 2)
+            expect(Math.abs(l.z), `${kind}: along`).toBeLessThan(WRITE_CARD.d / 2)
+            // 50° to the card's face
+            const axis = s.grip!.clone().sub(s.tip!).applyMatrix4(new Matrix4().extractRotation(inv)).normalize()
+            expect(Math.asin(axis.y) * (180 / Math.PI), `${kind}: the pen's angle`).toBeCloseTo(PEN.elevDeg, 0)
+            // the palm behind the bundle: its nearest point (inside the card's outline) 3 mm behind the last card's back
+            const back = -4 * HELD.step
+            const inCard = (c: Vector3) => Math.abs(c.x) <= WRITE_CARD.w / 2 && Math.abs(c.z) <= WRITE_CARD.d / 2
+            for (const q of palmPoints(w.rig.parts.hands.l.node)) {
+              const c = q.applyMatrix4(inv)
+              if (inCard(c)) palm = { lo: Math.min(palm.lo, back - c.y), hi: Math.max(palm.hi, c.y) }
+            }
+            // #532 (designer): no finger through the cards: the pen hand's 2 mm or more in front of the face, the holding hand's fingers behind the back
+            // (its thumb comes round the foot, wrapup.md 9.1)
+            for (const q of points(w.rig.parts.hands.r.node)) {
+              const c = q.applyMatrix4(inv)
+              if (inCard(c)) penFingers = Math.min(penFingers, c.y)
+            }
+            w.rig.parts.hands.l.node.traverseVisible((m) => {
+              if (!(m as Mesh).isMesh || /_t_\d/.test(m.name) || new RegExp(`^${w.rig.parts.hands.l.node.name}_\\d+$`).test(m.name)) return
+              for (const q of points(m)) {
+                const c = q.applyMatrix4(inv)
+                if (inCard(c)) holdFingers = Math.max(holdFingers, c.y - back)
+              }
+            })
+          }
+          handsGap = Math.min(handsGap, gap(points(w.rig.parts.hands.l.node), points(w.rig.parts.hands.r.node)))
+        }
+      if (LOG) appendFileSync(LOG, `desk ${seat}: hands ${(handsGap * 100).toFixed(1)} cm apart; palm nearest the bundle's back ${(palm.lo * 1000).toFixed(1)} mm behind it; pen hand ${(penFingers * 1000).toFixed(1)} mm off the face; holding fingers ${(-holdFingers * 1000).toFixed(1)} mm behind the back\n`)
+      expect(handsGap, 'the two hands 1 cm apart').toBeGreaterThanOrEqual(0.01)
+      expect(penFingers, "the pen hand's fingers off the card").toBeGreaterThanOrEqual(0.002)
+      expect(holdFingers, "the holding hand's fingers behind the bundle").toBeLessThanOrEqual(0)
+      expect(palm.lo, "the palm's nearest point behind the bundle").toBeGreaterThanOrEqual(HELD.palmGap - 0.0015)
+      expect(palm.lo, "the palm's nearest point behind the bundle").toBeLessThanOrEqual(HELD.palmGap + 0.0015)
+    }, 60_000)
+  }
+})
+
+describe('turning a card over, reading, finishing (#532, wrapup.md 9.4)', () => {
+  it("'next' takes the written card over the top to the back: it is never drawn through the bundle, and the bundle is the same cards after", async () => {
+    const w = await writer(1)
+    for (let k = 0; k < 40; k++) w.step(beat(w.spot.id, 'line', 1, 1, 4))
+    for (let i = 0; i <= 36; i++) {
+      w.step(beat(w.spot.id, 'next', i / 36, 1, 4))
       const s = w.desk.state(w.rig.id)!
-      const at = toSeat(w.rig, s.cardAt!.p, c)
-      const turn = Math.abs(2 * Math.asin(Math.min(1, Math.abs(s.cardAt!.q.clone().multiply(w.rig.seatQuat().invert()).y))))
-      if (u < 0.5) {
-        // the hand toward the card (in), and the card turning where it lies
-        reached = Math.max(reached, c.s * (toSeat(w.rig, hand.getWorldPosition(new Vector3()), c).x - hand0.x))
-        expect(s.stack).toBe(1)
-        expect(Math.hypot(at.x, at.z), 'where it lies').toBeLessThanOrEqual(STACK.offM + 1e-9)
-        expect(turn * (180 / Math.PI)).toBeLessThanOrEqual(STACK.turnDeg + 1e-6)
-        expect(s.top! - s0.top!, 'the same height').toBeCloseTo(0, 9)
-      } else {
-        expect(s.stack, 'the done card under it').toBe(2)
-        expect(Math.hypot(at.x, at.z), 'the new card square on the place').toBeLessThan(1e-6)
-        expect(turn).toBeLessThan(1e-6)
-        expect(s.top! - s0.top!, 'a step higher').toBeCloseTo(STACK.step, 9)
+      expect(s.cards, 'the bundle stays four cards').toBe(4)
+      // the card going over: none of its corners behind the front card's face while it is still above the bundle's top edge... and when it comes down behind, behind the last card
+      const inv = new Matrix4().copy(s.front!).invert()
+      for (const g of s.cardGroups) {
+        for (const c of points(g).map((p) => p.applyMatrix4(inv))) {
+          const inOutline = Math.abs(c.x) < WRITE_CARD.w / 2 - 0.001 && c.z > -WRITE_CARD.d / 2 + 0.001 && c.z < WRITE_CARD.d / 2 - 0.001
+          // inside the bundle's outline a card is either in the bundle (in its depth) or in front of the face, never cut through it at an angle
+          if (inOutline) expect(c.y > 0.0005 || c.y < -4 * HELD.step - 0.0015 || c.y >= -5 * HELD.step - 0.0001, 'no card through the bundle').toBe(true)
+        }
       }
     }
-    expect(reached, 'the fingertips went to the card').toBeGreaterThan(0.01)
-    expect(toSeat(w.rig, hand.getWorldPosition(new Vector3()), c).distanceTo(hand0), 'back at rest').toBeLessThan(0.003)
   })
 
-  it('read up: the card goes up on the pressing palm and comes back to its place exactly', async () => {
-    const w = await writer(2)
-    const place = writePlace(GRAPH.spots, 'work_2')
-    const c = writeCard(place)
-    for (let k = 0; k < 60; k++) w.step(beat(w.spot.id, 'line', 1, 0, 2))
-    let highest = 0
-    let onPalm = Infinity
-    for (let i = 0; i <= 108; i++) {
-      w.step(beat(w.spot.id, 'readUp', i / 108, 0, 2))
-      const s = w.desk.state(w.rig.id)!
-      highest = Math.max(highest, s.cardAt!.p.y - s.top!)
-      if (i === 54) onPalm = s.cardAt!.p.distanceTo(new Vector3().setFromMatrixPosition(w.rig.palmCard(w.rig.cardSide)))
+  it('reading lifts the bundle before the face and brings it back; finishing ends with the bundle gone to the carrying hold and the pen gone', async () => {
+    const w = await writer(3)
+    for (let k = 0; k < 40; k++) w.step(beat(w.spot.id, 'line', 0.5, 1, 2))
+    const at = (s: ReturnType<WriteDesk['state']>) => new Vector3().setFromMatrixPosition(s!.front!)
+    const head = () => w.rig.parts.head.getWorldPosition(new Vector3())
+    const base = at(w.desk.state(w.rig.id))
+    let nearest = Infinity
+    for (let i = 0; i <= 30; i++) {
+      w.step(beat(w.spot.id, 'readUp', i / 30, 1, 2))
+      nearest = Math.min(nearest, at(w.desk.state(w.rig.id)).distanceTo(head()))
     }
-    expect(highest, 'held up').toBeGreaterThan(0.15)
-    expect(onPalm, 'on the palm').toBeLessThan(0.001)
+    expect(nearest, 'up before the face').toBeLessThan(base.distanceTo(head()) - 0.04)
+    w.step(beat(w.spot.id, 'line', 0, 1, 3))
+    expect(at(w.desk.state(w.rig.id)).distanceTo(base), 'back where it was').toBeLessThan(0.005)
+    for (let i = 0; i <= 24; i++) w.step(beat(w.spot.id, 'collect', i / 24, 3, 0))
     const s = w.desk.state(w.rig.id)!
-    const back = toSeat(w.rig, s.cardAt!.p, c)
-    expect(Math.hypot(back.x, back.z), 'back on its place').toBeLessThan(1e-6)
-    expect(Math.abs(s.cardAt!.p.y - s.top!)).toBeLessThan(1e-9)
-  })
-
-  it('gathering: the pen laid beside the card (tip toward the monitor, along the seat), the desk cards as many as then go on the palm; the pen stays till the wrap-up is over, then fades', async () => {
-    const w = await writer(0)
-    const place = writePlace(GRAPH.spots, 'work_0')
-    const c = writeCard(place)
-    for (let k = 0; k < 60; k++) w.step(beat(w.spot.id, 'line', 1, 2, 3))
-    const before = w.desk.state(w.rig.id)!
-    const onDesk = before.stack + (before.cardAt ? 1 : 0)
-    expect(onDesk, 'three cards written').toBe(3)
-    for (let i = 0; i <= 30; i++) w.step(beat(w.spot.id, 'collect', i / 30, 2, 0))
-    const s = w.desk.state(w.rig.id)!
-    expect(s.cardAt, 'no card left on the desk').toBeNull()
-    expect(s.stack, 'no stack left on the desk').toBe(0)
-    expect(s.lying, 'the pen lies on the desk').toBe(true)
-    // the pen along the seat's z, its tip toward the monitor (-z), on the desk, 3 cm beyond the card's edge on the pen side
-    const pen = w.scene.getObjectByName(`${w.rig.id}_write_pen`)!
-    pen.updateMatrixWorld(true)
-    const tip = toSeat(w.rig, new Vector3(0, 0, PEN.tipZ).applyMatrix4(pen.matrixWorld), c)
-    const end = toSeat(w.rig, new Vector3(0, 0, PEN.tipZ + PEN.len).applyMatrix4(pen.matrixWorld), c)
-    expect(tip.z).toBeLessThan(end.z)
-    expect(Math.abs(tip.x - end.x)).toBeLessThan(1e-6)
-    expect(Math.abs(tip.y - end.y)).toBeLessThan(1e-6)
-    expect(c.s * tip.x).toBeCloseTo(WRITE_CARD.w / 2 + STACK.penOut, 6)
-    const mid = new Vector3(0, 0, PEN.tipZ + PEN.len / 2).applyMatrix4(pen.matrixWorld)
-    expect(mid.y - deskTop(w.scene, 0, mid)!).toBeCloseTo(PEN.r, 6)
-    // to the board with the cards on the palm: as many as were on the desk; the pen stays laid
-    const walk = { spot: w.spot.id, pose: 'carry', label: '', carry: onDesk, wrapStep: 'walk' } as unknown as Goal
-    for (let k = 0; k < 30; k++) w.step(walk)
-    const bundle = (w.rig as unknown as { cards: Record<'l' | 'r', Mesh | null> }).cards.l!
-    expect(bundle.visible).toBe(true)
-    expect(bundle.scale.y, 'the cards on the palm').toBe(onDesk)
-    expect(w.desk.state(w.rig.id)!.lying).toBe(true)
-    // the wrap-up over: it fades out in 0.3 s
-    const idle = { spot: w.spot.id, pose: 'idle', label: '' } as Goal
-    for (let k = 0; k < 12; k++) w.step(idle)
-    expect(w.desk.state(w.rig.id)!.lying, 'still fading').toBe(true)
-    for (let k = 0; k < 12; k++) w.step(idle)
-    expect(w.desk.state(w.rig.id)!.lying, 'gone').toBe(false)
+    expect(s.cards, 'the bundle gone to the carrying hold').toBe(0)
+    expect(s.pen, 'the pen gone').toBeNull()
   })
 })
