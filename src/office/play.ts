@@ -103,6 +103,9 @@ export const STAY_MIN: Record<PlayKind | 'watch', readonly [number, number]> = {
   record: [0.75, 1],
   watch: [1, 3],
 }
+/** a game is watched only with this much of it left, and the watcher goes this long before it ends (play.md 9.2 구경, #517) */
+export const WATCH_LEFT_MS = 2 * MIN
+export const WATCH_LEAVE_MS = MIN
 /** the gap between two stays (play.md 9.3), s */
 export const GAP_S: readonly [number, number] = [20, 50]
 export type GapKind = 'stretch' | 'wander' | 'window'
@@ -206,9 +209,9 @@ export function dayPlan(day: number, agents: readonly string[]): Seg[][] {
    * The first end at or after `at` (within EXTEND_MAX_MS) that keeps every minute to LEAVE_CAP leavers, with `n` leaving together; else an earlier one down to
    * `earliest` (the play's minimum); null when none fits (the play is not chosen then: the cap always holds)
    */
-  const capEnd = (at: number, n: number, earliest = at): number | null => {
+  const capEnd = (at: number, n: number, earliest = at, latest = at + EXTEND_MAX_MS): number | null => {
     const fits = (t: number) => leaves.filter((x) => Math.abs(x - t) < LEAVE_WINDOW_MS).length + n <= LEAVE_CAP
-    for (let t = at; t <= at + EXTEND_MAX_MS; t += 1000) if (fits(t)) return t
+    for (let t = at; t <= latest; t += 1000) if (fits(t)) return t
     for (let t = at - 1000; t >= earliest; t -= 1000) if (fits(t)) return t
     return null
   }
@@ -341,9 +344,10 @@ export function dayPlan(day: number, agents: readonly string[]): Seg[][] {
   /** a stay for agent i from t on this option, if it keeps the leaving cap */
   const tryOption = (i: number, t: number, o: Option): boolean => {
     if (o.watch) {
-      // until the game ends, at most the watch's own length
+      // at most the watch's own length, and gone WATCH_LEAVE_MS before the game ends (#517: no clapping at an empty table, not leaving with the players)
       const game = segs.flat().find((x) => x.kind === o.watch && x.partner && x.pairAt !== undefined && x.pairAt <= t && x.end > t)!
-      const e = capEnd(Math.min(game.end, t + stayMs('watch')), 1, t + STAY_MIN.watch[0] * MIN)
+      const last = game.end - WATCH_LEAVE_MS
+      const e = capEnd(Math.min(last, t + stayMs('watch')), 1, t + STAY_MIN.watch[0] * MIN, last)
       if (e === null) return false
       hold(WATCH[o.watch].spot, t, e)
       leave(e, 1)
@@ -380,7 +384,12 @@ export function dayPlan(day: number, agents: readonly string[]): Seg[][] {
       const kinds = (['stretch', 'wander', 'window'] as const).filter((g) => g !== last && !(seated && g === 'stretch'))
       if (rand() < 0.5) kinds.reverse()
       const placeFor = (g: GapKind): string | null => {
-        if (g === 'stretch') return done.spot
+        // a stretch where it is: after an errand that is the errand's own place, if free (#517: not the desk)
+        if (g === 'stretch') {
+          if (done.spot !== DESK) return done.spot
+          const place = PLAYS.find((p) => p.kind === done.kind)?.spots[0]
+          return place && free(place, t, t + len) ? place : null
+        }
         if (g === 'window') return WINDOW_SPOTS.find((s) => free(s, t, t + len)) ?? null
         const open = Object.keys(spotsAt).filter((s) => s.startsWith('hall_') && here && free(s, t, t + len))
         const dist = (s: string) => Math.hypot(spotsAt[s].x - here!.x, spotsAt[s].z - here!.z)
@@ -418,8 +427,8 @@ export function dayPlan(day: number, agents: readonly string[]): Seg[][] {
       else if (isErrand(p.kind) || p.kind === 'water' || spotOfDef(p, t, t + STAY_MIN[p.kind][0] * MIN)) options.push({ p })
     }
     for (const kind of ['pingpong', 'boardgame'] as const) {
-      // a pair game under way at t with nobody watching it
-      const on = segs.some((ss, k) => k !== i && ss.some((s) => s.kind === kind && s.partner && s.pairAt !== undefined && s.pairAt <= t && s.end > t + MIN))
+      // a pair game under way at t with nobody watching it, WATCH_LEFT_MS or more of it left (#517)
+      const on = segs.some((ss, k) => k !== i && ss.some((s) => s.kind === kind && s.partner && s.pairAt !== undefined && s.pairAt <= t && s.end >= t + WATCH_LEFT_MS))
       if (on && before !== 'watch' && free(WATCH[kind].spot, t, t + STAY_MIN.watch[1] * MIN)) options.push({ watch: kind })
     }
     const weightOf = (x: Option) => (x.watch ? 1 : x.p!.weight * like(a, x.p!.kind))
@@ -463,6 +472,8 @@ export function playAt(ms: number, agents: string[], busy: ReadonlySet<string> =
   const roster = [...agents].sort()
   const plan = dayPlan(planDay(ms).day, roster)
   const out: Record<string, PlayAssignment> = {}
+  /** the ones whose place is picked here rather than in the plan */
+  const made = new Set<string>()
   roster.forEach((a, i) => {
     if (busy.has(a)) return
     const s = segAt(plan[i], ms)
@@ -471,11 +482,58 @@ export function playAt(ms: number, agents: string[], busy: ReadonlySet<string> =
     if (s.kind === 'pingpong' && s.partner && s.pairAt !== undefined && ms >= s.pairAt && (busy.has(s.partner) || alone?.broken.has(s.stay))) {
       const broke = alone?.broken.get(s.stay) ?? s.pairAt
       out[a] = aloneAt(plan, roster, a, s, broke, Math.max(broke, alone?.back?.[a] ?? -Infinity), ms)
+      made.add(a)
       return
+    }
+    // a watcher of a game broken by a player gone to work leaves it at once (#517): gaps near where it stood, for the rest of the watch
+    if (s.kind === 'watch') {
+      const k = plan.findIndex((segs) => segs.some((x) => x.kind === s.watch && x.partner && x.pairAt !== undefined && x.pairAt <= ms && ms < x.end))
+      const game = k >= 0 ? plan[k].find((x) => x.kind === s.watch && x.partner && x.pairAt! <= ms && ms < x.end) : undefined
+      const broke = game ? alone?.broken.get(game.stay) : undefined
+      if (!game || broke !== undefined || busy.has(roster[k]) || busy.has(game.partner!)) {
+        out[a] = gapsFrom(plan, s, s.spot, Math.max(s.start, broke ?? s.start), s.end, ms, 2)
+        made.add(a)
+        return
+      }
     }
     out[a] = assignmentOf(a, s, ms, (b) => !busy.has(b))
   })
+  // places picked here (a game left, a watcher off) give way to the plan's, and to each other in roster order: on a taken hall spot, the nearest one free
+  const taken = new Set<string>(roster.filter((a) => out[a] && !made.has(a)).map((a) => out[a].spot))
+  for (const a of roster) {
+    const o = out[a]
+    if (!o || !made.has(a)) continue
+    if (o.kind === 'gap' && o.spot.startsWith('hall_') && taken.has(o.spot)) {
+      const at = spotsAt[o.spot]
+      const used = (h: string) => taken.has(h) || Object.values(out).some((x) => x !== o && x.spot === h)
+      const next = Object.keys(spotsAt)
+        .filter((h) => h.startsWith('hall_') && !used(h) && !WINDOW_SPOTS.includes(h))
+        .sort((x, y) => Math.hypot(spotsAt[x].x - at.x, spotsAt[x].z - at.z) - Math.hypot(spotsAt[y].x - at.x, spotsAt[y].z - at.z))[0]
+      if (next) out[a] = { ...o, gap: 'wander', label: GAP_LABEL.wander, spot: next, face: undefined }
+    }
+    taken.add(out[a].spot)
+  }
   return out
+}
+
+/** #517: the hall spot nearest `near` (not by the window) that `skip` does not rule out, or null */
+export function hallNear(near: string, skip: (spot: string) => boolean): string | null {
+  const at = spotsAt[near]
+  if (!at) return null
+  return (
+    Object.keys(spotsAt)
+      .filter((h) => h.startsWith('hall_') && h !== near && !WINDOW_SPOTS.includes(h) && !skip(h))
+      .sort((x, y) => Math.hypot(spotsAt[x].x - at.x, spotsAt[x].z - at.z) - Math.hypot(spotsAt[y].x - at.x, spotsAt[y].z - at.z))[0] ?? null
+  )
+}
+
+/**
+ * #517 (play.md 9.1): an agent whose errand waits its turn, or is over before its stay is, rests near the errand's place instead of sitting at its desk: gaps
+ * by turns (a stroll to the nearest free hall spot, the window) from the stay's start. From the plan only.
+ */
+export function restNear(ms: number, agents: string[], p: PlayAssignment): PlayAssignment {
+  const plan = dayPlan(planDay(ms).day, [...agents].sort())
+  return gapsFrom(plan, { kind: 'gap', start: p.since, end: p.until, spot: p.spot, stay: p.stay }, p.spot, p.since, p.until, ms)
 }
 
 /**
@@ -499,35 +557,46 @@ const ALONE_FILL: PlayKind[] = ['coffee', 'books', 'boardgame_solo']
  * taking the first's), else gaps by turns (a stroll, the window), each on a place nobody else's plan uses then. From the plan only: the same in every browser.
  */
 function aloneAt(plan: Seg[][], roster: string[], agent: string, s: Seg, broke: number, own: number, ms: number): PlayAssignment {
-  const used = (spot: string, a: number, b: number) => plan.some((segs) => segs.some((x) => x.spot === spot && x.stay !== s.stay && x.start < b && a < x.end))
-  const table = spotsAt[s.spot]
-  const dist = (h: string) => (table ? Math.hypot(spotsAt[h].x - table.x, spotsAt[h].z - table.z) : 0)
-  // the two players' strolls apart: by roster order, the nearest free hall spots in turn
-  const halls = Object.keys(spotsAt).filter((h) => h.startsWith('hall_') && dist(h) >= WANDER_M[0]).sort((x, y) => dist(x) - dist(y))
+  const used = usedIn(plan, s.stay)
   const second = roster.indexOf(agent) > roster.indexOf(s.partner!)
-  const gapOf = (g: GapKind, a: number, b: number): PlayAssignment => {
-    const free = halls.filter((h) => !used(h, a, b))
-    const window = WINDOW_SPOTS.filter((h) => !used(h, a, b))
-    const spot = (g === 'window' ? window[second ? 1 : 0] : undefined) ?? free[second ? 1 : 0] ?? free[0] ?? s.spot
-    const kind: GapKind = WINDOW_SPOTS.includes(spot) ? 'window' : 'wander'
-    const face = kind === 'window' && spotsAt[spot] ? { x: spotsAt[spot].x, z: WINDOW_FACE_Z } : undefined
-    return { kind: 'gap', gap: kind, label: GAP_LABEL[kind], spot, stay: s.stay, since: a, until: b, ...(face ? { face } : {}) }
-  }
-  if (ms < own + ALONE_GAP_MS || own + ALONE_GAP_MS >= s.end) return gapOf('wander', own, Math.min(own + ALONE_GAP_MS, s.end))
+  if (ms < own + ALONE_GAP_MS || own + ALONE_GAP_MS >= s.end) return gapsFrom(plan, s, s.spot, own, Math.min(own + ALONE_GAP_MS, s.end), ms, second ? 1 : 0)
   const fillFrom = Math.max(broke, s.pairAt ?? s.start) + ALONE_GAP_MS
   const fills = ALONE_FILL.map((k) => PLAYS.find((p) => p.kind === k)!).filter((p) => !used(p.spots[0], fillFrom, s.end))
   const mine = fills[second ? 1 : 0]
   if (mine) return { kind: mine.kind, label: mine.label, spot: mine.spots[0], stay: s.stay, since: own + ALONE_GAP_MS, until: s.end, ...(mine.face ? { face: mine.face } : {}), ...(mine.stand ? { stand: mine.stand } : {}) }
-  const from = own + ALONE_GAP_MS
-  const n = Math.floor((ms - from) / ALONE_GAP_MS)
-  return gapOf(n % 2 ? 'window' : 'wander', from + n * ALONE_GAP_MS, Math.min(s.end, from + (n + 1) * ALONE_GAP_MS))
+  return gapsFrom(plan, s, s.spot, own + ALONE_GAP_MS, s.end, ms, second ? 1 : 0)
+}
+
+/** whether a place is in anybody's plan (other than the stay `stay`) between a and b */
+const usedIn = (plan: Seg[][], stay: number) => (spot: string, a: number, b: number) => plan.some((segs) => segs.some((x) => x.spot === spot && x.stay !== stay && x.start < b && a < x.end))
+
+/**
+ * Gaps of ALONE_GAP_MS by turns from `from` to `until` (a stroll to the hall spot nearest `near` nobody's plan uses then, the window), what `ms` falls in;
+ * `slot` takes that free place in the order (the two left at a table, a watcher: going at once they keep apart). From the plan only: the same in every browser.
+ */
+function gapsFrom(plan: Seg[][], s: Seg, near: string, from: number, until: number, ms: number, slot = 0): PlayAssignment {
+  const used = usedIn(plan, s.stay)
+  const at = spotsAt[near]
+  const dist = (h: string) => (at ? Math.hypot(spotsAt[h].x - at.x, spotsAt[h].z - at.z) : 0)
+  const halls = Object.keys(spotsAt).filter((h) => h.startsWith('hall_') && h !== near && dist(h) >= WANDER_M[0]).sort((x, y) => dist(x) - dist(y))
+  const n = Math.max(0, Math.floor((ms - from) / ALONE_GAP_MS))
+  const a = from + n * ALONE_GAP_MS
+  const b = Math.min(until, a + ALONE_GAP_MS)
+  const free = halls.filter((h) => !used(h, a, b))
+  const window = WINDOW_SPOTS.filter((h) => !used(h, a, b))
+  const spot = (n % 2 ? window[slot] : undefined) ?? free[slot] ?? free[0] ?? near
+  const kind: GapKind = WINDOW_SPOTS.includes(spot) ? 'window' : 'wander'
+  const face = kind === 'window' && spotsAt[spot] ? { x: spotsAt[spot].x, z: WINDOW_FACE_Z } : undefined
+  return { kind: 'gap', gap: kind, label: GAP_LABEL[kind], spot, stay: s.stay, since: a, until: b, ...(face ? { face } : {}) }
 }
 
 function assignmentOf(agent: string, s: Seg, ms: number, present: (a: string) => boolean): PlayAssignment {
   const base = { stay: s.stay, since: s.start, until: s.end }
   if (s.kind === 'gap') {
     const face = s.gap === 'window' && spotsAt[s.spot] ? { x: spotsAt[s.spot].x, z: WINDOW_FACE_Z } : undefined
-    return { kind: 'gap', gap: s.gap, label: GAP_LABEL[s.gap!], spot: s.spot === DESK ? `work_${agent.split('_')[1]}` : s.spot, ...base, ...(face ? { face } : {}) }
+    // #517: never at the desk (the day's first gap, one when nothing fits): the hall spot nearest it
+    const spot = s.spot === DESK ? (hallNear(`work_${agent.split('_')[1]}`, () => false) ?? `work_${agent.split('_')[1]}`) : s.spot
+    return { kind: 'gap', gap: s.gap, label: GAP_LABEL[s.gap!], spot, ...base, ...(face ? { face } : {}) }
   }
   if (s.kind === 'watch') {
     const w = WATCH[s.watch!]

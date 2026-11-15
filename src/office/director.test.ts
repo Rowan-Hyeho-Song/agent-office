@@ -146,7 +146,15 @@ describe('wrapping (#186): real work, then rest', () => {
     // the frame the tidy-up ends: shown = rest, and the play assignment is the goal in that same frame
     expect(last.sh).toMatchObject({ kind: 'rest', status: { state: 'idle' } })
     expect(last.sh.detail).toBeUndefined()
-    expectPlan(last.g, playAt(now, AGENTS).agent_0)
+    // the plan's own goal; a game at the board kept off by the white bowl under way (#137 ①: its partner, alone while this one wrapped up, went for it)
+    // waits near the board, not at the desk (#517)
+    const planned = playAt(now, AGENTS).agent_0
+    if (last.g.label.endsWith('판 정리 기다리는 중')) {
+      expect(planned?.kind).toBe('boardgame')
+      expect(last.g).toMatchObject({ pose: 'idle' })
+      expect(last.g.gap).toBeDefined()
+      expect(last.g.spot.startsWith('work_')).toBe(false)
+    } else expectPlan(last.g, planned)
     expect(seen).toEqual([WRAP_LABEL.seat, WRAP_LABEL.write, WRAP_LABEL.walk, WRAP_LABEL.post, TOUCH_LABEL, WRAP_LABEL.seat, WRAP_LABEL.tidy, 'idle'])
     expect(poses.slice(0, 7)).toEqual(['idle', 'write', 'carry', 'cardpost', 'cardpost', 'idle', 'tidy'])
     // the whole wrap-up lasted to about 6 s before the display's end (2 min from the status' since)
@@ -615,4 +623,25 @@ describe('a ping-pong partner goes to work (#516)', () => {
     // the same over the same statuses
     expect(run().seen).toEqual(seen)
   })
+})
+
+// #517 (play.md 9.1): resting, nobody sits at its desk waiting: an errand waiting its turn or done before its stay is, a game kept off by the white bowl,
+// all rest near their places instead (gaps)
+describe('resting never waits at the desk (#517)', () => {
+  it('three hours of everybody free: no goal at a desk', () => {
+    const d = new Director(AGENTS)
+    const { at, fn } = makeArrived()
+    const st = allIdle()
+    const t0 = Date.UTC(2026, 10, 10, 1, 0, 0)
+    const atDesk: string[] = []
+    for (let t = t0; t < t0 + 3 * 3_600_000; t += 1000) {
+      const g = d.goals(t, MINUTE, st, fn)
+      for (const a of AGENTS) {
+        // arrives at once (the errands go on as they would)
+        at[a] = g[a].spot
+        if (g[a].spot.startsWith('work_')) atDesk.push(`${new Date(t).toISOString()} ${a} ${g[a].label}`)
+      }
+    }
+    expect(atDesk.slice(0, 5)).toEqual([])
+  }, 120_000)
 })

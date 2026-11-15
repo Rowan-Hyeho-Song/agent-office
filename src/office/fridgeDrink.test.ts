@@ -3,6 +3,7 @@ import { CARRYING_DRINK, Director } from './director'
 import { DRINK_POSES, DRINK_T, SIPS, SIP_TOPS, drinkPick, drinkView, sipLift, stepDrink, type Drink } from './fridgeDrink'
 import { ACT_PLACE, FRIDGE_T, grabAt } from './lounge'
 import type { StatusMap } from './status'
+import { playAt } from './play'
 
 // #457 the drink from the fridge (fridgeDrink.ts, lounge-props.md 5.3 · 5.5): which one is taken, and its life in the hand after the act, in the Director.
 const IDS = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
@@ -87,11 +88,15 @@ describe('the drink in the Director', () => {
   }
 
   it('the hand has it from the grab on (Goal.drink, act.pick); the agent keeps it after the act and does not take the same one again that day', () => {
+    // a start from which agent_3's own plan sends it on no errand for 70 s (it would put the drink down for it, #517 rests near its place instead)
+    let B = T0
+    const busyHands = (t: number) => ['books', 'water', 'fridge', 'dispenser', 'record', 'boardgame_solo'].includes(playAt(t, IDS).agent_3?.kind ?? '')
+    while ([0, 10, 20, 30, 40, 50, 60, 70].some((s) => busyHands(B + s * 1000))) B += 10_000
     const d = new Director(IDS)
-    d.forceAct('agent_3', 'fridge', T0, undefined, 'can')
+    d.forceAct('agent_3', 'fridge', B, undefined, 'can')
     let first = -1
     let afterAct = false
-    drive(d, 0, 8, (a, t) => (a === 'agent_3' && t >= 1 ? ACT_PLACE.fridge.spot : null), {}, (t, g) => {
+    drive(d, 0, 8, (a, t) => (a === 'agent_3' && t >= 1 ? ACT_PLACE.fridge.spot : null), { base: B }, (t, g) => {
       const x = g.agent_3
       if (x.act) expect(x.act.pick).toBe('can')
       if (x.drink && first < 0) first = t
@@ -101,10 +106,10 @@ describe('the drink in the Director', () => {
     expect(afterAct, 'still in hand once the act is over').toBe(true)
     expect(d.drinkOf('agent_3')?.kind).toBe('can')
     // the schedule's next visit that day: not the can again
-    d.forceAct('agent_3', 'fridge', T0 + 60_000)
+    d.forceAct('agent_3', 'fridge', B + 60_000)
     expect(d.drinkOf('agent_3'), 'a new visit starts with an empty hand').toBeNull()
     let pick: string | undefined
-    drive(d, 60, 61, () => null, {}, (_t, g) => (pick ??= g.agent_3.act?.pick))
+    drive(d, 60, 61, () => null, { base: B }, (_t, g) => (pick ??= g.agent_3.act?.pick))
     expect(pick).toBe('milk')
   })
 
