@@ -10,9 +10,14 @@
 # #275: a file is deleted locally only after its upload succeeded, so captures stop piling up on the PC.
 #
 # The release must stay a published pre-release (not a draft): draft assets 404 for anyone not logged in.
+#
+# #520: a release holds at most 1000 assets. Uploads go to the highest of image-assets, image-assets-2, -3 …;
+# when that one cannot take this batch, the next number is created. Old tags are never emptied, so old links
+# in issues and PRs keep working.
 set -euo pipefail
 
-TAG=image-assets
+BASE=image-assets
+MAX_ASSETS=1000
 prefix=""
 keep=0
 while [[ $# -gt 0 ]]; do
@@ -28,8 +33,23 @@ if [[ $# -eq 0 ]]; then
 fi
 
 repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+
+# image-assets counts as 1, image-assets-N as N; take the highest that exists
+tag_of() { if [[ $1 -eq 1 ]]; then echo "$BASE"; else echo "$BASE-$1"; fi; }
+num=1
+while IFS= read -r t; do
+  if [[ "$t" =~ ^${BASE}-([0-9]+)$ ]] && (( BASH_REMATCH[1] > num )); then num=${BASH_REMATCH[1]}; fi
+done < <(gh release list --repo "$repo" --limit 200 --json tagName -q '.[].tagName')
+TAG=$(tag_of "$num")
+if gh release view "$TAG" --repo "$repo" >/dev/null 2>&1; then
+  count=$(gh release view "$TAG" --repo "$repo" --json assets -q '.assets | length')
+  if (( count + $# > MAX_ASSETS )); then
+    num=$((num + 1))
+    TAG=$(tag_of "$num")
+  fi
+fi
 if ! gh release view "$TAG" --repo "$repo" >/dev/null 2>&1; then
-  gh release create "$TAG" --repo "$repo" --prerelease --title "image-assets" \
+  gh release create "$TAG" --repo "$repo" --prerelease --title "$TAG" \
     --notes "이슈·PR에 붙이는 이미지 보관용. 배포 릴리스가 아님. 올리기: scripts/gh-image.sh" >/dev/null
 fi
 
