@@ -305,6 +305,9 @@ export function PingpongVisitRig({ world }: { world: OfficeWorld }) {
           if (ev.winner === 1) agent.reaction = prefersReducedMotion() ? null : { kind: 'fist', t0: t, dur: 0.6 }
           else agent.paperReaction('nod', t, prefersReducedMotion())
         } else if (ev.kind === 'over') {
+          // match.win once, at the winner's side: the visitor's paddle, or the agent (sound.md, #593); no sound for each point
+          const pp = paddlePoint(v.paddle, dims)
+          cue('match.win', { pos: ev.winner === 0 ? { x: o.x + pp[0], y: o.y + pp[1], z: o.z + pp[2] } : { x: agent.x, y: 1, z: agent.z } })
           world.bubbles.say(v.agent!, { kind: 'react', text: ev.winner === 1 ? '좋은 경기였어요!' : '한 번 더 할래요?', ms: 3500, whole: true }, Date.now())
         }
       }
