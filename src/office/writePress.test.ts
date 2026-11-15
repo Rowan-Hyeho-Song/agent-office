@@ -1,20 +1,23 @@
 /// <reference types="node" />
-// #501 (docs/design/wrapup.md 9.1): where each desk's pressing hand holds the card, found on the baked model with the real rig. The palm's centre is tried
-// 3-10 cm beyond the card's short edge nearest the body and 0-8 cm from its centre toward the pressing side (1 cm steps), nearest the corner first:
-//  (1) three or more vertices of the index / middle fingertips are on the card, the palm's centre off it, nothing of the hand through it (reading the card
-//      held up, and the new line right after it, are left out: the hand is lifting the card then);
-//  (2) the two hands are at least 1 cm apart in every piece (a line, a new line, the taps, a strike, reading it) on every line (0-4); no vertex thinned out.
-// The first point that holds both is the desk's; a desk where none does takes the point where the hands come closest least (and says so).
+// #505 (docs/design/wrapup.md 9.1): where each desk's other hand rests while it writes, found on the baked model with the real rig. The palm (the support pose,
+// its underside 1 mm above the desk under it) is tried 6-16 cm from the card's centre toward the pressing side and -4 to +14 cm along it (+ toward the body, #506),
+// 1 cm apart. A point holds when, in every piece (a line, a new line, the taps, a strike) on every line (0-4):
+//  - the two hands are at least 1 cm apart (every vertex of their visible meshes, none thinned out);
+//  - the resting hand goes into nothing baked on the desk (keyboard, mouse pad, calendar ...), and all of it is over the desk (#506: nothing hangs off its edge).
+// Of the points that hold, the one nearest the card's corner on the pressing side nearest the body is the desk's; a desk where none does takes the clear point
+// where the hands come closest to 1 cm apart, and says so (`ok: false`). A desk with no point at all may rest the palm on a thin board (a mouse pad, at most
+// 3 mm thick: its top + 1 mm, #507); the mouse and the rest are still kept out, and nothing may hang off the desk.
+//   PRESS_SEATS=1 PRESS_THIN=1 PRESS_WRITE=1 ...    (that desk alone, the thin board allowed; the other desks keep their stored points)
 //   PRESS_WRITE=1 npx vitest run src/office/writePress.test.ts     (searches, rewrites writePress.data.ts)
 // Without it the stored points are checked against the same rules.
 import { writeFileSync } from 'node:fs'
-import { Box3, Vector3, type Mesh, type Object3D } from 'three'
+import { Box3, Raycaster, Vector3, type Mesh, type Object3D } from 'three'
 import { describe, expect, it } from 'vitest'
 import type { Goal } from './director'
 import { loadOffice, stubCanvas } from './glbLoad'
 import { GRAPH } from './navSpots.fixture'
 import { AgentRig, buildRig } from './rig'
-import { LINES_MAX, WRITE_CARD, writeCard, writePlace, type PressAt } from './wrapPose'
+import { LINES_MAX, WRITE_CARD, writePlace, type PressAt } from './wrapPose'
 import { WRITE_PRESS } from './writePress.data'
 import { WriteDesk } from './writeDesk'
 
@@ -22,8 +25,15 @@ const ctx: Record<string, unknown> = new Proxy({ fillStyle: '' } as Record<strin
 ;(globalThis as { document?: unknown }).document = { createElement: () => ({ width: 0, height: 0, getContext: () => ctx }) }
 stubCanvas()
 const DT = 1 / 60
-const KINDS = ['line', 'newline', 'tapPen', 'strike', 'readUp'] as const
+const KINDS = ['line', 'newline', 'tapPen', 'strike'] as const
 const GAP_M = 0.01
+/** a point is chosen only with this much to spare over GAP_M: the same point measured from a fresh start lands a fraction of a millimetre either way */
+const SPARE_M = 0.001
+const SEATS = [0, 1, 2, 3, 4]
+/** a board this thin under the palm may carry it (#507: the mouse pad), on a desk with no point otherwise */
+const THIN_M = 0.003
+/** how far toward the body the palm is tried (cm, #506: desks 1, 3 and 4 had nothing clear up to +10, the keyboard and the mouse pad under the fingers) */
+const BACK_MAX_CM = 14
 
 async function writer(seat: number) {
   const { scene, nodes } = await loadOffice()
@@ -46,140 +56,141 @@ async function writer(seat: number) {
     rig.x = spot.x
     rig.z = spot.z
     rig.heading = spot.ry
-    const idle = { spot: spot.id, pose: 'idle', label: '' } as Goal
-    for (let k = 0; k < 90; k++) step(idle)
+    for (let k = 0; k < 90; k++) step({ spot: spot.id, pose: 'idle', label: '' } as Goal)
   }
-  return { rig, desk, spot, step, reset, place: writePlace(GRAPH.spots, `work_${seat}`) }
+  // the desk itself, and what is baked on it (desk_<seat>_*: the keyboard, the mouse pad, the calendar ... are merged into one node, so they are felt by their surface)
+  scene.updateMatrixWorld(true)
+  const bare = scene.getObjectByName(`desk_${seat}`)!
+  const props = scene.children.filter((o) => o.name.startsWith(`desk_${seat}_`))
+  const place = writePlace(GRAPH.spots, `work_${seat}`)
+  return { rig, desk, spot, step, reset, scene, seat, bare, props, place, pressSide: (place?.side ?? 1) < 0 ? ('r' as const) : ('l' as const) }
 }
 type Writer = Awaited<ReturnType<typeof writer>>
 
 const write = (spot: string, kind: string, u: number, v: number) => ({ spot, pose: 'write', label: '', beat: { kind, u, k: 0, v } }) as unknown as Goal
 
-/** the visible meshes' vertices under a node, in world; `only` keeps the meshes whose names match */
-function points(o: Object3D, only?: RegExp): Vector3[] {
+/** the visible meshes' vertices under a node, in world */
+function points(o: Object3D): Vector3[] {
   const out: Vector3[] = []
   o.updateMatrixWorld(true)
   o.traverseVisible((m) => {
     const g = (m as Mesh).geometry?.getAttribute('position')
-    if (!(m as Mesh).isMesh || !g || (only && !only.test(m.name))) return
+    if (!(m as Mesh).isMesh || !g) return
     for (let i = 0; i < g.count; i++) out.push(new Vector3().fromBufferAttribute(g, i).applyMatrix4(m.matrixWorld))
   })
   return out
 }
 
-/** the closest two vertices of two hands (m); boxes further apart than `enough` are not looked into (the gap is at least that) */
+/** the closest two vertices of two hands (m); further apart than `enough` counts as `enough` (only "enough or not" decides, and how near when none is) */
 function handGap(a: Object3D, b: Object3D, enough: number) {
   const pa = points(a)
   const pb = points(b)
   const ba = new Box3().setFromPoints(pa)
   const bb = new Box3().setFromPoints(pb)
-  const far = Math.hypot(Math.max(0, ba.min.x - bb.max.x, bb.min.x - ba.max.x), Math.max(0, ba.min.y - bb.max.y, bb.min.y - ba.max.y), Math.max(0, ba.min.z - bb.max.z, bb.min.z - ba.max.z))
-  if (far >= enough) return far
   const near = pb.filter((q) => ba.distanceToPoint(q) < enough)
-  let best = Infinity
+  let best = enough * enough
   for (const p of pa) if (bb.distanceToPoint(p) < enough) for (const q of near) best = Math.min(best, p.distanceToSquared(q))
-  return Math.min(Math.sqrt(best), enough)
+  return Math.sqrt(best)
 }
 
-/** one point tried: the closest the hands come (capped at 1 cm: only "enough or not" matters for the choice), and whether (1) held throughout */
-function tryPress(w: Writer, press: PressAt): { gap: number; tips: boolean; why: string } {
-  w.rig.pressAt = press
-  w.reset()
-  for (let k = 0; k < 60; k++) w.step(write(w.spot.id, 'line', 0, 0))
-  const c = writeCard(w.place, press)
-  const at = w.rig.seatToWorld(c.x, 0, c.z)
-  const toCard = (p: Vector3) => p.clone().sub(at).applyQuaternion(w.rig.seatQuat().invert())
-  const pressSide = w.place && w.place.side < 0 ? 'r' : 'l'
-  let gap = Infinity
-  let tips = true
-  let why = ''
-  let prev = ''
-  for (let row = 0; row <= LINES_MAX; row++)
-    for (const kind of KINDS) {
-      for (let i = 0; i <= 30; i++) {
-        const u = i / 30
-        w.step(write(w.spot.id, kind, u, row))
-        if (i % 2 === 0) {
-          const g = handGap(w.rig.parts.hands.l.node, w.rig.parts.hands.r.node, GAP_M)
-          if (g < gap) {
-            gap = g
-            if (g < GAP_M) why ||= `hands ${(g * 100).toFixed(2)} cm in ${kind} row ${row} u ${u.toFixed(2)}`
-          }
-        }
-        // (1), not while the card is read held up nor on the new line just after
-        if (kind === 'readUp' || (kind === 'newline' && prev === 'readUp')) continue
-        const s = w.desk.state(w.rig.id)!
-        const hand = w.rig.parts.hands[pressSide].node
-        const palm = toCard(hand.getWorldPosition(new Vector3()))
-        const off = Math.abs(palm.x) > WRITE_CARD.w / 2 || Math.abs(palm.z) > WRITE_CARD.d / 2
-        const onCard = points(hand, /_f[12]_3_/).filter((p) => {
-          const l = toCard(p)
-          return Math.abs(l.x) < WRITE_CARD.w / 2 && Math.abs(l.z) < WRITE_CARD.d / 2 && p.y - s.top! <= 0.01
-        })
-        const through = points(hand).some((p) => {
-          const l = toCard(p)
-          const onIt = Math.abs(l.x) < WRITE_CARD.w / 2 && Math.abs(l.z) < WRITE_CARD.d / 2
-          // through the card, or through the desk beside it (its top is the card's less the card's lift)
-          return p.y < s.top! - (onIt ? 0.0005 : WRITE_CARD.lift + WRITE_CARD.t + 0.0005)
-        })
-        if (!off || onCard.length < 3 || through) {
-          if (tips) why ||= `${!off ? 'palm on the card' : through ? 'through the card' : `${onCard.length} fingertip vertices on the card`} in ${kind} row ${row} u ${u.toFixed(2)}`
-          tips = false
-        }
-      }
-      prev = kind
-    }
-  return { gap, tips, why }
+const down = new Vector3(0, -1, 0)
+/** the top of `objs` under a point, or null */
+function surface(objs: Object3D[], at: Vector3): { y: number; name: string } | null {
+  const hit = new Raycaster(new Vector3(at.x, 1.4, at.z), down, 0, 1.4).intersectObjects(objs, true)[0]
+  if (!hit) return null
+  return { y: hit.point.y, name: hit.object.name }
 }
 
-const SEATS = [0, 1, 2, 3, 4]
+/** what the resting hand goes into (a vertex below the surface under it: the bare desk, or something baked on it), and 'off the desk' where nothing is under a vertex */
+function sunk(w: Writer): string[] {
+  const out = new Set<string>()
+  const pts = points(w.rig.parts.hands[w.pressSide].node)
+  for (let k = 0; k < pts.length; k += 3) {
+    const top = surface([w.bare, ...w.props], pts[k])
+    if (!top) out.add('off the desk')
+    else if (pts[k].y < top.y - 0.0005) out.add(top.name)
+  }
+  return [...out]
+}
 
-/** the palm height (seat frame) that puts the lowest index / middle fingertip 1 mm above the card, measured in the first line's pose (twice: the fingers follow the hand) */
-function palmHeight(w: Writer, at: PressAt): number {
+/**
+ * the palm height (seat frame) that puts the resting hand's lowest vertex 1 mm above the bare desk under its palm, or (thin) above a thin board there (three
+ * passes: the hand follows its target)
+ */
+function palmHeight(w: Writer, at: PressAt, thin = false): number {
   let y = 0.82
   for (let k = 0; k < 3; k++) {
     w.rig.pressAt = { ...at, y }
     w.reset()
     for (let f = 0; f < 60; f++) w.step(write(w.spot.id, 'line', 0.5, 0))
-    const s = w.desk.state(w.rig.id)!
-    const pressSide = w.place && w.place.side < 0 ? 'r' : 'l'
-    const tip = Math.min(...points(w.rig.parts.hands[pressSide].node, /_f[12]_3_/).map((p) => p.y))
-    y -= tip - (s.top! + 0.001)
+    const hand = w.rig.parts.hands[w.pressSide].node
+    const palm = hand.getWorldPosition(new Vector3())
+    const bareTop = surface([w.bare], palm)?.y ?? 0.76
+    const fullTop = surface([w.bare, ...w.props], palm)?.y ?? bareTop
+    const top = thin && fullTop - bareTop <= THIN_M ? fullTop : bareTop
+    y -= Math.min(...points(hand).map((p) => p.y)) - (top + 0.001)
   }
   return Number(y.toFixed(4))
 }
 
-describe('the pressing hand per desk (#501)', () => {
+/** one point tried: the closest the hands come (counted up to 1 cm), and what of the desk the resting hand goes into */
+function tryPress(w: Writer, press: PressAt, enough = GAP_M): { gap: number; hits: string[]; where: string } {
+  w.rig.pressAt = press
+  w.reset()
+  for (let k = 0; k < 60; k++) w.step(write(w.spot.id, 'line', 0, 0))
+  let gap = enough
+  let where = ''
+  // the resting hand stays where it is put while the other one writes: what it goes into is felt once it has settled
+  const hits = new Set<string>(sunk(w))
+  for (let row = 0; row <= LINES_MAX; row++)
+    for (const kind of KINDS)
+      for (let i = 0; i <= 30; i++) {
+        w.step(write(w.spot.id, kind, i / 30, row))
+        if (i % 2) continue
+        const g = handGap(w.rig.parts.hands.l.node, w.rig.parts.hands.r.node, enough)
+        if (g < gap) {
+          gap = g
+          where = `${kind} row ${row} u ${(i / 30).toFixed(2)}`
+        }
+      }
+  return { gap, hits: [...hits], where }
+}
+
+describe('the resting hand per desk (#505)', () => {
   if (process.env.PRESS_WRITE) {
     it('searches every desk and writes writePress.data.ts', async () => {
-      const found: Record<number, PressAt & { gap: number; ok: boolean }> = {}
-      for (const seat of SEATS) {
+      const found: Record<number, PressAt & { gap?: number; ok?: boolean }> = { ...WRITE_PRESS }
+      const seats = process.env.PRESS_SEATS ? process.env.PRESS_SEATS.split(',').map(Number) : SEATS
+      const thin = !!process.env.PRESS_THIN
+      for (const seat of seats) {
         const w = await writer(seat)
+        // the card's corner on the pressing side nearest the body, in (side, back)
+        const corner = { side: WRITE_CARD.w / 2, back: WRITE_CARD.d / 2 }
         const cands: PressAt[] = []
-        for (let out = 3; out <= 10; out++) for (let side = 0; side <= 8; side++) cands.push({ out: out / 100, side: side / 100 })
-        cands.sort((a, b) => Math.hypot(a.out - 0.03, a.side) - Math.hypot(b.out - 0.03, b.side) || a.out - b.out)
-        // the palm's height: lowered until the lowest index / middle fingertip is 1 mm above the card (the support pose holds it 7-8 cm up; the fingers hovered)
-        const y = palmHeight(w, cands[Math.floor(cands.length / 2)])
-        for (const c of cands) c.y = y
+        for (let side = 6; side <= 16; side++) for (let back = -4; back <= BACK_MAX_CM; back++) cands.push({ side: side / 100, back: back / 100 })
+        cands.sort((a, b) => Math.hypot(a.side - corner.side, a.back - corner.back) - Math.hypot(b.side - corner.side, b.back - corner.back) || a.side - b.side || a.back - b.back)
         let best: (PressAt & { gap: number; ok: boolean }) | null = null
-        for (const p of cands) {
-          const r = tryPress(w, p)
-          console.log(`desk ${seat} out ${(p.out * 100).toFixed(0)} side ${(p.side * 100).toFixed(0)}: gap ${(r.gap * 100).toFixed(2)} tips ${r.tips} ${r.why}`)
-          if (r.tips && r.gap >= GAP_M) {
+        for (const c of cands) {
+          const p = { ...c, y: palmHeight(w, c, thin) }
+          const r = tryPress(w, p, GAP_M + SPARE_M)
+          console.log(`desk ${seat} side ${(p.side * 100).toFixed(0)} back ${(p.back * 100).toFixed(0)} y ${p.y}: gap ${(r.gap * 100).toFixed(2)} ${r.where} hits ${r.hits.join(',')}`)
+          if (r.hits.length) continue
+          if (r.gap >= GAP_M + SPARE_M) {
             best = { ...p, gap: r.gap, ok: true }
             break
           }
-          if (r.tips && (!best || r.gap > best.gap)) best = { ...p, gap: r.gap, ok: false }
+          if (!best || r.gap > best.gap) best = { ...p, gap: r.gap, ok: false }
         }
-        found[seat] = best ?? { out: WRITE_CARD.pressOut, side: WRITE_CARD.pressSide, gap: 0, ok: false }
+        found[seat] = best ?? { side: WRITE_CARD.pressSide, back: WRITE_CARD.pressBack, gap: 0, ok: false }
       }
-      const rows = SEATS.map((s) => `  ${s}: { out: ${found[s].out}, side: ${found[s].side}, y: ${found[s].y}, gap: ${Number(found[s].gap.toFixed(4))}, ok: ${found[s].ok} },`).join('\n')
+      const rows = SEATS.map((s) => `  ${s}: { side: ${found[s].side}, back: ${found[s].back}, y: ${found[s].y}, gap: ${Number((found[s].gap ?? 0).toFixed(4))}, ok: ${found[s].ok} },`).join('\n')
       writeFileSync(
         new URL('./writePress.data.ts', import.meta.url),
         `// GENERATED by src/office/writePress.test.ts (PRESS_WRITE=1 npx vitest run src/office/writePress.test.ts). Do not edit by hand.
-// #501 (wrapup.md 9.1): per desk, where the pressing palm's centre holds the card's near corner: \`out\` beyond the card's short edge nearest the body,
-// \`side\` from the card's centre toward the pressing side (m). The point nearest the corner where the index / middle fingertips are on the card, the palm
-// off it, and the two hands at least 1 cm apart in every piece and line; \`gap\` is the closest the hands come there (m, counted up to 1 cm), \`ok\` whether both held.
+// #505 (wrapup.md 9.1): per desk, where the other hand rests its palm on the desk beside the card while it writes: \`side\` from the card's centre toward the
+// pressing side, \`back\` toward the body, \`y\` the palm's height (its underside 1 mm above the desk) (m). The point nearest the card's corner on that side nearest
+// the body where the two hands stay 1 cm apart and the hand goes into nothing baked on the desk; \`gap\` the closest they come there (m, counted up to 1 cm),
+// \`ok\` false where no point keeps them 1 cm apart (then the clear point nearest to it).
 import type { PressAt } from './wrapPose'
 
 export const WRITE_PRESS: Record<number, PressAt & { gap?: number; ok?: boolean }> = {
@@ -190,12 +201,12 @@ ${rows}
     }, 3_600_000)
   } else {
     for (const seat of SEATS) {
-      it(`desk ${seat}: the stored point keeps the fingertips on the card and the hands ${GAP_M * 100} cm apart (or, where no point does, is as found)`, async () => {
+      it(`desk ${seat}: the stored point keeps the hands ${GAP_M * 100} cm apart (or as found, where no point does) and the hand out of what is on the desk`, async () => {
         const p = WRITE_PRESS[seat]
         expect(p, 'a point for every desk').toBeDefined()
         const r = tryPress(await writer(seat), p)
-        expect(r.tips, r.why).toBe(true)
-        if (p.ok) expect(r.gap, r.why).toBeGreaterThanOrEqual(GAP_M)
+        expect(r.hits, 'into nothing on the desk, all of it over the desk').toEqual([])
+        if (p.ok) expect(r.gap, r.where).toBeGreaterThanOrEqual(GAP_M)
         else expect(r.gap).toBeCloseTo(p.gap ?? 0, 3)
       }, 120_000)
     }

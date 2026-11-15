@@ -1432,7 +1432,7 @@ export class AgentRig {
   private cards: Record<'l' | 'r', Mesh | null> = { l: null, r: null }
   /** where the card is written (wrapPose.ts writePlace): beside the monitor on a desk facing the camera, else null; the body's turn toward it (rad) */
   private place: WritePlace = null
-  /** #501: where this desk's pressing palm holds the card's corner, instead of its own (writePress.data.ts, found per desk): the search sets it */
+  /** #505: where this desk's other hand rests beside the card, instead of its own (writePress.data.ts, found per desk): the search sets it */
   pressAt: PressAt | null = null
   private get press(): PressAt | undefined {
     return this.pressAt ?? WRITE_PRESS[Number(this.id.split('_')[1])]

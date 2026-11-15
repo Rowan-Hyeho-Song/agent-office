@@ -81,10 +81,9 @@ export const WRITE_CARD = {
   /** the line's left end this far in from the card's left edge, the first line this far in from its far edge */
   inLeft: 0.012,
   inFar: 0.015,
-  /** the pressing hand holds the card's near corner with its fingertips (#497, #499): the palm's centre this far outside the short edge nearest the body and this far
-   * from the card's centre toward the pressing side; the palm is off the card, about 2 cm of the fingers (they reach 9.5 cm from the knuckles) lie on it */
-  pressOut: 0.075,
-  pressSide: 0.055,
+  /** the other hand rests its palm on the desk beside the card (#505): where, when a desk has no point of its own (writePress.data.ts) */
+  pressSide: 0.11,
+  pressBack: 0.03,
   /** above the desk top under the card's centre */
   lift: 0.0005,
 } as const
@@ -113,20 +112,23 @@ export const PEN = {
 const FRONT_CARD = { x: 0, z: -0.41 } as const
 
 /** the card's centre on the desk in the seat's frame, the pen side (+1 right), and where the pressing palm goes (wrapup.md 9.1, #495: the card is the writing place itself) */
-/** where the pressing palm's centre is, off the card's near corner (#501: found per desk, writePress.data.ts): `out` beyond the short edge nearest the body, `side` from the card's centre toward the pressing side (m) */
+/**
+ * Where the other hand rests its palm on the desk beside the card (#505, found per desk: writePress.data.ts): its centre `side` from the card's centre toward
+ * the pressing side, `back` from it toward the body (m)
+ */
 export interface PressAt {
-  out: number
   side: number
-  /** the palm's height: low enough that the fingertips rest on the card (found per desk); the support pose's own when not given */
+  back: number
+  /** the palm's height: its underside 0-2 mm above the desk (found per desk); the support pose's own when not given */
   y?: number
 }
 
-export function writeCard(place: WritePlace | undefined, press: PressAt = { out: WRITE_CARD.pressOut, side: WRITE_CARD.pressSide }): { x: number; z: number; s: 1 | -1; pressX: number; pressZ: number } {
+export function writeCard(place: WritePlace | undefined, press: PressAt = { side: WRITE_CARD.pressSide, back: WRITE_CARD.pressBack }): { x: number; z: number; s: 1 | -1; pressX: number; pressZ: number } {
   const s = place?.side ?? 1
   const x = place ? WRITE_ASIDE.x * s : FRONT_CARD.x
   const z = place ? WRITE_ASIDE.z : FRONT_CARD.z
   // the body is toward +z: the near short edge is at z + d/2
-  return { x, z, s, pressX: x - s * press.side, pressZ: z + WRITE_CARD.d / 2 + press.out }
+  return { x, z, s, pressX: x - s * press.side, pressZ: z + press.back }
 }
 
 /** the line's left end (seat frame x) on the card: 1.2 cm in from its left edge; `dz` moves the rows (lineZ) so the first is 1.5 cm in from its far edge */
@@ -198,7 +200,7 @@ export function wrapHand(side: 'l' | 'r', pose: 'write' | 'cardpost', b: WrapBea
     const s = o.place?.side ?? 1
     const L = lineStart(o.place)
     const r = o.place ? side === (s > 0 ? 'r' : 'l') : side === 'r'
-    // the other hand holds the card's near corner on its side with its fingertips, the palm off the card (#481, #497, #499)
+    // the other hand rests its palm on the desk beside the card (#481, #505)
     const card = writeCard(o.place, o.press)
     const left: HandSpec = { pos: [card.pressX, o.press?.y ?? LEFT_ON_CARD[1], card.pressZ], palm: 'down', curl: 'support' }
     // the pen hand over the pen's tip on the card (the stage puts the hand exactly on the pen it draws, #481)

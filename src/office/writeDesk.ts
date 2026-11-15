@@ -70,7 +70,7 @@ export function penRoll(rig: AgentRig, side: 'l' | 'r', s: 1 | -1): number {
 }
 
 /** the desk top under a world point: the seat's desk and the things baked on it (the card lies on 휴's tablet), or null */
-function deskTop(scene: Object3D, seat: number, at: Vector3): number | null {
+export function deskTop(scene: Object3D, seat: number, at: Vector3): number | null {
   const tops = scene.children.filter((o) => o.name === `desk_${seat}` || o.name.startsWith(`desk_${seat}_`))
   const hit = new Raycaster(new Vector3(at.x, 1.4, at.z), new Vector3(0, -1, 0), 0, 1.4).intersectObjects(tops, true)[0]
   return hit ? hit.point.y : null
