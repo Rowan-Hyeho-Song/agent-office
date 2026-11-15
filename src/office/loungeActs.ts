@@ -495,7 +495,9 @@ export class LoungeActs {
     const u = inp.t - at
     // hugging a pillow now and then (lounge-props.md 3: 0.5 s to the chest, kept while sitting): the pillow by this seat, 60% of the sittings, a second after sitting
     const key = `${rig.id}|${at.toFixed(2)}`
-    const name = goal.spot === 'sofa_2' ? 'prop_pillow_1' : goal.spot === 'sofa_0' || goal.spot === 'sofa_1' ? 'prop_pillow_0' : null
+    // only the pillow within reach of the seat (water.ts REACH 0.75 m): sofa_0's is 0.30 m off, sofa_2's 0.27 m; from the middle seat (sofa_1) both are over
+    // 0.9 m off, so no hug there (#516: the new day plan seats agents there and the hug reached 0.92 m)
+    const name = goal.spot === 'sofa_2' ? 'prop_pillow_1' : goal.spot === 'sofa_0' ? 'prop_pillow_0' : null
     if (!name || hash(key) % 100 >= 60 || u < 1.2 + (hash(key + 'w') % 100) / 100) return
     const info = this.props.info(rig, 'pillow', name)
     if (info?.node.name !== name) return

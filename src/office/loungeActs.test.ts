@@ -17,13 +17,16 @@ const rad = (d: number) => (d * Math.PI) / 180
 
 /** everybody works at their desks but `agent`, who is free and is sent to the act */
 /**
- * #490: a start time at which the agent's own plan hands it no errand (an act, the can, the book, the bowl) for the next 90 s: the act forced here is the only one
- * it runs (its next stay could otherwise start another act right after, cues and all)
+ * #490: a start time at which the agent's own plan hands it no errand (an act, the can, the book, the bowl) for the next 150 s (a run: up to 60 s of the act and
+ * what comes after it, #516): the act forced here is the only one
+ * it runs (its next stay could otherwise start another act right after, cues and all). The plan is read as the run sees it: the others at work
  */
 function quietStart(agent: string) {
+  // as in setup(): everybody else at work (a ping-pong partner at work sends the agent to a solo play, #516)
+  const others = new Set(IDS.filter((x) => x !== agent))
   for (let t = Date.UTC(2026, 10, 9, 5, 0, 0); ; t += 10_000) {
     let quiet = true
-    for (let u = t; u < t + 90_000 && quiet; u += 5_000) quiet = !['fridge', 'dispenser', 'record', 'water', 'books', 'boardgame_solo'].includes(playAt(u, IDS)[agent]?.kind ?? '')
+    for (let u = t; u < t + 150_000 && quiet; u += 5_000) quiet = !['fridge', 'dispenser', 'record', 'water', 'books', 'boardgame_solo'].includes(playAt(u, IDS, others)[agent]?.kind ?? '')
     if (quiet) return t
   }
 }
