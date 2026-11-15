@@ -45,6 +45,15 @@ import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
 import { TrayPile } from './tray'
 
+/**
+ * #559 how far each pressed button goes in, m: the fingertip goes in with it. None is a moving part of the model (the coffee button is baked into the
+ * machine, the taps and the lamp switch are empties): 0, the fingertip stops on the surface (designer: 2–3 mm would not show from 1 m). A button the
+ * model makes movable gets its travel here.
+ */
+export const BUTTON_TRAVEL: Record<string, number> = { coffee_button: 0, water_tap_0: 0, water_tap_1: 0, desk_3_signal: 0, desk_2_lamp_switch: 0, desk_1_turntable: 0 }
+/** #559 the press's tap: the hand 1 mm in and back over 0.08 s as it starts */
+export const PRESS_TAP = { m: 0.001, s: 0.08 }
+
 /** #370 B3b the IN pile squared at the tidy-up: lifted 4 cm, stood 70° on its near edge, tapped down 1.2 cm; the palms 2 mm off its sides (the hand frame 9 mm behind the palm), 2 cm in from its near edge */
 export const PILE_TIDY = { lift: 0.04, standDeg: 70, tap: 0.012, out: 0.002, palm: 0.009, near: 0.02 }
 import { KEYCAP_ROLL, PAPER_READ, SHAPE_TURN, SWATCH, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, hourglassAt, type Touch } from './deskTouch'
@@ -276,7 +285,7 @@ export class PlayStage {
         const tgt = this.target(objName, kind, side)
         if (tgt) this.partner(rig, kind, side, tgt, this.lastObjPose, primary)
       },
-      button: (rig, name, u, inp, holdS, depth) => this.button(rig, name, u, inp, holdS, depth),
+      button: (rig, name, u, inp, holdS) => this.button(rig, name, u, inp, holdS),
       arrivedAt: (id) => this.arrivedAt.get(id),
       // #457 a drink that has faded out of the hand: nothing carries it home (it is back on its shelf, hidden), the hand is free at once
       drop: (rig, side, objName) => {
@@ -1828,12 +1837,12 @@ export class PlayStage {
     const { kind, u } = tc
     const want = u < TOUCH_S[kind].back
     const node = (name: string) => this.sceneRef.getObjectByName(name)
-    if (kind === 'signal') this.button(rig, 'desk_3_signal', u, inp, 0.1, 0, want)
-    else if (kind === 'lamp') this.button(rig, 'desk_2_lamp_switch', u - (TOUCH_S.lamp.at - 0.5), inp, 0.12, 0, want)
+    if (kind === 'signal') this.button(rig, 'desk_3_signal', u, inp, 0.1, want)
+    else if (kind === 'lamp') this.button(rig, 'desk_2_lamp_switch', u - (TOUCH_S.lamp.at - 0.5), inp, 0.12, want)
     else if (kind === 'turntable') {
       const c = node('desk_1_turntable_rim_contact_index')
       const tt = node('desk_1_turntable')
-      if (u < 1.0 || !c || !tt) this.button(rig, 'desk_1_turntable', Math.min(u, 0.95), inp, 0.12, 0, true)
+      if (u < 1.0 || !c || !tt) this.button(rig, 'desk_1_turntable', Math.min(u, 0.95), inp, 0.12, true)
       else {
         // the index on the rim, carried round with the push (the contact rests where the platter is unturned)
         const k = inp.reduced ? (u >= TURNTABLE_PUSH.from ? 1 : 0) : ease(Math.min(1, Math.max(0, (u - TURNTABLE_PUSH.from) / TURNTABLE_PUSH.s)))
@@ -2040,13 +2049,19 @@ export class PlayStage {
     return true
   }
 
-  private button(rig: AgentRig, name: string, u: number, inp: StageIn, holdS = 0.1, depth = 0.012, want = true) {
+  /**
+   * The right index fingertip pressing `name`'s contact (grips.md 버튼): on its surface, pressed between 0.5 s and 0.5 + holdS into it by the button's
+   * own travel (BUTTON_TRAVEL, #559: the fingertip goes in with the button and no further, never into the case around it) and, as the press starts,
+   * the whole hand 1 mm closer for 0.08 s (designer: the tap reads with the index's curl +0.07).
+   */
+  private button(rig: AgentRig, name: string, u: number, inp: StageIn, holdS = 0.1, want = true) {
     const contact = this.sceneRef.getObjectByName(`${name}_contact_index`)
     if (!contact) return
     const P = new Vector3().setFromMatrixPosition(contact.matrixWorld)
     const n = contactNormal(this.sceneRef, contact) // out of the button, toward the hand
     const pressed = u > 0.5 && u < 0.5 + holdS
-    this.indexOn(rig, P, n, pressed ? depth : 0, pressed, inp, want)
+    const tap = pressed && !inp.reduced && u - 0.5 < PRESS_TAP.s ? PRESS_TAP.m * Math.sin((Math.PI * (u - 0.5)) / PRESS_TAP.s) : 0
+    this.indexOn(rig, P, n, pressed ? (BUTTON_TRAVEL[name] ?? 0) + tap : 0, pressed, inp, want)
   }
 
   /**
@@ -2077,7 +2092,8 @@ export class PlayStage {
     // and for 0.15 s after it has it, it comes the last 6 mm down onto it (the arm catches up without going into it)
     const since = clock.attachedAt == null ? 0 : (inp.t - clock.attachedAt) / 0.15
     const settle = out.stage === 'approach' || out.stage === 'rest' ? 1 : 1 - ease(Math.min(1, Math.max(0, since)))
-    const origin = P.clone().addScaledVector(n, press + 0.02 * (1 - out.wHand) + 0.006 * settle).sub(tip.clone().applyMatrix4(new Matrix4().extractRotation(basis)))
+    // (#559) `press` is into the surface: n is out of it, toward the hand
+    const origin = P.clone().addScaledVector(n, -press + 0.02 * (1 - out.wHand) + 0.006 * settle).sub(tip.clone().applyMatrix4(new Matrix4().extractRotation(basis)))
     const target = basis.clone().setPosition(origin)
     const curl = [0, 1, 2, 3, 4, 5].map((k) => spec.pre[k] * out.mix[0] + (k === 0 ? c1 : spec.hold[k]) * out.mix[1] + spec.after[k] * out.mix[2])
     rig.drive.r = { target, w: out.wHand, curl, wc: out.wCurl, spread: null }

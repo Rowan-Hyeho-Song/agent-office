@@ -91,7 +91,7 @@ export interface StageHooks {
   /** the other hand of a two-handed hold, following the primary hand's object pose (the last grip() call's) */
   partner(rig: AgentRig, kind: string, side: 'l' | 'r', objName: string, primary: 'l' | 'r'): void
   /** the index fingertip on a contact `<name>_contact_index`, pressed for `holdS` from u = 0.5, `depth` deep */
-  button(rig: AgentRig, name: string, u: number, inp: StageIn, holdS?: number, depth?: number): void
+  button(rig: AgentRig, name: string, u: number, inp: StageIn, holdS?: number): void
   /** when the agent reached its goal's spot (the scene clock), if it has */
   arrivedAt(id: string): number | undefined
   /** #457 the hand lets go of a prop that is gone from it (faded out): nothing is carried back, the hand's grip starts over */
@@ -451,7 +451,7 @@ export class LoungeActs {
 
   private dispenserHands(rig: AgentRig, u: number, inp: StageIn) {
     const seat = Number(rig.id.split('_')[1])
-    this.hooks.button(rig, `water_tap_${seat % 2}`, u, inp, DISPENSER.pourS, 0.01)
+    this.hooks.button(rig, `water_tap_${seat % 2}`, u, inp, DISPENSER.pourS)
     const tap = this.scene.getObjectByName(`water_tap_${seat % 2}`)
     if (tap && u >= DISPENSER_T.press && u < DISPENSER_T.release) {
       const tip = tap.getWorldPosition(new Vector3()).add(new Vector3(-0.03, -0.02, 0))
@@ -491,7 +491,7 @@ export class LoungeActs {
       rig.glance = { at: platter.clone().setY(0.9), max: 0.8 }
     } else if (u >= b.arm0 && u < b.down + 0.15) {
       // the right hand on the headshell's lift handle: the arm follows it (armK below), the hand follows the arm
-      this.hooks.button(rig, 'turntable_arm', 0.55, inp, 10, 0.004)
+      this.hooks.button(rig, 'turntable_arm', 0.55, inp, 10)
       const p = this.platter?.getWorldPosition(new Vector3())
       if (p) rig.glance = { at: p.setY(0.9), max: 0.8 }
     }
