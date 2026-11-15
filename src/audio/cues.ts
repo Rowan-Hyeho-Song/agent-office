@@ -699,6 +699,20 @@ export const CUES = {
       noise(o, 0.45, { freq: 7000, q: 1.5, level: 0.004, shape: 'swell' })
     },
   },
+  // #137 방문자 놀이 (play.md 표 '소리'): 경기가 끝나면 이긴 쪽 자리에서 한 번. 결재 승인(approve)과 같은 결, 작고 짧게
+  'match.win': {
+    label: '방문자 경기 끝 (이긴 쪽)',
+    kind: 'ui',
+    bus: 'sfx',
+    spatial: true,
+    gap: 1000,
+    length: 0.5,
+    // approve's rising triangle arpeggio made small: A4 · C5 · E5 (A minor pentatonic, on the music) 0.07 s apart, a little echo on the last
+    play: (o) => {
+      ;[69, 72].forEach((n, i) => tone(o, midi(n), 0.12, { level: 0.03, at: i * 0.07 }))
+      tone(o, midi(76), 0.22, { level: 0.03, at: 0.14, echo: true })
+    },
+  },
   'note.pin': {
     label: '쪽지가 게시판에 붙음',
     kind: 'ui',

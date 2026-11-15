@@ -131,7 +131,7 @@ describe('cues', () => {
     expect(CUES['water.drip'].length).toBeLessThan(CUES.water.length)
   })
   it('#4 visitor cues are ui (kept at every replay speed) and in the room', () => {
-    for (const n of ['treat.arrive', 'cheer', 'note.pin'] as const) {
+    for (const n of ['treat.arrive', 'cheer', 'note.pin', 'match.win'] as const) {
       expect(CUES[n].kind).toBe('ui')
       expect(CUES[n].spatial).toBe(true)
     }
