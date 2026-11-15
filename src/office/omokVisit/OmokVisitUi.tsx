@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { N } from '../../play/omok'
 import { STRENGTHS, STRENGTH_NAME, idleLeft, statusLine, type Strength } from '../../play/visitorOmok'
 import { AGENT_INFO, officeNow, type OfficeWorld } from '../world'
+import { tagOnScreen } from './pose'
 import {
   closeOmok, getOmokVisit, moveCursor, omokCanUndo, openOmok, placeOmok, restartOmok, setCursor, strengthOmok, touchOmok, undoOmok, useOmokVisit, viewName,
   visitorMayPlace,
@@ -23,6 +24,7 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
   const v = useOmokVisit()
   const [, tick] = useState(0)
   const grid = useRef<HTMLDivElement>(null)
+  const tagEl = useRef<HTMLButtonElement>(null)
   const [said, setSaid] = useState('')
   const lastMoves = useRef(0)
   const open = v.phase !== 'closed'
@@ -111,7 +113,8 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
         <button
           type="button"
           className="omok-tag"
-          style={{ left: v.tag.x, top: v.tag.y }}
+          ref={tagEl}
+          style={tagOnScreen(v.tag.x, v.tag.y, tagEl.current?.offsetWidth ?? 96, tagEl.current?.offsetHeight ?? 28, window.innerWidth)}
           aria-label={`같이 두기 · ${wa(shortName(v.tag.agent))} 오목`}
           onClick={sit}
         >

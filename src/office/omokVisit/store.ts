@@ -124,6 +124,13 @@ export function restartOmok(now: number) {
 export const strengthOmok = (s: Strength, now: number) => !!state.game && take(setStrength(state.game, s, now))
 /** the agent is called to work: "일하러 가야 해요!" and the game ends (중단) */
 export const workOmok = (now: number) => !!state.game && !state.game.end && take(endGame(state.game, 'work', now))
+/** the debug probe and tests: a game in progress put on the board as it is (only while seated), e.g. a position near its end for the end scenes */
+export function seedOmok(g: VisitorGame) {
+  if (state.phase === 'closed' || state.phase === 'leaving') return false
+  pending = []
+  set({ ...state, game: g, preview: null, armed: null })
+  return true
+}
 export const visitorMayPlace = () => !!state.game && state.phase === 'open' && visitorTurn(state.game)
 
 /** the keyboard cursor: arrows (dx, dy in the visitor's view: right, up), clamped to the board */

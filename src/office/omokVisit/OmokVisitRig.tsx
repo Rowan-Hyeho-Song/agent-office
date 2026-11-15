@@ -1,6 +1,6 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
-import { CircleGeometry, CylinderGeometry, Mesh, MeshBasicMaterial, Plane, Raycaster, RingGeometry, Vector2, Vector3, type PerspectiveCamera } from 'three'
+import { CircleGeometry, Matrix4, CylinderGeometry, Mesh, MeshBasicMaterial, Plane, Raycaster, RingGeometry, Vector2, Vector3, type PerspectiveCamera } from 'three'
 import type { Expression } from '../faceModel'
 import type { PlayStage } from '../playStage'
 import { isTouring, tour } from '../tourStore'
@@ -11,7 +11,7 @@ import { isBoardOpen } from '../boardView/store'
 import {
   armOmok, closeOmok, drainOmokEvents, getOmokVisit, omokArrived, omokLeft, placeOmok, setOmokPreview, setOmokTag, stepOmok, visitorMayPlace,
 } from './store'
-import { OMOK_VIEW, v3, visitPose, type V3 } from './pose'
+import { OMOK_VIEW, fitView, v3, visitPose, type V3 } from './pose'
 
 // The 3D side of the visitor's omok (#137 ②, play.md 2 · 4 · 8): where the "같이 두기" tag stands (over the empty chair while an agent places a
 // record alone), the camera flown to behind the visitor's chair (55° down onto the board, about 60% of the screen's height, the agent's head and
@@ -128,6 +128,44 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
     }
   }, [gl, camera, world])
 
+  /**
+   * #137 B (designer): the wide screen's view fitted to this screen: the agent's face screen and the board's near edge measured from a trial camera
+   * (pose.ts fitView); a phone keeps its own (OMOK_VIEW.fillNarrow)
+   */
+  const fit = (agent: string | null) => {
+    const st = stage()
+    const g = st?.omokGrid
+    const seat = world.graph?.spots.game_b
+    const face = agent ? scene.getObjectByName(`${agent}_face`) : undefined
+    if (!g || !seat || !face || camera.aspect < 1) return undefined
+    const center = new Vector3(g.o.x + ((g.n - 1) / 2) * g.cell, g.o.y, g.o.z + ((g.n - 1) / 2) * g.cell)
+    // the face screen's corners with the head upright at its rest (it bows over the board and looks up at the visitor by turns: fitted upright, the
+    // face screen is never cut, and sits lower while the head is bowed)
+    const rig = agent ? world.rigs[agent] : undefined
+    const pos = (face as Mesh).geometry?.getAttribute('position')
+    if (!rig || !pos) return undefined
+    const head = rig.parts.head
+    rig.parts.root.updateMatrixWorld(true)
+    const faceInHead = new Matrix4().copy(head.matrixWorld).invert().multiply(face.matrixWorld)
+    const restHead = new Matrix4().copy(rig.parts.root.matrixWorld).multiply(new Matrix4().makeTranslation(head.position.x, rig.parts.headRestY + rig.seatLift, head.position.z))
+    const toWorld = restHead.multiply(faceInHead)
+    const corners = Array.from({ length: pos.count }, (_, i) => new Vector3().fromBufferAttribute(pos, i).applyMatrix4(toWorld))
+    const d = new Vector3(seat.x - center.x, 0, seat.z - center.z).normalize()
+    const half = ((g.n - 1) / 2 + 1.3) * g.cell
+    // the board's near edge: a cell and a bit past the grid's near row, at the board's foot
+    const near = new Vector3(center.x + d.x * half, g.o.y - 0.025, center.z + d.z * half)
+    const trial = camera.clone()
+    const h = live.current.size.height
+    const sy = (p: Vector3) => ((1 - p.clone().project(trial).y) / 2) * h
+    return fitView((view) => {
+      const p = visitPose(center, seat, g.n * g.cell, camera.fov, camera.aspect, view)
+      trial.position.set(...p.position)
+      trial.lookAt(...p.target)
+      trial.updateMatrixWorld(true)
+      return { faceTop: Math.min(...corners.map(sy)), nearEdge: sy(near) }
+    }, h)
+  }
+
   useFrame((state) => {
     const st = stage()
     const g = st?.omokGrid
@@ -165,7 +203,7 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
         c.maxDistance = 100
         c.minPolarAngle = 0
         c.maxPolarAngle = Math.PI
-        const pose = visitPose(center, seat, g!.n * g!.cell, camera.fov, camera.aspect)
+        const pose = visitPose(center, seat, g!.n * g!.cell, camera.fov, camera.aspect, fit(v.agent))
         run.current = { kind: 'in', t0: performance.now(), dur: prefersReducedMotion() ? 0 : OMOK_VIEW.flightMs, fromP: v3(camera.position), fromT: v3(c.target), toP: pose.position, toT: pose.target }
       }
       if (v.phase === 'leaving' && run.current?.kind !== 'out') {
