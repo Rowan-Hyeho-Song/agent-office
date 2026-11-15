@@ -15,6 +15,7 @@ import type { StatusMap } from './status'
 import type { WaterStage } from './waterRun'
 import { TrafficPlanner } from './traffic'
 import { PATH_BLOCKERS, REACH } from './water'
+import type { Touch } from './deskTouch'
 
 export { REACH }
 
@@ -193,6 +194,8 @@ export const office = () => new TrafficPlanner(buildGrid(decodeFootprint(FOOTPRI
 export class Walk {
   /** #455 the treats in a hand (office ms), as TreatRig.tsx sets them */
   treats: Record<string, { kind: 'coffee' | 'cookie' | 'apple'; at: number }> = {}
+  /** #370 A the desk touches under way (deskTouch.ts), as Agents.tsx gives them */
+  touches: Record<string, Touch> = {}
   readonly director = new Director(IDS)
   readonly planner = office()
   /** everyone idle (resting: the schedule plays) unless the caller says otherwise */
@@ -237,7 +240,7 @@ export class Walk {
     }
     // where the white bowl rests, as Agents.tsx gives it (#502: without it the stage kept it at home, a put at the corner slid it back home and the next
     // errand took it from 0.9 m)
-    w.stage.update({ now, t: this.t, dt, reduced: this.reduced, replaying: false, rigs: w.rigs, goals: this.goals, status: this.status, tablet: false, stamp: false, colors: {}, bowlRest: this.director.bowlRest(), treats: this.treats })
+    w.stage.update({ now, t: this.t, dt, reduced: this.reduced, replaying: false, rigs: w.rigs, goals: this.goals, status: this.status, tablet: false, stamp: false, colors: {}, bowlRest: this.director.bowlRest(), treats: this.treats, touches: this.touches })
     this.before?.(this.t)
     w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
     w.props.update(dt)
