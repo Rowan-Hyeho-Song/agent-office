@@ -12,9 +12,9 @@
 import { hash } from './play'
 import type { DeskProps } from './props'
 
-export type TouchKind = 'signal' | 'lamp' | 'turntable' | 'knob' | 'calendar' | 'hourglass' | 'duck' | 'keycap' | 'shape' | 'swatch' | 'paper' | 'leaf' | 'headphones'
+export type TouchKind = 'signal' | 'lamp' | 'turntable' | 'knob' | 'calendar' | 'hourglass' | 'duck' | 'keycap' | 'shape' | 'swatch' | 'paper' | 'leaf' | 'headphones' | 'mixer' | 'snap'
 
-export const TOUCH_SEAT: Record<TouchKind, number> = { signal: 3, lamp: 2, turntable: 1, knob: 1, calendar: 0, hourglass: 0, duck: 3, keycap: 3, shape: 1, swatch: 2, paper: 0, leaf: 2, headphones: 4 }
+export const TOUCH_SEAT: Record<TouchKind, number> = { signal: 3, lamp: 2, turntable: 1, knob: 1, calendar: 0, hourglass: 0, duck: 3, keycap: 3, shape: 1, swatch: 2, paper: 0, leaf: 2, headphones: 4, mixer: 4, snap: 4 }
 
 /**
  * Each touch's times, s from its start: `len` the whole (the hand back at its end), `at` when its effect happens (the press, the page let go, the
@@ -48,7 +48,16 @@ export const TOUCH_S: Record<TouchKind, { len: number; at: number; back: number 
   // #370 C2 에코 listens with one cup: the headphones by the headband to the right ear (0.6–1.3 s), the cup swivelled to the head (1.0–1.4 s), listened
   // to until 3.6 s, the cup back (3.6–3.9 s), put back where they rest by 4.3 s
   headphones: { len: 4.8, at: 1.3, back: 4.3 },
+  // #370 C4 에코 at its mixer as the speaker goes on or off: the right index and middle push fader_0 (0.4–0.9 s), the left twists knob_0 0.15 s after
+  mixer: { len: 1.5, at: 0.4, back: 1.05 },
+  // #370 C4 (agents.md 2.11) 에코's finger snap as its tidy-up starts: the hand up 0.2 s, the middle flicked 0.08 s, down 0.2 s
+  snap: { len: 0.55, at: 0.28, back: 0.28 },
 }
+
+/** #370 C4 the mixer: the fader pushed (s from the touch), the knob twisted (the left hand `lag` later), and how the fader goes back to the level after */
+export const MIXER = { push: [0.4, 0.9], lag: 0.15, twistDeg: 45, settleS: 0.3 } as const
+/** #370 C4 the snap (agents.md 2.11): up, the flick (the middle 0.6 → 0.9), down; the hand beside the face screen, 12 cm out */
+export const SNAP = { up: 0.2, flick: [0.2, 0.28], down: [0.28, 0.48], out: 0.12 } as const
 
 /** #370 C3 the succulent's strokes (s from the touch's start) and how far the leaf gives under the finger (its baked sway_deg at the stroke's middle) */
 export const LEAF_STROKE = { strokes: [[0.6, 1.2], [1.5, 2.1]], deg: 6 } as const
@@ -130,6 +139,10 @@ export interface TouchIn {
   awake: (seat: number) => boolean
   /** it is working */
   working: (seat: number) => boolean
+  /** #370 C4 the speaker plays (audio/speaker.ts speakerOn) */
+  speaker?: boolean
+  /** #370 C4 its wrap-up is at the tidy-up */
+  tidying?: (seat: number) => boolean
 }
 
 export interface Touch {
@@ -153,6 +166,10 @@ export interface TouchShown {
   calendarPage: number | null
   /** #370 B2 the swatch fan spread past its rest: 0 (as baked) .. 1 (each chip twice its rest angle) */
   swatchSpread: number
+  /** #370 C4 fader_0 under the hand: how far its push is (0..1) and which way (1 up: the music on, 0 down), or null */
+  faderPush: { k: number; dir: number } | null
+  /** #370 C4 knob_0 twisted by the hand, degrees (0..45), or null */
+  knobTwist: number | null
   /** #370 C3 the succulent's front leaf giving under the finger, degrees about its own x */
   leafSway: number
   /** #370 C2 the headphones' near cup swivelled on its yoke, degrees */
@@ -176,6 +193,8 @@ export class DeskTouches {
   private knobDir = 1
   /** the duck's line now (DUCK_LINES), and the hands' clock last stepped (the bubble) */
   private duckLine = -1
+  private speakerWas: boolean | null = null
+  private tidyWas = false
   private lastT = 0
 
   /** a seek: forget the edges (nothing is touched for what was jumped over) */
@@ -219,6 +238,16 @@ export class DeskTouches {
     if (this.cur.get(2)?.kind !== 'lamp') this.lamp = desk.lamp
     // a new day: shown once the planner has turned the page (it is not turned for it)
     if (dayKey(desk.calendar) !== dayKey(this.calendar) && free(0) && i.awake(0)) start('calendar')
+    // #370 C4 the speaker goes on or off while 에코 sits at its desk: the mixer under its hands (the direction in k: 1 on, 0 off); its tidy-up starting:
+    // the snap
+    if (this.speakerWas !== null && i.speaker !== undefined && i.speaker !== this.speakerWas && free(TOUCH_SEAT.mixer)) {
+      start('mixer')
+      this.cur.get(TOUCH_SEAT.mixer)!.k = i.speaker ? 1 : 0
+    }
+    if (i.speaker !== undefined) this.speakerWas = i.speaker
+    const tidy = i.tidying?.(TOUCH_SEAT.snap) ?? false
+    if (tidy && !this.tidyWas && free(TOUCH_SEAT.snap)) start('snap')
+    this.tidyWas = tidy
     // the habits at their seeded times this hour
     const hourMs = 3_600_000
     for (const kind of ['turntable', 'knob', 'keycap', 'shape', 'swatch', 'paper', 'leaf', 'headphones'] as const) {
@@ -323,6 +352,7 @@ export class DeskTouches {
       swatchSpread: swatchSpread(u('swatch'), reduced),
       leafSway: leafAt(u('leaf'), reduced).sway,
       cupSwivel: cupSwivel(u('headphones'), reduced),
+      ...mixerAt(u('mixer'), this.cur.get(TOUCH_SEAT.mixer)?.k ?? 1, reduced),
     }
   }
 }
@@ -365,4 +395,14 @@ export function swatchSpread(u: number | null, reduced: boolean): number {
   const [a, b] = SWATCH.open
   const [c, d] = SWATCH.close
   return u < c ? ease((u - a) / (b - a)) : 1 - ease((u - c) / (d - c))
+}
+
+/** #370 C4 what the mixer touch moves at `u` s: the fader's push (0..1, `dir`) and the knob's twist (degrees), or nothing */
+export function mixerAt(u: number | null, dir: number, reduced: boolean): Pick<TouchShown, 'faderPush' | 'knobTwist'> {
+  if (u === null) return { faderPush: null, knobTwist: null }
+  const e = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x))
+  const [a, b] = MIXER.push
+  const k = reduced ? (u >= a ? 1 : 0) : e((u - a) / (b - a))
+  const t = reduced ? (u >= a + MIXER.lag ? 1 : 0) : e((u - a - MIXER.lag) / (b - a))
+  return { faderPush: u <= b + 0.05 ? { k, dir } : null, knobTwist: u <= b + MIXER.lag + 0.05 ? MIXER.twistDeg * t : null }
 }
