@@ -1,4 +1,4 @@
-import { Object3D, Quaternion, Vector3 } from 'three'
+import { Box3, Object3D, Quaternion, Vector3 } from 'three'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadOffice } from './glbLoad'
 import { LiveAxis, axisOf } from './liveAxis'
@@ -96,3 +96,34 @@ describe('ECHO\'s mixer (office.glb)', () => {
     }
   })
 })
+
+// #493: the hourglass turns about its middle; its plates' corners swung 8 mm below where it stands, into the felt coaster baked under it (#498)
+describe('the hourglass turning over on its coaster (#493)', () => {
+  it('never goes below where it rests: lifted by as much as a plain turn would sink it, not at all upright or upside down', async () => {
+    const { nodes, scene } = await loadOffice()
+    scene.updateMatrixWorld(true)
+    const hg = nodes.desk_0_hourglass
+    const low = () => {
+      hg.updateMatrixWorld(true)
+      return new Box3().setFromObject(hg, true).min.y
+    }
+    const rest = low()
+    const live = new LiveAxis(hg, new Vector3(1, 0, 0))
+    // what it did: a plain turn at 30° sinks the plates
+    live.turn(Math.PI / 6)
+    expect(rest - low(), 'a plain turn sinks it (the bug)').toBeGreaterThan(0.005)
+    let worst = -Infinity
+    for (let a = -0.3; a < Math.PI * 4; a += 0.0123) {
+      live.turnResting(a)
+      worst = Math.max(worst, rest - low())
+      // lifted, never pushed down
+      expect(hg.position.y).toBeGreaterThanOrEqual(live.rest.y - 1e-9)
+    }
+    expect(worst, 'never below its rest (0.1 mm)').toBeLessThan(0.0001)
+    for (const a of [0, Math.PI, 2 * Math.PI]) {
+      live.turnResting(a)
+      expect(hg.position.distanceTo(live.rest), `no lift at ${a.toFixed(2)}`).toBeLessThan(0.0002)
+    }
+  })
+})
+
