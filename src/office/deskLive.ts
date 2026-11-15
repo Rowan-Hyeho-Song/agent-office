@@ -104,6 +104,8 @@ export class DeskLive {
   private chips: { live: LiveAxis; rest: number }[] = []
   /** #370 C3 the succulent's front leaf (a baked node with its pivot at the stem), swayed about its own x as it is stroked */
   private leaf: LiveAxis | undefined
+  /** #370 C2 the headphones' near cup: a child of the headphones (it goes where they go), swivelled on its yoke */
+  private cup: LiveAxis | undefined
   private spin = 0
 
   constructor(nodes: Record<string, Object3D>) {
@@ -120,6 +122,17 @@ export class DeskLive {
     if (pg) this.page = { live: new LiveAxis(pg, new Vector3(1, 0, 0)), sign: Number(pg.userData.flip_sign) || 1 }
     const lf = n('succulent_leaf')
     if (lf) this.leaf = new LiveAxis(lf, new Vector3(1, 0, 0))
+    const hp = n('prop_headphones')
+    const cup = n('prop_headphones_cup')
+    if (hp && cup) {
+      if (cup.parent !== hp) {
+        hp.updateWorldMatrix(true, false)
+        cup.updateWorldMatrix(true, false)
+        hp.attach(cup)
+        delete cup.userData.liveRest
+      }
+      this.cup = new LiveAxis(cup, new Vector3(0, 1, 0))
+    }
     for (let k = 0; k < 4; k++) {
       const c = n(`desk_2_swatch_leaf_${k}`)
       if (c) this.chips.push({ live: new LiveAxis(c, new Vector3(0, 0, 1)), rest: Number(c.userData.rest_deg) || 0 })
@@ -200,6 +213,7 @@ export class DeskLive {
     }
     this.knob?.turn(touch?.knobTurn ?? 0)
     this.leaf?.turn(((touch?.leafSway ?? 0) * Math.PI) / 180)
+    this.cup?.turn(((touch?.cupSwivel ?? 0) * Math.PI) / 180)
     // the swatch spread by the designer's hand: each chip as far again past its rest
     for (const c of this.chips) c.live.turn(((c.rest * (touch?.swatchSpread ?? 0)) * Math.PI) / 180)
     if (this.page) {

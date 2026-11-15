@@ -12,9 +12,9 @@
 import { hash } from './play'
 import type { DeskProps } from './props'
 
-export type TouchKind = 'signal' | 'lamp' | 'turntable' | 'knob' | 'calendar' | 'hourglass' | 'duck' | 'keycap' | 'shape' | 'swatch' | 'paper' | 'leaf'
+export type TouchKind = 'signal' | 'lamp' | 'turntable' | 'knob' | 'calendar' | 'hourglass' | 'duck' | 'keycap' | 'shape' | 'swatch' | 'paper' | 'leaf' | 'headphones'
 
-export const TOUCH_SEAT: Record<TouchKind, number> = { signal: 3, lamp: 2, turntable: 1, knob: 1, calendar: 0, hourglass: 0, duck: 3, keycap: 3, shape: 1, swatch: 2, paper: 0, leaf: 2 }
+export const TOUCH_SEAT: Record<TouchKind, number> = { signal: 3, lamp: 2, turntable: 1, knob: 1, calendar: 0, hourglass: 0, duck: 3, keycap: 3, shape: 1, swatch: 2, paper: 0, leaf: 2, headphones: 4 }
 
 /**
  * Each touch's times, s from its start: `len` the whole (the hand back at its end), `at` when its effect happens (the press, the page let go, the
@@ -45,6 +45,9 @@ export const TOUCH_S: Record<TouchKind, { len: number; at: number; back: number 
   paper: { len: 4.6, at: 0.6, back: 4.0 },
   // #370 C3 휴 strokes the succulent's front leaf twice with an index fingertip (0.6–1.2 s, 1.5–2.1 s), the leaf giving under it
   leaf: { len: 2.7, at: 0.6, back: 2.2 },
+  // #370 C2 에코 listens with one cup: the headphones by the headband to the right ear (0.6–1.3 s), the cup swivelled to the head (1.0–1.4 s), listened
+  // to until 3.6 s, the cup back (3.6–3.9 s), put back where they rest by 4.3 s
+  headphones: { len: 4.8, at: 1.3, back: 4.3 },
 }
 
 /** #370 C3 the succulent's strokes (s from the touch's start) and how far the leaf gives under the finger (its baked sway_deg at the stroke's middle) */
@@ -61,6 +64,23 @@ export function leafAt(u: number | null, reduced: boolean): { sway: number; k: n
 }
 
 /**
+ * #370 C2 (designer, grips.md 헤드폰 한쪽): the headphones held by the headband beside the head, their cup axis turned `tiltDeg` out from the head's side
+ * (designer: the far cup about 5 cm off it, 4–8 cm), the near cup (prop_headphones_cup, -x) swivelled `swivelDeg` on its yoke so its cushion faces the head (within ±20°),
+ * its cushion on the ear. Times: the cup swivels in over `swivelIn`, back over `swivelOut`.
+ */
+export const HEADPHONES = { tiltDeg: 17, swivelDeg: 90, swivelIn: [1.0, 1.4], swivelOut: [3.6, 3.9] } as const
+
+/** the near cup's swivel at `u` s of the touch, degrees (none with reduced motion: the cup turns at once) */
+export function cupSwivel(u: number | null, reduced: boolean): number {
+  if (u === null) return 0
+  const [a, b] = HEADPHONES.swivelIn
+  const [c, d] = HEADPHONES.swivelOut
+  if (reduced) return u >= a && u < d ? HEADPHONES.swivelDeg : 0
+  const e = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x))
+  return HEADPHONES.swivelDeg * (u < c ? e((u - a) / (b - a)) : 1 - e((u - c) / (d - c)))
+}
+
+/**
  * the top sheet's reading (designer: as a sheet handed over is read, grips.md 낱장 옆 쥐고 읽기): taken by its corner at 0.6 s and lifted to 1.2 s; as
  * it comes up (0.8–1.0 s) the right hand slides to the right long side and the left takes the left one; read 55° up toward the face until 3.4 s; the
  * right hand back to the corner (3.4–3.6 s) as the left lets go, laid back squared by 4.0 s
@@ -68,7 +88,7 @@ export function leafAt(u: number | null, reduced: boolean): { sway: number; k: n
 export const PAPER_READ = { take: [0.6, 1.2], sides: [0.8, 1.0], unside: [3.4, 3.6], put: [3.4, 4.0], tiltDeg: 55 } as const
 
 /** #370 B the props taken (their nodes) */
-export const TOUCH_PROP: Partial<Record<TouchKind, string>> = { duck: 'prop_duck', keycap: 'prop_keycap_0', shape: 'prop_shape_1' }
+export const TOUCH_PROP: Partial<Record<TouchKind, string>> = { duck: 'prop_duck', keycap: 'prop_keycap_0', shape: 'prop_shape_1', headphones: 'prop_headphones' }
 /** #370 B (designer): what 루프 says to its duck, one picked by the failure's time, never the same twice running */
 export const DUCK_LINES = ['오리 씨, 한 줄씩 볼게요.', '여기까진 맞죠? 그럼 여기서…', '이 값이 왜 비어 있을까요.', '다시 돌려 볼게요. 지켜봐 주세요.', '아, 말하다 보니 알겠네요.']
 export const DUCK_BUBBLE = { from: 1.0, to: 3.6 }
@@ -94,6 +114,7 @@ export const HABIT_PER_HOUR: Partial<Record<TouchKind, { work: number; rest: num
   swatch: { work: 3, rest: 0 },
   paper: { work: 4, rest: 0 },
   leaf: { work: 0, rest: 2 },
+  headphones: { work: 1, rest: 0 },
 }
 export const NO_REPEAT_S = 120
 
@@ -134,6 +155,8 @@ export interface TouchShown {
   swatchSpread: number
   /** #370 C3 the succulent's front leaf giving under the finger, degrees about its own x */
   leafSway: number
+  /** #370 C2 the headphones' near cup swivelled on its yoke, degrees */
+  cupSwivel: number
 }
 
 const ease = (k: number) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k))
@@ -198,11 +221,24 @@ export class DeskTouches {
     if (dayKey(desk.calendar) !== dayKey(this.calendar) && free(0) && i.awake(0)) start('calendar')
     // the habits at their seeded times this hour
     const hourMs = 3_600_000
-    for (const kind of ['turntable', 'knob', 'keycap', 'shape', 'swatch', 'paper', 'leaf'] as const) {
+    for (const kind of ['turntable', 'knob', 'keycap', 'shape', 'swatch', 'paper', 'leaf', 'headphones'] as const) {
       const seat = TOUCH_SEAT[kind]
       const working = i.working(seat)
       // the turntable while it bakes; the knob and the shape while it works and does not bake; the keycap and the shape while it rests awake too
-      const on = kind === 'turntable' ? desk.turntable : kind === 'knob' ? working && !desk.turntable : kind === 'shape' ? i.awake(seat) && !desk.turntable : kind === 'swatch' ? working : kind === 'paper' ? working && desk.inbox > 0 : kind === 'leaf' ? i.awake(seat) && !working : i.awake(seat)
+      const on =
+        kind === 'turntable'
+          ? desk.turntable
+          : kind === 'knob'
+            ? working && !desk.turntable
+            : kind === 'shape'
+              ? i.awake(seat) && !desk.turntable
+              : kind === 'swatch' || kind === 'headphones'
+                ? working
+                : kind === 'paper'
+                  ? working && desk.inbox > 0
+                  : kind === 'leaf'
+                    ? i.awake(seat) && !working
+                    : i.awake(seat)
       if (!on || !free(seat) || !(i.now > this.prevNow)) continue
       const last = this.lastStart.get(kind)
       if (last !== undefined && t - last < NO_REPEAT_S) continue
@@ -286,6 +322,7 @@ export class DeskTouches {
       calendarPage: calendarPage(u('calendar'), reduced),
       swatchSpread: swatchSpread(u('swatch'), reduced),
       leafSway: leafAt(u('leaf'), reduced).sway,
+      cupSwivel: cupSwivel(u('headphones'), reduced),
     }
   }
 }

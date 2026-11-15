@@ -210,4 +210,9 @@ export const GRIP_OFFSETS: Record<string, readonly number[]> = {
   'desk_1_ringlight_knob:r:2': [-0.024, -0.0029438, -0.00433831, -0.35362764, -0.02816, 0.4],
   'desk_1_ringlight_knob:r:3': [-0.02400781, -0.00777589, -0.00008696, -0.39958364, 0.04312187, 0.4],
   'desk_1_ringlight_knob:r:4': [-0.024, -0.00311193, -0.00391113, -0.36102471, -0.02566, 0.4],
+  'prop_headphones_cup:r:0': [0, 0, 0, 0, 0, 0],
+  'prop_headphones_cup:r:1': [0, 0, 0, 0, 0, 0],
+  'prop_headphones_cup:r:2': [0, 0, 0, 0, 0, 0],
+  'prop_headphones_cup:r:3': [0, 0, 0, 0, 0, 0],
+  'prop_headphones_cup:r:4': [0, 0, 0, 0, 0, 0],
 }
