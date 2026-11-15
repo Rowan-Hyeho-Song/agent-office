@@ -700,6 +700,9 @@ def punched(name, base_hex, dot_hex, axes, pitch=0.009, r=0.0028, metal=0.5):
 
 
 # ================================================================ MEMO (seat 0)
+HG_COASTER = 0.0025  # #493: the felt coaster under MEMO's hourglass
+
+
 def seat_memo(G):
     """desk-props.md 3 MEMO: a two-tier wire-mesh tray (punched side / back panels, low front lips, four posts, IN /
     OUT plates), a round ink pad with its hinged lid open 80 deg, a tent calendar with a spiral binding (16 rings of
@@ -819,7 +822,11 @@ def seat_memo(G):
     for k in range(3):
         a = 2 * math.pi * k / 3
         hg.append(lathe("hg_post", post, (0.027 * math.cos(a), 0, 0.027 * math.sin(a)), wood_m, G, seg=8))
-    Hg = Mx((-0.50, h + 0.055, -0.22))
+    # #493: a felt coaster stays baked under it (the hourglass itself is left out of the bake: turned over, it
+    # uncovered its own baked contact shadow as a black hole); the hourglass stands on the coaster, 2.5 mm up
+    s.append(cyl("hg_coaster", 0.040, HG_COASTER, (-0.50, h + HG_COASTER / 2, -0.22), plastic("#2f3238", 0.95, 0, 0.2, "hourglass_coaster"),
+                 G, 24, bev=0.0008))
+    Hg = Mx((-0.50, h + HG_COASTER + 0.055, -0.22))
     L.append(LIVE("desk_0_hourglass", "bot", place(hg, Hg), Hg))
     return s, L, P
 
@@ -3866,7 +3873,7 @@ def build_hands():
     top = h + 0.075 + 0.003 + 5 * 0.003  # MEMO's IN stack, 5 sheets: the top sheet's right front corner
     contact("desk_0_in", "thumb", (tx + 0.095, top, tz + 0.012 + 0.12), (0, 1, 0), M=Fd[0])
     contact("desk_0_in", "index", (tx + 0.095, top - 0.003, tz + 0.012 + 0.12), (0, -1, 0), M=Fd[0])
-    Hg = Fd[0] @ Mx((-0.50, h + 0.055, -0.22))  # the hourglass: palm over the top plate, thumb on a post
+    Hg = Fd[0] @ Mx((-0.50, h + HG_COASTER + 0.055, -0.22))  # the hourglass: palm over the top plate, thumb on a post
     grip_at("desk_0_hourglass", R, (0, 0.07, 0), (0, 0, -1), (0, -1, 0), M=Hg)
     contact("desk_0_hourglass", "palm", (0, 0.055, 0), (0, 1, 0), M=Hg)
     contact("desk_0_hourglass", "thumb", (0.0305, 0.0, 0.0), (1, 0, 0), M=Hg)
@@ -6007,7 +6014,7 @@ scene.render.bake.target = "IMAGE_TEXTURES"
 # shows only as many as there are files)
 for n in NODES:
     nm_ = n["obj"].name  # #280: shelf_r<digit> = the library binders (not shelf_records, baked in lounge2)
-    if nm_.startswith(("agent_", "clock_", "keyrack_key", "window_", "prop_book_", "prop_shelfbook_", "prop_paper_", "omok_stone_", "pp_ball")) or n.get("live") == "prop" \
+    if nm_.startswith(("agent_", "clock_", "keyrack_key", "desk_0_hourglass", "window_", "prop_book_", "prop_shelfbook_", "prop_paper_", "omok_stone_", "pp_ball")) or n.get("live") == "prop" \
             or (nm_.startswith("shelf_r") and nm_[7:8].isdigit()) \
             or (nm_.startswith("desk_") and "_mouse" in nm_) \
             or n["obj"].get("hidden_at_rest"):  # #305: the mouse moves on its pad; #370: hidden at rest (the calendar page)
