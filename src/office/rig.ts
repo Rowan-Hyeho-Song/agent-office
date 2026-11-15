@@ -27,6 +27,7 @@ import { baseExpression, CallTracker, FaceMind, newInput, type FaceInput } from 
 import { WRITE_CARD, wrapBack, wrapHand, wrapHead, type HandSpec } from './wrapPose'
 import { WRAP } from './wrap'
 import { DOOR_ROUND, LEVER } from './doorRound'
+import { BROWSE } from './shelfRun'
 import { isWaiting } from './screens'
 import type { Expression } from './faceModel'
 import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
@@ -59,7 +60,7 @@ import { LIE_POSE } from './lie.data'
 import { musicGlow, speakerCone, speakerOn } from '../audio/speaker'
 
 /** the poses of the play schedule (play.ts PlayKind): what "resting" means (sound.md 5) */
-const RESTING_POSES: ReadonlySet<string> = new Set(['pingpong', 'boardgame', 'coffee', 'sofa', 'water', 'books', 'fridge', 'dispenser', 'record', 'bowl'])
+const RESTING_POSES: ReadonlySet<string> = new Set(['pingpong', 'boardgame', 'coffee', 'sofa', 'water', 'books', 'shelfbook', 'fridge', 'dispenser', 'record', 'bowl'])
 /** the walk (#329): cruising from traffic.ts CRUISE; acceleration, the corner speed and the turn rate keep their proportions to it (tuned at 0.75) */
 const PACE = CRUISE / CRUISE_TUNED
 const SPEED = CRUISE // m/s cruising
@@ -1419,6 +1420,8 @@ export class AgentRig {
     const m = reduced ? 0.3 : this.ambient
     const s = (f: number, o = 0) => Math.sin(t * f + this.phase + o) * m
     const idle = { pitch: 0, yaw: reduced ? 0 : s(0.35) * 0.25, roll: 0 }
+    // #450 browsing the second bookshelf's spines: the head along the rows, ±12° in 6 s; reduced motion: still
+    if (pose === 'idle' && this.goal?.browse) return { pitch: 0.04, yaw: reduced ? 0 : Math.sin((t / BROWSE.periodS) * Math.PI * 2) * BROWSE.yawDeg * (Math.PI / 180), roll: 0 }
     // #490 B a gap (play.md 9.3): the head back with the stretch, breathing at the window, one look left and right after a stroll
     // #451 at the door with the lever: the head straight at the door's screen (0°), no idle glance
     if (pose === 'idle' && (this.goal?.door?.u ?? -1) >= 0) return { pitch: 0, yaw: 0, roll: 0 }

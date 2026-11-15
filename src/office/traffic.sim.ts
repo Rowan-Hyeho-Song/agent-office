@@ -30,6 +30,8 @@ export function mismatch(a: string, sh: Shown | undefined, g: Goal, arrived: str
   if (g.pose === 'books' && g.read && sh.kind !== 'rest') return sh.detail ? null : 'reading errand without its words'
   // #451 the door round: resting it shows as rest; asleep or on night duty it shows the round's words
   if (g.door && sh.kind !== 'rest') return sh.detail ? null : 'door round without its words'
+  // #450 the shelf book: as the reading
+  if (g.pose === 'shelfbook' && g.shelf && sh.kind !== 'rest') return sh.detail ? null : 'shelf book errand without its words'
   switch (sh.kind) {
     case 'work':
       if (s !== 'working' || (g.pose !== 'type' && g.pose !== 'listen') || g.spot !== desk) return 'work: not typing at the desk'
