@@ -60,7 +60,7 @@ describe('the numbers (wrapup.md 7)', () => {
 })
 
 describe('the desk pieces (section 2)', () => {
-  it('2..5 cards of 3..5 lines each, a card ends with the push to the stack, a card takes 6..12 s', () => {
+  it('2..5 cards of 3..5 lines each, a card ends with the push to the stack (the last: the cards are gathered instead, #481), a card takes 6..12 s', () => {
     for (const a of AGENTS)
       for (let since = 0; since < 12; since++) {
         const { beats, cards } = planDesk(a, since, 40)
@@ -71,7 +71,9 @@ describe('the desk pieces (section 2)', () => {
           const lines = own.filter((b) => b.kind === 'line').length
           expect(lines).toBeGreaterThanOrEqual(3)
           expect(lines).toBeLessThanOrEqual(5)
-          expect(own.at(-1)!.kind).toBe('next')
+          // the last card is not pushed to the stack and followed by a new one: the gathering (WRAP.collect) is a step of its own (wrapup.md 9.4)
+          if (k < cards - 1) expect(own.at(-1)!.kind).toBe('next')
+          else expect(own.some((b) => b.kind === 'next')).toBe(false)
           const flourishes = own.filter((b) => ['tapPen', 'strike', 'readUp'].includes(b.kind)).length
           expect(flourishes).toBeLessThanOrEqual(2)
           expect(totalOf(own)).toBeGreaterThanOrEqual(4.5)
@@ -329,8 +331,9 @@ describe('the board is taken (#186)', () => {
   it('goes once the board is free', () => {
     const r = drive('agent_1', (s) => ({ boardTaken: s < 70, boardBusy: s < 70, atBoard: false }), { seconds: 72 })
     const walk = r.steps.find((x) => x.label === WRAP_LABEL.walk)!
-    expect(walk.s).toBeGreaterThanOrEqual(70)
-    expect(walk.s).toBeLessThan(70.3)
+    // the cards are gathered first (0.5 s, wrapup.md 9.4)
+    expect(walk.s).toBeGreaterThanOrEqual(70 + WRAP.collect)
+    expect(walk.s).toBeLessThan(70.3 + WRAP.collect)
   })
 
   it('walking and the board taken: waits (stack in hand, standing by it) for 20 s, then goes back to the desk and tries again at the next free turn', () => {
@@ -395,5 +398,49 @@ describe('the wrap-up ends in rest', () => {
     const run = startWrap('agent_0', 1, 0, true)
     expect(beatsOf(run, 'write')).toBe(run.plan.desk)
     expect(totalOf(beatsOf(run, 'tidy'))).toBeCloseTo(1.6)
+  })
+})
+
+// #481 2단계 (wrapup.md 9.4): the cards are gathered (the pen laid down, the stack onto the palm) before the agent leaves the desk
+describe('gathering the cards (#481, wrapup.md 9.4)', () => {
+  it('0.5 s of gathering on the last card, then the walk with as many cards on the palm as were written', () => {
+    const r = drive('agent_2', calmWorld, { seconds: 120 })
+    const cards = r.run.plan.cards
+    const collect = r.frames.filter((f) => f.kind === 'collect')
+    expect(collect.length, 'about 0.5 s of 100 ms frames').toBeGreaterThanOrEqual(4)
+    expect(collect.length).toBeLessThanOrEqual(6)
+    const first = collect[0].s
+    // the gathering comes right after the last card's last piece, on that card
+    const before = r.frames.filter((f) => f.s < first && f.run.step === 'write')
+    expect(before.at(-1)!.kind).not.toBe('next')
+    const v = viewOf(collect[0].run, { now: first * 1000, boardTaken: false })
+    expect(v.beat).toMatchObject({ kind: 'collect', k: cards - 1 })
+    expect(v.carry).toBe(Math.min(cards, WRAP.cardsMax))
+    // the walk right after, with the cards on the palm
+    const walk = r.steps.find((x) => x.step === 'walk')!
+    expect(walk.s).toBeGreaterThanOrEqual(collect.at(-1)!.s)
+    expect(walk.s - first).toBeCloseTo(WRAP.collect, 0)
+    const w = r.frames.find((f) => f.s === walk.s)!
+    expect(viewOf(w.run, { now: walk.s * 1000, boardTaken: false }).carry, 'cards carried = cards written').toBe(cards)
+  })
+
+  it('the board taken: the desk pieces go round on the top card (no new card), and the cards are gathered when it is free', () => {
+    const run0 = startWrap('agent_1', 1, 0, true)
+    const written = totalOf(run0.plan.desk)
+    const free = written + 30
+    const r = drive('agent_1', (s, run) => ({ boardTaken: s < free, boardBusy: s < free, atDesk: true, atBoard: run.step === 'walk' && s >= free + 4 }), { seconds: free + 10 })
+    const top = r.run.plan.cards - 1
+    const waiting = r.frames.filter((f) => f.s > written + 0.5 && f.s < free)
+    expect(waiting.length).toBeGreaterThan(100)
+    for (const f of waiting) {
+      const v = viewOf(f.run, { now: f.s * 1000, boardTaken: true })
+      expect(v.label).toBe(REREAD_LABEL)
+      expect(v.beat!.kind).not.toBe('next')
+      expect(v.beat!.kind).not.toBe('collect')
+      expect(v.beat!.k, 'the top card').toBe(top)
+    }
+    const collect = r.frames.filter((f) => f.kind === 'collect')
+    expect(collect[0].s).toBeGreaterThanOrEqual(free)
+    expect(collect[0].s).toBeLessThan(free + 0.2)
   })
 })

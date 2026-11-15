@@ -16,7 +16,7 @@ import { callAway, chooseSeat, holding as readHolding, placeOf as readPlace, REA
 import { holding, placeOf, startWater, stepWater, WATER_LABEL, type WaterRun, type WaterStage } from './waterRun'
 import { BOWL_LABEL, bowlHolding, bowlPlace, startBowl, stepBowl, type BowlRun, type BowlStage, type BowlWay } from './bowlRun'
 import { habitFor, type HabitKind } from './waterFx'
-import { startWrap, stepWrap, viewOf, WALKING_TO_DESK, type BeatKind, type PieceKind, type Shown, type WrapRun } from './wrap'
+import { startWrap, stepWrap, viewOf, WALKING_TO_DESK, type BeatKind, type PieceKind, type Shown, type WrapRun, type WrapStep } from './wrap'
 
 /** `write` / `carry` / `cardpost` / `tidy` are the wrap-up's own (#186, wrap.ts) */
 export type Pose = 'idle' | 'type' | 'post' | 'talk' | 'listen' | 'leave' | 'doze' | 'write' | 'carry' | 'cardpost' | 'tidy' | 'bowl' | PlayKind
@@ -45,6 +45,8 @@ export interface Goal {
   beat?: { kind: BeatKind; u: number; k: number; piece: PieceKind; v?: number; end?: boolean }
   reread?: boolean
   waiting?: boolean
+  /** #481 the wrap-up's step while it lasts (the pen laid on the desk stays there until the tidy-up is over) */
+  wrapStep?: WrapStep
   /** the watering errand (#228): its stage, the plant, and how long (s) the stage has lasted: the hands are drawn from these, not from where the agent stands */
   water?: { stage: WaterStage; plant: string; u: number; habit?: HabitKind | null }
   /** the reading errand (#280, readRun.ts): its stage, the seat it reads on, and how long (s) the stage has lasted: the hands are drawn from these */
@@ -684,7 +686,7 @@ export class Director {
         const others = this.agents.filter((b) => b !== a)
         const boardTaken = others.some((b) => this.runs[b]?.step === 'post' || arrivedAt(b) === 'whiteboard')
         const v = viewOf(run, { now, boardTaken, gm: opts.gm })
-        const base = { carry: v.carry, beat: v.beat, reread: v.reread, waiting: v.waiting, label: `정리 중 · ${v.label}` }
+        const base = { carry: v.carry, beat: v.beat, reread: v.reread, waiting: v.waiting, wrapStep: v.step, label: `정리 중 · ${v.label}` }
         out[a] =
           v.step === 'write' ? { spot: `work_${desk}`, pose: 'write', ...base }
           : v.step === 'walk' ? { spot: 'whiteboard', pose: 'carry', ...base }

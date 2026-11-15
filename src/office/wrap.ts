@@ -32,6 +32,9 @@ export const WRAP = {
   strike: 1.4,
   readUp: 1.8,
   next: 0.6,
+  /** #481 (wrapup.md 9.4) the cards gathered when the writing is done: the pen laid down (penDown), then the card pushed onto the stack and the stack onto the palm */
+  collect: 0.5,
+  penDown: 0.3,
   /** lines on a card, and the flourishes (tap / strike / read up) among them */
   lines: [3, 5],
   flourishes: [1, 2],
@@ -79,7 +82,7 @@ export const WRAP_SPAN_MS = 2 * 60_000
 
 export type PieceKind = 'line' | 'newline' | 'tapPen' | 'strike' | 'readUp' | 'next' | 'post' | 'think' | 'move' | 'swap' | 'straighten' | 'point' | 'final'
 export type BeatKind =
-  | 'line' | 'newline' | 'tapPen' | 'strike' | 'readUp' | 'next'
+  | 'line' | 'newline' | 'tapPen' | 'strike' | 'readUp' | 'next' | 'collect'
   | 'pick' | 'place' | 'press' | 'release' | 'gap'
   | 'back' | 'think' | 'forth' | 'move' | 'swap' | 'straighten' | 'point' | 'final'
   | 'gather' | 'tap' | 'keys' | 'lean'
@@ -198,6 +201,8 @@ export function planDesk(agent: string, since: number, budget: number, cap: numb
     t += d
     cards++
   }
+  // the last card is not pushed to the stack and followed by a new one: the cards are gathered instead (a step of its own, wrapup.md 9.4)
+  if (beats[beats.length - 1]?.kind === 'next') beats.pop()
   return { beats, cards }
 }
 
@@ -330,6 +335,8 @@ export interface WrapRun {
   until: number
   /** s of the desk step already done when it was held away from the desk: it goes on from there (0 otherwise) */
   skip?: number
+  /** #481 office ms the cards began to be gathered (the pen laid down, the stack onto the palm) before leaving the desk; null otherwise */
+  collectAt?: number | null
 }
 
 export interface WrapInput {
@@ -354,7 +361,8 @@ export function startWrap(agent: string, since: number, now: number, atDesk: boo
   const tidy = totalOf(tidyBeats(gm))
   // the desk's share of what is left after the walks (none in reduced motion) and the tidy-up
   const budget = opts.reduced ? Math.max(0, T - tidy) : Math.max(0, WRAP.deskShare * (T - 2 * WRAP.walkEst - tidy))
-  const d = planDesk(agent, since, budget, opts.reduced ? null : WRAP.cardsMax, gm)
+  // the cards' gathering (wrapup.md 9.4) comes out of the desk's own share
+  const d = planDesk(agent, since, Math.max(0, budget - WRAP.collect), opts.reduced ? null : WRAP.cardsMax, gm)
   return {
     agent,
     since,
@@ -376,7 +384,7 @@ function waitBeats(agent: string, since: number): Beat[] {
   let b = waitCache.get(key)
   if (!b) {
     if (waitCache.size > 64) waitCache.clear()
-    b = planDesk(agent, since + 0.5, 30, null).beats
+    b = planDesk(agent, since + 0.5, 30, null).beats.filter((x) => x.kind !== 'next')
     waitCache.set(key, b)
   }
   return b
@@ -407,12 +415,20 @@ export function stepWrap(run: WrapRun, inp: WrapInput): { run: WrapRun; done: bo
         r.t0 = inp.now
         continue
       }
-      // written: reduced motion tidies in place; otherwise go once the board is free (and, after a retry, nobody else is on the way)
+      // written: gather the cards first (0.5 s, #481) once it may go; while the board is taken the cards stay on the desk
+      if (r.collectAt == null) {
+        if (!inp.reduced && (inp.boardTaken || inp.boardBusy)) break
+        r.collectAt = inp.now
+      }
+      if (inp.now - r.collectAt < WRAP.collect * 1000) break
+      // gathered: reduced motion tidies in place; otherwise go once the board is free (and, after a retry, nobody else is on the way)
       if (inp.reduced) {
+        r.collectAt = null
         r.step = 'tidy'
         r.last = true
         r.t0 = inp.now
       } else if (!inp.boardTaken && !inp.boardBusy) {
+        r.collectAt = null
         r.step = 'walk'
         r.t0 = inp.now
         r.waitFrom = null
@@ -475,10 +491,20 @@ export function viewOf(run: WrapRun, inp: Pick<WrapInput, 'now' | 'gm' | 'boardT
   const base = { step: run.step, reread, waiting: run.step === 'walk' && inp.boardTaken }
   const out = (b: Beat, u: number) => ({ kind: b.kind, u, k: b.k, piece: b.piece, v: b.v, end: b.end })
   if (run.step === 'write') {
+    // the last card written (the top of the desk: the others are in the stack beside it)
+    const top = Math.max(0, run.plan.cards - 1)
+    if (reread && run.collectAt != null) {
+      // gathering the cards (wrapup.md 9.4): the pen down, the card onto the stack, the stack onto the palm
+      const u = Math.min(1, Math.max(0, (inp.now - run.collectAt) / (WRAP.collect * 1000)))
+      // the words stay what they were: written just now, or re-read while the board was taken (no flicker for the half second)
+      const label = run.collectAt - run.t0 < 200 ? WRAP_LABEL.write : REREAD_LABEL
+      return { ...base, reread: false, label, carry: run.n, beat: { kind: 'collect', u, k: top, piece: 'next', v: 0 } }
+    }
     if (reread) {
+      // the board is taken: the desk pieces go round on the top card (no new cards), what is written over is added to it
       const loop = waitBeats(run.agent, run.since)
       const w = beatAt(loop, el % totalOf(loop))
-      return { ...base, label: REREAD_LABEL, carry: run.n, beat: out(w.beat, w.u) }
+      return { ...base, label: REREAD_LABEL, carry: run.n, beat: { ...out(w.beat, w.u), k: top } }
     }
     const w = beatAt(run.plan.desk, el)
     return { ...base, label: WRAP_LABEL.write, carry: Math.min(WRAP.cardsMax, w.beat.k + 1), beat: out(w.beat, w.u) }

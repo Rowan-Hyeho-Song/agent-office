@@ -4,7 +4,7 @@ import { GRAPH } from './navSpots.fixture'
 import { DEFAULT_CAMERA } from './room'
 import { angleFromFront } from './tour'
 import { planBoard, planDesk, tidyBeats, type Beat } from './wrap'
-import { WRITE_ASIDE, WRITE_CARD, nibAt, wrapBack, wrapHand, wrapHead, writeCard, writePlace, type HandSpec, type WritePlace } from './wrapPose'
+import { STACK, WRITE_ASIDE, WRITE_CARD, nibAt, wrapBack, wrapHand, wrapHead, writeCard, writePlace, type HandSpec, type WritePlace } from './wrapPose'
 
 const REST: [number, number, number] = [0.24, 0.86, -0.1]
 const READ: [number, number, number] = [-0.02, 1.25, -0.27]
@@ -59,11 +59,14 @@ describe('writing beside the monitor on the desks that face the camera (#229)', 
     })
   }
 
-  it('the card is pushed to the stack by the pressing hand, away from the pen', () => {
+  it('next card: the pressing hand reaches in to the done card (toward the pen) by STACK.reach and is back at rest halfway (#481, wrapup.md 9.4 P)', () => {
     const next: Beat = { kind: 'next', k: 0, dur: 0.6, piece: 'next', v: 3 }
     const at = (side: 1 | -1, u: number) => hand(side > 0 ? 'l' : 'r', 'write', next, u, { place: { side } }).pos[0]
-    expect(at(1, 0.25)).toBeLessThan(at(1, 0))
-    expect(at(-1, 0.25)).toBeGreaterThan(at(-1, 0))
+    for (const side of [1, -1] as const) {
+      expect(side * (at(side, 0.25) - at(side, 0))).toBeCloseTo(STACK.reach, 9)
+      expect(at(side, 0.5)).toBeCloseTo(at(side, 0), 9)
+      expect(at(side, 0.8)).toBeCloseTo(at(side, 0), 9)
+    }
   })
 
   it('without a place (the desks with their back to the camera) the card is in front, the pen writes on it; the other hand presses its edge (#481, #495)', () => {

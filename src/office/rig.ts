@@ -1469,6 +1469,30 @@ export class AgentRig {
     this.parts.root.getWorldQuaternion(out)
     return out.multiply(this.tmpQuat2.setFromAxisAngle(UP, -this.writeTurn))
   }
+  /** where cards lie on a palm, in the hand's own frame: the palm's normal `n`, the card's turn (x across, y = n, z along the fingers) and its centre `base` */
+  private palmFrame(side: 'l' | 'r') {
+    const hand = this.parts.hands[side]
+    // the palm's normal and the finger direction in the hand's own frame (the palm faces +x of the agent at rest)
+    const n = new Vector3(...REST_PALM[side]).applyQuaternion(hand.restQuat.clone().invert()).normalize()
+    const knuckle = hand.fingers[1][0]?.node.position ?? new Vector3(0, 0.08, 0)
+    const f = knuckle.clone().addScaledVector(n, -knuckle.dot(n)).normalize()
+    const x = new Vector3().crossVectors(n, f)
+    return { n, q: new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(x, n, f)), base: f.clone().multiplyScalar(Math.max(0.045, knuckle.length() * 0.8)) }
+  }
+
+  /** #481 (wrapup.md 9.4): one card held on a palm where the stack is carried, its written face out of the palm: the card's top centre in world */
+  palmCard(side: 'l' | 'r', out = new Matrix4()): Matrix4 {
+    const p = this.palmFrame(side)
+    const hand = this.parts.hands[side].node
+    hand.updateMatrixWorld(true)
+    return out.multiplyMatrices(hand.matrixWorld, new Matrix4().compose(p.base.clone().addScaledVector(p.n, 0.012 + 0.004), p.q, new Vector3(1, 1, 1)))
+  }
+
+  /** the palm the stack is carried on (the one that pressed the card): the left, or on the aisle-side desks the one opposite the pen */
+  get cardSide(): 'l' | 'r' {
+    return this.place && this.place.side < 0 ? 'r' : 'l'
+  }
+
   private updateCards(count: number, flat: boolean) {
     // the stack is on the hand that presses the card: the left, or on the aisle-side desks the one opposite the pen
     const side: 'l' | 'r' = this.place && this.goal?.pose === 'write' && this.place.side < 0 ? 'r' : 'l'
@@ -1477,16 +1501,12 @@ export class AgentRig {
     const hand = this.parts.hands[side]
     if (!this.cards[side]) {
       if (count <= 0) return
-      // the palm's normal and the finger direction in the hand's own frame (the palm faces +x of the agent at rest)
-      const n = new Vector3(...REST_PALM[side]).applyQuaternion(hand.restQuat.clone().invert()).normalize()
-      const knuckle = hand.fingers[1][0]?.node.position ?? new Vector3(0, 0.08, 0)
-      const f = knuckle.clone().addScaledVector(n, -knuckle.dot(n)).normalize()
-      const x = new Vector3().crossVectors(n, f)
+      const p = this.palmFrame(side)
       // the same card as the one written on the desk (wrapPose.ts WRITE_CARD, #499: 10 x 13 cm)
       const m = new Mesh(new BoxGeometry(WRITE_CARD.w, 0.004, WRITE_CARD.d), new MeshBasicMaterial({ color: WRITE_CARD.paper }))
-      m.quaternion.setFromRotationMatrix(new Matrix4().makeBasis(x, n, f))
-      m.userData.base = f.clone().multiplyScalar(Math.max(0.045, knuckle.length() * 0.8))
-      m.userData.n = n
+      m.quaternion.copy(p.q)
+      m.userData.base = p.base
+      m.userData.n = p.n
       hand.node.add(m)
       this.cards[side] = m
     }
