@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { Box3, Vector3 } from 'three'
 import { cue } from '../../audio/cues'
 import { supabase } from '../supabase'
-import { prefersReducedMotion, type OfficeWorld } from '../world'
+import { officeNow, prefersReducedMotion, type OfficeWorld } from '../world'
 import { moodOf, reactionOf, type Reaction } from './reaction'
 import { pixelSvg } from './pixelIcons'
 import { listenTreats, onTreat, type Treat } from './treats'
@@ -106,7 +106,8 @@ export function TreatRig({ world }: { world: OfficeWorld }) {
     const r = reactionOf(f.treat.kind, moodOf(status, world.goals[id]?.pose), rig.faceTalk.speaking)
     f.reaction = r
     if (r.face) rig.faceEvent(r.face.expr, t, r.face.ms / 1000)
-    if (r.line) world.bubbles.say(id, { kind: 'react', text: r.line, ms: 2500, tag: '방문자' })
+    // on the office clock, as the bubbles are drawn (Agents.tsx items(now)): a debug-shifted clock does not end it at once
+    if (r.line) world.bubbles.say(id, { kind: 'react', text: r.line, ms: 2500, tag: '방문자' }, officeNow(world))
     const key = f.treat.id
     if (f.treat.kind === 'cheer') {
       cue('cheer', { pos: { x: head.x, y: head.y + 0.15, z: head.z }, key, agent: id })

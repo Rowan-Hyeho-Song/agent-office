@@ -136,7 +136,7 @@ function PropsDebug({ world, now }: { world: OfficeWorld; now: number }) {
 /** ?debug=1: bubbles of every kind and the meeting replay (#97): the same calls as window.__office.bubbles / .replay */
 function BubbleDebug({ world }: { world: OfficeWorld }) {
   const r = world.replay
-  const say = (kind: 'talk' | 'react' | 'private', text: string, agent = 'agent_2') => world.bubbles.say(agent, { kind, text }, Date.now())
+  const say = (kind: 'talk' | 'react' | 'private', text: string, agent = 'agent_2') => world.bubbles.say(agent, { kind, text }, officeNow(world))
   return (
     <section>
       <div className="who">

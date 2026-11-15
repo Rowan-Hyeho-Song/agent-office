@@ -39,7 +39,7 @@ import { ANXIOUS_AFTER_MS } from './faceMind'
 import { greetsOwner, questionFaceFor } from './liveFace'
 import { isLateHour } from './duty'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
-import { NOTE_READ, thanksNow } from './noteRead'
+import { NOTE_READ, pinnedAt, thanksNow } from './noteRead'
 import { notesStore } from './visit/notes'
 import { groundAt, readRugs, type Rug } from './ground'
 import type { RootState } from '@react-three/fiber'
@@ -189,8 +189,9 @@ export function Agents({ world }: { world: OfficeWorld }) {
   // its own within the hour
   useEffect(() => {
     const feed = () => {
+      // the pin time on the office clock (noteRead.ts pinnedAt): a note's age is its real age at any debug hour
       const now = officeNow(world)
-      for (const n of notesStore.getSnapshot().notes) world.director.noteArrived(n.agent, n.id, Date.parse(n.created_at), now)
+      for (const n of notesStore.getSnapshot().notes) world.director.noteArrived(n.agent, n.id, pinnedAt(n.created_at, world.timeOffsetMs), now)
     }
     feed()
     return notesStore.subscribe(feed)
@@ -288,7 +289,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
       // #4 notes 2b: after 2 s at the board, the nod (the goal's gesture) and the thanks, in the visitor's tab as a snack's
       for (const a in goals) {
         const u = goals[a].note?.u ?? -1
-        if (thanksNow(noteAt.current[a] ?? -1, u)) world.bubbles.say(a, { kind: 'react', text: NOTE_READ.line, ms: NOTE_READ.sayMs, tag: '방문자' })
+        if (thanksNow(noteAt.current[a] ?? -1, u)) world.bubbles.say(a, { kind: 'react', text: NOTE_READ.line, ms: NOTE_READ.sayMs, tag: '방문자' }, now)
         noteAt.current[a] = u
       }
       // the break music waits for the record that is on its way (sound.md 4.4)
