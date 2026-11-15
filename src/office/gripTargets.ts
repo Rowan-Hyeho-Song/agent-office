@@ -138,6 +138,7 @@ export function resolveTarget(scene: Object3D, objName: string, kind: string, si
   if (kind === 'book') return resolveBookTarget(scene, objName, side)
   if (kind === 'paper_side') return resolvePaperSideTarget(scene, side, contactAxis(scene))
   if (kind === 'leaf') return side === 'r' ? resolvePageTarget(scene, objName) : null
+  if (kind === 'paper_tray_side') return resolveTraySideTarget(scene, objName, side)
   const spec = GRIPS[kind]?.[side]
   const grip = scene.getObjectByName(`${objName}_grip_${side}`)
   if (!spec || !grip) return null
@@ -156,6 +157,83 @@ export function resolveTarget(scene: Object3D, objName: string, kind: string, si
   }
   // the closed book's grip is another target of the same book and hand: its offsets are stored under their own key
   return { key: kind === 'bookclosed' ? `${objName}:closed:${side}` : `${objName}:${side}`, kind, side, obj, pg: local(grip), contacts }
+}
+
+/**
+ * #370 B3 a tray sheet held by a long side for reading (grips.md 낱장 옆 쥐고 읽기): the frames TrayPile makes on the pile's top sheet
+ * (`<obj>_grip_side_<l|r>` with its `_contact_thumb` on the face and `_contact_index` under it), the sheet a solid the fingers stay out of.
+ */
+function resolveTraySideTarget(scene: Object3D, objName: string, side: 'l' | 'r'): GripTarget | null {
+  const obj = scene.getObjectByName(objName)
+  const grip = scene.getObjectByName(`${objName}_grip_side_${side}`)
+  const box = obj?.userData.sheetBox as { min: number[]; max: number[] } | undefined
+  if (!obj || !grip || !box) return null
+  scene.updateMatrixWorld(true)
+  const inv = new Matrix4().copy(obj.matrixWorld).invert()
+  const local = (o: Object3D) => inv.clone().multiply(o.matrixWorld)
+  const axis = contactAxis(scene) === 'z' ? new Vector3(0, 0, 1) : new Vector3(0, 1, 0)
+  const contacts: Contact[] = []
+  for (const f of ['index', 'thumb'] as const) {
+    const c = scene.getObjectByName(`${objName}_grip_side_${side}_contact_${f}`)
+    if (!c) continue
+    const m = local(c)
+    contacts.push({ finger: f, p: new Vector3().setFromMatrixPosition(m), n: axis.clone().transformDirection(m) })
+  }
+  const solids = [{ name: 'sheet', half: 'r' as const, min: new Vector3(...box.min), max: new Vector3(...box.max), toBox: new Matrix4() }]
+  // as the loose sheet's (paperSide.ts): the fingers not on a contact lie behind the sheet over its footprint, and the palm stays beside the edge
+  // (palms facing each other across the sheet), not in over its face
+  const [x0, , z0] = box.min
+  const [x1, , z1] = box.max
+  const inFoot = (p: Vector3, m = 0) => p.x > x0 + m && p.x < x1 - m && p.z > z0 && p.z < z1
+  const cost: GripTarget['cost'] = (m, hand, fits) => {
+    let c = 0
+    const hold = GRIPS.paper_tray_side[side]!.hold
+    const p = new Vector3()
+    const a = new Vector3()
+    for (const [k, f] of (['index', 'middle', 'ring', 'little'] as const).entries()) {
+      const model = fingerModelOf(hand, k, side)
+      if (!model) continue
+      const joints = fits.find((x) => x.finger === f)?.joints ?? tableJoints(model, hold[k], 0)
+      const pts = pointsAtJoints(model, joints)
+      for (let i = 0; i + 1 < pts.length; i++)
+        for (let s = 0; s <= 4; s++) {
+          a.copy(pts[i]).lerp(pts[i + 1], s / 4)
+          p.copy(a).applyMatrix4(m)
+          if (inFoot(p) && p.y > -0.0005) c += 4000 * (p.y + 0.0005) ** 2
+        }
+    }
+    // the palm block (the hand's own meshes) beside the edge: how far its corners come in over the sheet, in front of or through it
+    const corners = palmCorners(hand)
+    for (const q of corners) {
+      p.copy(q).applyMatrix4(m)
+      if (!inFoot(p) || p.y < -0.002) continue
+      const inside = Math.min(p.x - x0, x1 - p.x)
+      c += 4000 * Math.min(inside, p.y + 0.002) ** 2
+    }
+    return c
+  }
+  return { key: `${objName}:side:${side}`, kind: 'paper_tray_side', side, obj, pg: local(grip), contacts, solids, cost }
+}
+
+/** the corners of a hand's palm block (its own meshes, not the fingers'), in the hand's frame */
+const PALMS = new WeakMap<Hand, Vector3[]>()
+function palmCorners(hand: Hand): Vector3[] {
+  let out = PALMS.get(hand)
+  if (out) return out
+  out = []
+  const own = new RegExp(`^${hand.node.name}_(\d+|cuff)$`)
+  hand.node.updateWorldMatrix(true, true)
+  const inv = hand.node.matrixWorld.clone().invert()
+  for (const c of hand.node.children) {
+    const g = (c as unknown as { geometry?: { boundingBox: { min: Vector3; max: Vector3 } | null; computeBoundingBox(): void } }).geometry
+    if (!own.test(c.name) || !g) continue
+    g.computeBoundingBox()
+    const b = g.boundingBox!
+    const toHand = inv.clone().multiply(c.matrixWorld)
+    for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) out.push(new Vector3(x, y, z).applyMatrix4(toHand))
+  }
+  PALMS.set(hand, out)
+  return out
 }
 
 /** the hand's `_grip` frame in the hand's own frame */

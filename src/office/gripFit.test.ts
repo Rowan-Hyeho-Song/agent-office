@@ -31,7 +31,7 @@ const OBJECTS: [string, string, 'l' | 'r'][] = [
   // #370 B the desk props taken for a moment: the duck, the keycap, a plaster shape
   ['prop_duck', 'duck', 'r'], ['prop_keycap_0', 'keycap', 'r'], ['prop_shape_1', 'shape', 'r'],
   // #370 B3 the IN pile's top sheet pinched at its corner (its grip and contacts are made by TrayPile)
-  ['desk_0_in_top', 'paper_corner', 'r'],
+  ['desk_0_in_top', 'paper_corner', 'r'], ['desk_0_in_top', 'paper_tray_side', 'l'], ['desk_0_in_top', 'paper_tray_side', 'r'],
   ['desk_0_mouse', 'mouse', 'r'], ['desk_1_mouse', 'mouse', 'r'], ['desk_3_mouse', 'mouse', 'r'], ['desk_4_mouse', 'mouse', 'r'],
 ]
 const LOG = process.env.FIT_LOG

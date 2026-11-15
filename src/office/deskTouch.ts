@@ -45,8 +45,12 @@ export const TOUCH_S: Record<TouchKind, { len: number; at: number; back: number 
   paper: { len: 4.6, at: 0.6, back: 4.0 },
 }
 
-/** the top sheet's reading: taken 0.6–1.2 s, read until 3.4 s, laid back by 4.0 s; held 55° up toward the face */
-export const PAPER_READ = { take: [0.6, 1.2], put: [3.4, 4.0], tiltDeg: 55 } as const
+/**
+ * the top sheet's reading (designer: as a sheet handed over is read, grips.md 낱장 옆 쥐고 읽기): taken by its corner at 0.6 s and lifted to 1.2 s; as
+ * it comes up (0.8–1.0 s) the right hand slides to the right long side and the left takes the left one; read 55° up toward the face until 3.4 s; the
+ * right hand back to the corner (3.4–3.6 s) as the left lets go, laid back squared by 4.0 s
+ */
+export const PAPER_READ = { take: [0.6, 1.2], sides: [0.8, 1.0], unside: [3.4, 3.6], put: [3.4, 4.0], tiltDeg: 55 } as const
 
 /** #370 B the props taken (their nodes) */
 export const TOUCH_PROP: Partial<Record<TouchKind, string>> = { duck: 'prop_duck', keycap: 'prop_keycap_0', shape: 'prop_shape_1' }

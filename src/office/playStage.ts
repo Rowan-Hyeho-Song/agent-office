@@ -1866,7 +1866,7 @@ export class PlayStage {
 
   /**
    * #370 B3 (grips.md 서류 한 장 집기, desk-props.md 4): the IN pile's top sheet pinched at its front-right corner, lifted before the chest and tipped
-   * 55° up toward the face, the left palm open under it, read, and laid back on the pile squared (the count never changes: IN is what waits for the
+   * 55° up toward the face, held by both long sides as a sheet handed over is read (grips.md 낱장 옆 쥐고 읽기), and laid back on the pile squared (the count never changes: IN is what waits for the
    * owner). The sheet is the pile's own top sheet (TrayPile.lift), so nothing appears or goes.
    */
   private paperTouch(rig: AgentRig, u: number, inp: StageIn): boolean {
@@ -1888,16 +1888,20 @@ export class PlayStage {
     if (u < S.back) pile.lift(u < P.take[0] ? null : held)
     else pile.lift(null, true)
     this.grip(rig, 'r', 'paper_corner', 'desk_0_in_top', u < S.back, u < S.back ? held : squared, inp)
-    // the left palm open under the sheet while it is read (1.5 cm under it, the fingers flat up the sheet, the thumb laid out flat beside them: a
-    // curled thumb or finger would come up through the sheet)
-    const wl = k(P.take[1] - 0.2, P.take[1] + 0.1) * (1 - k(P.put[0], P.put[0] + 0.3))
-    if (wl > 0) {
-      const n = new Vector3(0, 1, 0).applyQuaternion(q)
-      const along = new Vector3(0, 0, -1).applyQuaternion(q)
-      const palm = new Matrix4().makeBasis(new Vector3().crossVectors(along, n).normalize(), along, n)
-      const c = new Vector3().setFromMatrixPosition(read).addScaledVector(n, -(0.015 + 0.0225))
-      palm.setPosition(c)
-      rig.drive.l = { target: palm, w: wl, curl: [0, 0, 0, 0, 0, -1], wc: wl, spread: null }
+    // both hands on the long sides while it is read (0.2 s from the corner to the side as it comes up, and back before it is laid down)
+    const s2 = k(P.sides[0], P.sides[1]) * (1 - k(P.unside[0], P.unside[1]))
+    if (s2 > 0) {
+      const seat = Number(rig.id.split('_')[1])
+      const side = (h: 'l' | 'r') => {
+        const t = this.target('desk_0_in_top', 'paper_tray_side', h)
+        if (!t) return null
+        return { target: handFor(held, t.pg, handGripMatrix(rig.parts.hands[h])).multiply(offsetOf(t.key, seat)), angles: this.holdFit(rig, h, t).hold }
+      }
+      const r = side('r')
+      const d = rig.drive.r
+      if (r && d?.target && d.angles) rig.drive.r = { ...d, target: blend(d.target, r.target, s2), angles: d.angles.map((x, i) => x * (1 - s2) + r.angles[i] * s2), w: 1, wc: 1 }
+      const l = side('l')
+      if (l) rig.drive.l = { target: l.target, w: s2, curl: null, angles: l.angles, wc: s2, spread: null }
     }
     return true
   }
