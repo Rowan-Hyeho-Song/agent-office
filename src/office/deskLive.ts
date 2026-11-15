@@ -3,6 +3,7 @@
 
 import { CanvasTexture, MathUtils, MeshBasicMaterial, SRGBColorSpace, Vector3, type Color, type Mesh, type Object3D } from 'three'
 import type { DeskProps } from './props'
+import type { TouchShown } from './deskTouch'
 import { TrayPile } from './tray'
 import { LiveAxis } from './liveAxis'
 import { PlaySounds } from '../audio/playSounds'
@@ -26,7 +27,6 @@ const WEEKDAY_EN = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 const OFF = 0.08
 /** the IN tray's amber dot when nothing waits: 15% of lit (designer, #64), dim enough not to read as "pending" */
 const APPROVAL_DOT_OFF = 0.15
-const HOURGLASS_EVERY = 6 // s: while the planner waits, it turns the hourglass over now and then
 const BLINK_HZ = 2.2
 
 /** echo's mixer (desks.md, #193): the woofer cones travel 3 mm, the level meter has 8 cells, 4 faders; every value comes from src/audio/speaker.ts */
@@ -97,7 +97,9 @@ export class DeskLive {
   private sounds = new PlaySounds()
   private echo: EchoDesk
   private calendar: { ctx: CanvasRenderingContext2D; texture: CanvasTexture; drawn: string } | null = null
-  private flip = { angle: 0, target: 0, nextAt: 0 }
+  /** #370 A the ring light's knob and the calendar's page (hidden at rest), turned by a hand (deskTouch.ts) */
+  private knob: LiveAxis | undefined
+  private page: { live: LiveAxis; sign: number } | undefined
   private spin = 0
 
   constructor(nodes: Record<string, Object3D>) {
@@ -108,6 +110,10 @@ export class DeskLive {
     this.hourglass = hg && new LiveAxis(hg, new Vector3(1, 0, 0))
     this.turntable = tt && new LiveAxis(tt, new Vector3(0, 1, 0))
     this.ring = emitter(n('desk_1_ringlight'))
+    const kn = n('desk_1_ringlight_knob')
+    this.knob = kn && new LiveAxis(kn, new Vector3(1, 0, 0))
+    const pg = n('desk_0_calendar_page')
+    if (pg) this.page = { live: new LiveAxis(pg, new Vector3(1, 0, 0)), sign: Number(pg.userData.flip_sign) || 1 }
     this.tablet = emitter(n('desk_2_tablet'))
     this.approvalDot = emitter(n('neon_approval'))
     this.lamp = emitter(n('desk_2_lamp'))
@@ -164,27 +170,29 @@ export class DeskLive {
     return this.duck ? this.duck.getWorldPosition(out) : null
   }
 
-  update(p: DeskProps, t: number, dt: number, reduced: boolean) {
+  /** `touch`: what the hands move (#370 A, deskTouch.ts); without it all rests as baked */
+  update(p: DeskProps, t: number, dt: number, reduced: boolean, touch?: TouchShown) {
     // 메모: the trays hold as many sheets as there is work, 0.8 cm each; past five a '+' tab (#59, tray.ts)
     this.trays[0]?.set(p.inbox, p.inboxMore)
     this.trays[1]?.set(p.outbox, p.outboxMore)
     this.drawCalendar(p)
     this.approvalDot(p.inbox > 0 ? 1 : APPROVAL_DOT_OFF)
-    // the hourglass turns over every few seconds while the planner waits for an approval, else stays upright
+    // the hourglass is turned over only by the planner's hand, once as an approval starts waiting (#370 A: no longer every 6 s by itself)
     if (this.hourglass) {
-      if (p.hourglass && t >= this.flip.nextAt) {
-        this.flip.target += Math.PI
-        this.flip.nextAt = t + HOURGLASS_EVERY
-      }
-      if (!p.hourglass) this.flip.target = Math.round(this.flip.target / (2 * Math.PI)) * 2 * Math.PI
-      this.flip.angle = reduced ? this.flip.target : MathUtils.damp(this.flip.angle, this.flip.target, 5, dt)
-      // about its middle, lifted so the plates never go into the felt coaster it stands on (#493)
-      this.hourglass.turnResting(this.flip.angle)
+      // about its middle, lifted so the plates never go into the felt coaster it stands on (#493), and as the fingers lift it
+      this.hourglass.turnResting(touch?.hourglassTurn ?? 0)
+      this.hourglass.node.position.y += touch?.hourglassLift ?? 0
     }
-    // 메시: the turntable spins while baking; the ring light is on while baking and blinks after
-    if (this.turntable && p.turntable) {
-      this.spin += dt * (reduced ? 0.4 : 1.2)
-      this.turntable.turn(this.spin)
+    // 메시: the turntable spins while baking (and is pushed round by hand now and then); the ring light is on while baking and blinks after
+    if (this.turntable) {
+      if (p.turntable) this.spin += dt * (reduced ? 0.4 : 1.2)
+      this.turntable.turn(this.spin + (touch?.turntablePush ?? 0))
+    }
+    this.knob?.turn(touch?.knobTurn ?? 0)
+    if (this.page) {
+      const deg = touch?.calendarPage ?? null
+      this.page.live.node.visible = deg !== null
+      this.page.live.turn(((deg ?? 0) * this.page.sign * Math.PI) / 180)
     }
     const blink = reduced ? 1 : Math.sin(t * BLINK_HZ * Math.PI * 2) > 0 ? 1 : 0.25
     this.ring(p.ringlight === 'on' ? 1 : p.ringlight === 'blink' ? blink : OFF)

@@ -42,6 +42,7 @@ import { WATER_S } from './waterRun'
 import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFor, shakeAt, type HabitKind } from './waterFx'
 import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
+import { TOUCH_S, TURNTABLE_PUSH, hourglassAt, type Touch } from './deskTouch'
 import { SIP_TOP_S, TREAT_HOLD, TREAT_LOOK, TREAT_PROP, takeSounds, treatPhase, type SnackKind } from './treatHold'
 import { handsOf } from './paperRun'
 import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, rowOf } from './shelfRun'
@@ -98,6 +99,8 @@ const CAN_FADE_MS = 120
 const LEAN_MORE: Record<string, number> = { plant_sofa: 12 / 10 }
 
 export interface StageIn {
+  /** #370 A a hand on a thing of its own desk, by agent (deskTouch.ts) */
+  touches?: Record<string, Touch>
   /** office time, ms */
   now: number
   /** the clock the rigs' own animation runs on, s (the scene clock in the timelapse) */
@@ -1187,6 +1190,8 @@ export class PlayStage {
     if (goal.pose === 'pingpong' && goal.partnerWait && resting && !pp) return this.pingpongWait(rig, goal, u, inp)
     if (goal.watching && resting) return this.cheer(rig, u, inp)
     if (goal.watching) this.cheered.delete(rig.id)
+    // #370 A a hand on a thing of its own desk (deskTouch.ts), the other one typing on
+    if (resting && goal.spot === `work_${seat}` && this.deskTouch(rig, goal, inp, seat)) return
     // the planner's stamp (the owner decided something)
     if (inp.stamp && seat === 0) {
       const home = this.props.info(rig, 'stamp')
@@ -1769,20 +1774,79 @@ export class PlayStage {
   }
 
   /** the coffee machine's button: the index fingertip on its contact point, pressed 0.1 s */
-  private button(rig: AgentRig, name: string, u: number, inp: StageIn, holdS = 0.1, depth = 0.012) {
+  /**
+   * #370 A (desk-props.md 4, grips.md): the right hand on a thing of its own desk while deskTouch.ts says (the thing itself is moved by DeskLive on
+   * the same clock): the signal's top light tapped, the lamp's switch pressed, the turntable's button pressed and its platter pushed 90° round by
+   * the rim, the ring light's knob turned, the calendar's page lifted by its corner, the hourglass pinched at its pillars, lifted and put down
+   * (turned between the fingers). The left hand types on (the keyboard's left third) when it was typing. False: no touch now, or its nodes are not
+   * in the model.
+   */
+  private deskTouch(rig: AgentRig, goal: Goal, inp: StageIn, seat: number): boolean {
+    const tc = inp.touches?.[rig.id]
+    if (!tc) return false
+    const { kind, u } = tc
+    const want = u < TOUCH_S[kind].back
+    const node = (name: string) => this.sceneRef.getObjectByName(name)
+    if (kind === 'signal') this.button(rig, 'desk_3_signal', u, inp, 0.1, 0, want)
+    else if (kind === 'lamp') this.button(rig, 'desk_2_lamp_switch', u - (TOUCH_S.lamp.at - 0.5), inp, 0.12, 0, want)
+    else if (kind === 'turntable') {
+      const c = node('desk_1_turntable_rim_contact_index')
+      const tt = node('desk_1_turntable')
+      if (u < 1.0 || !c || !tt) this.button(rig, 'desk_1_turntable', Math.min(u, 0.95), inp, 0.12, 0, true)
+      else {
+        // the index on the rim, carried round with the push (the contact rests where the platter is unturned)
+        const k = inp.reduced ? (u >= TURNTABLE_PUSH.from ? 1 : 0) : ease(Math.min(1, Math.max(0, (u - TURNTABLE_PUSH.from) / TURNTABLE_PUSH.s)))
+        const pv = (tt.userData.pivot_at as number[] | undefined) ?? tt.getWorldPosition(new Vector3()).toArray()
+        const pivot = new Vector3(pv[0], pv[1], pv[2])
+        const q = new Quaternion().setFromAxisAngle(UP, k * TURNTABLE_PUSH.deg * DEG)
+        const P = c.getWorldPosition(new Vector3()).sub(pivot).applyQuaternion(q).add(pivot)
+        const n = contactNormal(this.sceneRef, c).applyQuaternion(q)
+        this.indexOn(rig, P, n, 0, false, inp, want)
+      }
+    } else if (kind === 'knob' || kind === 'calendar') {
+      const c = node(kind === 'knob' ? 'desk_1_ringlight_knob_contact_index' : 'desk_0_calendar_page_contact_index')
+      if (!c) return false
+      c.updateWorldMatrix(true, false)
+      this.indexOn(rig, c.getWorldPosition(new Vector3()), contactNormal(this.sceneRef, c), 0, false, inp, want)
+    } else {
+      // the hourglass: pinched at two pillars across (the thumb -x, the index +x: its turn axis through both), lifted and put
+      // down; the hand does not turn with it
+      const hg = node('desk_0_hourglass')
+      const rest = hg?.userData.liveRest as { p: Vector3; q: Quaternion } | undefined
+      if (!hg || !rest || !node('desk_0_hourglass_contact_thumb')) return false
+      const held = new Matrix4().compose(rest.p, rest.q, ONE)
+      if (hg.parent) held.premultiply(hg.parent.matrixWorld)
+      held.elements[13] += hourglassAt(u, inp.reduced).lift
+      this.grip(rig, 'r', 'hourglass', 'desk_0_hourglass', want, held, inp)
+    }
+    if (goal.pose === 'type') this.typeAtDesk(rig, inp, seat, true)
+    return true
+  }
+
+  private button(rig: AgentRig, name: string, u: number, inp: StageIn, holdS = 0.1, depth = 0.012, want = true) {
     const contact = this.sceneRef.getObjectByName(`${name}_contact_index`)
     if (!contact) return
-    const clock = this.clock(`${rig.id}:r:button`)
-    const out = clock.step(inp.t, true, { gestureMin: rig.gestureMin, reduced: inp.reduced })
+    const P = new Vector3().setFromMatrixPosition(contact.matrixWorld)
+    const n = contactNormal(this.sceneRef, contact) // out of the button, toward the hand
+    const pressed = u > 0.5 && u < 0.5 + holdS
+    this.indexOn(rig, P, n, pressed ? depth : 0, pressed, inp, want)
+  }
+
+  /**
+   * #370 A the right index fingertip on `P` (the surface's normal `n` out of it, toward the hand), `press` m into it, the other fingers folded
+   * (grips.md 버튼): reached, held while `want`, then let go. The clock starts from the reach again after a while the hand was not on a button.
+   */
+  private indexOn(rig: AgentRig, P: Vector3, n: Vector3, press: number, pressed: boolean, inp: StageIn, want = true) {
+    const key = `${rig.id}:r:button`
+    const clock = this.clock(key)
+    const last = this.lastGripT.get(key)
+    if (last !== undefined && inp.t - last > 0.25 && clock.current.stage !== 'rest') clock.reset()
+    this.lastGripT.set(key, inp.t)
+    const out = clock.step(inp.t, want, { gestureMin: rig.gestureMin, reduced: inp.reduced })
     const hand = rig.parts.hands.r
     const idx = fingerModelOf(hand, 0, 'r')
     if (!idx) return
     const spec = GRIPS.button.r!
-    const m = contact.matrixWorld
-    const P = new Vector3().setFromMatrixPosition(m)
-    const n = contactNormal(this.sceneRef, contact) // out of the button, toward the hand
-    const pressed = u > 0.5 && u < 0.5 + holdS
-    const press = pressed ? depth : 0
     // the hand points in along −n, palm down
     const y = n.clone().negate()
     const z = UP.clone().negate()
@@ -1791,7 +1855,12 @@ export class PlayStage {
     const c1 = spec.hold[0] + (pressed ? 0.07 : 0)
     const tip = tipAt(idx, c1, 0)
     const basis = new Matrix4().makeBasis(x, y, z)
-    const origin = P.clone().addScaledVector(n, press).sub(tip.clone().applyMatrix4(new Matrix4().extractRotation(basis)))
+    // (#370 A) it comes in and goes out along the normal (n is out of the surface), from 2 cm off: the blend from where the hand was never dips
+    // under the surface
+    // and for 0.15 s after it has it, it comes the last 6 mm down onto it (the arm catches up without going into it)
+    const since = clock.attachedAt == null ? 0 : (inp.t - clock.attachedAt) / 0.15
+    const settle = out.stage === 'approach' || out.stage === 'rest' ? 1 : 1 - ease(Math.min(1, Math.max(0, since)))
+    const origin = P.clone().addScaledVector(n, press + 0.02 * (1 - out.wHand) + 0.006 * settle).sub(tip.clone().applyMatrix4(new Matrix4().extractRotation(basis)))
     const target = basis.clone().setPosition(origin)
     const curl = [0, 1, 2, 3, 4, 5].map((k) => spec.pre[k] * out.mix[0] + (k === 0 ? c1 : spec.hold[k]) * out.mix[1] + spec.after[k] * out.mix[2])
     rig.drive.r = { target, w: out.wHand, curl, wc: out.wCurl, spread: null }

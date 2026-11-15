@@ -20,6 +20,7 @@ import { checkNav, edgeKey } from './navcheck'
 import { rasterFootprint } from './floorMask'
 import { meshesOf, useOffice } from './nodes'
 import { DeskLive } from './deskLive'
+import { DeskTouches } from './deskTouch'
 import { PaperPlanes } from './plane'
 import { ScreenLive } from './screenLive'
 import { deskProps } from './props'
@@ -131,6 +132,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
   const tagAt = useRef<[number, number, number]>([0, 0, 0])
   // the LIVE desk props (#44): what each desk shows about its agent
   const desks = useMemo(() => new DeskLive(nodes), [nodes])
+  // #370 A a hand on a thing of its own desk: when, and what the desk shows of it
+  const touches = useMemo(() => new DeskTouches(), [])
   // the work monitors (#75); ?debug=1&screens=off leaves them blank (the frame-cost baseline)
   const maxAniso = useThree((s) => s.gl.capabilities.getMaxAnisotropy())
   const screens = useMemo(
@@ -401,6 +404,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
         if (replay.landedVia === 'seek') {
           drawn.reset()
           resetDeck() // a seek forgets the turntable (speaker.ts)
+          touches.reset() // and nothing on a desk is touched for what was jumped over
         }
       }
       const speed = replay.getSnapshot().speed
@@ -445,8 +449,28 @@ export function Agents({ world }: { world: OfficeWorld }) {
       for (const id in rigs) rigs[id].track = rigs[id].traffic && planner.has(id) ? planner.sample(id, sim.current) : null
       for (const id in rigs) rigs[id].update(dt, t, graph, rigs, reduced, status[id])
     }
+    // #370 A the desk touches, on the hands' clock: who sits at its own desk now
+    const touchT = st ? st.now / 1000 : t
+    if (world.debug && world.forceTouch) {
+      touches.begin(world.forceTouch, touchT)
+      world.forceTouch = null
+    }
+    touches.step({
+      t: touchT,
+      now: scene ? atMs(scene.point) : now,
+      desk,
+      seated: (seat) => {
+        const r = rigs[`agent_${seat}`]
+        return !!r?.visible && r.arrived === `work_${seat}`
+      },
+      awake: (seat) => !!status[`agent_${seat}`] && status[`agent_${seat}`].state !== 'off',
+      working: (seat) => status[`agent_${seat}`]?.state === 'working',
+    })
+    // the desk things first: a hand on one follows it where it is this frame (#370 A)
+    desks.update(touches.desk(desk), t, Math.min(dt, 0.1), reduced, touches.shown(touchT, reduced))
     // the hands: play from the office clock (nothing of it in the timelapse), grips on everything that is held or touched
     playStage.update({
+      touches: touches.all(touchT),
       // the replay's games run on the replay's own time (the schedule at that KST time, 12.1), never the live clock
       now: st ? st.time : now,
       t: st ? st.now / 1000 : t,
@@ -480,7 +504,6 @@ export function Agents({ world }: { world: OfficeWorld }) {
     planes.update(st ? st.now / 1000 : state.clock.elapsedTime, graph, rigs, reduced)
     props.hold(new Map(Object.values(rigs).map((r) => [r, r.want])))
     props.update(Math.min(dt, 0.1))
-    desks.update(desk, t, Math.min(dt, 0.1), reduced)
     // the monitors show what the director says each agent is doing now (#186); the timelapse shows its record's statuses
     const shownStatus = st ? status : world.director.shownStatus
     screens?.update({ t, now, status: shownStatus, reduced, camera: state.camera, forced: world.debug ? world.screens.force : undefined })
