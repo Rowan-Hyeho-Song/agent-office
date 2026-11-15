@@ -27,7 +27,7 @@ describe('the tag (7.1)', () => {
     expect(line('hourglass')).toBe('기다리는 결재 없음')
     expect(line('turntable', { desk: { turntable: true } as PropNow['desk'] })).toBe('굽는 중')
     expect(line('turntable')).toBe('멈춤')
-    expect(['on', 'blink', 'off'].map((ringlight) => line('ringlight', { desk: { ringlight } as PropNow['desk'] }))).toEqual(['켜짐', '켜짐', '꺼짐'])
+    expect(['on', 'blink', 'off'].map((ringlight) => line('ringlight', { desk: { ringlight } as PropNow['desk'] }))).toEqual(['켜짐', '방금 끝남', '꺼짐'])
     expect(line('lamp', { desk: { lamp: true } as PropNow['desk'] })).toBe('켜짐')
     expect(line('lamp')).toBe('꺼짐')
     expect((['on', 'off', 'muted'] as const).map((speaker) => line('speaker', { speaker }))).toEqual(['켜짐', '나에게만 꺼짐', '소리가 꺼져 있어요'])

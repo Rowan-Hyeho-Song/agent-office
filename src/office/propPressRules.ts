@@ -66,8 +66,8 @@ export function secondLine(id: PropId, w: PropNow): string | null {
     case 'turntable':
       return w.desk.turntable ? '굽는 중' : '멈춤'
     case 'ringlight':
-      // the blink after a bake is the light on
-      return w.desk.ringlight === 'off' ? '꺼짐' : '켜짐'
+      // the 10 s blink after a bake: just finished (designer, #589)
+      return { on: '켜짐', blink: '방금 끝남', off: '꺼짐' }[w.desk.ringlight]
     case 'lamp':
       return w.desk.lamp ? '켜짐' : '꺼짐'
     case 'speaker':
