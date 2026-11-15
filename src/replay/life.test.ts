@@ -86,13 +86,13 @@ async function stageAt(points: Point[], speed: 1 | 4 | 16 = 1, index = 0) {
   return { store, stage }
 }
 
-/** a minute (in a day hour) at which the schedule has a pair game among the agents left free by `busy` */
+/** a time (in a day hour) at which the schedule has a pair game, both players there, among the agents left free by `busy` */
 function minuteWithGame(busy: string[], kind: 'pingpong' | 'boardgame') {
   for (let m = 0; m < 600; m++) {
     const ms = kst(14) + m * 3 * MIN
-    const minute = Math.floor(ms / MIN)
-    const plan = playAt(minute, AGENTS, new Set(busy))
-    const players = Object.entries(plan).filter(([, a]) => a.kind === kind).map(([id]) => id)
+    // #490: the day plan at that very time (it changes at any moment, not per block)
+    const plan = playAt(ms, AGENTS, new Set(busy))
+    const players = Object.entries(plan).filter(([, a]) => a.kind === kind && a.partner).map(([id]) => id)
     if (players.length === 2) return { ms, players, plan }
   }
   throw new Error('no such minute')

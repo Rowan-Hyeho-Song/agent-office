@@ -3,7 +3,7 @@ import { conversations, type DocMeta } from '../docs/library'
 import { buildScript } from './meeting'
 import { MEET_WORDS, MeetingRunner } from './meetingRun'
 import { BUBBLE_ASK, BUBBLE_REPLY, Director } from './director'
-import { playAt, playPose } from './play'
+import { playAt, schedulePose } from './play'
 import { startWrap, totalOf, TOUCH_LABEL, WRAP_LABEL } from './wrap'
 import type { AgentStatus, OfficeMessage, StatusMap } from './status'
 
@@ -11,6 +11,16 @@ const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
 // a minute whose schedule has no record placed alone (#137 ①): these tests are about the goals, and a solo first fetches the white bowl
 const MINUTE = 987_657
 const TALK_MS = 6000
+/**
+ * #490: the goal is the plain plan's spot, unless the plan sends the agent on an errand (the book, the can, a lounge act, the white bowl for a record
+ * placed alone): those goals are the errand's own and have tests of their own
+ */
+const ERRANDS = new Set(['books', 'water', 'fridge', 'dispenser', 'record', 'boardgame_solo'])
+const expectPlan = (goal: { spot: string; pose?: string } | undefined, p: { kind: string; spot: string } | undefined, pose = false) => {
+  if (!p || ERRANDS.has(p.kind)) return
+  expect(goal?.spot).toBe(p.spot)
+  if (pose) expect(goal?.pose).toBe(schedulePose(p.kind as Parameters<typeof schedulePose>[0]))
+}
 
 const idle = (since = 0): AgentStatus => ({ state: 'idle', since })
 const allIdle = (): StatusMap => Object.fromEntries(AGENTS.map((a) => [a, idle()]))
@@ -27,11 +37,8 @@ describe('Director.goals by state', () => {
     const d = new Director(AGENTS)
     const { fn } = makeArrived()
     const g = d.goals(0, MINUTE, allIdle(), fn)
-    const play = playAt(MINUTE, AGENTS)
-    for (const a of AGENTS) {
-      expect(g[a].spot).toBe(play[a].spot)
-      expect(g[a].pose).toBe(playPose(play[a].kind)) // a game record placed alone is drawn as the board pose (#137)
-    }
+    const play = playAt(0, AGENTS)
+    for (const a of AGENTS) expectPlan(g[a], play[a], true)
   })
 
   it('working agents go to work_<i> and type; the rest play without them', () => {
@@ -42,9 +49,9 @@ describe('Director.goals by state', () => {
     const g = d.goals(0, MINUTE, st, makeArrived().fn)
     expect(g.agent_1).toMatchObject({ spot: 'work_1', pose: 'type', label: '파일 편집 중' })
     expect(g.agent_3).toMatchObject({ spot: 'work_3', pose: 'type' })
-    const play = playAt(MINUTE, AGENTS, new Set(['agent_1', 'agent_3']))
-    expect(g.agent_0.spot).toBe(play.agent_0.spot)
-    expect(g.agent_2.spot).toBe(play.agent_2.spot)
+    const play = playAt(0, AGENTS, new Set(['agent_1', 'agent_3']))
+    expectPlan(g.agent_0, play.agent_0)
+    expectPlan(g.agent_2, play.agent_2)
   })
 
   it('off agents never leave (#110): a sleeper dozes at its desk, the night-duty agent plays solo, a bare off rests', () => {
@@ -55,7 +62,8 @@ describe('Director.goals by state', () => {
     st.agent_3 = { state: 'off', since: 0 }
     const g = d.goals(0, MINUTE, st, makeArrived().fn)
     expect(g.agent_1).toMatchObject({ spot: 'work_1', pose: 'doze', label: '조는 중' })
-    expect(['coffee', 'books']).toContain(g.agent_2.pose)
+    // the night solo, or the gap between two (#490 play.md 9.1)
+    expect(['coffee', 'books', 'idle']).toContain(g.agent_2.pose)
     expect(g.agent_2.quiet).toBe(true)
     expect(g.agent_3).toMatchObject({ spot: 'work_3', pose: 'idle' })
     expect(Object.values(g).some((x) => x.pose === 'leave' || x.spot === 'door')).toBe(false)
@@ -81,7 +89,7 @@ describe('Director.goals by state', () => {
   it('an agent missing from the status map is treated as idle', () => {
     const d = new Director(AGENTS)
     const g = d.goals(0, MINUTE, {}, makeArrived().fn)
-    for (const a of AGENTS) expect(g[a].spot).toBe(playAt(MINUTE, AGENTS)[a].spot)
+    for (const a of AGENTS) expectPlan(g[a], playAt(0, AGENTS)[a])
   })
 })
 
@@ -138,7 +146,7 @@ describe('wrapping (#186): real work, then rest', () => {
     // the frame the tidy-up ends: shown = rest, and the play assignment is the goal in that same frame
     expect(last.sh).toMatchObject({ kind: 'rest', status: { state: 'idle' } })
     expect(last.sh.detail).toBeUndefined()
-    expect(last.g.spot).toBe(playAt(MINUTE, AGENTS).agent_0.spot)
+    expectPlan(last.g, playAt(now, AGENTS).agent_0)
     expect(seen).toEqual([WRAP_LABEL.seat, WRAP_LABEL.write, WRAP_LABEL.walk, WRAP_LABEL.post, TOUCH_LABEL, WRAP_LABEL.seat, WRAP_LABEL.tidy, 'idle'])
     expect(poses.slice(0, 7)).toEqual(['idle', 'write', 'carry', 'cardpost', 'cardpost', 'idle', 'tidy'])
     // the whole wrap-up lasted to about 6 s before the display's end (2 min from the status' since)
@@ -310,6 +318,7 @@ describe('one place for one agent (#186, left over from #188)', () => {
     for (let minute = 0; minute < 3000; minute += 3) {
       const d = new Director(AGENTS)
       const t = minute * 60_000
+      if (Object.values(playAt(t, AGENTS)).some((p) => p.until <= t + 400)) continue
       const g0 = d.goals(t, minute, allIdle(), () => null)
       const there = (a: string) => g0[a].spot
       const g1 = d.goals(t + 100, minute, allIdle(), there)
@@ -363,9 +372,9 @@ describe('messages', () => {
     g = d.goals(2000 + TALK_MS - 1, MINUTE, st, fn)
     expect(g.agent_0.spot).toBe('meet_talk_0')
     g = d.goals(2000 + TALK_MS, MINUTE, st, fn)
-    const play = playAt(MINUTE, AGENTS)
-    expect(g.agent_0.spot).toBe(play.agent_0.spot)
-    expect(g.agent_1.spot).toBe(play.agent_1.spot)
+    const play = playAt(2000 + TALK_MS, AGENTS)
+    expectPlan(g.agent_0, play.agent_0)
+    expectPlan(g.agent_1, play.agent_1)
     expect(g.agent_0.bubble).toBeUndefined()
     expect(d.pending.talks).toEqual([])
   })
@@ -376,7 +385,7 @@ describe('messages', () => {
     const { fn } = makeArrived()
     d.receive(msg('agent_0', 'agent_1'))
     expect(d.goals(0, MINUTE, st, fn).agent_0.spot).toBe('meet_talk_0')
-    expect(d.goals(30_000, MINUTE, st, fn).agent_0.spot).toBe(playAt(MINUTE, AGENTS).agent_0.spot)
+    expectPlan(d.goals(30_000, MINUTE, st, fn).agent_0, playAt(30_000, AGENTS).agent_0)
   })
 
   it('a second talk goes to the chat spots by the window; a third waits', () => {
@@ -397,7 +406,7 @@ describe('messages', () => {
     d.receive(msg('agent_0', 'agent_1'))
     const g = d.goals(0, MINUTE, st, makeArrived().fn)
     expect(g.agent_1).toMatchObject({ spot: 'work_1', pose: 'idle' })
-    expect(g.agent_0.spot).toBe(playAt(MINUTE, AGENTS, new Set(['agent_1'])).agent_0.spot)
+    expectPlan(g.agent_0, playAt(0, AGENTS, new Set(['agent_1'])).agent_0)
     expect(d.pending).toEqual({ queued: 0, talks: [] })
   })
 
@@ -528,41 +537,47 @@ describe('Director start rule: not just before the night changes', () => {
   const KST_H = (day: number, h: number, m: number, s: number) => Date.UTC(2026, 0, day, h - 9, m, s)
   const ROSTER = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
   const idleAll = (): StatusMap => Object.fromEntries(ROSTER.map((a) => [a, idle()]))
-  /** the first day (and agent) on which `who` is assigned water at this KST time */
-  function waterDay(who: string, h: number, m: number, s: number) {
-    for (let day = 1; day < 120; day++) {
-      const now = KST_H(day, h, m, s)
-      if (playAt(Math.floor(now / 60000), ROSTER)[who]?.kind === 'water') return now
-    }
+  /** an agent's desk goes dark at 23:00 + its seat x 3 minutes (duty.ts NIGHT.staggerMin): `before` s before that, on day `day` */
+  const beforeDark = (day: number, who: string, before: number) => KST_H(day, 23, 3 * Number(who.split('_')[1]), 0) - before * 1000
+  /**
+   * #490 (the day plan; a water stay is a minute or so): the first day and agent at which `at` falls in that agent's water stay, nobody else assigned water then
+   * (one can: the first in the roster would go)
+   */
+  function waterWhen(at: (day: number, who: string) => number) {
+    for (let day = 1; day < 400; day++)
+      for (const who of ROSTER) {
+        const now = at(day, who)
+        const p = playAt(now, ROSTER)
+        if (p[who]?.kind === 'water' && Object.entries(p).every(([a, x]) => a === who || x.kind !== 'water')) return { now, who }
+      }
     throw new Error('no such day')
   }
   const goalsAt = (d: Director, now: number, st: StatusMap) => d.goals(now, Math.floor(now / 60000), st, () => null)
 
-  it('starts the errand by day, and not 10 s before agent_1 goes dark (23:03): its night changes within the lead', () => {
-    const day = waterDay('agent_1', 22, 56, 0)
-    expect(goalsAt(new Director(ROSTER), day, idleAll()).agent_1.water?.stage).toBe('fetch')
-    const late = waterDay('agent_1', 23, 2, 50)
-    expect(goalsAt(new Director(ROSTER), late, idleAll()).agent_1.water).toBeUndefined()
+  it('starts the errand by day, and not 10 s before the agent\'s desk goes dark: its night changes within the lead', () => {
+    const day = waterWhen((d, who) => beforeDark(d, who, 7 * 60))
+    expect(goalsAt(new Director(ROSTER), day.now, idleAll())[day.who].water?.stage).toBe('fetch')
+    const late = waterWhen((d, who) => beforeDark(d, who, 10))
+    expect(goalsAt(new Director(ROSTER), late.now, idleAll())[late.who].water).toBeUndefined()
   })
 
   it('does not start while wrapping at night (asleep or on the night shift as soon as the wrap-up ends), does by day', () => {
-    const night = waterDay('agent_1', 1, 10, 0)
+    const night = waterWhen((d) => KST_H(d, 1, 10, 0))
     const wrapping = idleAll()
-    wrapping.agent_1 = { state: 'wrapping', since: night - 200_000 }
-    expect(goalsAt(new Director(ROSTER), night, wrapping).agent_1.water).toBeUndefined()
-    const noon = waterDay('agent_1', 13, 10, 0)
-    const wrapDay = idleAll()
-    wrapDay.agent_1 = { state: 'wrapping', since: noon - 200_000 }
+    wrapping[night.who] = { state: 'wrapping', since: night.now - 200_000 }
+    expect(goalsAt(new Director(ROSTER), night.now, wrapping)[night.who].water).toBeUndefined()
+    const noon = waterWhen((d) => KST_H(d, 13, 10, 0))
     // (a wrap-up still under way holds the agent; the errand may start once it has run, so only the night case is asserted above)
-    expect(goalsAt(new Director(ROSTER), noon, idleAll()).agent_1.water?.stage).toBe('fetch')
+    expect(goalsAt(new Director(ROSTER), noon.now, idleAll())[noon.who].water?.stage).toBe('fetch')
   })
 
   it('an errand already under way is not touched by the rule', () => {
-    const day = waterDay('agent_1', 23, 2, 30)
+    // its water stay lasts past the 10 s looked at
+    const day = waterWhen((d, who) => (playAt(beforeDark(d, who, 0), ROSTER)[who]?.kind === 'water' ? beforeDark(d, who, 30) : NaN))
     const d = new Director(ROSTER)
-    expect(goalsAt(d, day, idleAll()).agent_1.water?.stage).toBe('fetch')
+    expect(goalsAt(d, day.now, idleAll())[day.who].water?.stage).toBe('fetch')
     // 10 s later its night is within the lead (a fresh start would be refused), but it is on its way already: still fetching
-    const edge = day + 10_000
-    expect(goalsAt(d, edge, idleAll()).agent_1.water?.stage).toBe('fetch')
+    const edge = day.now + 10_000
+    expect(goalsAt(d, edge, idleAll())[day.who].water?.stage).toBe('fetch')
   })
 })
