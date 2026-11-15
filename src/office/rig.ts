@@ -24,7 +24,8 @@ import { aimPose, planGesture, type AimPose, type Plan } from './aim'
 import { DOZE } from './doze'
 import { FaceScreen } from './faceScreen'
 import { baseExpression, CallTracker, FaceMind, newInput, type FaceInput } from './faceMind'
-import { WRITE_ASIDE, WRITE_CARD, wrapBack, wrapHand, wrapHead, writePlace, type HandSpec, type WritePlace } from './wrapPose'
+import { WRITE_ASIDE, WRITE_CARD, wrapBack, wrapHand, wrapHead, writePlace, type HandSpec, type PressAt, type WritePlace } from './wrapPose'
+import { WRITE_PRESS } from './writePress.data'
 import { WRAP } from './wrap'
 import type { Expression } from './faceModel'
 import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
@@ -1431,6 +1432,11 @@ export class AgentRig {
   private cards: Record<'l' | 'r', Mesh | null> = { l: null, r: null }
   /** where the card is written (wrapPose.ts writePlace): beside the monitor on a desk facing the camera, else null; the body's turn toward it (rad) */
   private place: WritePlace = null
+  /** #501: where this desk's pressing palm holds the card's corner, instead of its own (writePress.data.ts, found per desk): the search sets it */
+  pressAt: PressAt | null = null
+  private get press(): PressAt | undefined {
+    return this.pressAt ?? WRITE_PRESS[Number(this.id.split('_')[1])]
+  }
   /** #461 the body's turn toward the card (rad, its yaw on top of the heading) and its move toward it (m, along the seat's right), their 0..1 progress, and the side */
   private writeTurn = 0
   private writeShift = 0
@@ -1636,7 +1642,7 @@ export class AgentRig {
         // the pieces of writing (wrap.ts, wrapPose.ts): the right hand writes, the left presses the card flat, lifts it to read, pushes it to the stack
       {
         // in the seat's frame (the card on the desk), then into the turned body's (#461); the reading place in front of the face goes the other way first
-        const hs = wrapHand(side, 'write', wb, t, { rest: this.bodyToSeat(rest), read: this.bodyToSeat(this.readingPlace(this.place && this.place.side < 0 ? 'r' : 'l')), sit, m, reduced, place: this.place })
+        const hs = wrapHand(side, 'write', wb, t, { rest: this.bodyToSeat(rest), read: this.bodyToSeat(this.readingPlace(this.place && this.place.side < 0 ? 'r' : 'l')), sit, m, reduced, place: this.place, press: this.press })
         return this.wrapSpec(side, { ...hs, pos: this.seatToBody(hs.pos) }, down)
       }
       case 'carry': {

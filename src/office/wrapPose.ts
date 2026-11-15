@@ -67,7 +67,9 @@ export const MOVE_TO = (k: number) => (k < 3 ? k + 3 : k - 3)
 /** the writing hand's place on the card: line `row`, `x` across (m from the left end) */
 const NIB_X0 = 0.115
 const NIB_Y = 0.83
-const lineZ = (row: number) => -0.43 + 0.008 * Math.min(row, 6)
+/** a card holds five lines (0-4, #501) */
+export const LINES_MAX = 4
+const lineZ = (row: number) => -0.43 + 0.008 * Math.min(row, LINES_MAX)
 const LEFT_ON_CARD: [number, number, number] = [-0.13, 0.82, -0.42]
 
 /** #481 (wrapup.md 9.1): the card on the desk, the same 10 x 13 cm card the stack and the board carry (#499: the size of the hands); laid square to the seat */
@@ -111,12 +113,20 @@ export const PEN = {
 const FRONT_CARD = { x: 0, z: -0.41 } as const
 
 /** the card's centre on the desk in the seat's frame, the pen side (+1 right), and where the pressing palm goes (wrapup.md 9.1, #495: the card is the writing place itself) */
-export function writeCard(place: WritePlace | undefined): { x: number; z: number; s: 1 | -1; pressX: number; pressZ: number } {
+/** where the pressing palm's centre is, off the card's near corner (#501: found per desk, writePress.data.ts): `out` beyond the short edge nearest the body, `side` from the card's centre toward the pressing side (m) */
+export interface PressAt {
+  out: number
+  side: number
+  /** the palm's height: low enough that the fingertips rest on the card (found per desk); the support pose's own when not given */
+  y?: number
+}
+
+export function writeCard(place: WritePlace | undefined, press: PressAt = { out: WRITE_CARD.pressOut, side: WRITE_CARD.pressSide }): { x: number; z: number; s: 1 | -1; pressX: number; pressZ: number } {
   const s = place?.side ?? 1
   const x = place ? WRITE_ASIDE.x * s : FRONT_CARD.x
   const z = place ? WRITE_ASIDE.z : FRONT_CARD.z
   // the body is toward +z: the near short edge is at z + d/2
-  return { x, z, s, pressX: x - s * WRITE_CARD.pressSide, pressZ: z + WRITE_CARD.d / 2 + WRITE_CARD.pressOut }
+  return { x, z, s, pressX: x - s * press.side, pressZ: z + WRITE_CARD.d / 2 + press.out }
 }
 
 /** the line's left end (seat frame x) on the card: 1.2 cm in from its left edge; `dz` moves the rows (lineZ) so the first is 1.5 cm in from its far edge */
@@ -179,7 +189,7 @@ function along(route: Route, u: number): { pos: [number, number, number]; curl: 
  * One hand in a beat. `rest` is the hand's resting place (the rig's), `read` where a held card is read (0.25 m in front of the face),
  * `sit` the seat height offset, `m` the ambient motion (0.3 in reduced motion, which keeps the writing posture and nothing else).
  */
-export function wrapHand(side: 'l' | 'r', pose: 'write' | 'cardpost', b: WrapBeat | undefined, t: number, o: { rest: [number, number, number]; read: [number, number, number]; sit: number; m: number; reduced: boolean; place?: WritePlace }): HandSpec {
+export function wrapHand(side: 'l' | 'r', pose: 'write' | 'cardpost', b: WrapBeat | undefined, t: number, o: { rest: [number, number, number]; read: [number, number, number]; sit: number; m: number; reduced: boolean; place?: WritePlace; press?: PressAt }): HandSpec {
   const u = b?.u ?? 0
   const row = b?.v ?? 0
   const { rest, sit, m } = o
@@ -189,8 +199,8 @@ export function wrapHand(side: 'l' | 'r', pose: 'write' | 'cardpost', b: WrapBea
     const L = lineStart(o.place)
     const r = o.place ? side === (s > 0 ? 'r' : 'l') : side === 'r'
     // the other hand holds the card's near corner on its side with its fingertips, the palm off the card (#481, #497, #499)
-    const card = writeCard(o.place)
-    const left: HandSpec = { pos: [card.pressX, LEFT_ON_CARD[1], card.pressZ], palm: 'down', curl: 'support' }
+    const card = writeCard(o.place, o.press)
+    const left: HandSpec = { pos: [card.pressX, o.press?.y ?? LEFT_ON_CARD[1], card.pressZ], palm: 'down', curl: 'support' }
     // the pen hand over the pen's tip on the card (the stage puts the hand exactly on the pen it draws, #481)
     const penAt = (x: number, y: number, z: number): HandSpec => ({ pos: [L.x + (x - NIB_X0), y, z + L.dz], palm: 'down', curl: 'pen' })
     const kind = o.reduced ? 'line' : b?.kind
