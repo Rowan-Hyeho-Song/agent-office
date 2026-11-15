@@ -4,7 +4,7 @@
 import { useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import { hitAllowed } from './walls'
-import { isOmokActive } from './omokVisit/store'
+import { isVisitPlaying } from './visitPlay'
 import { BoxGeometry, Mesh, MeshBasicMaterial, Raycaster, Vector2, Vector3, type Intersection, type Object3D } from 'three'
 
 /**
@@ -47,7 +47,7 @@ export function useCanvasPick(targets: () => Object3D[], onPick: (hits: Intersec
       ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1)
       ray.setFromCamera(ndc, camera)
       // #137 ② at the board with the visitor's game, the scene's other picks (a badge, a board, the door) stand aside: the board takes the clicks
-      if (isOmokActive()) return []
+      if (isVisitPlaying()) return []
       // #370 D a desk thing the visitor points at goes before the agent sitting at it (its badge) and the desk's other picks
       if (claim?.(e.clientX, e.clientY)) return []
       return ray.intersectObjects(latest.current.targets(), false).filter(hitAllowed)

@@ -1,6 +1,7 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import { CircleGeometry, Matrix4, CylinderGeometry, Mesh, MeshBasicMaterial, Plane, Raycaster, RingGeometry, Vector2, Vector3, type PerspectiveCamera } from 'three'
+import { cue } from '../../audio/cues'
 import type { Expression } from '../faceModel'
 import type { PlayStage } from '../playStage'
 import { isTouring, tour } from '../tourStore'
@@ -8,6 +9,7 @@ import { officeNow, prefersReducedMotion, type OfficeWorld } from '../world'
 import { replay } from '../../replay/store'
 import type { Face } from '../../play/visitorOmok'
 import { isBoardOpen } from '../boardView/store'
+import { isPingpongActive } from '../pingpongVisit/store'
 import {
   armOmok, closeOmok, drainOmokEvents, getOmokVisit, omokArrived, omokLeft, placeOmok, setOmokPreview, setOmokTag, stepOmok, visitorMayPlace,
 } from './store'
@@ -46,6 +48,8 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
   const run = useRef<{ kind: 'in' | 'out'; t0: number; dur: number; fromP: V3; fromT: V3; toP: V3; toT: V3 } | null>(null)
   const saved = useRef<{ pos: V3; target: V3; limits: { minD: number; maxD: number; minP: number; maxP: number; enabled: boolean } } | null>(null)
   const endAt = useRef<number | null>(null)
+  /** the won game the match.win cue was played for (once per game) */
+  const wonKey = useRef<string | null>(null)
   // the stage lives on the office model's scene (Agents.tsx), under the root: found once
   const found = useRef<PlayStage | null>(null)
   const stage = (): PlayStage | undefined => {
@@ -177,7 +181,7 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
 
     // the tag: an agent alone at the board placing a record (play.md 2.1, 5.5); not during the game, the tour, the board view or the replay
     let tag: ReturnType<typeof getOmokVisit>['tag'] = null
-    if (v.phase === 'closed' && center && seat && !isTouring() && !isBoardOpen() && replay.getSnapshot().mode === 'off') {
+    if (v.phase === 'closed' && center && seat && !isPingpongActive() && !isTouring() && !isBoardOpen() && replay.getSnapshot().mode === 'off') {
       const goals = world.goals
       const alone = Object.keys(goals).find((a) => goals[a].pose === 'boardgame' && goals[a].spot === 'game_a' && world.rigs[a]?.arrived === 'game_a')
       const opposite = Object.values(goals).some((x) => x.spot === 'game_b')
@@ -236,6 +240,17 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
         if (ev.kind === 'say') world.bubbles.say(v.agent, { kind: 'react', text: ev.text, ms: 3500, whole: true }, now)
         else world.rigs[v.agent]?.faceEvent(FACE[ev.face], state.clock.elapsedTime)
       }
+      // the game won (a five, or the agent resigned and the visitor played on): match.win once, at the winner's side (sound.md, #593)
+      const gw = getOmokVisit().game
+      const res = gw?.end?.result
+      const key = gw?.end && (res === 'black' || res === 'resign' || res === 'white') ? `${gw.seed}|${gw.game}|${gw.end.at}` : null
+      if (key && wonKey.current !== key) {
+        wonKey.current = key
+        const r = world.rigs[v.agent]
+        const at = res !== 'white' ? (seat ? { x: seat.x, y: 0.9, z: seat.z } : undefined) : r ? { x: r.x, y: 1, z: r.z } : undefined
+        cue('match.win', { pos: at })
+      }
+      if (!gw?.end) wonKey.current = null
       // a game it let go (quiet) or left for work closes by itself after the agent's word
       const game = getOmokVisit().game
       const over = game?.end && (game.end.result === 'idle' || game.end.result === 'work')

@@ -1044,3 +1044,14 @@ html[data-omok] .corner-dock, html[data-omok] .agent-list, html[data-omok] .tour
   .omok-status { flex-basis: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { .omok-tag { animation: none; } }
+/* #137 ③ the visitor's paddle (play.md 3 · 4): the omok's tag and HUD; the score at the top middle (24 px), the first-time help over the HUD */
+html[data-pingpong] .corner-dock, html[data-pingpong] .agent-list, html[data-pingpong] .tour-bar, html[data-pingpong] .cam-hint, html[data-pingpong] .edge-hint,
+html[data-pingpong] .omok-tag, html[data-pingpong] .hud, html[data-omok] .pp-tag-btn { display: none; }
+.pp-score { position: fixed; z-index: 30; top: calc(var(--space-4) + env(safe-area-inset-top, 0px)); left: 50%; translate: -50% 0; margin: 0; padding: 4px 14px;
+  background: var(--color-surface-alpha); color: var(--color-text); font-family: var(--font-pixel); font-size: 24px; white-space: nowrap; box-shadow: inset 0 0 0 1px var(--color-line); }
+.pp-help { position: fixed; z-index: 30; left: 50%; translate: -50% 0; bottom: calc(var(--space-4) + 64px + env(safe-area-inset-bottom, 0px)); margin: 0; padding: 6px 12px; width: max-content; max-width: calc(100vw - 32px); box-sizing: border-box;
+  background: var(--color-surface-alpha); color: var(--color-text); font-family: var(--font-pixel); font-size: var(--font-size-1); box-shadow: inset 0 0 0 1px var(--color-cyan); }
+/* a phone: the score under the '← 책상으로' link (its 40 px and 8 px apart), never over it (designer, #591) */
+@media (max-width: 640px) { .pp-score { top: calc(16px + 40px + 8px + env(safe-area-inset-top, 0px)); } }
+/* a finger drags the paddle: the page never scrolls or zooms under it */
+html[data-pingpong] canvas { touch-action: none; }

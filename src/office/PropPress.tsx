@@ -9,7 +9,7 @@ import { speakerForMe, toggleSpeakerForMe } from '../audio/speaker'
 import { isReplayActive } from '../replay/store'
 import { useCameraBusy } from '../room/Door'
 import { grow, tagPlace, type Rect } from './keyRackRules'
-import { isOmokActive } from './omokVisit/store'
+import { isVisitPlaying } from './visitPlay'
 import { deskProps } from './props'
 import { PROP_BY_ID, PROP_PRESS, PROPS, gestureFor, pickNearest, propLabel, propTargets, secondLine, type PropId, type PropNow } from './propPressRules'
 import { claimPicks } from './pick'
@@ -79,7 +79,7 @@ export function PropPress({ world, nodes }: { world: OfficeWorld; nodes: Record<
     return touch ? grow(b, PROP_PRESS.minPx) : b
   }
   const pickAt = (x: number, y: number): PropId | null => {
-    if (!st.current.shown || isOmokActive()) return null
+    if (!st.current.shown || isVisitPlaying()) return null
     const boxes: [PropId, Rect][] = []
     for (const id of targets.keys()) {
       const b = rectOf(id)
@@ -199,7 +199,7 @@ export function PropPress({ world, nodes }: { world: OfficeWorld; nodes: Record<
     const s = st.current
     const u = ui.current
     if (!u) return
-    s.shown = !busy && !isTouring() && !isReplayActive() && !isOmokActive()
+    s.shown = !busy && !isTouring() && !isReplayActive() && !isVisitPlaying()
     const w = s.shown ? propNow(world) : null
     // each button on its thing, hidden when the thing is off the screen
     for (const id of targets.keys()) {

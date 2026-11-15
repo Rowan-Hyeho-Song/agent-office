@@ -11,7 +11,7 @@ import { BufferGeometry, CanvasTexture, Color, Float32BufferAttribute, Group, Li
 import { buildGraph, pathLength, patchSpots, shortestPath, type NavGraph } from './nav'
 import { buildGrid, cellAt, centre } from './grid'
 import { sideArea } from './sidePanel/store'
-import { requestOf, type Goal } from './director'
+import { requestOf, standSlot, type Goal } from './director'
 import { TrafficPlanner, type Request, type Sample } from './traffic'
 import { syncFridgeHold } from './lounge'
 import { musicWantsBreak, recordComing, resetDeck, speakerOn } from '../audio/speaker'
@@ -41,6 +41,9 @@ import { greetsOwner, questionFaceFor } from './liveFace'
 import { isLateHour } from './duty'
 import { getOmokVisit, workOmok } from './omokVisit/store'
 import { faceScreenRect } from './omokVisit/bubbleAnchor'
+import { closePingpong, getPingpongVisit } from './pingpongVisit/store'
+import { rallyOf } from '../play/visitorPingpong'
+import { WATCH } from './play'
 import { viewOf } from '../play/visitorOmok'
 
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
@@ -54,6 +57,16 @@ function omokView(now: number | null) {
   const v = getOmokVisit()
   if (now === null || v.phase === 'closed' || !v.agent || !v.game) return null
   return { agent: v.agent, view: viewOf(v.game, now) }
+}
+
+/** #137 ③ where the near end's player watches the visitor's match: beside the table at the net, on the window side (out of the view down the table) */
+const PP_WATCH_STAND = { x: WATCH.pingpong.face.x, z: WATCH.pingpong.face.z - 1.15 }
+
+/** #137 ③ the visitor's match as the stage draws it, while they hold the paddle (not in the replay) */
+function pingpongView(on: boolean) {
+  const v = getPingpongVisit()
+  if (!on || v.phase === 'closed' || !v.agent || !v.match) return null
+  return { agent: v.agent, rally: rallyOf(v.match, v.paddle), tMs: v.match.t }
 }
 
 /**
@@ -335,6 +348,25 @@ export function Agents({ world }: { world: OfficeWorld }) {
       const g = getOmokVisit().game
       if (g && !(g.end && (g.end.result === 'work' || visit.phase === 'leaving'))) goals[visit.agent] = { spot: 'game_a', pose: 'boardgame', label: '오목 · 방문자와 대국' }
     }
+    // #137 ③ the visitor holds the near paddle: the agent plays from the far end; the one who played at the near end watches by the table (play.md 3.1).
+    // Called to work, the agent says so and the match ends
+    const ppVisit = st ? null : getPingpongVisit()
+    if (ppVisit && ppVisit.phase !== 'closed' && ppVisit.agent && goals[ppVisit.agent]) {
+      const s = status[ppVisit.agent]
+      if (ppVisit.phase !== 'leaving' && s && (s.state !== 'idle' || s.night === 'duty')) {
+        world.bubbles.say(ppVisit.agent, { kind: 'react', text: '일하러 가야 해요!', ms: 3000, whole: true }, now)
+        closePingpong()
+      } else if (ppVisit.phase !== 'leaving') {
+        // already at the far end: its goal as it is (its departure), only the words, and at the spot itself (no other play's standing place); else sent there
+        const g0 = goals[ppVisit.agent]
+        goals[ppVisit.agent] = g0.spot === 'pingpong_b' && g0.pose === 'pingpong' ? { ...g0, slot: undefined, label: '탁구 · 방문자와 경기' } : { spot: 'pingpong_b', pose: 'pingpong', label: '탁구 · 방문자와 경기' }
+        // anyone else the director sends to the table (the near end's player, one coming to join) watches from beside it, by the net: out of the
+        // visitor's view down the table (play.md 3.1)
+        for (const w of Object.keys(goals))
+          if (w !== ppVisit.agent && goals[w].pose === 'pingpong' && (goals[w].spot === 'pingpong_a' || goals[w].spot === 'pingpong_b'))
+            goals[w] = { spot: WATCH.pingpong.spot, pose: 'idle', ...standSlot({ stand: PP_WATCH_STAND, face: WATCH.pingpong.face }), watching: 'pingpong', label: WATCH.pingpong.label }
+      }
+    }
     if (!st) {
       // forget the departures no goal holds any more (a held one keeps its planner time: recomputed each frame it would drift and replan every frame,
       // #228). After the debug overrides: a forced spot keys the departure it is requested with; judged on the director's own spot, the forced one's
@@ -492,6 +524,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
       colors: AGENT_COLORS,
       forcedSessions: world.debug ? world.forcedSessions : undefined,
       visitorOmok: omokView(st ? null : now),
+      visitorPingpong: pingpongView(!st),
       // #455 the treats in a hand (not in the replay: a treat is a live visitor's)
       treats: st ? undefined : world.treats,
       // #137 ② the visitor plays black from the empty chair, the agent white: its bowl rests by the agent (the corner by game_a) while they play

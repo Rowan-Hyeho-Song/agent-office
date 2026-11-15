@@ -155,6 +155,8 @@ const opp = (h: 0 | 1) => (1 - h) as 0 | 1
 export interface Aim {
   quality: number
   aimZ?: number
+  /** a human serve: where the paddle tosses it from (table-local ball centre); the AI's serve draws its own */
+  from?: V3
 }
 
 /**
@@ -177,7 +179,7 @@ export function nextShot(state: RallyState, aim?: Aim): { shot: Shot; state: Ral
   const serve = state.n === 0
   const x0 = -d * (L / 2 + reach)
   const xh = d * (L / 2 + reach)
-  const from: V3 = serve ? [x0, r + 0.3, (rand() * 2 - 1) * W * 0.15] : state.from
+  const from: V3 = serve ? (humanHits && aim?.from ? aim.from : [x0, r + 0.3, (rand() * 2 - 1) * W * 0.15]) : state.from
   const h0 = from[1] - r
   const sk = skillOf(state.players[hitter])
   const skR = skillOf(state.players[opp(hitter)])
