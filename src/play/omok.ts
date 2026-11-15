@@ -123,6 +123,34 @@ function patternScore(board: Uint8Array, cell: number, color: Color): number {
   return total
 }
 
+/** each axis through `cell` as if `color` stood there: the run's length and how many of its ends are open (#137: the visitor's game reads shapes) */
+export function axesAt(board: Uint8Array, cell: number, color: Color): { count: number; open: number }[] {
+  const cx = cell % N
+  const cy = (cell / N) | 0
+  return DIRS.map(([dx, dy]) => {
+    let count = 1
+    let open = 0
+    for (const sg of [1, -1]) {
+      let x = cx + dx * sg
+      let y = cy + dy * sg
+      while (x >= 0 && x < N && y >= 0 && y < N && board[y * N + x] === color) {
+        count++
+        x += dx * sg
+        y += dy * sg
+      }
+      if (x >= 0 && x < N && y >= 0 && y < N && board[y * N + x] === EMPTY) open++
+    }
+    return { count, open }
+  })
+}
+
+/** the empty cells where `color` would make five or more (two or more: the other side cannot stop it) */
+export function fiveCells(board: Uint8Array, color: Color): number[] {
+  const out: number[] = []
+  for (let c = 0; c < N * N; c++) if (board[c] === EMPTY && runThrough(board, c, color)) out.push(c)
+  return out
+}
+
 const near = (board: Uint8Array, cell: number) => {
   const cx = cell % N
   const cy = (cell / N) | 0

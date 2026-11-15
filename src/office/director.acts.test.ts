@@ -96,6 +96,24 @@ describe('the turntable through the Director', () => {
     expect(d.deckState()).toEqual({ recordOn: true, needle: true })
   })
 
+  it('lift (#492): recordComing is true on the way to lift the arm, false once it is up', () => {
+    const d = new Director(IDS)
+    d.forceAct('agent_4', 'record', T0, 'put')
+    drive(d, 0, 10, stands(ACT_PLACE.record.spot, 0.5), {})
+    expect(d.deckState().needle).toBe(true)
+    d.forceAct('agent_4', 'record', T0 + 20_000, 'lift')
+    let coming = false
+    let comingAfter = true
+    const beats = recordBeats('lift', true)
+    drive(d, 20, 30, stands(ACT_PLACE.record.spot, 20.5), {}, (t) => {
+      if (t > 21 && t < 20.5 + beats.down - 0.2) coming ||= d.recordComing()
+      if (t > 20.5 + beats.down + 0.2) comingAfter = d.recordComing()
+    })
+    expect(coming, 'on its way to lift the arm').toBe(true)
+    expect(comingAfter, 'not any more once the arm is up').toBe(false)
+    expect(d.deckState().needle).toBe(false)
+  })
+
   it('the music wants a break and nobody is at the turntable: echo (agent_4) goes first, and it puts the record on; the next one asks nothing more of anybody', () => {
     const d = new Director(IDS)
     const starter: string[] = []
@@ -146,7 +164,9 @@ describe('the turntable through the Director', () => {
 
   it('the schedule sends agents to the three acts through the day', () => {
     const kinds = new Set<string>()
-    for (let m = 0; m < 24 * 60; m += 3) for (const a of Object.values(playAt(m, IDS))) kinds.add(a.kind)
+    // #490: one day of the plan, every 30 s
+    const day = Date.UTC(2026, 10, 9, 0, 0, 0)
+    for (let t = day; t < day + 86_400_000; t += 30_000) for (const a of Object.values(playAt(t, IDS))) kinds.add(a.kind)
     for (const k of ['fridge', 'dispenser', 'record']) expect(kinds.has(k), k).toBe(true)
   })
 })

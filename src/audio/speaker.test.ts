@@ -14,18 +14,38 @@ import {
   wantedState,
   deckState,
   DECK_IDLE,
+  DECK_GRACE_S,
 } from './speaker'
 
-describe('the turntable (#280, sound.md 4.4)', () => {
-  it('nobody at it: break at once, as before', () => expect(deckState('break', DECK_IDLE)).toBe('break'))
-  it('someone on the way: the break music waits (work) until the needle is down', () => {
-    expect(deckState('break', { ...DECK_IDLE, coming: true })).toBe('work')
-    expect(deckState('break', { ...DECK_IDLE, down: true })).toBe('break')
+describe('the turntable (#280, #492, sound.md 4.4): the music swaps on the needle', () => {
+  const coming = { ...DECK_IDLE, coming: true }
+  const down = { ...DECK_IDLE, down: true }
+  it('the rule turns to break: work music until the needle is down (nobody sent yet, then on the way)', () => {
+    expect(deckState('break', DECK_IDLE, 'work', 0)).toBe('work')
+    expect(deckState('break', coming, 'work', 0)).toBe('work')
+    expect(deckState('break', coming, 'work', DECK_GRACE_S + 30), 'a long walk still waits').toBe('work')
   })
-  it('arm lifted during the break: back to work music', () => expect(deckState('break', { ...DECK_IDLE, lifted: true })).toBe('work'))
-  it('outside a break the agents rule (work, night off) whatever the record does', () => {
-    expect(deckState('work', { ...DECK_IDLE, down: true })).toBe('work')
-    expect(deckState('off', { ...DECK_IDLE, down: true })).toBe('off')
+  it('the needle frame: break music', () => expect(deckState('break', down, 'work', 3)).toBe('break'))
+  it('nobody comes: the break music DECK_GRACE_S after the rule changed, and a late agent does not take it back', () => {
+    expect(deckState('break', DECK_IDLE, 'work', DECK_GRACE_S - 0.1)).toBe('work')
+    expect(deckState('break', DECK_IDLE, 'work', DECK_GRACE_S)).toBe('break')
+    expect(deckState('break', coming, 'break', DECK_GRACE_S + 5)).toBe('break')
+  })
+  it('arm lifted during the break: back to work music', () => expect(deckState('break', { ...DECK_IDLE, lifted: true }, 'break', 20)).toBe('work'))
+  it('the break ends with the needle down: break music until the arm comes up, on the lift frame work music', () => {
+    expect(deckState('work', down, 'break', 0)).toBe('break')
+    expect(deckState('work', { ...down, coming: true }, 'break', DECK_GRACE_S + 30)).toBe('break')
+    expect(deckState('work', DECK_IDLE, 'break', 4), 'needle up').toBe('work')
+  })
+  it('the break ends and nobody lifts the arm: work music after the grace', () => {
+    expect(deckState('work', down, 'break', DECK_GRACE_S - 0.1)).toBe('break')
+    expect(deckState('work', down, 'break', DECK_GRACE_S)).toBe('work')
+  })
+  it('a record put on during work changes nothing; night is off whatever the record does; a seek follows the rule at once', () => {
+    expect(deckState('work', down, 'work', 0)).toBe('work')
+    expect(deckState('off', down, 'break', 0)).toBe('off')
+    expect(deckState('break', DECK_IDLE)).toBe('break')
+    expect(deckState('work', down)).toBe('work')
   })
 })
 

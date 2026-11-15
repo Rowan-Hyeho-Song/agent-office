@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Director } from './director'
-import { NOTE_LABEL, NOTE_READ, stepNote, stillWaiting, thanksNow } from './noteRead'
+import { NOTE_LABEL, NOTE_READ, pinnedAt, stepNote, stillWaiting, thanksNow } from './noteRead'
 import type { StatusMap } from './status'
 
 // #4 notes 2b (office-ui.md 12.3 '에이전트 반응'): the robot a note is for walks to the cork board the next time it rests, looks 2 s, nods and
@@ -93,6 +93,18 @@ describe('notes in the Director', () => {
     // a note for a robot that is not in the office is not queued
     d2.noteArrived('agent_9', 11, T0, T0)
     expect(d2.notesWaiting('agent_9')).toEqual([])
+  })
+
+  it('a debug-moved clock (?kst=) does not age a note: pinned a minute ago, it is a minute old at any office hour', () => {
+    const offset = 14 * 3_600_000
+    const real = T0 + 60_000
+    const d = new Director(IDS)
+    d.noteArrived('agent_2', 12, pinnedAt(new Date(T0).toISOString(), offset), real + offset)
+    expect(d.notesWaiting('agent_2')).toEqual([12])
+    // and it still expires an hour after it was pinned
+    const d2 = new Director(IDS)
+    d2.noteArrived('agent_2', 13, pinnedAt(new Date(T0).toISOString(), offset), T0 + NOTE_READ.waitMs + 1 + offset)
+    expect(d2.notesWaiting('agent_2')).toEqual([])
   })
 
   it('called to work on the way it gives up and goes again when it rests; one robot at the board at a time', () => {

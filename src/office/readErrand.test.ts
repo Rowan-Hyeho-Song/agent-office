@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { Box3, Raycaster, Vector3, type Mesh, type Object3D } from 'three'
 import { stubCanvas } from './glbLoad'
 import { Director } from './director'
-import { BLOCK_MINUTES, playAt } from './play'
+import { playAt } from './play'
 import { Guard, IDS, REACH, expectClean, runRead, world } from './errandWorld.fixture'
 import { GRAPH } from './navSpots.fixture'
 import { bookBoxes, bookDimsOf, distToBook, halfAngle, OPEN_ANGLE } from './bookGeom'
@@ -177,18 +177,20 @@ describe('stepRead: the errand in stages', () => {
 
 describe('the Director sends a reader (#280)', () => {
   const FIVE = IDS
-  // a block of the real schedule in which somebody is handed the book
-  const minute = (() => {
-    for (let b = 100; b < 3000; b++) if (Object.values(playAt(b * BLOCK_MINUTES, FIVE)).some((o) => o.kind === 'books')) return b * BLOCK_MINUTES
+  // a moment of the real schedule (#490: the day plan) at which somebody is handed the book, with a minute of it left at least
+  const T = (() => {
+    for (let t = Date.UTC(2026, 10, 9, 1, 0, 0); t < Date.UTC(2026, 10, 12, 1, 0, 0); t += 10_000)
+      if (Object.values(playAt(t, FIVE)).some((o) => o.kind === 'books' && o.until - t > 60_000)) return t
     throw new Error('no reading in the schedule')
   })()
-  const reader = Object.entries(playAt(minute, FIVE)).find(([, o]) => o.kind === 'books')![0]
+  const minute = Math.floor(T / 60000)
+  const reader = Object.entries(playAt(T, FIVE)).find(([, o]) => o.kind === 'books')![0]
   const idle = (): StatusMap => Object.fromEntries(FIVE.map((a) => [a, { state: 'idle' as const, since: 0 }]))
   const others = FIVE.filter((a) => a !== reader)
   const goalsWith = (taken: string[]) => {
     const d = new Director(FIVE)
     const at = new Map<string, string>(taken.map((s, i) => [others[i], s]))
-    const g = d.goals(minute * 60000, minute, idle(), (a) => at.get(a) ?? null)
+    const g = d.goals(T, minute, idle(), (a) => at.get(a) ?? null)
     return { d, g }
   }
 
@@ -214,14 +216,14 @@ describe('the Director sends a reader (#280)', () => {
     expect(g[reader].read).toBeUndefined()
     expect(g[reader]).toMatchObject({ spot: `work_${reader.split('_')[1]}`, pose: 'idle', label: '자리에서 쉬는 중' })
     // and it does not try again later in the block, even when a seat is free by then
-    const later = d.goals(minute * 60000 + 30_000, minute, idle(), () => null)
+    const later = d.goals(T + 30_000, minute, idle(), () => null)
     expect(later[reader].read).toBeUndefined()
   })
 
   it('the goal follows the stage: the stand until the book is in the hand, the seat while it is read (no slot), the stand again to put it back', () => {
     const d = new Director(FIVE)
     const at = new Map<string, string>()
-    let now = minute * 60000
+    let now = T
     const step = (s: number) => {
       now += s * 1000
       return d.goals(now, minute, idle(), (a) => at.get(a) ?? null)
@@ -248,7 +250,7 @@ describe('the Director sends a reader (#280)', () => {
     const at = new Map<string, string>()
     const st = idle()
     const go = (now: number) => d.goals(now, minute, st, (a) => at.get(a) ?? null)
-    let now = minute * 60000
+    let now = T
     go(now)
     st[reader] = { state: 'working', activity: 'test', since: 0 }
     expect(go(now + 100)[reader].read, 'not yet at the table: nothing to bring back').toBeUndefined()

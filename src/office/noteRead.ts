@@ -34,6 +34,12 @@ export interface NoteRun {
   t0: number | null
 }
 
+/**
+ * when a note was pinned, on the office clock (ms): the Director counts on that clock, which ?debug=1&kst= moves by `offsetMs`. So a note's age is
+ * its real age at any debug hour (a note pinned a minute ago is a minute old, not fourteen hours).
+ */
+export const pinnedAt = (createdAt: string, offsetMs: number) => Date.parse(createdAt) + offsetMs
+
 /** the waiting notes still worth a reaction at `now` */
 export const stillWaiting = (q: readonly NoteWait[], now: number) => q.filter((n) => now - n.at <= NOTE_READ.waitMs)
 

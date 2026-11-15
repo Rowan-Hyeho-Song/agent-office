@@ -24,7 +24,8 @@ import { aimPose, planGesture, type AimPose, type Plan } from './aim'
 import { DOZE } from './doze'
 import { FaceScreen } from './faceScreen'
 import { baseExpression, CallTracker, FaceMind, newInput, type FaceInput } from './faceMind'
-import { WRITE_ASIDE, wrapBack, wrapHand, wrapHead, writePlace, type HandSpec, type WritePlace } from './wrapPose'
+import { WRITE_ASIDE, WRITE_CARD, wrapBack, wrapHand, wrapHead, writePlace, type HandSpec, type PressAt, type WritePlace } from './wrapPose'
+import { WRITE_PRESS } from './writePress.data'
 import { WRAP } from './wrap'
 import type { Expression } from './faceModel'
 import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
@@ -68,6 +69,8 @@ const ARRIVE_TURN_RATE = Math.PI / 0.35 // rad/s
 const NOD_S = 0.5
 /** where a caught paper / plane is held to be looked at, from the head (paper-pass.md 5, #273) */
 export const LOOK_AT = { ahead: 0.22, down: 0.1, side: 0.06 }
+/** the coder's loop ring (agent_3_tip) turns the way its arrowhead points: clockwise from above, i.e. negative about its local y (#479) */
+export const LOOP_RING_DIR = -1
 /** a received plane / toss: how long the eyes stay wide before the nod (paper-pass.md 4) */
 const PAPER_SURPRISE_S = 1.2
 const NOD_DEG = 5
@@ -1429,6 +1432,11 @@ export class AgentRig {
   private cards: Record<'l' | 'r', Mesh | null> = { l: null, r: null }
   /** where the card is written (wrapPose.ts writePlace): beside the monitor on a desk facing the camera, else null; the body's turn toward it (rad) */
   private place: WritePlace = null
+  /** #505: where this desk's other hand rests beside the card, instead of its own (writePress.data.ts, found per desk): the search sets it */
+  pressAt: PressAt | null = null
+  private get press(): PressAt | undefined {
+    return this.pressAt ?? WRITE_PRESS[Number(this.id.split('_')[1])]
+  }
   /** #461 the body's turn toward the card (rad, its yaw on top of the heading) and its move toward it (m, along the seat's right), their 0..1 progress, and the side */
   private writeTurn = 0
   private writeShift = 0
@@ -1447,6 +1455,20 @@ export class AgentRig {
     const q = p.clone().applyAxisAngle(UP, this.writeTurn)
     return [q.x + this.writeShift, q.y, q.z]
   }
+  /** #481: where the card is written (writePlace; null in front), for the card and the pen the stage draws */
+  get writingPlace(): WritePlace {
+    return this.place
+  }
+  /** #481: a point in the seat's frame (wrapPose.ts) in world: the desk does not turn with the body */
+  seatToWorld(x: number, y: number, z: number, out = new Vector3()): Vector3 {
+    const [bx, by, bz] = this.seatToBody([x, y, z])
+    return this.parts.root.localToWorld(out.set(bx, by, bz))
+  }
+  /** #481: the seat frame's rotation in world (the body's without its turn toward the card) */
+  seatQuat(out = new Quaternion()): Quaternion {
+    this.parts.root.getWorldQuaternion(out)
+    return out.multiply(this.tmpQuat2.setFromAxisAngle(UP, -this.writeTurn))
+  }
   private updateCards(count: number, flat: boolean) {
     // the stack is on the hand that presses the card: the left, or on the aisle-side desks the one opposite the pen
     const side: 'l' | 'r' = this.place && this.goal?.pose === 'write' && this.place.side < 0 ? 'r' : 'l'
@@ -1460,7 +1482,8 @@ export class AgentRig {
       const knuckle = hand.fingers[1][0]?.node.position ?? new Vector3(0, 0.08, 0)
       const f = knuckle.clone().addScaledVector(n, -knuckle.dot(n)).normalize()
       const x = new Vector3().crossVectors(n, f)
-      const m = new Mesh(new BoxGeometry(0.075, 0.004, 0.095), new MeshBasicMaterial({ color: '#f3ead8' }))
+      // the same card as the one written on the desk (wrapPose.ts WRITE_CARD, #499: 10 x 13 cm)
+      const m = new Mesh(new BoxGeometry(WRITE_CARD.w, 0.004, WRITE_CARD.d), new MeshBasicMaterial({ color: WRITE_CARD.paper }))
       m.quaternion.setFromRotationMatrix(new Matrix4().makeBasis(x, n, f))
       m.userData.base = f.clone().multiplyScalar(Math.max(0.045, knuckle.length() * 0.8))
       m.userData.n = n
@@ -1468,7 +1491,8 @@ export class AgentRig {
       this.cards[side] = m
     }
     const m = this.cards[side]!
-    m.visible = count > 0 && this.parts.root.visible
+    // while writing the cards are on the desk (the stage draws them, #481 wrapup.md 9.1): the hand holds none
+    m.visible = count > 0 && this.parts.root.visible && !flat
     if (!m.visible) return
     const n = m.userData.n as Vector3
     m.scale.y = Math.max(1, count)
@@ -1618,7 +1642,7 @@ export class AgentRig {
         // the pieces of writing (wrap.ts, wrapPose.ts): the right hand writes, the left presses the card flat, lifts it to read, pushes it to the stack
       {
         // in the seat's frame (the card on the desk), then into the turned body's (#461); the reading place in front of the face goes the other way first
-        const hs = wrapHand(side, 'write', wb, t, { rest: this.bodyToSeat(rest), read: this.bodyToSeat(this.readingPlace(this.place && this.place.side < 0 ? 'r' : 'l')), sit, m, reduced, place: this.place })
+        const hs = wrapHand(side, 'write', wb, t, { rest: this.bodyToSeat(rest), read: this.bodyToSeat(this.readingPlace(this.place && this.place.side < 0 ? 'r' : 'l')), sit, m, reduced, place: this.place, press: this.press })
         return this.wrapSpec(side, { ...hs, pos: this.seatToBody(hs.pos) }, down)
       }
       case 'carry': {
@@ -2070,7 +2094,7 @@ export class AgentRig {
     if (ring) {
       // the coder's loop: slow, fast while tests run, stopped and red when they failed
       this.spin.ring += dt * (failed ? 0 : running ? 5 : 0.6) * m
-      ring.rotation.y = this.spin.ring
+      ring.rotation.y = LOOP_RING_DIR * this.spin.ring
       tint(ring, (base) => (failed ? FAIL_RED : base))
     }
     tint(this.parts.ear, (base) => this.tmpColor.copy(base).multiplyScalar(working ? 1 : 0.15))

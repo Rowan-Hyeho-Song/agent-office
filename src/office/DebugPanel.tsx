@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useState } from 'react'
-import { BLOCK_MINUTES, blockOf } from './play'
+import { nextChange as nextPlayChange } from './play'
 import { deskProps } from './props'
 import type { AgentState } from './status'
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
@@ -136,7 +136,7 @@ function PropsDebug({ world, now }: { world: OfficeWorld; now: number }) {
 /** ?debug=1: bubbles of every kind and the meeting replay (#97): the same calls as window.__office.bubbles / .replay */
 function BubbleDebug({ world }: { world: OfficeWorld }) {
   const r = world.replay
-  const say = (kind: 'talk' | 'react' | 'private', text: string, agent = 'agent_2') => world.bubbles.say(agent, { kind, text }, Date.now())
+  const say = (kind: 'talk' | 'react' | 'private', text: string, agent = 'agent_2') => world.bubbles.say(agent, { kind, text }, officeNow(world))
   return (
     <section>
       <div className="who">
@@ -176,8 +176,8 @@ export function DebugPanel({ world }: { world: OfficeWorld }) {
   const fake = world.fake
   const status = world.source.getSnapshot()
   const now = officeNow(world)
-  const minute = Math.floor(now / 60000)
-  const nextChange = (blockOf(minute) + 1) * BLOCK_MINUTES * 60000 - now
+  // #490: no blocks; the next moment some agent's play changes (its own plan)
+  const nextChange = Math.max(0, nextPlayChange(now, agents) - now)
   const shift = (min: number) => {
     world.timeOffsetMs = min === 0 ? 0 : world.timeOffsetMs + min * 60000
     world.duty.refresh()
@@ -187,12 +187,12 @@ export function DebugPanel({ world }: { world: OfficeWorld }) {
   return (
     <aside className="debug-panel">
       <header>
-        <b>DEBUG</b> 놀이 블록 {blockOf(minute)} · 다음 변경 {Math.floor(nextChange / 60000)}:
+        <b>DEBUG</b> 놀이 · 다음 변경 {Math.floor(nextChange / 60000)}:
         {String(Math.floor((nextChange % 60000) / 1000)).padStart(2, '0')}
         {world.timeOffsetMs !== 0 && <> · 시계 +{Math.round(world.timeOffsetMs / 60000)}분</>}
       </header>
       <div className="row">
-        <button onClick={() => shift(BLOCK_MINUTES)}>+{BLOCK_MINUTES}분</button>
+        <button onClick={() => shift(3)}>+3분</button>
         <button onClick={() => shift(30)}>+30분</button>
         <button onClick={() => shift(0)}>지금</button>
       </div>

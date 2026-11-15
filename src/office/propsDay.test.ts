@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { stubCanvas } from './glbLoad'
 import { Guard, IDS, Walk, expectClean, expectCleanAll, runErrand, runRead, world, type World } from './errandWorld.fixture'
 import { GRAPH, SPOTS } from './navSpots.fixture'
-import { BLOCK_MINUTES, PLAYS, playAt, soloAt } from './play'
+import { PLAYS, dayPlan, planDay, playAt, soloAt } from './play'
 import type { Goal } from './director'
 import { SETTLE_MS, sessionsAt, type PlaySession } from '../play/session'
 import { SOLO_LEAD_MS } from './bowlRun'
@@ -20,25 +20,29 @@ import { WATER_PLANTS } from './water'
 stubCanvas()
 const LOG = process.env.FIT_LOG
 const DAY0 = Date.parse('2026-11-09T00:00:00+09:00')
-const MIN0 = Math.floor(DAY0 / 60000)
+/** the day swept: every 3 minutes (#490: the plan changes at any moment, 3 minutes catches what it hands out over a day) */
+const STEP_MS = 3 * 60_000
 
-/** every combination the day's blocks produce: with nobody busy, and with each agent busy in turn (a game partner left alone, the schedule's own reshuffle) */
+/** every combination the day's plan produces: with nobody busy, and with each agent busy in turn (a game partner left alone, the schedule's own reshuffle) */
 function dayCombos() {
   const solo = new Set<string>() // `${agent}|${kind}`
   const water = new Set<string>() // `${agent}|${plant}`
   const pairs = new Map<string, PlaySession>()
-  for (let m = 0; m < 24 * 60; m += BLOCK_MINUTES) {
+  for (let t = DAY0; t < DAY0 + 86_400_000; t += STEP_MS) {
     for (const busy of [[], ...IDS.map((a) => [a])]) {
-      const out = playAt(MIN0 + m, IDS, new Set(busy))
+      const out = playAt(t, IDS, new Set(busy))
       for (const [agent, as] of Object.entries(out)) {
         if (as.kind === 'water') water.add(`${agent}|${as.plant}`)
         else if (as.kind === 'coffee' || as.kind === 'books') solo.add(`${agent}|${as.kind}`)
       }
       // the two players of a pair game, in either order (the sides differ in the paddle / stone colour, not in what the hands do)
-      for (const s of sessionsAt((MIN0 + m) * 60000, IDS, new Set(busy))) if (!pairs.has(`${s.kind}|${[...s.players].sort().join('|')}`)) pairs.set(`${s.kind}|${[...s.players].sort().join('|')}`, s)
+      for (const s of sessionsAt(t, IDS, new Set(busy))) if (!pairs.has(`${s.kind}|${[...s.players].sort().join('|')}`)) pairs.set(`${s.kind}|${[...s.players].sort().join('|')}`, s)
     }
     // the night-duty agent's quiet solo (any of them may hold the shift)
-    for (const a of IDS) solo.add(`${a}|${soloAt(MIN0 + m, a).kind}`)
+    for (const a of IDS) {
+      const n = soloAt(t, a)
+      if (n.kind !== 'gap') solo.add(`${a}|${n.kind}`)
+    }
   }
   return { solo, water, pairs }
 }
@@ -190,19 +194,29 @@ describe('a day of the schedule: no prop moves on its own, whatever the schedule
 
 describe('one can for the whole office: a second agent sent for it while the first still has it waits (#228)', () => {
   it('everyone free, the real schedule through the planner across a block boundary: never two on the can, both errands whole, every prop clean', async () => {
-    // a block where one agent waters and the next block another does
-    let m0 = -1
-    for (let m = MIN0 - (MIN0 % BLOCK_MINUTES); m < MIN0 + 24 * 60 && m0 < 0; m += BLOCK_MINUTES) {
-      const a = Object.entries(playAt(m, IDS)).find(([, x]) => x.kind === 'water')
-      const b = Object.entries(playAt(m + BLOCK_MINUTES, IDS)).find(([, x]) => x.kind === 'water')
-      if (a && b && a[0] !== b[0]) m0 = m
+    // #490: one agent's watering stay begins while another's is under way (from the day plans, by day; the first such day from DAY0 on)
+    const roster = [...IDS].sort()
+    let start = -1
+    let first = ''
+    let second = ''
+    for (let k = 0; k < 30 && start < 0; k++) {
+      const { day, start: dayStart } = planDay(DAY0 + 12 * 3_600_000 + k * 86_400_000)
+      const plan = dayPlan(day, roster)
+      for (const [i, segs] of plan.entries())
+        for (const seg of segs) {
+          // by day: 09:00-23:00 KST (the plan's day starts at 04:00)
+          if (start >= 0 || seg.kind !== 'water' || seg.start < dayStart + 5 * 3_600_000 || seg.start > dayStart + 19 * 3_600_000) continue
+          const other = plan.findIndex((o, n) => n !== i && o.some((x) => x.kind === 'water' && x.start <= seg.start - 1000 && x.end > seg.start))
+          if (other < 0) continue
+          start = seg.start
+          first = roster[other]
+          second = roster[i]
+        }
     }
-    expect(m0, 'a block where two agents water in a row').toBeGreaterThanOrEqual(0)
-    const [first] = Object.entries(playAt(m0, IDS)).find(([, x]) => x.kind === 'water')!
-    const [second] = Object.entries(playAt(m0 + BLOCK_MINUTES, IDS)).find(([, x]) => x.kind === 'water')!
+    expect(start, 'one waters while another\'s watering begins').toBeGreaterThanOrEqual(0)
     const w = await world()
-    // the first is sent 1 s before the next block begins and is still on the way with the can when the second one's block starts
-    const walk = new Walk(w, (m0 + BLOCK_MINUTES) * 60000 - 1000)
+    // the first is sent 1 s before the second's watering begins and is still on the way with the can when it does
+    const walk = new Walk(w, start - 1000)
     const guard = new Guard(w)
     const dt = 0.05
     const on: Record<string, { from: number; to: number }> = {}

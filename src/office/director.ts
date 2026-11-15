@@ -3,7 +3,7 @@
 
 import { dutyOf, dutyStatus } from './duty'
 import { DESK_SIDES } from './nav'
-import { blockOf, playAt, playPose, PLAYS, soloAt, type PlayKind } from './play'
+import { playAt, PLAYS, schedulePose, soloAt, type PlayAssignment, type PlayKind } from './play'
 import { activityLabel, type AgentStatus, type OfficeMessage, type StatusMap } from './status'
 import type { Request } from './traffic'
 import { actSpot, actU, deckAfter, startAct, stepAct, type ActRun } from './actRun'
@@ -217,8 +217,8 @@ export class Director {
   /** the turntable as the acts have left it (a record on the platter, the needle down) */
   deckState = () => this.deck
 
-  /** an agent is on its way to put a record on (the needle is not down yet): the break music waits for it (speaker.ts recordComing) */
-  recordComing = () => Object.values(this.acts).some((r) => r.kind === 'record' && (r.mode ?? 'put') === 'put' && !this.deck.needle)
+  /** an agent is on its way to put the needle down or lift it (the needle is not that way yet): the music waits for it (speaker.ts recordComing, #492) */
+  recordComing = () => Object.values(this.acts).some((r) => r.kind === 'record' && ((r.mode ?? 'put') === 'put' ? !this.deck.needle : this.deck.needle))
 
   /** the agent that has the fridge door in use, if any (the planner keeps everybody else off the area it sweeps, traffic.ts reserve) */
   fridgeUser = (): string | null => Object.entries(this.acts).find(([, r]) => r.kind === 'fridge')?.[0] ?? null
@@ -228,7 +228,7 @@ export class Director {
     for (const k of Object.keys(this.acts)) delete this.acts[k]
     delete this.waters[agent]
     delete this.drinks[agent]
-    const block = blockOf(Math.floor(now / 60000))
+    const block = this.stayNow(agent, now)
     const drink = kind === 'fridge' ? (pick === undefined ? this.pickFor(agent, block, now) : pick) : null
     this.acts[agent] = startAct(kind, block, kind === 'record' ? (mode ?? (this.deck.needle ? 'lift' : 'put')) : undefined, this.deck.recordOn, drink)
     this.actDone[agent] = this.acts[agent].block
@@ -272,7 +272,7 @@ export class Director {
     this.clearReads()
     delete this.waters[agent]
     delete this.acts[agent]
-    const block = blockOf(Math.floor(now / 60000))
+    const block = this.stayNow(agent, now)
     this.reads[agent] = startRead(seat, block, now)
     this.readDone[agent] = block
   }
@@ -281,9 +281,14 @@ export class Director {
   forceWater(agent: string, plant: string, now: number, reduced = false, habit?: HabitKind | null) {
     this.clearWater()
     delete this.waterDone[agent]
-    // it counts as this block's watering: the schedule does not send the agent again right after
-    const block = blockOf(Math.floor(now / 60000))
+    // it counts as this stay's watering: the schedule does not send the agent again right after
+    const block = this.stayNow(agent, now)
     this.waters[agent] = startWater(plant, block, now, reduced, habit === undefined ? habitFor(agent, block) : habit)
+  }
+
+  /** the agent's stay in the day's plan now (#490: the errands count "done" per stay, not per block); the minute when it has none */
+  private stayNow(agent: string, now: number): number {
+    return playAt(now, this.agents)[agent]?.stay ?? Math.floor(now / 60000)
   }
 
   /** start queued talks whose two agents are both free and in the office */
@@ -378,12 +383,13 @@ export class Director {
     }
 
     const busy = new Set(this.agents.filter((a) => status[a]?.state === 'working' || status[a]?.state === 'off' || status[a]?.night === 'duty' || this.runs[a]))
-    let play = playAt(minute, this.agents, busy)
+    let play = playAt(now, this.agents, busy)
+    // #490: no blocks; each agent's errands count "done" per stay of its own plan (play.ts), the minute when it has none
+    const stayOf = (a: string) => play[a]?.stay ?? minute
 
     // the watering errands (waterRun.ts, #228): the schedule's water assignment is an errand, started when nobody has the can and the
     // agent is free, then carried through whatever the schedule says next (the can is always brought back), and the one place that says
     // which stage it is in. There is one can: a second agent assigned to water waits at its desk until it is down.
-    const block = blockOf(minute)
     const resting = (a: string) => {
       const s = rawOf(a)
       return !this.inTalk(a) && !this.runs[a] && ((s.state === 'idle' && s.night !== 'duty') || s.state === 'wrapping')
@@ -412,14 +418,14 @@ export class Director {
       } else this.waters[a] = r.run
     }
     if (!Object.keys(this.waters).length) {
-      const a = this.agents.find((x) => play[x]?.kind === 'water' && this.waterDone[x] !== block && !this.acts[x] && !this.reads[x] && this.bowl?.agent !== x && resting(x) && steady(x))
+      const a = this.agents.find((x) => play[x]?.kind === 'water' && this.waterDone[x] !== stayOf(x) && !this.acts[x] && !this.reads[x] && this.bowl?.agent !== x && resting(x) && steady(x))
       if (a) {
         // the scheduled plant, or the next one whose stand is not taken by somebody resting beside it (water.ts STAND_BLOCKERS)
         const names = WATER_PLANTS.map((p) => p.name)
         const first = Math.max(0, names.indexOf(play[a].plant ?? ''))
         const free = (n: string) => ![...(STAND_BLOCKERS[n] ?? []), ...(PATH_BLOCKERS[n] ?? [])].some((spot) => this.agents.some((x) => x !== a && (this.lastGoal[x]?.spot === spot || arrivedAt(x) === spot)))
         const plant = [0, 1, 2].map((k) => names[(first + k) % names.length]).find(free)
-        if (plant) this.waters[a] = startWater(plant, block, now, !!opts.reduced, habitFor(a, block))
+        if (plant) this.waters[a] = startWater(plant, stayOf(a), now, !!opts.reduced, habitFor(a, stayOf(a)))
       }
     }
     // the reading errand (readRun.ts, #280): the schedule's books assignment is an errand like the watering: the book is taken from the low table, read on sofa seat 0
@@ -443,12 +449,12 @@ export class Director {
       } else this.reads[a] = r.run
     }
     if (!Object.keys(this.reads).length) {
-      const a = this.agents.find((x) => play[x]?.kind === 'books' && this.readDone[x] !== block && !this.acts[x] && !this.waters[x] && this.bowl?.agent !== x && resting(x) && steady(x))
+      const a = this.agents.find((x) => play[x]?.kind === 'books' && this.readDone[x] !== stayOf(x) && !this.acts[x] && !this.waters[x] && this.bowl?.agent !== x && resting(x) && steady(x))
       if (a) {
-        // seat 0 when nobody rests on it or is heading for it, else seat 1, else this reading is skipped (the block counts as read)
-        this.readDone[a] = block
+        // seat 0 when nobody rests on it or is heading for it, else seat 1, else this reading is skipped (the stay counts as read)
+        this.readDone[a] = stayOf(a)
         const seat = chooseSeat((spot) => this.agents.some((x) => x !== a && (this.lastGoal[x]?.spot === spot || arrivedAt(x) === spot)))
-        if (seat !== null) this.reads[a] = startRead(seat, block, now)
+        if (seat !== null) this.reads[a] = startRead(seat, stayOf(a), now)
       }
     }
     // #137 ① the white bowl (bowlRun.ts): a record placed alone first has the bowl carried to the corner by game_a; when nobody places one any more,
@@ -478,13 +484,13 @@ export class Director {
       const solo = this.agents.find((x) => play[x]?.kind === 'boardgame_solo')
       if (solo && !this.bowlAtCorner) {
         if (resting(solo) && steady(solo) && !errand(solo)) {
-          this.bowl = startBowl(solo, 'out', block, now)
+          this.bowl = startBowl(solo, 'out', stayOf(solo), now)
           this.bowlLast = solo
         }
       } else if (!solo && this.bowlAtCorner) {
         const free = this.agents.filter((x) => resting(x) && steady(x) && !errand(x) && !(x in this.meet))
         const a = this.bowlLast && free.includes(this.bowlLast) ? this.bowlLast : free[0]
-        if (a) this.bowl = startBowl(a, 'home', block, now)
+        if (a) this.bowl = startBowl(a, 'home', stayOf(a), now)
       }
     }
     // the lounge acts (lounge.ts): started by the schedule or by the music's wish for a break, once the agent is free; called away it simply stops
@@ -518,8 +524,8 @@ export class Director {
     const beginAct = (a: string, kind: ActKind) => {
       const bar = (k: ActKind) => (k === 'record' ? 'record' : 'bar')
       if (Object.values(this.acts).some((r) => bar(r.kind) === bar(kind))) return
-      this.acts[a] = startAct(kind, block, kind === 'record' ? (this.deck.needle ? 'lift' : 'put') : undefined, this.deck.recordOn, kind === 'fridge' ? this.pickFor(a, block, now) : null)
-      this.actDone[a] = block
+      this.acts[a] = startAct(kind, stayOf(a), kind === 'record' ? (this.deck.needle ? 'lift' : 'put') : undefined, this.deck.recordOn, kind === 'fridge' ? this.pickFor(a, stayOf(a), now) : null)
+      this.actDone[a] = stayOf(a)
     }
     // the break music is due and nobody has put the record on: whoever rests, agent_4 (echo) first; the break is over and the needle is still down: somebody lifts it
     const wishes = opts.wantsBreak === undefined ? null : opts.wantsBreak ? !this.deck.needle : this.deck.needle && now - this.needleAt >= LIFT_AFTER_MS
@@ -532,7 +538,7 @@ export class Director {
       const k = play[a]?.kind
       // the break music is on and the needle is down: the schedule does not send anybody to lift the arm (that is for the end of the break, above)
       if (k === 'record' && opts.wantsBreak && this.deck.needle) continue
-      if (k && isAct(k) && this.actDone[a] !== block && !this.acts[a] && !this.waters[a] && !this.reads[a] && this.bowl?.agent !== a && resting(a) && steady(a)) beginAct(a, k)
+      if (k && isAct(k) && this.actDone[a] !== stayOf(a) && !this.acts[a] && !this.waters[a] && !this.reads[a] && this.bowl?.agent !== a && resting(a) && steady(a)) beginAct(a, k)
     }
     // #4 notes 2b (noteRead.ts): a robot with a note waiting walks to the cork board the next time it rests, one at a time. Called away on the
     // way it tries again later; an hour after the note was pinned it lets it go
@@ -563,10 +569,10 @@ export class Director {
     // the one taking it home is away from the schedule. While the bowl is not home there is no pair game at the board, and while it is taken
     // home no new record either, so nobody sits where it is set down or taken from. A re-plan may hand those out again: re-plan until it does not
     if (this.bowl?.way === 'home') away.push(this.bowl.agent)
-    const blocked = (k: PlayKind | undefined) => (k === 'boardgame' && (this.bowlAtCorner || !!this.bowl)) || (k === 'boardgame_solo' && this.bowl?.way === 'home')
+    const blocked = (k: PlayAssignment['kind'] | undefined) => (k === 'boardgame' && (this.bowlAtCorner || !!this.bowl)) || (k === 'boardgame_solo' && this.bowl?.way === 'home')
     for (const x of this.agents) if (blocked(play[x]?.kind) && !away.includes(x)) away.push(x)
     for (let k = 0; k < 4 && away.length; k++) {
-      play = playAt(minute, this.agents, new Set([...busy, ...away]))
+      play = playAt(now, this.agents, new Set([...busy, ...away]))
       const more = this.agents.filter((x) => blocked(play[x]?.kind) && !away.includes(x))
       if (!more.length) break
       away.push(...more)
@@ -657,8 +663,8 @@ export class Director {
       // #110: nobody leaves. Off at night = dozing at its own desk, or the one awake on night duty; off by day
       // (a source that skipped duty.ts) = resting at the desk. 'leave' stays in the rig but is never chosen.
       if (s.night === 'duty' && s.state === 'idle') {
-        const p = soloAt(minute, a)
-        out[a] = { spot: p.spot, pose: playPose(p.kind), face: p.face, ...standSlot(p), quiet: true, label: `야간 당번 · ${p.label}` }
+        const p = soloAt(now, a)
+        out[a] = { spot: p.spot, pose: schedulePose(p.kind), face: p.face, ...standSlot(p), quiet: true, label: `야간 당번 · ${p.label}` }
         shown[a] = { status: s, kind: 'duty' }
         continue
       }
@@ -691,22 +697,23 @@ export class Director {
       // idle, or a wrap-up that is over: rest, i.e. whatever the play schedule says
       shown[a] = { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
       const p = play[a]
-      // water is an errand (above): an agent assigned to it that has not started waits for the can (or has already watered this block)
+      // water is an errand (above): an agent assigned to it that has not started waits for the can (or has already watered in this stay)
       if (p && isAct(p.kind)) {
-        out[a] = { ...deskIdle(desk), label: this.actDone[a] === block ? '자리에서 쉬는 중' : `${ACT_LABEL[p.kind]} 차례 기다리는 중` }
+        out[a] = { ...deskIdle(desk), label: this.actDone[a] === stayOf(a) ? '자리에서 쉬는 중' : `${ACT_LABEL[p.kind]} 차례 기다리는 중` }
         continue
       }
       if (p?.kind === 'water') {
-        out[a] = { ...deskIdle(desk), label: this.waterDone[a] === block ? '자리에서 쉬는 중' : '물뿌리개 차례 기다리는 중' }
+        out[a] = { ...deskIdle(desk), label: this.waterDone[a] === stayOf(a) ? '자리에서 쉬는 중' : '물뿌리개 차례 기다리는 중' }
         continue
       }
-      // reading is an errand too (above): one book, so an agent assigned to it waits for its turn, or finds both seats taken and skips this block's reading
+      // reading is an errand too (above): one book, so an agent assigned to it waits for its turn, or finds both seats taken and skips this stay's reading
       if (p?.kind === 'books') {
-        out[a] = { ...deskIdle(desk), label: this.readDone[a] === block ? '자리에서 쉬는 중' : '책 차례 기다리는 중' }
+        out[a] = { ...deskIdle(desk), label: this.readDone[a] === stayOf(a) ? '자리에서 쉬는 중' : '책 차례 기다리는 중' }
         continue
       }
       if (p) playing.push(a)
-      out[a] = p ? { spot: p.spot, pose: playPose(p.kind), face: p.face, ...standSlot(p), label: p.label } : deskIdle(desk)
+      // a gap between two stays (a stretch where it was, a stroll, the window) and watching a game stand still: the label says which (#490)
+      out[a] = p ? { spot: p.spot, pose: schedulePose(p.kind), face: p.face, ...standSlot(p), label: p.label } : deskIdle(desk)
     }
     this.settle(out, playing, deskIdle)
     this.putAway(now, out)

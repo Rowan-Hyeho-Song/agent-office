@@ -1,6 +1,7 @@
 /// <reference types="node" />
 // The lounge acts, drawn on the baked model (#280): each act run through the Director, the planner, the rigs and the play stage the way Agents.tsx runs them, and every prop watched
 // (props stay home unless a hand has them; nothing jumps; the body can reach what it holds). The sounds are the cues the stage fires (the audio graph itself is not built here).
+import { playAt } from './play'
 import { describe, expect, it } from 'vitest'
 import { Vector3 } from 'three'
 import { stubCanvas } from './glbLoad'
@@ -15,8 +16,20 @@ const DT = 0.02
 const rad = (d: number) => (d * Math.PI) / 180
 
 /** everybody works at their desks but `agent`, who is free and is sent to the act */
+/**
+ * #490: a start time at which the agent's own plan hands it no errand (an act, the can, the book, the bowl) for the next 90 s: the act forced here is the only one
+ * it runs (its next stay could otherwise start another act right after, cues and all)
+ */
+function quietStart(agent: string) {
+  for (let t = Date.UTC(2026, 10, 9, 5, 0, 0); ; t += 10_000) {
+    let quiet = true
+    for (let u = t; u < t + 90_000 && quiet; u += 5_000) quiet = !['fridge', 'dispenser', 'record', 'water', 'books', 'boardgame_solo'].includes(playAt(u, IDS)[agent]?.kind ?? '')
+    if (quiet) return t
+  }
+}
+
 function setup(w: World, agent: string) {
-  const walk = new Walk(w)
+  const walk = new Walk(w, quietStart(agent))
   for (const id of IDS) walk.status[id] = { state: 'working', activity: 'test', since: 0 }
   const guard = new Guard(w)
   for (let k = 0; k < 10; k++) walk.step(DT, guard)
@@ -57,7 +70,8 @@ async function runAct(w: World, agent: string, kind: ActKind, mode?: RecordMode,
     walk.step(DT, guard)
     const g: Goal = walk.goals[agent]
     const u = g.act?.u ?? -1
-    for (const f of lounge.fired) r.fired.push({ name: f.name, u: f.at })
+    // the act's own cues: once it is over the agent follows its plan again (#490: its next stay may be another act, with cues of its own)
+    if (r.endAt < 0) for (const f of lounge.fired) r.fired.push({ name: f.name, u: f.at })
     if (g.act) seen = true
     if (g.act && u >= 0 && r.reachedAt < 0) r.reachedAt = walk.t
     r.maxDoor = Math.max(r.maxDoor, lounge.doorDeg())

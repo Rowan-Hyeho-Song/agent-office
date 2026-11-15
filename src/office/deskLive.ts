@@ -4,6 +4,7 @@
 import { CanvasTexture, MathUtils, MeshBasicMaterial, SRGBColorSpace, Vector3, type Color, type Mesh, type Object3D } from 'three'
 import type { DeskProps } from './props'
 import { TrayPile } from './tray'
+import { LiveAxis } from './liveAxis'
 import { PlaySounds } from '../audio/playSounds'
 import { faderLevels, setSpeakerNodes, speakerCells, speakerCone, speakerOn } from '../audio/speaker'
 
@@ -30,19 +31,23 @@ const BLINK_HZ = 2.2
 
 /** echo's mixer (desks.md, #193): the woofer cones travel 3 mm, the level meter has 8 cells, 4 faders; every value comes from src/audio/speaker.ts */
 export class EchoDesk {
-  private spk: { node: Object3D; rest: Vector3; travel: number }[]
+  private spk: { live: LiveAxis; travel: number }[]
   private led: (k: number) => void
   private meter: ((k: number) => void)[]
-  private fader: { node: Object3D; rest: Vector3; travel: number }[]
-  private knob: Object3D[]
+  private fader: { live: LiveAxis; travel: number }[]
+  private knob: LiveAxis[]
   readonly present: boolean
   private cells = 0
 
   constructor(n: (name: string) => Object3D | undefined) {
-    const slide = (node: Object3D | undefined) => (node ? [{ node, rest: node.position.clone(), travel: Number(node.userData.travel) || 0 }] : [])
-    this.spk = ['desk_4_spk_l', 'desk_4_spk_r'].flatMap((k) => slide(n(k)))
-    this.fader = [0, 1, 2, 3].flatMap((k) => slide(n(`desk_4_fader_${k}`)))
-    this.knob = [0, 1, 2, 3].flatMap((k) => (n(`desk_4_knob_${k}`) ? [n(`desk_4_knob_${k}`)!] : []))
+    // each along or about its own axis from extras (#484): the cones +z (the push), the faders -z (the slot, zero at its end), the knobs y
+    const slide = (node: Object3D | undefined, fallback: Vector3) => (node ? [{ live: new LiveAxis(node, fallback), travel: Number(node.userData.travel) || 0 }] : [])
+    this.spk = ['desk_4_spk_l', 'desk_4_spk_r'].flatMap((k) => slide(n(k), new Vector3(0, 0, 1)))
+    this.fader = [0, 1, 2, 3].flatMap((k) => slide(n(`desk_4_fader_${k}`), new Vector3(0, 0, -1)))
+    this.knob = [0, 1, 2, 3].flatMap((k) => {
+      const node = n(`desk_4_knob_${k}`)
+      return node ? [new LiveAxis(node, new Vector3(0, 1, 0))] : []
+    })
     this.led = emitter(n('desk_4_spk_led'))
     this.meter = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => emitter(n(`desk_4_meter_${k}`)))
     this.present = this.spk.length > 0 || this.fader.length > 0
@@ -56,11 +61,11 @@ export class EchoDesk {
     const cone = speakerCone()
     const faders = faderLevels()
     // the cones: along their own +z (the speaker's push); reduced motion leaves them
-    for (const c of this.spk) c.node.position.copy(c.rest).addScaledVector(Z_LOCAL, c.travel * (reduced ? 0 : cone))
-    // the faders: hook / piano / bass / drums (axis -z, zero = the slot's end)
-    this.fader.forEach((f, k) => f.node.position.copy(f.rest).addScaledVector(Z_LOCAL, -f.travel * faders[k]))
+    for (const c of this.spk) c.live.slide(c.travel * (reduced ? 0 : cone))
+    // the faders: hook / piano / bass / drums, along their slot
+    this.fader.forEach((f, k) => f.live.slide(f.travel * faders[k]))
     // the gain knobs turn with their fader (about 270 degrees end to end)
-    this.knob.forEach((o, k) => (o.rotation.y = (faders[k] - 0.5) * 1.5 * Math.PI))
+    this.knob.forEach((o, k) => o.turn((faders[k] - 0.5) * 1.5 * Math.PI))
     this.led(speakerOn() ? 1 : OFF)
     // the level meter follows the speaker's cells only: no sound, no light (sound.md 5)
     const lit = MathUtils.clamp(speakerCells(), 0, 8)
@@ -73,12 +78,12 @@ export class EchoDesk {
     return this.cells
   }
 }
-const Z_LOCAL = new Vector3(0, 0, 1)
 
 export class DeskLive {
   private trays: (TrayPile | null)[]
-  private hourglass: Object3D | undefined
-  private turntable: Object3D | undefined
+  /** both turn about their own axis on top of the baked rotation (#484: the hourglass is baked turned 180°, the turntable 90°) */
+  private hourglass: LiveAxis | undefined
+  private turntable: LiveAxis | undefined
   private ring: (k: number) => void
   private tablet: (k: number) => void
   /** neon_approval: the amber dot on the IN tray, lit while something waits for the owner (when the model has it) */
@@ -98,8 +103,10 @@ export class DeskLive {
   constructor(nodes: Record<string, Object3D>) {
     const n = (name: string) => nodes[name]
     this.trays = ['desk_0_in', 'desk_0_out'].map((k) => TrayPile.of(n(k)))
-    this.hourglass = n('desk_0_hourglass')
-    this.turntable = n('desk_1_turntable')
+    const hg = n('desk_0_hourglass')
+    const tt = n('desk_1_turntable')
+    this.hourglass = hg && new LiveAxis(hg, new Vector3(1, 0, 0))
+    this.turntable = tt && new LiveAxis(tt, new Vector3(0, 1, 0))
     this.ring = emitter(n('desk_1_ringlight'))
     this.tablet = emitter(n('desk_2_tablet'))
     this.approvalDot = emitter(n('neon_approval'))
@@ -171,12 +178,12 @@ export class DeskLive {
       }
       if (!p.hourglass) this.flip.target = Math.round(this.flip.target / (2 * Math.PI)) * 2 * Math.PI
       this.flip.angle = reduced ? this.flip.target : MathUtils.damp(this.flip.angle, this.flip.target, 5, dt)
-      this.hourglass.rotation.x = this.flip.angle
+      this.hourglass.turn(this.flip.angle)
     }
     // 메시: the turntable spins while baking; the ring light is on while baking and blinks after
     if (this.turntable && p.turntable) {
       this.spin += dt * (reduced ? 0.4 : 1.2)
-      this.turntable.rotation.y = this.spin
+      this.turntable.turn(this.spin)
     }
     const blink = reduced ? 1 : Math.sin(t * BLINK_HZ * Math.PI * 2) > 0 ? 1 : 0.25
     this.ring(p.ringlight === 'on' ? 1 : p.ringlight === 'blink' ? blink : OFF)
