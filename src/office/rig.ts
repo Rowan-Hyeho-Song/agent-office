@@ -24,7 +24,7 @@ import { aimPose, planGesture, type AimPose, type Plan } from './aim'
 import { DOZE } from './doze'
 import { FaceScreen } from './faceScreen'
 import { baseExpression, CallTracker, FaceMind, newInput, type FaceInput } from './faceMind'
-import { WRITE_ASIDE, wrapBack, wrapHand, wrapHead, writePlace, type HandSpec, type WritePlace } from './wrapPose'
+import { WRITE_ASIDE, WRITE_CARD, wrapBack, wrapHand, wrapHead, writePlace, type HandSpec, type WritePlace } from './wrapPose'
 import { WRAP } from './wrap'
 import type { Expression } from './faceModel'
 import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
@@ -1476,7 +1476,8 @@ export class AgentRig {
       const knuckle = hand.fingers[1][0]?.node.position ?? new Vector3(0, 0.08, 0)
       const f = knuckle.clone().addScaledVector(n, -knuckle.dot(n)).normalize()
       const x = new Vector3().crossVectors(n, f)
-      const m = new Mesh(new BoxGeometry(0.075, 0.004, 0.095), new MeshBasicMaterial({ color: '#f3ead8' }))
+      // the same card as the one written on the desk (wrapPose.ts WRITE_CARD, #499: 10 x 13 cm)
+      const m = new Mesh(new BoxGeometry(WRITE_CARD.w, 0.004, WRITE_CARD.d), new MeshBasicMaterial({ color: WRITE_CARD.paper }))
       m.quaternion.setFromRotationMatrix(new Matrix4().makeBasis(x, n, f))
       m.userData.base = f.clone().multiplyScalar(Math.max(0.045, knuckle.length() * 0.8))
       m.userData.n = n

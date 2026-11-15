@@ -73,9 +73,9 @@ describe('writing beside the monitor on the desks that face the camera (#229)', 
     expect([card.x, card.z]).toEqual([0, -0.41])
     expect(Math.abs(hand('r', 'write', line, 0.5).pos[0] - card.x)).toBeLessThan(WRITE_CARD.w / 2)
     expect(Math.abs(hand('r', 'write', line, 0.5).pos[2] - card.z)).toBeLessThan(WRITE_CARD.d / 2)
-    // #497: the palm 1 cm outside the short edge nearest the body, 1.5 cm from the card's centre toward the pressing side
-    expect(hand('l', 'write', line, 0.5).pos[0]).toBeCloseTo(card.x - 0.015, 5)
-    expect(hand('l', 'write', line, 0.5).pos[2]).toBeCloseTo(card.z + WRITE_CARD.d / 2 + 0.01, 5)
+    // #499: the palm 7.5 cm outside the short edge nearest the body, 5.5 cm from the card's centre toward the pressing side
+    expect(hand('l', 'write', line, 0.5).pos[0]).toBeCloseTo(card.x - 0.055, 5)
+    expect(hand('l', 'write', line, 0.5).pos[2]).toBeCloseTo(card.z + WRITE_CARD.d / 2 + 0.075, 5)
   })
 })
 

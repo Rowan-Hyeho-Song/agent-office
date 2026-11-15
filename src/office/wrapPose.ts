@@ -70,19 +70,19 @@ const NIB_Y = 0.83
 const lineZ = (row: number) => -0.43 + 0.008 * Math.min(row, 6)
 const LEFT_ON_CARD: [number, number, number] = [-0.13, 0.82, -0.42]
 
-/** #481 (wrapup.md 9.1): the card on the desk, the same 7.5 x 9.5 cm card the stack and the board carry; laid square to the seat */
+/** #481 (wrapup.md 9.1): the card on the desk, the same 10 x 13 cm card the stack and the board carry (#499: the size of the hands); laid square to the seat */
 export const WRITE_CARD = {
-  w: 0.075,
-  d: 0.095,
+  w: 0.1,
+  d: 0.13,
   t: 0.0004,
   paper: '#f3ead8',
   /** the line's left end this far in from the card's left edge, the first line this far in from its far edge */
   inLeft: 0.012,
   inFar: 0.015,
-  /** the pressing palm (#497): holds the corner of the card's short edge nearest the body on the pressing side; its centre this far outside that edge and this
-   * far from the card's centre toward the pressing side; the fingers lie on the card's lower half, the pen writes the upper lines */
-  pressOut: 0.01,
-  pressSide: 0.015,
+  /** the pressing hand holds the card's near corner with its fingertips (#497, #499): the palm's centre this far outside the short edge nearest the body and this far
+   * from the card's centre toward the pressing side; the palm is off the card, about 2 cm of the fingers (they reach 9.5 cm from the knuckles) lie on it */
+  pressOut: 0.075,
+  pressSide: 0.055,
   /** above the desk top under the card's centre */
   lift: 0.0005,
 } as const
@@ -97,9 +97,9 @@ export const PEN = {
   /** grips.md: grip.pos 3 cm from the tip (prop_tablet_pen_grip_r: z -0.04 from the centre, the tip at -0.07) */
   gripZ: -0.04,
   tipZ: -0.07,
-  /** 45° to the desk; its back end toward the body and out toward the pen hand */
+  /** 45° to the desk; its back end toward the body and out toward the pen hand, 70° out (#499: the pen hand's palm away from the pressing hand) */
   elevDeg: 45,
-  outDeg: 30,
+  outDeg: 70,
   /** ink: where the tip passes within this height of the card, 1.5 mm wide */
   touchM: 0.002,
   inkM: 0.0015,
@@ -188,7 +188,7 @@ export function wrapHand(side: 'l' | 'r', pose: 'write' | 'cardpost', b: WrapBea
     const s = o.place?.side ?? 1
     const L = lineStart(o.place)
     const r = o.place ? side === (s > 0 ? 'r' : 'l') : side === 'r'
-    // the other hand holds the card's near corner on its side: the palm just outside the short edge nearest the body, the fingers on the card's lower half (#481, #497)
+    // the other hand holds the card's near corner on its side with its fingertips, the palm off the card (#481, #497, #499)
     const card = writeCard(o.place)
     const left: HandSpec = { pos: [card.pressX, LEFT_ON_CARD[1], card.pressZ], palm: 'down', curl: 'support' }
     // the pen hand over the pen's tip on the card (the stage puts the hand exactly on the pen it draws, #481)
