@@ -26,6 +26,7 @@ import { FaceScreen } from './faceScreen'
 import { baseExpression, CallTracker, FaceMind, newInput, type FaceInput } from './faceMind'
 import { WRITE_CARD, wrapBack, wrapHand, wrapHead, type HandSpec } from './wrapPose'
 import { WRAP } from './wrap'
+import { DOOR_ROUND, LEVER } from './doorRound'
 import { BROWSE } from './shelfRun'
 import { isWaiting } from './screens'
 import type { Expression } from './faceModel'
@@ -89,6 +90,8 @@ const LIFT = 0.06 // extra hover height while moving
  */
 const LIE = { headY: 0.62, faceUpRad: (80 * Math.PI) / 180, southM: 0.255, handsSouthM: 0.38, handsWestM: 0.03, handsApartM: 0.1, handY: 0.48 }
 const SEAT: Record<string, number> = { sofa: -0.3, stool: -0.2 }
+/** #451 the lever is down this long after the door round reaches the door, s */
+const DOOR_PRESS_S = LEVER.grab + LEVER.pressS
 const DEG_R = Math.PI / 180
 /** #535 (typing.md 4 'background'): waiting on background work the head is lowDeg lower; a look at the monitor (upDeg over the typing head) every 20–40 s, 1.2 s */
 export const BG_WAIT = { lowDeg: 6, upDeg: 4, lookS: 1.2 } as const
@@ -1420,6 +1423,8 @@ export class AgentRig {
     // #450 browsing the second bookshelf's spines: the head along the rows, ±12° in 6 s; reduced motion: still
     if (pose === 'idle' && this.goal?.browse) return { pitch: 0.04, yaw: reduced ? 0 : Math.sin((t / BROWSE.periodS) * Math.PI * 2) * BROWSE.yawDeg * (Math.PI / 180), roll: 0 }
     // #490 B a gap (play.md 9.3): the head back with the stretch, breathing at the window, one look left and right after a stroll
+    // #451 at the door with the lever: the head straight at the door's screen (0°), no idle glance
+    if (pose === 'idle' && (this.goal?.door?.u ?? -1) >= 0) return { pitch: 0, yaw: 0, roll: 0 }
     const gh = pose === 'idle' && this.restKey ? gapHead(this.goal?.gap, t - this.restT0, reduced) : null
     if (gh) return { pitch: gh.pitch, yaw: gh.yaw ?? idle.yaw, roll: 0 }
     // looking at something on the desk (the duck): turn toward it and look down at it
@@ -1492,6 +1497,8 @@ export class AgentRig {
 
   /** the wrap-up's stack of cards (#186): a thin card box on the left palm, one card thicker per card; hidden without a stack */
   private cards: Record<'l' | 'r', Mesh | null> = { l: null, r: null }
+  /** #451 the door round whose joy was shown (once per round) */
+  private doorFace = ''
   /** #535: working, waiting on background work (the hook's background / bg_* after a Stop): the head waits (BG_WAIT) */
   private bgWait = false
   /** #490 B: the stretch's hand height over the head's rest, instead of this agent's own (stretch.data.ts): the measuring sets it */
@@ -2254,6 +2261,13 @@ export class AgentRig {
     // the wrap-up's faces (wrapup.md 5, #229): writing is focused, tapping the pen and thinking at the board are thinking; striking out is a 0.6 s question, the last look a 1 s pride
     const wb = status?.state === 'wrapping' && (pose === 'write' || pose === 'cardpost') ? this.goal?.beat : undefined
     const wrapFace = !wb ? undefined : wb.kind === 'tapPen' || wb.kind === 'think' || wb.kind === 'back' ? 'thinking' : pose === 'write' ? 'focused' : undefined
+    // #451 (lounge-props.md 7): the morning opening greets the day, 2 s of joy from the lever's press
+    const dg = pose === 'idle' ? this.goal?.door : undefined
+    const pressed = dg?.kind === 'morning' && dg.u >= DOOR_PRESS_S ? `${dg.kind}` : ''
+    if (pressed !== this.doorFace) {
+      if (pressed && !reduced) mind.fire('joy', t, DOOR_ROUND.smileS)
+      this.doorFace = pressed
+    }
     if (wb?.kind !== this.wrapKind) {
       this.wrapKind = wb?.kind
       if (!reduced && wb?.kind === 'strike') mind.fire('question', t, 0.6)
