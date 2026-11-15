@@ -8,6 +8,7 @@ import { Euler, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import { loadOffice, stubCanvas } from './glbLoad'
 import { buildRig } from './rig'
+import { TrayPile } from './tray'
 import { GRIP_OFFSETS } from './gripFit.data'
 import './loungeActs' // registers the lounge's grips (record, pillow, fridge door, door lever) in GRIPS
 import { composeOffset, fitFingers, resolveTarget, solveTarget, type GripTarget } from './gripTargets'
@@ -27,6 +28,10 @@ const OBJECTS: [string, string, 'l' | 'r'][] = [
   ['prop_record', 'record', 'r'],
   // the loose sheet held by its long sides for reading (#374): the grip empties of the lower half
   ['prop_paper_a', 'paper_side', 'l'], ['prop_paper_a', 'paper_side', 'r'],
+  // #370 B the desk props taken for a moment: the duck, the keycap, a plaster shape
+  ['prop_duck', 'duck', 'r'], ['prop_keycap_0', 'keycap', 'r'], ['prop_shape_1', 'shape', 'r'],
+  // #370 B3 the IN pile's top sheet pinched at its corner (its grip and contacts are made by TrayPile)
+  ['desk_0_in_top', 'paper_corner', 'r'], ['desk_0_in_top', 'paper_tray_side', 'l'], ['desk_0_in_top', 'paper_tray_side', 'r'],
   ['desk_0_mouse', 'mouse', 'r'], ['desk_1_mouse', 'mouse', 'r'], ['desk_3_mouse', 'mouse', 'r'], ['desk_4_mouse', 'mouse', 'r'],
 ]
 const LOG = process.env.FIT_LOG
@@ -41,6 +46,7 @@ describe('grip fit against the baked model', () => {
   it('every contact fingertip lands within 3 mm and none goes through the surface', async () => {
     const { scene, nodes } = await loadOffice()
     const rigs = [0, 1, 2, 3, 4].map((i) => buildRig(scene, nodes, i))
+    TrayPile.of(nodes.desk_0_in)
     scene.updateMatrixWorld(true)
     const write = !!process.env.FIT_WRITE
     const out: Record<string, number[]> = ONLY ? Object.fromEntries(Object.entries(GRIP_OFFSETS).map(([k, v]) => [k, [...v]])) : {}

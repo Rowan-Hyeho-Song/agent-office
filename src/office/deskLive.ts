@@ -100,6 +100,8 @@ export class DeskLive {
   /** #370 A the ring light's knob and the calendar's page (hidden at rest), turned by a hand (deskTouch.ts) */
   private knob: LiveAxis | undefined
   private page: { live: LiveAxis; sign: number } | undefined
+  /** #370 B2 휴's swatch chips: each about its own z, from its baked fan angle (rest_deg) */
+  private chips: { live: LiveAxis; rest: number }[] = []
   private spin = 0
 
   constructor(nodes: Record<string, Object3D>) {
@@ -114,6 +116,10 @@ export class DeskLive {
     this.knob = kn && new LiveAxis(kn, new Vector3(1, 0, 0))
     const pg = n('desk_0_calendar_page')
     if (pg) this.page = { live: new LiveAxis(pg, new Vector3(1, 0, 0)), sign: Number(pg.userData.flip_sign) || 1 }
+    for (let k = 0; k < 4; k++) {
+      const c = n(`desk_2_swatch_leaf_${k}`)
+      if (c) this.chips.push({ live: new LiveAxis(c, new Vector3(0, 0, 1)), rest: Number(c.userData.rest_deg) || 0 })
+    }
     this.tablet = emitter(n('desk_2_tablet'))
     this.approvalDot = emitter(n('neon_approval'))
     this.lamp = emitter(n('desk_2_lamp'))
@@ -189,6 +195,8 @@ export class DeskLive {
       this.turntable.turn(this.spin + (touch?.turntablePush ?? 0))
     }
     this.knob?.turn(touch?.knobTurn ?? 0)
+    // the swatch spread by the designer's hand: each chip as far again past its rest
+    for (const c of this.chips) c.live.turn(((c.rest * (touch?.swatchSpread ?? 0)) * Math.PI) / 180)
     if (this.page) {
       const deg = touch?.calendarPage ?? null
       this.page.live.node.visible = deg !== null

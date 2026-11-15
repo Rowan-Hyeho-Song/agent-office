@@ -20,6 +20,8 @@ export async function loadOffice(): Promise<{ scene: Object3D; nodes: OfficeNode
 export function stubCanvas() {
   const g = globalThis as { document?: unknown }
   if (g.document) return
-  const ctx = { createRadialGradient: () => ({ addColorStop() {} }), fillRect() {}, beginPath() {}, rect() {}, fill() {}, fillStyle: '', globalAlpha: 1 }
+  // any drawing call is a no-op (a gradient takes its stops): the textures drawn by the live props (the tray's '+' tab: roundRect, #370 B3) load too
+  const base: Record<string, unknown> = { fillStyle: '', globalAlpha: 1 }
+  const ctx = new Proxy(base, { get: (t, k: string) => (k in t ? t[k] : () => ({ addColorStop() {} })), set: (t, k: string, v) => ((t[k] = v), true) })
   g.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ctx }) }
 }

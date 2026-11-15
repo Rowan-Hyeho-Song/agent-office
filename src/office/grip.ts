@@ -83,6 +83,20 @@ export const GRIPS: Record<string, GripSpec> = {
   // #370 A (grips.md PR #557): the hourglass pinched at two of its four pillars across, the thumb on the -x one and the index on the +x one (its
   // turn axis through both); the other fingers folded
   hourglass: { r: { pre: all(0.3, [0.2, 0.5]), hold: curlOf([0.55, 0.75, 0.75, 0.75], [0.35, 0.5]), after: REST, contacts: ['thumb', 'index'] } },
+  // #370 B (grips.md): the duck wrapped in the palm (squeezed once at the end: every finger +0.15), the keycap pinched by its sides, a plaster shape
+  // taken by the thumb and the fingertips
+  duck: { r: { pre: all(0.3, [0.2, 0.5]), hold: curlOf([0.6, 0.65, 0.7, 0.7], [0.3, 0.7]), after: REST, contacts: ['palm', 'index', 'thumb'] } },
+  keycap: { r: { pre: curlOf([0.3, 0.35, 0.6, 0.65], [0.2, 0.5]), hold: curlOf([0.75, 0.3, 0.3, 0.3], [0.2, 0.85]), after: REST, contacts: ['thumb', 'index'] } },
+  shape: { r: { pre: all(0.3, [0.2, 0.5]), hold: curlOf([0.55, 0.6, 0.62, 0.65], [0.35, 0.85]), after: REST, contacts: ['thumb', 'index', 'middle'] } },
+  // #370 B2 the swatch fan's stand held in the left hand (no contacts: the hand closed round the pin)
+  swatch: { l: { pre: all(0.3, [0.2, 0.5]), hold: curlOf([0.6, 0.6, 0.6, 0.6], [0.3, 0.8]), after: REST, contacts: [] } },
+  // #370 B3 (grips.md 서류 한 장 집기): the top sheet's corner pinched, the thumb on it and the index under it, the others loosely folded
+  paper_corner: { r: { pre: curlOf([0.6, 0.25, 0.25, 0.25], [0.1, 0.7]), hold: curlOf([0.8, 0.3, 0.3, 0.3], [0.2, 0.9]), after: REST, contacts: ['thumb', 'index'] } },
+  // #370 B3 a tray sheet read held by its long sides: as the loose sheet (paper_side)
+  paper_tray_side: {
+    l: { pre: curlOf([0.15, 0.15, 0.2, 0.2], [0.1, 0.3]), hold: curlOf([0.25, 0.25, 0.3, 0.3], [0.35, 0.5]), after: REST, contacts: ['index', 'thumb'] },
+    r: { pre: curlOf([0.15, 0.15, 0.2, 0.2], [0.1, 0.3]), hold: curlOf([0.25, 0.25, 0.3, 0.3], [0.35, 0.5]), after: REST, contacts: ['index', 'thumb'] },
+  },
   stamp: { r: { pre: all(0.3, [0.1, 0.3]), hold: curlOf([0.75, 0.8, 0.82, 0.85], [0.4, 0.9]), after: REST, contacts: ['palm'] } },
   // a hand gripping the mouse body (#305: it slides it about its pad): the palm over the body, the index on the left button, the middle on the right
   mouse: { r: { pre: all(0.2, [0.1, 0.3]), hold: curlOf([0.35, 0.35, 0.45, 0.5], [0.25, 0.6]), after: REST, contacts: ['palm', 'index', 'middle'] } },

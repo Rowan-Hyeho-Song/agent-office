@@ -9,6 +9,7 @@
 // its contact point.
 
 import {
+  Box3,
   BoxGeometry,
   CircleGeometry,
   InstancedMesh,
@@ -42,7 +43,11 @@ import { WATER_S } from './waterRun'
 import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFor, shakeAt, type HabitKind } from './waterFx'
 import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
-import { TOUCH_S, TURNTABLE_PUSH, hourglassAt, type Touch } from './deskTouch'
+import { TrayPile } from './tray'
+
+/** #370 B3b the IN pile squared at the tidy-up: lifted 4 cm, stood 70° on its near edge, tapped down 1.2 cm; the palms 2 mm off its sides (the hand frame 9 mm behind the palm), 2 cm in from its near edge */
+export const PILE_TIDY = { lift: 0.04, standDeg: 70, tap: 0.012, out: 0.002, palm: 0.009, near: 0.02 }
+import { KEYCAP_ROLL, PAPER_READ, SHAPE_TURN, SWATCH, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, hourglassAt, type Touch } from './deskTouch'
 import { SIP_TOP_S, TREAT_HOLD, TREAT_LOOK, TREAT_PROP, takeSounds, treatPhase, type SnackKind } from './treatHold'
 import { handsOf } from './paperRun'
 import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, pageTau, rowOf } from './shelfRun'
@@ -99,6 +104,8 @@ const CAN_FADE_MS = 120
 const LEAN_MORE: Record<string, number> = { plant_sofa: 12 / 10 }
 
 export interface StageIn {
+  /** #370 B3b sheets in the planner's IN pile now (props.ts inbox) */
+  inbox?: number
   /** #370 A a hand on a thing of its own desk, by agent (deskTouch.ts) */
   touches?: Record<string, Touch>
   /** office time, ms */
@@ -1201,6 +1208,8 @@ export class PlayStage {
     if (goal.pose === 'pingpong' && goal.partnerWait && resting && !pp) return this.pingpongWait(rig, goal, u, inp)
     if (goal.watching && resting) return this.cheer(rig, u, inp)
     if (goal.watching) this.cheered.delete(rig.id)
+    // #370 B3b the planner's tidy-up squares its IN pile (not with reduced motion, not an empty pile)
+    if (goal.pose === 'tidy' && seat === 0 && resting && this.pileTidy(rig, goal, inp)) return
     // #370 A a hand on a thing of its own desk (deskTouch.ts), the other one typing on
     if (resting && goal.spot === `work_${seat}` && this.deskTouch(rig, goal, inp, seat)) return
     // the planner's stamp (the owner decided something)
@@ -1840,6 +1849,12 @@ export class PlayStage {
       if (!c) return false
       c.updateWorldMatrix(true, false)
       this.indexOn(rig, c.getWorldPosition(new Vector3()), contactNormal(this.sceneRef, c), 0, false, inp, want)
+    } else if (kind === 'paper') {
+      if (!this.paperTouch(rig, u, inp)) return false
+    } else if (kind === 'swatch') {
+      if (!this.swatchTouch(rig, tc.k ?? 0, u, inp)) return false
+    } else if (TOUCH_PROP[kind]) {
+      if (!this.deskProp(rig, kind, u, inp)) return false
     } else {
       // the hourglass: pinched at two pillars across (the thumb -x, the index +x: its turn axis through both), lifted and put
       // down; the hand does not turn with it
@@ -1851,7 +1866,177 @@ export class PlayStage {
       held.elements[13] += hourglassAt(u, inp.reduced).lift
       this.grip(rig, 'r', 'hourglass', 'desk_0_hourglass', want, held, inp)
     }
-    if (goal.pose === 'type') this.typeAtDesk(rig, inp, seat, true)
+    // the shape takes both hands
+    if (goal.pose === 'type' && kind !== 'shape' && kind !== 'swatch' && kind !== 'paper') this.typeAtDesk(rig, inp, seat, true)
+    return true
+  }
+
+  /**
+   * #370 B3b (desk-props.md 4: 정리 때 IN 더미를 세워 탁탁 두 번): in the tidy-up's own beats, the planner's hands close on the IN pile's sides
+   * (gather), stand it up 70° on its near edge 4 cm over the tray and tap it down twice (the taps), set it back exactly where it rests (keys) and
+   * open (lean). False with no pile to square: the tidy-up's usual hands.
+   */
+  private pileTidy(rig: AgentRig, goal: Goal, inp: StageIn): boolean {
+    const pile = TrayPile.of(this.sceneRef.getObjectByName('desk_0_in'))
+    const b = goal.beat
+    if (!pile || !b || inp.reduced || !(inp.inbox && inp.inbox > 0)) {
+      pile?.pose(null)
+      return false
+    }
+    const T = PILE_TIDY
+    const e = (x: number) => ease(Math.min(1, Math.max(0, x)))
+    // how far it stands (0..1) and how far it is tapped down (0..1)
+    const stand = b.kind === 'tap' ? (b.k === 0 ? e(b.u / 0.4) : 1) : b.kind === 'keys' ? 1 - e(b.u) : 0
+    const tap = b.kind === 'tap' && (b.k > 0 || b.u > 0.4) ? Math.sin(Math.PI * (b.k > 0 ? b.u : (b.u - 0.4) / 0.6)) : 0
+    const size = pile.pileSize
+    const rest = pile.pileRest()
+    const edge = new Vector3(0, 0, size.max.z)
+    const local = new Matrix4()
+      .makeTranslation(0, T.lift * stand - T.tap * tap, 0)
+      .multiply(new Matrix4().makeTranslation(edge.x, edge.y, edge.z))
+      .multiply(new Matrix4().makeRotationX(T.standDeg * DEG * stand))
+      .multiply(new Matrix4().makeTranslation(-edge.x, -edge.y, -edge.z))
+    const pose = rest.clone().multiply(local)
+    pile.pose(stand > 0 || tap !== 0 ? pose : null)
+    // the hands on its sides, palms toward each other, the fingers along it away from the reader, at half its drawn height, near its near edge
+    const w = b.kind === 'gather' ? e(b.u) : b.kind === 'lean' ? 1 - e(b.u / 0.4) : 1
+    if (w <= 0) return b.kind !== 'lean'
+    const q = new Quaternion().setFromRotationMatrix(pose)
+    const px = new Vector3(1, 0, 0).applyQuaternion(q)
+    const pz = new Vector3(0, 0, 1).applyQuaternion(q)
+    // the hands at its near corners (2 cm in): the wrist cuffs, wider than the palms, stay off it; the fingers flat on its sides (curled, they go in)
+    const cz = size.max.z - PILE_TIDY.near
+    for (const side of ['l', 'r'] as const) {
+      const x = side === 'l' ? size.min.x - T.out : size.max.x + T.out
+      const at = new Vector3(x, size.height / 2, cz).applyMatrix4(pose)
+      const palm = side === 'l' ? px.clone() : px.clone().negate()
+      const fingers = pz.clone().negate()
+      const target = new Matrix4().makeBasis(new Vector3().crossVectors(fingers, palm).normalize(), fingers, palm).setPosition(at.addScaledVector(palm, -T.palm))
+      rig.drive[side] = { target, w, curl: [0, 0, 0, 0, 0.15, 0.3], wc: w, spread: null }
+    }
+    return true
+  }
+
+  /**
+   * #370 B3 (grips.md 서류 한 장 집기, desk-props.md 4): the IN pile's top sheet pinched at its front-right corner, lifted before the chest and tipped
+   * 55° up toward the face, held by both long sides as a sheet handed over is read (grips.md 낱장 옆 쥐고 읽기), and laid back on the pile squared (the count never changes: IN is what waits for the
+   * owner). The sheet is the pile's own top sheet (TrayPile.lift), so nothing appears or goes.
+   */
+  private paperTouch(rig: AgentRig, u: number, inp: StageIn): boolean {
+    const pile = TrayPile.of(this.sceneRef.getObjectByName('desk_0_in'))
+    if (!pile) return false
+    const P = PAPER_READ
+    const S = TOUCH_S.paper
+    const rest = pile.topRest()
+    const squared = pile.topRest(true)
+    const root = rig.parts.root
+    root.updateWorldMatrix(true, false)
+    // read before the chest, the sheet's own yaw kept (its +z toward the reader), tipped up toward the face
+    const rq = new Quaternion().setFromRotationMatrix(rest)
+    const right = new Vector3(Math.cos(rig.heading), 0, -Math.sin(rig.heading))
+    const q = new Quaternion().setFromAxisAngle(right, P.tiltDeg * DEG).multiply(rq)
+    const read = new Matrix4().compose(root.localToWorld(new Vector3(0.02, rig.parts.headRestY - 0.2, -0.28)), q, ONE)
+    const k = (a: number, b: number) => ease(Math.min(1, Math.max(0, (u - a) / (b - a))))
+    const held = u < P.take[0] ? rest : u < P.put[0] ? blend(rest, read, k(P.take[0], P.take[1])) : blend(read, squared, k(P.put[0], P.put[1]))
+    if (u < S.back) pile.lift(u < P.take[0] ? null : held)
+    else pile.lift(null, true)
+    this.grip(rig, 'r', 'paper_corner', 'desk_0_in_top', u < S.back, u < S.back ? held : squared, inp)
+    // both hands on the long sides while it is read (0.2 s from the corner to the side as it comes up, and back before it is laid down)
+    const s2 = k(P.sides[0], P.sides[1]) * (1 - k(P.unside[0], P.unside[1]))
+    if (s2 > 0) {
+      const seat = Number(rig.id.split('_')[1])
+      const side = (h: 'l' | 'r') => {
+        const t = this.target('desk_0_in_top', 'paper_tray_side', h)
+        if (!t) return null
+        return { target: handFor(held, t.pg, handGripMatrix(rig.parts.hands[h])).multiply(offsetOf(t.key, seat)), angles: this.holdFit(rig, h, t).hold }
+      }
+      const r = side('r')
+      const d = rig.drive.r
+      if (r && d?.target && d.angles) rig.drive.r = { ...d, target: blend(d.target, r.target, s2), angles: d.angles.map((x, i) => x * (1 - s2) + r.angles[i] * s2), w: 1, wc: 1 }
+      const l = side('l')
+      if (l) rig.drive.l = { target: l.target, w: s2, curl: null, angles: l.angles, wc: s2, spread: null }
+    }
+    return true
+  }
+
+  /**
+   * #370 B2 (grips.md 색견본 부채): the left hand closes round the fan's stand (desk_2_swatch_grip_l), the right index on the outermost chip's face as
+   * the fan spreads (DeskLive turns the chips), then on chip `k`'s face 2.5 cm under its tip, pointing at it; both let go as the fan closes.
+   */
+  private swatchTouch(rig: AgentRig, k: number, u: number, inp: StageIn): boolean {
+    const gl = this.sceneRef.getObjectByName('desk_2_swatch_grip_l')
+    const chip = (i: number) => this.sceneRef.getObjectByName(`desk_2_swatch_leaf_${i}`)
+    if (!gl || !chip(0)) return false
+    const S = TOUCH_S.swatch
+    // the left hand on the stand
+    const hl = rig.parts.hands.l
+    const wl = ease(Math.min(1, Math.max(0, u / 0.5))) * (1 - ease(Math.min(1, Math.max(0, (u - S.back) / 0.4))))
+    gl.updateWorldMatrix(true, false)
+    const spec = GRIPS.swatch.l!
+    rig.drive.l = { target: handFor(gl.matrixWorld, new Matrix4(), handGripMatrix(hl)), w: wl, curl: spec.hold, wc: wl, spread: null }
+    // the right index: on the outermost chip while it spreads, then on the chip pointed at
+    const c = chip(u < SWATCH.point[0] ? 3 : k)
+    const tip = c && this.sceneRef.getObjectByName(`${c.name}_tip`)
+    if (!c || !tip) return true
+    c.updateWorldMatrix(true, true)
+    const up = new Vector3(0, 1, 0).transformDirection(c.matrixWorld)
+    const n = new Vector3(0, 0, 1).transformDirection(c.matrixWorld)
+    // the face toward the designer
+    if (n.dot(rig.parts.root.position.clone().sub(c.getWorldPosition(new Vector3()))) < 0) n.negate()
+    const P = tip.getWorldPosition(new Vector3()).addScaledVector(up, -0.025).addScaledVector(n, 0.0015)
+    this.indexOn(rig, P, n, 0, false, inp, u >= 0.3 && u < S.back)
+    return true
+  }
+
+  /**
+   * #370 B a prop taken from the desk (grips.md): reached, lifted to where it is held (its own rotation as it rests: the duck still faces its owner),
+   * held, put back exactly where it rests from back - PUT_S, let go at back. The duck before the face and squeezed once; the keycap before the chest,
+   * rolled ±15° between the fingers; the shape at eye height, turned 30° slowly, the left hand open under it.
+   */
+  private deskProp(rig: AgentRig, kind: Touch['kind'], u: number, inp: StageIn): boolean {
+    const name = TOUCH_PROP[kind]!
+    const node = this.sceneRef.getObjectByName(name)
+    if (!node) return false
+    const S = TOUCH_S[kind]
+    const root = rig.parts.root
+    root.updateWorldMatrix(true, false)
+    const head = rig.parts.headRestY
+    const home = this.props.homeWorld(node)
+    const hq = new Quaternion().setFromRotationMatrix(home)
+    const at = (x: number, y: number, z: number) => root.localToWorld(new Vector3(x, y, z))
+    const fwd = new Vector3(-Math.sin(rig.heading), 0, -Math.cos(rig.heading))
+    let pos: Vector3
+    let q = hq.clone()
+    if (kind === 'duck') pos = at(0.02, head - 0.04, -0.2)
+    else if (kind === 'keycap') {
+      pos = at(0.06, head - 0.38, -0.24)
+      const R = KEYCAP_ROLL
+      const roll = !inp.reduced && u >= R.from && u < R.to ? R.deg * DEG * Math.sin(((u - R.from) / R.periodS) * Math.PI * 2) : 0
+      q = new Quaternion().setFromAxisAngle(fwd, roll).multiply(q)
+    } else {
+      pos = at(0.03, head - 0.1, -0.28)
+      const T = SHAPE_TURN
+      const k = inp.reduced ? 0 : ease(Math.min(1, Math.max(0, (u - T.from) / T.s)))
+      q = new Quaternion().setFromAxisAngle(UP, T.deg * DEG * k).multiply(q)
+    }
+    const hold = new Matrix4().compose(pos, q, ONE)
+    const k = ease(Math.min(1, Math.max(0, (u - (S.back - PUT_S)) / PUT_S)))
+    const held = k > 0 ? blend(hold, home, k) : hold
+    this.grip(rig, 'r', kind, name, u < S.back, held, inp, name)
+    // the duck squeezed once (every finger +0.15 of its curl, 0.15 s)
+    const d = rig.drive.r
+    if (kind === 'duck' && u >= S.at && u < S.at + 0.15 && d?.angles) rig.drive.r = { ...d, angles: d.angles.map((a) => a * 1.15) }
+    // the shape: the left hand open under it, palm up, 1 cm below (it stays where it holds as the shape turns)
+    if (kind === 'shape') {
+      const w = ease(Math.min(1, Math.max(0, (u - 0.7) / 0.3))) * (1 - ease(Math.min(1, Math.max(0, (u - (S.back - PUT_S)) / 0.3))))
+      if (w > 0) {
+        node.updateWorldMatrix(true, true)
+        const bottom = new Box3().setFromObject(node).min.y
+        const palmUp = new Matrix4().makeBasis(new Vector3().crossVectors(fwd, UP).normalize(), fwd, UP)
+        palmUp.setPosition(pos.x - fwd.x * 0.03, bottom - SHAPE_TURN.under - 0.0225, pos.z - fwd.z * 0.03)
+        rig.drive.l = { target: palmUp, w, curl: [0.15, 0.15, 0.15, 0.15, 0.1, 0.2], wc: w, spread: null }
+      }
+    }
     return true
   }
 

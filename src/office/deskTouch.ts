@@ -12,9 +12,9 @@
 import { hash } from './play'
 import type { DeskProps } from './props'
 
-export type TouchKind = 'signal' | 'lamp' | 'turntable' | 'knob' | 'calendar' | 'hourglass'
+export type TouchKind = 'signal' | 'lamp' | 'turntable' | 'knob' | 'calendar' | 'hourglass' | 'duck' | 'keycap' | 'shape' | 'swatch' | 'paper'
 
-export const TOUCH_SEAT: Record<TouchKind, number> = { signal: 3, lamp: 2, turntable: 1, knob: 1, calendar: 0, hourglass: 0 }
+export const TOUCH_SEAT: Record<TouchKind, number> = { signal: 3, lamp: 2, turntable: 1, knob: 1, calendar: 0, hourglass: 0, duck: 3, keycap: 3, shape: 1, swatch: 2, paper: 0 }
 
 /**
  * Each touch's times, s from its start: `len` the whole (the hand back at its end), `at` when its effect happens (the press, the page let go, the
@@ -32,7 +32,35 @@ export const TOUCH_S: Record<TouchKind, { len: number; at: number; back: number 
   calendar: { len: 1.6, at: 0.6, back: 1.0 },
   // pinched by 0.6 s; lifted 0.3 s, turned 0.5 s, put down 0.3 s (designer: 0.3 · 0.5 · 0.3)
   hourglass: { len: 2.1, at: 0.6, back: 1.7 },
+  // #370 B: taken from the desk, held, put back exactly where it rests (from back - 0.4 s), let go at back
+  // the duck before the face from 1.0 s, talked to (the bubble 1.0–3.6 s), squeezed once at 3.65 s (0.15 s)
+  duck: { len: 4.7, at: 3.65, back: 4.25 },
+  // the keycap rolled between the fingers before the chest (±15°, 0.5 s a roll) from 0.9 s
+  keycap: { len: 4.0, at: 0.5, back: 3.6 },
+  // the shape at eye height, the left hand under it, turned 30° slowly (2 s) from 1.0 s
+  shape: { len: 4.4, at: 0.5, back: 4.0 },
+  // #370 B2 the swatch fan: the left hand holds its stand, the right index spreads the chips (0.6–1.2 s) and points at one (1.4–2.8 s)
+  swatch: { len: 3.8, at: 1.2, back: 3.0 },
+  // #370 B3 메모 reads the IN pile's top sheet: pinched by 0.6 s, before the chest by 1.2 s (the left palm under it), read, laid back squared by 4.0 s
+  paper: { len: 4.6, at: 0.6, back: 4.0 },
 }
+
+/**
+ * the top sheet's reading (designer: as a sheet handed over is read, grips.md 낱장 옆 쥐고 읽기): taken by its corner at 0.6 s and lifted to 1.2 s; as
+ * it comes up (0.8–1.0 s) the right hand slides to the right long side and the left takes the left one; read 55° up toward the face until 3.4 s; the
+ * right hand back to the corner (3.4–3.6 s) as the left lets go, laid back squared by 4.0 s
+ */
+export const PAPER_READ = { take: [0.6, 1.2], sides: [0.8, 1.0], unside: [3.4, 3.6], put: [3.4, 4.0], tiltDeg: 55 } as const
+
+/** #370 B the props taken (their nodes) */
+export const TOUCH_PROP: Partial<Record<TouchKind, string>> = { duck: 'prop_duck', keycap: 'prop_keycap_0', shape: 'prop_shape_1' }
+/** #370 B (designer): what 루프 says to its duck, one picked by the failure's time, never the same twice running */
+export const DUCK_LINES = ['오리 씨, 한 줄씩 볼게요.', '여기까진 맞죠? 그럼 여기서…', '이 값이 왜 비어 있을까요.', '다시 돌려 볼게요. 지켜봐 주세요.', '아, 말하다 보니 알겠네요.']
+export const DUCK_BUBBLE = { from: 1.0, to: 3.6 }
+export const KEYCAP_ROLL = { from: 0.9, to: 3.2, deg: 15, periodS: 0.5 }
+export const SHAPE_TURN = { from: 1.0, s: 2, deg: 30, under: 0.01 }
+/** the swatch fan: spread to twice its rest fan (each chip's baked rest_deg) over 0.6–1.2 s, closed again over 2.9–3.3 s; the chip pointed at 1.4–2.8 s */
+export const SWATCH = { open: [0.6, 1.2], close: [2.9, 3.3], point: [1.4, 2.8], chips: 4 } as const
 
 /** the turntable's push and the knob's turn (grips.md) */
 export const TURNTABLE_PUSH = { from: 1.1, s: 0.8, deg: 90 }
@@ -42,8 +70,15 @@ export const HOURGLASS_FLIP = { from: 0.6, lift: 0.3, turn: 0.5, down: 0.3, m: 0
 /** the calendar page: lifted by the finger to `liftDeg` over `s`, then over by itself to its baked flip_deg in `fallS` */
 export const CALENDAR_FLIP = { from: 0.6, s: 0.4, liftDeg: 110, fallS: 0.45 }
 
-/** habits: times an hour (desk-props.md 4), and not again within NO_REPEAT_S */
-export const HABIT_PER_HOUR: Partial<Record<TouchKind, number>> = { turntable: 3, knob: 1 }
+/** habits: times an hour while working and while resting at its desk (desk-props.md 4), and not again within NO_REPEAT_S */
+export const HABIT_PER_HOUR: Partial<Record<TouchKind, { work: number; rest: number }>> = {
+  turntable: { work: 3, rest: 0 },
+  knob: { work: 1, rest: 0 },
+  keycap: { work: 2, rest: 3 },
+  shape: { work: 2, rest: 3 },
+  swatch: { work: 3, rest: 0 },
+  paper: { work: 4, rest: 0 },
+}
 export const NO_REPEAT_S = 120
 
 export interface TouchIn {
@@ -62,6 +97,8 @@ export interface TouchIn {
 
 export interface Touch {
   kind: TouchKind
+  /** the swatch's chip pointed at (0..3) */
+  k?: number
   /** s since it began (the hands' clock) */
   u: number
 }
@@ -77,6 +114,8 @@ export interface TouchShown {
   knobTurn: number
   /** the calendar page turning over: degrees of its flip, or null (hidden at rest) */
   calendarPage: number | null
+  /** #370 B2 the swatch fan spread past its rest: 0 (as baked) .. 1 (each chip twice its rest angle) */
+  swatchSpread: number
 }
 
 const ease = (k: number) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k))
@@ -85,7 +124,7 @@ const dayKey = (c: DeskProps['calendar']) => `${c.year}-${c.month}-${c.day}`
 export class DeskTouches {
   private prev: DeskProps | null = null
   private prevNow = 0
-  private cur = new Map<number, { kind: TouchKind; t0: number }>()
+  private cur = new Map<number, { kind: TouchKind; t0: number; k?: number }>()
   private lastStart = new Map<TouchKind, number>()
   /** what is shown: the lamp, the calendar's day; the hourglass's flips and the turntable's pushes done, the knob's last turn's direction */
   private lamp: boolean | null = null
@@ -94,6 +133,9 @@ export class DeskTouches {
   private pushes = 0
   private knobAt = 0
   private knobDir = 1
+  /** the duck's line now (DUCK_LINES), and the hands' clock last stepped (the bubble) */
+  private duckLine = -1
+  private lastT = 0
 
   /** a seek: forget the edges (nothing is touched for what was jumped over) */
   reset() {
@@ -117,11 +159,18 @@ export class DeskTouches {
     if (this.calendar === null) this.calendar = desk.calendar
     const free = (seat: number) => !this.cur.has(seat) && i.seated(seat)
     const start = (kind: TouchKind) => {
-      this.cur.set(TOUCH_SEAT[kind], { kind, t0: t })
+      this.cur.set(TOUCH_SEAT[kind], { kind, t0: t, ...(kind === 'swatch' ? { k: hash(`swatch|${i.now}`) % SWATCH.chips } : {}) })
       this.lastStart.set(kind, t)
     }
     if (prev) {
       if (desk.signal === 'green' && prev.signal !== 'green' && free(3)) start('signal')
+      // a failure: the duck, picked up and talked to
+      if (desk.signal === 'red' && prev.signal !== 'red' && free(3)) {
+        start('duck')
+        let k = hash(`duck|${i.now}`) % DUCK_LINES.length
+        if (k === this.duckLine) k = (k + 1) % DUCK_LINES.length
+        this.duckLine = k
+      }
       if (desk.lamp !== prev.lamp && free(2)) start('lamp')
       if (desk.hourglass && !prev.hourglass && free(0)) start('hourglass')
     }
@@ -131,14 +180,16 @@ export class DeskTouches {
     if (dayKey(desk.calendar) !== dayKey(this.calendar) && free(0) && i.awake(0)) start('calendar')
     // the habits at their seeded times this hour
     const hourMs = 3_600_000
-    for (const kind of ['turntable', 'knob'] as const) {
+    for (const kind of ['turntable', 'knob', 'keycap', 'shape', 'swatch', 'paper'] as const) {
       const seat = TOUCH_SEAT[kind]
-      const on = kind === 'turntable' ? desk.turntable : i.working(seat) && !desk.turntable
+      const working = i.working(seat)
+      // the turntable while it bakes; the knob and the shape while it works and does not bake; the keycap and the shape while it rests awake too
+      const on = kind === 'turntable' ? desk.turntable : kind === 'knob' ? working && !desk.turntable : kind === 'shape' ? i.awake(seat) && !desk.turntable : kind === 'swatch' ? working : kind === 'paper' ? working && desk.inbox > 0 : i.awake(seat)
       if (!on || !free(seat) || !(i.now > this.prevNow)) continue
       const last = this.lastStart.get(kind)
       if (last !== undefined && t - last < NO_REPEAT_S) continue
       const h = Math.floor(i.now / hourMs)
-      const due = habitTimes(kind, h).some((at) => at > this.prevNow && at <= i.now)
+      const due = habitTimes(kind, h, working || kind === 'turntable' ? 'work' : 'rest').some((at) => at > this.prevNow && at <= i.now)
       if (due && i.now - this.prevNow < 60_000) start(kind)
     }
     // effects at their moment
@@ -149,6 +200,15 @@ export class DeskTouches {
     }
     this.prev = desk
     this.prevNow = i.now
+    this.lastT = t
+  }
+
+  /** #370 B the bubble of an agent's touch now (루프 talking to its duck), or undefined */
+  bubble(agent: string): string | undefined {
+    const c = this.cur.get(TOUCH_SEAT.duck)
+    if (agent !== `agent_${TOUCH_SEAT.duck}` || c?.kind !== 'duck') return undefined
+    const u = this.lastT - c.t0
+    return u >= DUCK_BUBBLE.from && u < DUCK_BUBBLE.to ? DUCK_LINES[Math.max(0, this.duckLine)] : undefined
   }
 
   /** a touch done: what it did is kept */
@@ -164,21 +224,21 @@ export class DeskTouches {
   }
 
   /** start a touch now (tests, the debug panel): its seat's touch under way is dropped */
-  begin(kind: TouchKind, t: number) {
-    this.cur.set(TOUCH_SEAT[kind], { kind, t0: t })
+  begin(kind: TouchKind, t: number, k?: number) {
+    this.cur.set(TOUCH_SEAT[kind], { kind, t0: t, ...(k !== undefined ? { k } : kind === 'swatch' ? { k: 1 } : {}) })
     this.lastStart.set(kind, t)
   }
 
   /** the touch of a seat under way at `t`, or null */
   of(seat: number, t: number): Touch | null {
     const c = this.cur.get(seat)
-    return c ? { kind: c.kind, u: t - c.t0 } : null
+    return c ? { kind: c.kind, u: t - c.t0, ...(c.k !== undefined ? { k: c.k } : {}) } : null
   }
 
   /** every touch under way, by agent */
   all(t: number): Record<string, Touch> {
     const out: Record<string, Touch> = {}
-    for (const [seat, c] of this.cur) out[`agent_${seat}`] = { kind: c.kind, u: t - c.t0 }
+    for (const [seat, c] of this.cur) out[`agent_${seat}`] = { kind: c.kind, u: t - c.t0, ...(c.k !== undefined ? { k: c.k } : {}) }
     return out
   }
 
@@ -206,6 +266,7 @@ export class DeskTouches {
       turntablePush: (this.pushes + push) * TURNTABLE_PUSH.deg * D,
       knobTurn: (this.knobAt + this.knobDir * KNOB_TURN.deg * knob) * D,
       calendarPage: calendarPage(u('calendar'), reduced),
+      swatchSpread: swatchSpread(u('swatch'), reduced),
     }
   }
 }
@@ -232,11 +293,20 @@ export function calendarPage(u: number | null, reduced: boolean, flipDeg = 321.4
   return f >= 1 ? null : C.liftDeg + (flipDeg - C.liftDeg) * ease(f)
 }
 
-/** a habit's seeded times in the office hour `h` (ms), `HABIT_PER_HOUR` of them, at least NO_REPEAT_S apart */
-export function habitTimes(kind: TouchKind, h: number): number[] {
-  const n = HABIT_PER_HOUR[kind] ?? 0
+/** a habit's seeded times in the office hour `h` (ms), `HABIT_PER_HOUR` of them (working / resting), at least NO_REPEAT_S apart */
+export function habitTimes(kind: TouchKind, h: number, mode: 'work' | 'rest' = 'work'): number[] {
+  const n = HABIT_PER_HOUR[kind]?.[mode] ?? 0
+  if (n === 0) return []
   const slot = 3_600_000 / Math.max(1, n)
   const out: number[] = []
-  for (let k = 0; k < n; k++) out.push(h * 3_600_000 + k * slot + (hash(`${kind}|${h}|${k}`) % Math.floor(slot - NO_REPEAT_S * 1000)))
+  for (let k = 0; k < n; k++) out.push(h * 3_600_000 + k * slot + (hash(`${kind}|${mode}|${h}|${k}`) % Math.floor(slot - NO_REPEAT_S * 1000)))
   return out
+}
+
+/** #370 B2 the swatch fan's spread at `u` s of its touch (0 as baked, 1 spread to twice), none with reduced motion */
+export function swatchSpread(u: number | null, reduced: boolean): number {
+  if (u === null || reduced) return 0
+  const [a, b] = SWATCH.open
+  const [c, d] = SWATCH.close
+  return u < c ? ease((u - a) / (b - a)) : 1 - ease((u - c) / (d - c))
 }

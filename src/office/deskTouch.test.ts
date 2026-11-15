@@ -1,13 +1,15 @@
 // #370 A (desk-props.md 4, grips.md): when a hand touches a thing of its own desk, what the desk shows of it, and the hand on the baked model.
 /// <reference types="node" />
 import { appendFileSync } from 'node:fs'
-import { Quaternion, Vector3 } from 'three'
+import { Box3, Matrix4, Quaternion, Vector3, type Mesh } from 'three'
 import { describe, expect, it } from 'vitest'
-import { DeskTouches, HABIT_PER_HOUR, NO_REPEAT_S, TOUCH_S, TURNTABLE_PUSH, calendarPage, habitTimes, hourglassAt, type TouchIn, type TouchKind } from './deskTouch'
+import { DUCK_BUBBLE, DUCK_LINES, DeskTouches, HABIT_PER_HOUR, TOUCH_PROP, NO_REPEAT_S, TOUCH_S, TURNTABLE_PUSH, calendarPage, habitTimes, hourglassAt, type TouchIn, type TouchKind } from './deskTouch'
 import { deskProps, type DeskProps } from './props'
-import { Walk, world } from './errandWorld.fixture'
-import { contactNormal } from './gripTargets'
+import { Guard, Walk, expectCleanAll, world } from './errandWorld.fixture'
+import { contactNormal, handGripMatrix } from './gripTargets'
 import { DeskLive } from './deskLive'
+import { HELD_T, TrayPile } from './tray'
+import { beatAt, tidyBeats, totalOf } from './wrap'
 import type { AgentRig } from './rig'
 import type { StatusMap } from './status'
 
@@ -18,6 +20,48 @@ const base = (over: Partial<DeskProps> = {}): DeskProps => ({
   ...over,
 })
 const inp = (t: number, desk: DeskProps, o: Partial<TouchIn> = {}): TouchIn => ({ t, now: NOW + t * 1000, desk, seated: () => true, awake: () => true, working: () => false, ...o })
+
+describe('the props taken from the desk (#370 B)', () => {
+  it('루프 takes its duck at a failure, talks to it (a line of five, not the same twice running) only while it holds it before its face', () => {
+    const d = new DeskTouches()
+    const seen: string[] = []
+    let t = 0
+    for (let n = 0; n < 12; n++) {
+      d.step(inp(t, base({ signal: 'yellow' })))
+      d.step(inp((t += 0.1), base({ signal: 'red' })))
+      expect(d.of(3, t)?.kind).toBe('duck')
+      const t0 = t
+      expect(d.bubble('agent_3')).toBeUndefined()
+      d.step(inp(t0 + DUCK_BUBBLE.from + 0.1, base({ signal: 'red' })))
+      const line = d.bubble('agent_3')!
+      expect(DUCK_LINES).toContain(line)
+      expect(line.length).toBeLessThanOrEqual(36)
+      expect(d.bubble('agent_2')).toBeUndefined()
+      d.step(inp(t0 + DUCK_BUBBLE.to + 0.05, base({ signal: 'red' })))
+      expect(d.bubble('agent_3')).toBeUndefined()
+      if (seen.length) expect(line).not.toBe(seen[seen.length - 1])
+      seen.push(line)
+      t = t0 + 10
+    }
+    expect(new Set(seen).size).toBeGreaterThan(2)
+  })
+
+  it('the keycap and the shape: 2 an hour while working, 3 while resting awake at the desk', () => {
+    for (const [mode, n] of [['work', 2], ['rest', 3]] as const) {
+      const d = new DeskTouches()
+      let count = 0
+      let prev: TouchKind | null = null
+      const hour0 = Math.floor(NOW / 3_600_000) * 3_600_000
+      for (let t = 0; t < 4 * 3600; t += 1) {
+        d.step({ t, now: hour0 + t * 1000, desk: base(), seated: () => true, awake: () => true, working: () => mode === 'work' })
+        const k = d.of(3, t)?.kind ?? null
+        if (k === 'keycap' && prev !== 'keycap') count++
+        prev = k
+      }
+      expect(count, mode).toBe(4 * n)
+    }
+  })
+})
 
 describe('when a desk thing is touched (#370 A)', () => {
   it('루프 taps the signal as it turns green while it sits at its desk; not when away', () => {
@@ -89,7 +133,7 @@ describe('when a desk thing is touched (#370 A)', () => {
     for (const kind of ['turntable', 'knob'] as const) {
       for (let h = 0; h < 50; h++) {
         const ts = habitTimes(kind, h)
-        expect(ts.length).toBe(HABIT_PER_HOUR[kind])
+        expect(ts.length).toBe(HABIT_PER_HOUR[kind]!.work)
         for (const x of ts) expect(Math.floor(x / 3_600_000)).toBe(h)
         for (let k = 1; k < ts.length; k++) expect(ts[k] - ts[k - 1]).toBeGreaterThanOrEqual(NO_REPEAT_S * 1000)
       }
@@ -131,14 +175,15 @@ const tipWorld = (rig: AgentRig, f: number | 'thumb') => {
 }
 
 /** everyone working at their desk; then `kind` begun and its whole length stepped, the desk drawn by DeskLive with the touch, as Agents.tsx does */
-async function touchRun(kind: TouchKind, onFrame: (w: Awaited<ReturnType<typeof world>>, u: number) => void) {
+async function touchRun(kind: TouchKind, onFrame: (w: Awaited<ReturnType<typeof world>>, u: number) => void, withGuard = false, deskOver: Partial<DeskProps> = {}) {
   const w = await world()
+  const guard = withGuard ? new Guard(w) : undefined
   const walk = new Walk(w, Date.UTC(2026, 10, 9, 1, 0, 0))
   walk.status = Object.fromEntries(['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4'].map((id) => [id, { state: 'working' as const, activity: 'edit', since: 0 }]))
   const live = new DeskLive(w.nodes)
   const touches = new DeskTouches()
   const dt = 1 / 60
-  const desk = base({ lamp: true })
+  const desk = base({ lamp: true, ...deskOver })
   for (let k = 0; k < 360; k++) walk.step(dt)
   const t0 = walk.t
   touches.begin(kind, t0)
@@ -146,10 +191,11 @@ async function touchRun(kind: TouchKind, onFrame: (w: Awaited<ReturnType<typeof 
     walk.touches = touches.all(walk.t)
     live.update(touches.desk(desk), walk.t, dt, false, touches.shown(walk.t, false))
     w.scene.updateMatrixWorld(true)
-    walk.step(dt)
+    walk.step(dt, guard)
     onFrame(w, walk.t - t0)
     touches.step({ t: walk.t, now: NOW, desk, seated: () => true, awake: () => true, working: () => true })
   }
+  if (guard) expectCleanAll(kind, w, guard)
   return w
 }
 
@@ -229,5 +275,274 @@ describe('the hand on the desk thing (#370 A, grips.md)', () => {
       worst = Math.max(worst, tipWorld(rig, 0).distanceTo(index.getWorldPosition(new Vector3())), tipWorld(rig, 'thumb').distanceTo(thumb.getWorldPosition(new Vector3())))
     })
     if (has) expect(worst, 'thumb and index on the pillars').toBeLessThan(0.01)
+  }, 120_000)
+})
+
+describe('the prop in the hand (#370 B, grips.md)', () => {
+  for (const kind of ['duck', 'keycap', 'shape'] as const) {
+    it(`${kind}: taken from where it rests, held off the desk, its contacts under the fingertips, put back exactly where it rested`, async () => {
+      const name = TOUCH_PROP[kind]!
+      let homePos: Vector3 | null = null
+      let farthest = 0
+      let worst = 0
+      let under = Infinity
+      const w = await touchRun(
+        kind,
+        (w, u) => {
+          const node = w.scene.getObjectByName(name)!
+          const p = node.getWorldPosition(new Vector3())
+          homePos ??= p.clone()
+          farthest = Math.max(farthest, p.distanceTo(homePos))
+          const rig = w.rigs[`agent_${kind === 'shape' ? 1 : 3}`]
+          // held: each contact under its fingertip
+          if (u > 1.4 && u < TOUCH_S[kind].back - 0.6) {
+            for (const [f, c] of [[0, 'index'], ['thumb', 'thumb']] as const) {
+              const cn = w.scene.getObjectByName(`${name}_contact_${c}`)
+              if (cn) worst = Math.max(worst, tipWorld(rig, f).distanceTo(cn.getWorldPosition(new Vector3())))
+            }
+            if (kind === 'shape') {
+              // the gap from the open left hand to the bottom of the shape, over the shape's footprint (the hand's vertices under it)
+              const shape = new Box3().setFromObject(node)
+              let top = -Infinity
+              rig.parts.hands.l.node.updateMatrixWorld(true)
+              rig.parts.hands.l.node.traverseVisible((m) => {
+                const g = (m as Mesh).geometry?.getAttribute('position')
+                if (!(m as Mesh).isMesh || !g) return
+                const v = new Vector3()
+                for (let k = 0; k < g.count; k++) {
+                  v.fromBufferAttribute(g, k).applyMatrix4(m.matrixWorld)
+                  if (v.x >= shape.min.x && v.x <= shape.max.x && v.z >= shape.min.z && v.z <= shape.max.z) top = Math.max(top, v.y)
+                }
+              })
+              if (top > -Infinity) under = Math.min(under, shape.min.y - top)
+            }
+          }
+        },
+        true,
+      )
+      const end = w.scene.getObjectByName(name)!.getWorldPosition(new Vector3())
+      if (LOG) appendFileSync(LOG, `${kind}: lifted ${(farthest * 100).toFixed(1)} cm, fingertips ${(worst * 1000).toFixed(1)} mm off their contacts, back ${(end.distanceTo(homePos!) * 1000).toFixed(2)} mm from its rest${kind === 'shape' ? `, the left hand ${(under * 1000).toFixed(1)} mm under it` : ''}
+`)
+      expect(farthest, 'lifted off the desk').toBeGreaterThan(0.12)
+      expect(worst, 'fingertips on the contacts').toBeLessThan(0.012)
+      expect(end.distanceTo(homePos!), 'back where it rested').toBeLessThan(0.001)
+      if (kind === 'shape') {
+        expect(under, 'the left hand not into the shape, about 1 cm under it').toBeGreaterThanOrEqual(0.005)
+        expect(under, 'the left hand just under it').toBeLessThan(0.015)
+      }
+    }, 120_000)
+  }
+})
+
+describe('the swatch fan (#370 B2, grips.md 색견본 부채)', () => {
+  it('the left hand on the stand, the fan spread twice its rest and closed again, the right index on the chip it points at, not into it', async () => {
+    let leftFar = 0
+    let far = 0
+    let into = 0
+    let spreadMax = 0
+    let rest0 = 0
+    const w = await touchRun('swatch', (w, u) => {
+      const rig = w.rigs.agent_2
+      const gl = w.scene.getObjectByName('desk_2_swatch_grip_l')!
+      const c3 = w.scene.getObjectByName('desk_2_swatch_leaf_3')!
+      const c0 = w.scene.getObjectByName('desk_2_swatch_leaf_0')!
+      const a = new Vector3(0, 1, 0).transformDirection(c0.matrixWorld).angleTo(new Vector3(0, 1, 0).transformDirection(c3.matrixWorld))
+      if (u < 0.1) rest0 = a
+      spreadMax = Math.max(spreadMax, a)
+      // the hand's own grip point (its grip frame) on the stand's
+      const hl = rig.parts.hands.l
+      hl.node.updateWorldMatrix(true, false)
+      const g = new Vector3().setFromMatrixPosition(new Matrix4().multiplyMatrices(hl.node.matrixWorld, handGripMatrix(hl)))
+      if (u > 0.8 && u < 2.8) leftFar = Math.max(leftFar, g.distanceTo(gl.getWorldPosition(new Vector3())))
+      if (u > 1.6 && u < 2.6) {
+        const c = w.scene.getObjectByName('desk_2_swatch_leaf_1')!
+        const tip = w.scene.getObjectByName('desk_2_swatch_leaf_1_tip')!
+        const up = new Vector3(0, 1, 0).transformDirection(c.matrixWorld)
+        const n = new Vector3(0, 0, 1).transformDirection(c.matrixWorld)
+        if (n.dot(rig.parts.root.position.clone().sub(c.getWorldPosition(new Vector3()))) < 0) n.negate()
+        const P = tip.getWorldPosition(new Vector3()).addScaledVector(up, -0.025)
+        const t = tipWorld(rig, 0)
+        far = Math.max(far, t.distanceTo(P))
+        into = Math.max(into, -t.clone().sub(P).dot(n))
+      }
+    })
+    const c0 = w.scene.getObjectByName('desk_2_swatch_leaf_0')!
+    const c3 = w.scene.getObjectByName('desk_2_swatch_leaf_3')!
+    const after = new Vector3(0, 1, 0).transformDirection(c0.matrixWorld).angleTo(new Vector3(0, 1, 0).transformDirection(c3.matrixWorld))
+    if (LOG) appendFileSync(LOG, `swatch: fan ${((rest0 * 180) / Math.PI).toFixed(0)}° → ${((spreadMax * 180) / Math.PI).toFixed(0)}° → ${((after * 180) / Math.PI).toFixed(0)}°, left hand ${(leftFar * 1000).toFixed(1)} mm from the stand's grip, index ${(far * 1000).toFixed(1)} mm from the chip, ${(into * 1000).toFixed(1)} mm into it\n`)
+    expect(spreadMax / rest0, 'spread to about twice').toBeGreaterThan(1.8)
+    expect(Math.abs(after - rest0), 'closed again').toBeLessThan(0.01)
+    expect(leftFar, 'the left hand on the stand').toBeLessThan(0.01)
+    expect(far, 'the index on the chip').toBeLessThan(0.01)
+    expect(into, 'not into it').toBeLessThanOrEqual(0.002)
+  }, 120_000)
+})
+
+describe('the top sheet of the IN pile read (#370 B3, grips.md 서류 한 장 집기 · 낱장 옆 쥐고 읽기)', () => {
+  it('pinched at its corner, read held by both long sides (thumbs on the face, the fingers behind), laid back squared; the pile keeps its count', async () => {
+    let lift = 0
+    let moved = 0
+    let restY = 0
+    const restP = new Vector3()
+    let corner = 0
+    let sides = 0
+    let through = -Infinity
+    const tipOf = (rig: AgentRig, side: 'l' | 'r', f: number | 'thumb') => {
+      const h = rig.parts.hands[side]
+      const j = f === 'thumb' ? h.thumb[2]!.node : h.fingers[f][2]!.node
+      j.updateWorldMatrix(true, false)
+      return (f === 'thumb' ? h.thumbTip! : h.tips[f]!).clone().applyMatrix4(j.matrixWorld)
+    }
+    const w = await touchRun(
+      'paper',
+      (w, u) => {
+        const rig = w.rigs.agent_0
+        const top = w.scene.getObjectByName('desk_0_in_top')!
+        const c = top.getWorldPosition(new Vector3())
+        if (u < 0.3) {
+          restY = c.y
+          restP.copy(c)
+        }
+        lift = Math.max(lift, c.y - restY)
+        moved = Math.max(moved, c.distanceTo(restP))
+        const at = (name: string) => w.scene.getObjectByName(name)!.getWorldPosition(new Vector3())
+        // the corner pinched as it is taken
+        if (u > 0.62 && u < 0.78) for (const [f, n] of [[0, 'index'], ['thumb', 'thumb']] as const) corner = Math.max(corner, tipOf(rig, 'r', f).distanceTo(at(`desk_0_in_top_contact_${n}`)))
+        if (u > 1.3 && u < 3.3) {
+          for (const side of ['l', 'r'] as const)
+            for (const [f, n] of [[0, 'index'], ['thumb', 'thumb']] as const) sides = Math.max(sides, tipOf(rig, side, f).distanceTo(at(`desk_0_in_top_grip_side_${side}_contact_${n}`)))
+          // no finger through the sheet: the four fingers are behind it (the thumbs and the palm blocks are on its face side, beside the edge), so over
+          // its footprint no vertex of a finger is in front of its back face
+          const inv = top.matrixWorld.clone().invert()
+          const box = top.userData.sheetBox as { min: number[]; max: number[] }
+          const v = new Vector3()
+          for (const side of ['l', 'r'] as const)
+            rig.parts.hands[side].node.traverseVisible((m) => {
+              const g = (m as Mesh).geometry?.getAttribute('position')
+              if (!(m as Mesh).isMesh || !g || !/_f\d/.test(m.name)) return
+              for (let k = 0; k < g.count; k++) {
+                v.fromBufferAttribute(g, k).applyMatrix4(m.matrixWorld)
+                const q = v.clone().applyMatrix4(inv)
+                if (q.x < box.min[0] + 0.005 || q.x > box.max[0] - 0.005 || q.z < box.min[2] || q.z > box.max[2]) continue
+                // in the sheet's own frame y is stretched by its drawn thinness: back to metres along its normal
+                const n = new Vector3(0, 1, 0).transformDirection(top.matrixWorld)
+                through = Math.max(through, v.clone().sub(c).dot(n))
+              }
+            })
+        }
+      },
+      true,
+      { inbox: 3 },
+    )
+    const pile = TrayPile.of(w.scene.getObjectByName('desk_0_in'))!
+    const end = new Vector3().setFromMatrixPosition(w.scene.getObjectByName('desk_0_in_top')!.matrixWorld)
+    const squared = new Vector3().setFromMatrixPosition(pile.topRest(true))
+    if (LOG) appendFileSync(LOG, `paper: lifted ${(lift * 100).toFixed(1)} cm (moved ${(moved * 100).toFixed(1)} cm), the corner pinch ${(corner * 1000).toFixed(1)} mm, both sides ${(sides * 1000).toFixed(1)} mm off their contacts, fingers at most ${(through * 1000).toFixed(1)} mm over the sheet's back (the sheet is ${HELD_T * 1000} mm), back ${(end.distanceTo(squared) * 1000).toFixed(2)} mm from its squared rest
+`)
+    expect(lift, 'lifted off the pile').toBeGreaterThan(0.08)
+    expect(moved, 'brought to the reader').toBeGreaterThan(0.15)
+    expect(corner, 'the corner pinched').toBeLessThan(0.006)
+    expect(sides, 'thumbs and indexes on the long sides').toBeLessThan(0.006)
+    // the sheet in a hand is HELD_T thick: a finger pad on its back (grips.md: within 1 mm) comes no further than 1 mm past its face
+    expect(through, 'no finger through the sheet').toBeLessThanOrEqual(HELD_T + 0.001)
+    expect(end.distanceTo(squared), 'laid back squared').toBeLessThan(0.001)
+  }, 120_000)
+})
+
+describe('the IN pile squared at the tidy-up (#370 B3b, desk-props.md 4)', () => {
+  /** the planner's tidy-up beats (wrap.ts) played at its desk, the desk drawn as Agents.tsx does; `inbox` sheets in its IN pile */
+  async function tidyRun(inbox: number, onFrame: (w: Awaited<ReturnType<typeof world>>, kind: string, u: number) => void) {
+    const w = await world()
+    const walk = new Walk(w, Date.UTC(2026, 10, 9, 1, 0, 0))
+    walk.status = Object.fromEntries(['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4'].map((id) => [id, { state: 'working' as const, activity: 'edit', since: 0 }]))
+    walk.inbox = inbox
+    const live = new DeskLive(w.nodes)
+    const desk = base({ inbox })
+    const dt = 1 / 60
+    const step = () => {
+      live.update(desk, walk.t, dt, false)
+      w.scene.updateMatrixWorld(true)
+      walk.step(dt)
+    }
+    for (let k = 0; k < 360; k++) step()
+    const beats = tidyBeats(0)
+    let beat: Record<string, unknown> | null = null
+    const goals = walk.director.goals.bind(walk.director)
+    walk.director.goals = ((...a: Parameters<typeof goals>) => {
+      const g = goals(...a)
+      return beat ? { ...g, agent_0: { spot: 'work_0', pose: 'tidy', label: '', wrapStep: 'tidy', beat } } : g
+    }) as typeof walk.director.goals
+    const total = totalOf(beats)
+    for (let t = 0; t <= total + 0.3; t += dt) {
+      const at = beatAt(beats, Math.min(t, total))
+      beat = { ...at.beat, u: t > total ? 1 : at.u }
+      step()
+      onFrame(w, at.beat.kind, at.u)
+    }
+    beat = null
+    for (let k = 0; k < 30; k++) step()
+    return w
+  }
+
+  it('both palms on its sides, stood up on its near edge and tapped down twice, set back exactly where it rests', async () => {
+    let stood = 0
+    let into = 0
+    const gap = { l: Infinity, r: Infinity }
+    let restP: Vector3 | null = null
+    let restQ: Quaternion | null = null
+    const w = await tidyRun(3, (w, kind) => {
+      const node = w.scene.getObjectByName('desk_0_in')!
+      const p = new Vector3()
+      const q = new Quaternion()
+      node.matrixWorld.decompose(p, q, new Vector3())
+      if (!restP) {
+        restP = p.clone()
+        restQ = q.clone()
+      }
+      stood = Math.max(stood, new Vector3(0, 1, 0).applyQuaternion(q).angleTo(new Vector3(0, 1, 0)))
+      if (kind !== 'tap') return
+      // no hand vertex inside the pile's box (its frame without the sheet stretch)
+      const pile = TrayPile.of(node)!
+      const size = pile.pileSize
+      const inv = new Matrix4().compose(p, q, new Vector3(1, 1, 1)).invert()
+      const v = new Vector3()
+      for (const side of ['l', 'r'] as const)
+        w.rigs.agent_0.parts.hands[side].node.traverseVisible((m) => {
+          const g = (m as Mesh).geometry?.getAttribute('position')
+          if (!(m as Mesh).isMesh || !g) return
+          for (let k = 0; k < g.count; k++) {
+            v.fromBufferAttribute(g, k).applyMatrix4(m.matrixWorld).applyMatrix4(inv)
+            const d = Math.min(v.x - size.min.x, size.max.x - v.x, v.z - size.min.z, size.max.z - v.z, v.y, size.height - v.y)
+            if (d > 0) into = Math.max(into, d)
+            // the palm on its side: the nearest vertex beside it (within its length and height)
+            if (v.z > size.min.z && v.z < size.max.z && v.y > 0 && v.y < size.height) {
+              const off = side === 'l' ? size.min.x - v.x : v.x - size.max.x
+              if (off >= 0) gap[side] = Math.min(gap[side], off)
+            }
+          }
+        })
+    })
+    const node = w.scene.getObjectByName('desk_0_in')!
+    const p = new Vector3()
+    const q = new Quaternion()
+    node.matrixWorld.decompose(p, q, new Vector3())
+    if (LOG) appendFileSync(LOG, `pile tidy: stood ${((stood * 180) / Math.PI).toFixed(0)}°, hands ${(into * 1000).toFixed(1)} mm into the pile at most, palms ${(gap.l * 1000).toFixed(1)} / ${(gap.r * 1000).toFixed(1)} mm off its sides, back ${(p.distanceTo(restP!) * 1000).toFixed(2)} mm / ${((q.angleTo(restQ!) * 180) / Math.PI).toFixed(2)}° from its rest
+`)
+    expect((stood * 180) / Math.PI, 'stood up').toBeGreaterThan(60)
+    expect(into, 'no hand into the pile').toBeLessThanOrEqual(0.002)
+    expect(Math.max(gap.l, gap.r), 'the palms on its sides').toBeLessThan(0.006)
+    expect(p.distanceTo(restP!), 'set back').toBeLessThan(1e-4)
+    expect(q.angleTo(restQ!), 'set back straight').toBeLessThan(1e-4)
+  }, 120_000)
+
+  it('an empty IN pile is not squared (the tidy-up as before)', async () => {
+    let moved = 0
+    let rest: Vector3 | null = null
+    await tidyRun(0, (w) => {
+      const p = w.scene.getObjectByName('desk_0_in')!.getWorldPosition(new Vector3())
+      rest ??= p.clone()
+      moved = Math.max(moved, p.distanceTo(rest))
+    })
+    expect(moved).toBe(0)
   }, 120_000)
 })
