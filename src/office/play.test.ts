@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  EXTEND_MAX_MS, GAP_S, LEAVE_CAP, LEAVE_WINDOW_MS, NIGHT_PLAYS, PAIR_SOON_MS, PLAYS, STAY_MIN, dayPlan, nextChange, planDay, playAt, soloAt, type Seg,
+  EXTEND_MAX_MS, GAP_S, LEAVE_CAP, LEAVE_WINDOW_MS, NIGHT_PLAYS, PAIR_SOON_MS, PLAYS, STAY_MIN, WATCH_LEAVE_MS, WATCH_LEFT_MS, dayPlan, nextChange, planDay, playAt, restNear, soloAt, type Seg,
 } from './play'
 
 // #490 (docs/design/play.md 9): no blocks; each agent has its own run of stays and gaps, laid out once a day from KST 04:00, the same for every visitor.
@@ -156,7 +156,7 @@ describe('at any moment (playAt)', () => {
         }
       }
   })
-  it('one agent busy moves nobody else (only its partner: a record alone at the board, off the ping-pong table alone, #516)', () => {
+  it('one agent busy moves nobody else (only its partner: a record alone at the board, off the ping-pong table alone, #516; and the watcher of its game, #517)', () => {
     for (let t = dayStart(DAYS[2]) + 9 * 3_600_000; t < dayStart(DAYS[2]) + 12 * 3_600_000; t += 41_000) {
       const all = playAt(t, FIVE)
       const less = playAt(t, FIVE, new Set(['agent_1']))
@@ -165,6 +165,9 @@ describe('at any moment (playAt)', () => {
         if (all[a].partner === 'agent_1') {
           expect(['boardgame_solo', 'gap', 'coffee', 'books']).toContain(less[a].kind)
           expect(less[a].partner).toBeUndefined()
+        } else if (all[a].kind === 'watch' && Object.entries(all).some(([b, o]) => o.kind === all[a].watch && o.partner && (b === 'agent_1' || o.partner === 'agent_1'))) {
+          // its game is broken: it leaves at once
+          expect(less[a]).toMatchObject({ kind: 'gap' })
         } else expect(less[a]).toEqual(all[a])
       }
     }
@@ -271,7 +274,8 @@ describe('a ping-pong pair broken by work (#516)', () => {
       }
     }
     expect(filled, 'a solo play fills the rest').toBeGreaterThan(0)
-  })
+    // ~2,400 playAt calls: about 10 s alone, over 30 s beside the whole suite
+  }, 60_000)
 
   it('nobody shares a place with the ones playing on alone; the partner back from work plays on alone too, never back to ping-pong', () => {
     for (const { s, a } of games()) {
@@ -288,5 +292,84 @@ describe('a ping-pong pair broken by work (#516)', () => {
         expect(new Set(places).size, `${new Date(t).toISOString()} ${places}`).toBe(places.length)
       }
     }
+  })
+})
+
+// #517 (play.md 9.2 구경): a watch starts with 2 minutes or more of the game left and ends a minute before the game does; a game broken by work sends its
+// watcher off at once
+describe('watching (#517)', () => {
+  it('only with 2 minutes or more of the game left, gone a minute before it ends', () => {
+    let watches = 0
+    for (const d of DAYS) {
+      const plan = dayPlan(d, FIVE)
+      for (const segs of plan)
+        for (const w of segs) {
+          if (w.kind !== 'watch') continue
+          watches++
+          const game = plan.flat().find((x) => x.kind === w.watch && x.partner && x.pairAt! <= w.start && x.end > w.start)!
+          expect(game, 'a game under way').toBeDefined()
+          expect(game.end - w.start).toBeGreaterThanOrEqual(WATCH_LEFT_MS)
+          expect(game.end - w.end).toBeGreaterThanOrEqual(WATCH_LEAVE_MS)
+        }
+    }
+    expect(watches).toBeGreaterThan(5)
+  })
+
+  it('a game broken by a player gone to work: its watcher is off at once, near where it stood; the same at the same moment', () => {
+    let seen = 0
+    for (const d of DAYS.slice(0, 3)) {
+      const plan = dayPlan(d, FIVE)
+      for (const [i, segs] of plan.entries())
+        for (const w of segs) {
+          if (w.kind !== 'watch' || w.end > dayStart(d) + 86_400_000) continue
+          const k = plan.findIndex((ss) => ss.some((x) => x.kind === w.watch && x.partner && x.pairAt! <= w.start && x.end > w.start))
+          const game = plan[k].find((x) => x.kind === w.watch && x.partner && x.pairAt! <= w.start && x.end > w.start)!
+          const broke = w.start + 20_000
+          const alone = { broken: new Map([[game.stay, broke]]) }
+          const busy = new Set([game.partner!])
+          for (let t = broke; t < w.end; t += 4_000) {
+            const o = playAt(t, FIVE, busy, alone)[FIVE[i]]
+            expect(o.kind, 'off at once').toBe('gap')
+            expect(o.spot).not.toBe(w.spot)
+            expect(playAt(t, FIVE, busy, alone)[FIVE[i]]).toEqual(o)
+            seen++
+          }
+        }
+    }
+    expect(seen).toBeGreaterThan(10)
+  })
+})
+
+// #525 판정: resting after an errand is one place for all of it; a stretch is where the agent already is (never a walk to it, never after an errand)
+describe('resting in one place (#525)', () => {
+  it('an errand waiting or done early rests at one place near it for the rest of the stay', () => {
+    let seen = 0
+    for (const d of DAYS.slice(0, 2))
+      for (const segs of dayPlan(d, FIVE))
+        for (const s of segs) {
+          if (!['fridge', 'dispenser', 'record', 'water'].includes(s.kind) || s.end > dayStart(d) + 86_400_000) continue
+          const p = { kind: s.kind as 'fridge', label: '', spot: PLAYS.find((x) => x.kind === s.kind)!.spots[0], stay: s.stay, since: s.start, until: s.end }
+          const spots = new Set<string>()
+          for (let t = s.start; t < s.end; t += 3_000) spots.add(restNear(t, FIVE, p).spot)
+          expect([...spots], `${s.kind} ${new Date(s.start).toISOString()}`).toHaveLength(1)
+          expect([...spots][0].startsWith('work_')).toBe(false)
+          seen++
+        }
+    expect(seen).toBeGreaterThan(10)
+  })
+
+  it('a stretch is where the agent was (never a walk to it), and never right after an errand', () => {
+    let stretches = 0
+    for (const d of DAYS)
+      for (const segs of dayPlan(d, FIVE))
+        for (let k = 1; k < segs.length; k++) {
+          const g = segs[k]
+          if (g.kind !== 'gap' || g.gap !== 'stretch') continue
+          stretches++
+          expect(['fridge', 'dispenser', 'record', 'water']).not.toContain(segs[k - 1].kind)
+          // where the stay before it was (a gap after a gap, nothing fitting: where that gap was)
+          expect(g.spot, `${new Date(g.start).toISOString()}`).toBe(segs[k - 1].spot)
+        }
+    expect(stretches).toBeGreaterThan(20)
   })
 })

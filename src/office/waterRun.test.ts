@@ -105,7 +105,7 @@ describe('Director: the schedule sends one agent at a time for the can', () => {
     expect(g[waterer].spot.startsWith('water_')).toBe(true)
   })
 
-  it('only one errand at a time: a second agent assigned water waits at its desk', () => {
+  it('only one errand at a time: a second agent assigned water waits its turn near the plants, not at its desk (#517)', () => {
     // two agents three minutes apart (#490: their own stays): the second as the Director sees it, with the first still away on its errand (the plan
     // without it), and nobody else away (no lounge act or reading under way either time, they would be taken out too)
     const LATER = 180_000
@@ -139,7 +139,9 @@ describe('Director: the schedule sends one agent at a time for the can', () => {
     const g = d.goals(t0 + LATER, m + 3, idle(), at)
     expect(g[first].water, 'the first is still on it').toBeTruthy()
     expect(g[second!].water, 'the second does not start').toBeUndefined()
-    expect(g[second!]).toMatchObject({ spot: `work_${second!.split('_')[1]}`, pose: 'idle' })
+    expect(g[second!]).toMatchObject({ pose: 'idle' })
+    expect(g[second!].spot.startsWith('work_'), 'not at the desk').toBe(false)
+    expect(g[second!].gap, 'a gap meanwhile').toBeDefined()
     expect(g[second!].label).toContain('차례')
   })
 
