@@ -196,6 +196,8 @@ export class Walk {
   treats: Record<string, { kind: 'coffee' | 'cookie' | 'apple'; at: number }> = {}
   /** #370 A the desk touches under way (deskTouch.ts), as Agents.tsx gives them */
   touches: Record<string, Touch> = {}
+  /** #370 B3b sheets in the planner's IN pile */
+  inbox = 0
   readonly director = new Director(IDS)
   readonly planner = office()
   /** everyone idle (resting: the schedule plays) unless the caller says otherwise */
@@ -240,7 +242,7 @@ export class Walk {
     }
     // where the white bowl rests, as Agents.tsx gives it (#502: without it the stage kept it at home, a put at the corner slid it back home and the next
     // errand took it from 0.9 m)
-    w.stage.update({ now, t: this.t, dt, reduced: this.reduced, replaying: false, rigs: w.rigs, goals: this.goals, status: this.status, tablet: false, stamp: false, colors: {}, bowlRest: this.director.bowlRest(), treats: this.treats, touches: this.touches })
+    w.stage.update({ now, t: this.t, dt, reduced: this.reduced, replaying: false, rigs: w.rigs, goals: this.goals, status: this.status, tablet: false, stamp: false, colors: {}, bowlRest: this.director.bowlRest(), treats: this.treats, touches: this.touches, inbox: this.inbox })
     this.before?.(this.t)
     w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
     w.props.update(dt)
