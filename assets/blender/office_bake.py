@@ -5450,18 +5450,23 @@ def build_treats():
         contact(o, "thumb", (0.025, 0.004, 0), (0, 1, 0), sfx)
         contact(o, "index", (0.025, -0.004, 0), (0, -1, 0), sfx)
     o["hidden_at_rest"] = True
-    # the apple: r 4 cm, 0.92 tall, a light band near the top, a stem and a leaf
+    # the apple: r 4 cm, 0.92 tall, a blush round the stem, a stem and a leaf. #542 (designer): no band (it read as a
+    # peach); the top cap (its ring at 64 deg, d 3.5 cm) a lighter #f2786b, the rest #e0483e. Smooth shaded (the
+    # sphere's normals are shared); 14 around instead of 12 for a rounder light, the stem and leaf thinner to pay
     red = plastic("#e0483e", 0.45, 0, 0.1, "treat_apple")
-    band = plastic("#ffb3a7", 0.45, 0, 0.1, "treat_apple_band")
+    blush = plastic("#f2786b", 0.45, 0, 0.1, "treat_apple_blush")
     R_, SY, RINGS = 0.04, 0.92, 7
-    ap = sphere("treat_apple", R_, (0, 0, 0), red, G, scale=(1, SY, 1), seg=12, rings=RINGS)
-    ap.data.materials.append(band)
-    for f in ap.data.polygons:  # the band: faces whose middle is 55-80% of the way up
-        if 0.55 * R_ * SY < f.center.z < 0.80 * R_ * SY:
+    ap = sphere("treat_apple", R_, (0, 0, 0), red, G, scale=(1, SY, 1), seg=14, rings=RINGS)
+    ap.data.materials.append(blush)
+    for f in ap.data.polygons:  # the top fan only (the faces touching the top pole)
+        if f.center.z > 0.031:
             f.material_index = 1
     hy = R_ * SY
-    apl = [ap, segment("treat_apple_stem", (0, hy - 0.004, 0), (0.003, hy + 0.012, 0.001), 0.0018, plastic("#6b3f22", 0.7, 0, 0.2, "treat_stem"), G, verts=5),
-           sphere("treat_apple_leaf", 0.011, (0.010, hy + 0.008, 0.003), plastic("#4fb06a", 0.6, 0, 0.1, "treat_leaf"), G, scale=(1, 0.25, 0.5), seg=6, rings=3)]
+    apl = [ap, segment("treat_apple_stem", (0, hy - 0.004, 0), (0.003, hy + 0.012, 0.001), 0.0018, plastic("#6b3f22", 0.7, 0, 0.2, "treat_stem"), G, verts=4),
+           sphere("treat_apple_leaf", 0.011, (0.010, hy + 0.008, 0.003), plastic("#4fb06a", 0.6, 0, 0.1, "treat_leaf"), G, scale=(1, 0.25, 0.5), seg=5, rings=3)]
+    for part in apl[1:]:  # the stem and leaf stay faceted
+        for f in part.data.polygons:
+            f.use_smooth = False
     o = live(prop("prop_treat_apple", "treat_apple", apl, (4.22, top + hy, -0.205), (0.0, 0.0, 0.0)), "prop")
     lat = math.radians(-90 + 2 * 180 / RINGS)  # a ring of vertices below the middle
     cy_, cr_ = R_ * SY * math.sin(lat), R_ * math.cos(lat)
