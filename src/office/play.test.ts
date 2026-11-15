@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  EXTEND_MAX_MS, GAP_S, LEAVE_CAP, LEAVE_WINDOW_MS, NIGHT_PLAYS, PAIR_SOON_MS, PLAYS, STAY_MIN, WATCH_LEAVE_MS, WATCH_LEFT_MS, dayPlan, nextChange, planDay, playAt, soloAt, type Seg,
+  EXTEND_MAX_MS, GAP_S, LEAVE_CAP, LEAVE_WINDOW_MS, NIGHT_PLAYS, PAIR_SOON_MS, PLAYS, STAY_MIN, WATCH_LEAVE_MS, WATCH_LEFT_MS, dayPlan, nextChange, planDay, playAt, restNear, soloAt, type Seg,
 } from './play'
 
 // #490 (docs/design/play.md 9): no blocks; each agent has its own run of stays and gaps, laid out once a day from KST 04:00, the same for every visitor.
@@ -274,7 +274,8 @@ describe('a ping-pong pair broken by work (#516)', () => {
       }
     }
     expect(filled, 'a solo play fills the rest').toBeGreaterThan(0)
-  })
+    // ~2,400 playAt calls: about 10 s alone, over 30 s beside the whole suite
+  }, 60_000)
 
   it('nobody shares a place with the ones playing on alone; the partner back from work plays on alone too, never back to ping-pong', () => {
     for (const { s, a } of games()) {
@@ -336,5 +337,39 @@ describe('watching (#517)', () => {
         }
     }
     expect(seen).toBeGreaterThan(10)
+  })
+})
+
+// #525 판정: resting after an errand is one place for all of it; a stretch is where the agent already is (never a walk to it, never after an errand)
+describe('resting in one place (#525)', () => {
+  it('an errand waiting or done early rests at one place near it for the rest of the stay', () => {
+    let seen = 0
+    for (const d of DAYS.slice(0, 2))
+      for (const segs of dayPlan(d, FIVE))
+        for (const s of segs) {
+          if (!['fridge', 'dispenser', 'record', 'water'].includes(s.kind) || s.end > dayStart(d) + 86_400_000) continue
+          const p = { kind: s.kind as 'fridge', label: '', spot: PLAYS.find((x) => x.kind === s.kind)!.spots[0], stay: s.stay, since: s.start, until: s.end }
+          const spots = new Set<string>()
+          for (let t = s.start; t < s.end; t += 3_000) spots.add(restNear(t, FIVE, p).spot)
+          expect([...spots], `${s.kind} ${new Date(s.start).toISOString()}`).toHaveLength(1)
+          expect([...spots][0].startsWith('work_')).toBe(false)
+          seen++
+        }
+    expect(seen).toBeGreaterThan(10)
+  })
+
+  it('a stretch is where the agent was (never a walk to it), and never right after an errand', () => {
+    let stretches = 0
+    for (const d of DAYS)
+      for (const segs of dayPlan(d, FIVE))
+        for (let k = 1; k < segs.length; k++) {
+          const g = segs[k]
+          if (g.kind !== 'gap' || g.gap !== 'stretch') continue
+          stretches++
+          expect(['fridge', 'dispenser', 'record', 'water']).not.toContain(segs[k - 1].kind)
+          // where the stay before it was (a gap after a gap, nothing fitting: where that gap was)
+          expect(g.spot, `${new Date(g.start).toISOString()}`).toBe(segs[k - 1].spot)
+        }
+    expect(stretches).toBeGreaterThan(20)
   })
 })

@@ -7,7 +7,14 @@ import type { StatusMap } from './status'
 // The lounge acts through the Director (director.ts, actRun.ts): sent by the schedule or the music's wish for a break, run from the moment the agent is at its stand, over when their length is,
 // and the turntable's state follows them.
 const IDS = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
-const T0 = Date.UTC(2026, 10, 9, 5, 0, 0)
+/**
+ * A start at which nobody's own plan sends it on a lounge act in the next 2 minutes: the acts here are the forced ones (the drive below has every agent
+ * standing at the act's place; #490's plans change with every rule, a fixed time would meet a planned act sooner or later)
+ */
+const T0 = (() => {
+  const planned = (u: number) => Object.values(playAt(u, IDS)).some((x) => ['fridge', 'dispenser', 'record'].includes(x.kind))
+  for (let t = Date.UTC(2026, 10, 9, 5, 0, 0); ; t += 10_000) if (!Array.from({ length: 25 }, (_, k) => t + k * 5000).some(planned)) return t
+})()
 const idle = (): StatusMap => Object.fromEntries(IDS.map((id) => [id, { state: 'idle' as const, since: 0 }]))
 
 /** drive the Director with `where` saying who stands at which spot; returns the goals of each frame we ask for */

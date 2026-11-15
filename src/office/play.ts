@@ -386,19 +386,18 @@ export function dayPlan(day: number, agents: readonly string[]): Seg[][] {
       // the gap (play.md 9.3): not the same as the last one
       const last = [...segs[i]].reverse().find((s) => s.kind === 'gap')?.gap
       const len = between(GAP_S[0], GAP_S[1]) * 1000
-      const here = placeOf(a, done.spot)
+      // an errand was run from where the agent stood and ends at its own place (#517)
+      const errandPlace = done.spot === DESK ? PLAYS.find((p) => p.kind === done.kind)?.spots[0] : undefined
+      const here = errandPlace ? spotsAt[errandPlace] : placeOf(a, done.spot)
       // the kinds other than the last one, in a seeded order; the first that has a place (a stretch is where the agent is)
       // off the sofa the gap moves away: a stretch standing at the seat would close the knee row for whoever goes to the next seat (traffic.day: waits over 60 s)
       const seated = done.kind === 'sofa'
-      const kinds = (['stretch', 'wander', 'window'] as const).filter((g) => g !== last && !(seated && g === 'stretch'))
+      // no stretch after an errand either: it would be a walk back to where the errand was (#525)
+      const kinds = (['stretch', 'wander', 'window'] as const).filter((g) => g !== last && !((seated || done.spot === DESK) && g === 'stretch'))
       if (rand() < 0.5) kinds.reverse()
       const placeFor = (g: GapKind): string | null => {
-        // a stretch where it is: after an errand that is the errand's own place, if free (#517: not the desk)
-        if (g === 'stretch') {
-          if (done.spot !== DESK) return free(done.spot, t, t + len) ? done.spot : null
-          const place = PLAYS.find((p) => p.kind === done.kind)?.spots[0]
-          return place && free(place, t, t + len) ? place : null
-        }
+        // a stretch where it is, if nobody's next play is there (#525)
+        if (g === 'stretch') return done.spot !== DESK && free(done.spot, t, t + len) ? done.spot : null
         if (g === 'window') return WINDOW_SPOTS.find((s) => free(s, t, t + len)) ?? null
         const open = Object.keys(spotsAt).filter((s) => s.startsWith('hall_') && here && free(s, t, t + len))
         const dist = (s: string) => Math.hypot(spotsAt[s].x - here!.x, spotsAt[s].z - here!.z)
@@ -420,8 +419,9 @@ export function dayPlan(day: number, agents: readonly string[]): Seg[][] {
         spot = placeFor(g)
       }
       if (spot === null) {
-        g = 'stretch'
-        spot = done.spot
+        // nowhere free: where it is (after an errand: the errand's place, looking round there rather than a stretch)
+        g = errandPlace ? 'wander' : 'stretch'
+        spot = errandPlace ?? done.spot
       }
       hold(spot, t, t + len)
       segs[i].push({ kind: 'gap', gap: g, start: t, end: t + len, spot, stay: nextStay() })
@@ -608,20 +608,19 @@ function aloneAt(plan: Seg[][], roster: string[], agent: string, s: Seg, broke: 
 const usedIn = (plan: Seg[][], stay: number) => (spot: string, a: number, b: number) => plan.some((segs) => segs.some((x) => x.spot === spot && x.stay !== stay && x.start < b && a < x.end))
 
 /**
- * Resting near `near` from `from` to `until`: a stroll of ALONE_GAP_MS to the hall spot nearest it nobody's plan uses, then the window for the rest, one
- * place (#524: not gaps by turns), or that hall spot if the window is taken. `slot` takes that free place in the order (the two left at a table, a watcher:
- * going at once they keep apart). From the plan only: the same in every browser.
+ * Resting near `near` from `from` to `until`: the hall spot nearest it (a window spot too) nobody's plan uses then, one place for all of it (#525: not
+ * a stroll and then another place; the window breathes, a hall spot looks round). `slot` takes that free place in the order (the two left at a table, a
+ * watcher: going at once they keep apart). From the plan only: the same in every browser.
  */
-function gapsFrom(plan: Seg[][], s: Seg, near: string, from: number, until: number, ms: number, slot = 0): PlayAssignment {
+function gapsFrom(plan: Seg[][], s: Seg, near: string, from: number, until: number, _ms: number, slot = 0): PlayAssignment {
   const used = usedIn(plan, s.stay)
   const at = spotsAt[near]
   const dist = (h: string) => (at ? Math.hypot(spotsAt[h].x - at.x, spotsAt[h].z - at.z) : 0)
-  const halls = Object.keys(spotsAt).filter((h) => h.startsWith('hall_') && h !== near && !WINDOW_SPOTS.includes(h) && dist(h) >= WANDER_M[0]).sort((x, y) => dist(x) - dist(y))
-  const stroll = halls.filter((h) => !used(h, from, until))[slot] ?? halls.filter((h) => !used(h, from, until))[0] ?? near
-  const rest = from + ALONE_GAP_MS
-  const window = rest < until ? WINDOW_SPOTS.filter((h) => !used(h, rest, until))[slot] : undefined
-  if (ms < rest || !window) return { kind: 'gap', gap: 'wander', label: GAP_LABEL.wander, spot: stroll, stay: s.stay, since: from, until: window ? rest : until }
-  return { kind: 'gap', gap: 'window', label: GAP_LABEL.window, spot: window, stay: s.stay, since: rest, until, face: { x: spotsAt[window].x, z: WINDOW_FACE_Z } }
+  const free = Object.keys(spotsAt).filter((h) => h.startsWith('hall_') && h !== near && !used(h, from, until)).sort((x, y) => dist(x) - dist(y))
+  const spot = free[slot] ?? free[0] ?? near
+  const kind: GapKind = WINDOW_SPOTS.includes(spot) ? 'window' : 'wander'
+  const face = kind === 'window' && spotsAt[spot] ? { x: spotsAt[spot].x, z: WINDOW_FACE_Z } : undefined
+  return { kind: 'gap', gap: kind, label: GAP_LABEL[kind], spot, stay: s.stay, since: from, until, ...(face ? { face } : {}) }
 }
 
 function assignmentOf(agent: string, s: Seg, ms: number, present: (a: string) => boolean): PlayAssignment {
