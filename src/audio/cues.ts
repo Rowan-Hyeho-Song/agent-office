@@ -723,8 +723,8 @@ export const CUES = {
     gap: 300,
     length: 0.05,
     play: (o) => {
-      noise(o, 0.02, { freq: 2100, q: 8, level: 0.12, attack: 0.0005 })
-      noise(o, 0.04, { freq: 5000, q: 0.7, level: 0.02, attack: 0.0005 })
+      noise(o, 0.02, { freq: 2100, q: 8, level: 0.19, attack: 0.0005 })
+      noise(o, 0.04, { freq: 5000, q: 0.7, level: 0.032, attack: 0.0005 })
     },
   },
   voice: {
