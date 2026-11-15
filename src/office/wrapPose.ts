@@ -108,6 +108,41 @@ export const PEN = {
   fadeInS: 0.2,
 } as const
 
+/**
+ * #481 (wrapup.md 9.4, P): the done cards stay where they were written, the new card laid on top of them. A card is `step` thick on the stack (thicker
+ * than paper, so the cards show), so the writing rises a step per card; each done card is turned up to ±`turnDeg` and moved up to `offM` toward the
+ * pressing side (seeded per card), so their edges show under the top one. In 'next' the pressing hand reaches `reach` in to the done card's edge and
+ * back; the pen is laid `penOut` beyond the card's edge on the pen side, along the seat's z, tip toward the monitor.
+ */
+export const STACK = { step: 0.0015, turnDeg: 5, offM: 0.01, reach: 0.02, penOut: 0.03 } as const
+
+/** the share of the gathering (WRAP.collect) that lays the pen down; the rest takes the stack onto the palm */
+export const COLLECT_PEN = WRAP.penDown / WRAP.collect
+
+/** the done cards under the card at a beat: card k is written on cards 0..k-1; in 'next' card k joins them halfway (reduced motion: at once) */
+export function stackCount(b: WrapBeat | undefined, reduced = false): number {
+  if (!b) return 0
+  if (b.kind === 'next') return b.k + (reduced || b.u >= 0.5 ? 1 : 0)
+  return b.k
+}
+
+/** how far the done card has turned to its place on the stack in 'next' (0 square, 1 turned; it is on the stack from halfway) */
+export function cardTwist(b: WrapBeat | undefined, reduced = false): number {
+  if (b?.kind !== 'next') return 0
+  return reduced ? 1 : smooth(b.u * 2)
+}
+
+/**
+ * The pressing hand toward the cards (0..1): in 'next' in to the done card's edge (STACK.reach) and back in the first half; while gathering, over to the
+ * stack's middle (from the pen laid down on), to take it onto the palm. None in reduced motion.
+ */
+export function pressReach(b: WrapBeat | undefined, reduced = false): number {
+  if (reduced) return 0
+  if (b?.kind === 'next') return b.u < 0.5 ? Math.sin(b.u * 2 * Math.PI) : 0
+  if (b?.kind === 'collect') return smooth((b.u - COLLECT_PEN) / (1 - COLLECT_PEN))
+  return 0
+}
+
 /** the card's centre in front of the body (the desks with their back to the camera) */
 const FRONT_CARD = { x: 0, z: -0.41 } as const
 
@@ -167,6 +202,9 @@ export function nibAt(b: WrapBeat | undefined, t: number, o: { place?: WritePlac
     case 'next':
       // off the card while it goes to the stack, down at the new card's first line
       return at(lerp(NIB_X0 + 0.05, NIB_X0, smooth(u)), 0.012 * Math.sin(u * Math.PI), lineZ(0))
+    case 'collect':
+      // where it stopped writing: the stage lays it down from here (wrapup.md 9.3)
+      return at(NIB_X0 + 0.05, 0, lineZ(row))
     default:
       return at(NIB_X0, 0, lineZ(row))
   }
@@ -205,7 +243,7 @@ export function wrapHand(side: 'l' | 'r', pose: 'write' | 'cardpost', b: WrapBea
     const left: HandSpec = { pos: [card.pressX, o.press?.y ?? LEFT_ON_CARD[1], card.pressZ], palm: 'down', curl: 'support' }
     // the pen hand over the pen's tip on the card (the stage puts the hand exactly on the pen it draws, #481)
     const penAt = (x: number, y: number, z: number): HandSpec => ({ pos: [L.x + (x - NIB_X0), y, z + L.dz], palm: 'down', curl: 'pen' })
-    const kind = o.reduced ? 'line' : b?.kind
+    const kind = o.reduced && b?.kind !== 'next' && b?.kind !== 'collect' ? 'line' : b?.kind
     // the pen in small steady strokes: the wrist moves within 1 cm, a small up and down every 0.12 s
     const stroke = (x: number, z: number) => penAt(x + 0.012 * Math.sin(t * 9) * m * 0.3, NIB_Y + 0.004 * Math.sin((t * Math.PI * 2) / 0.12) * m, z + 0.01 * Math.sin(t * 6.5 + 1) * m)
     switch (kind) {
@@ -232,9 +270,16 @@ export function wrapHand(side: 'l' | 'r', pose: 'write' | 'cardpost', b: WrapBea
         return { pos: mix(left.pos, o.read, k), palm: k > 0.5 ? 'up' : 'down', curl: 'support' }
       }
       case 'next': {
-        // pushes the done card to the left (0.3 s) and draws a new one (0.3 s)
-        const out = Math.sin(Math.min(1, u * 2) * Math.PI) * 0.1
-        return r ? penAt(NIB_X0, NIB_Y, lineZ(0)) : { pos: [left.pos[0] - s * out, left.pos[1], left.pos[2]], palm: 'down', curl: 'support' }
+        // the fingertips to the done card's edge, turning it a little to its place on the stack, and back (0.3 s); a new card appears on it (0.3 s)
+        const into = pressReach(b, o.reduced) * STACK.reach
+        return r ? penAt(NIB_X0, NIB_Y, lineZ(0)) : { pos: [left.pos[0] + s * into, left.pos[1], left.pos[2]], palm: 'down', curl: 'support' }
+      }
+      case 'collect': {
+        // the pen hand lays the pen down beside the card (the stage puts it there) and goes back to rest; the other goes over the stack (its middle, its
+        // top) and takes it onto the palm
+        const k = pressReach(b, o.reduced)
+        if (r) return u < COLLECT_PEN && !o.reduced ? penAt(NIB_X0 + 0.05, NIB_Y, lineZ(row)) : { pos: rest, palm: 'none', curl: 'rest' }
+        return { pos: [lerp(left.pos[0], card.x, k), left.pos[1] + k * ((b?.k ?? 0) + 1) * STACK.step, lerp(left.pos[2], card.z, k)], palm: 'down', curl: 'support' }
       }
       default:
         return r ? stroke(NIB_X0, lineZ(row)) : left

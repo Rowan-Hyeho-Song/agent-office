@@ -468,6 +468,87 @@ export const CUES = {
       noise(o, 0.01, { freq: 4500, q: 2, level: 0.006, attack: 0.0005, at: 0.012 })
     },
   },
+  // ── #451 출근 · 퇴근 문 · #450 둘째 책장 · #455 간식 받기 (sound.md 4.4 · 4.5, #530): 레버 · 매트 · 한 모금은 위의 것을 다시 쓴다 ──
+  'door.open': {
+    label: '출입문 열림',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 600,
+    length: 0.5,
+    // a solid door swinging off the latch: the air it moves and a low, short hinge groan (no squeak: it would be heard twice a day, every day)
+    play: (o) => {
+      noise(o, 0.5, { kind: 'pink', filter: 'lowpass', freq: 600, level: 0.015, shape: 'swell' })
+      tone(o, 170, 0.24, { type: 'triangle', level: 0.003, slide: 1.25, attack: 0.04, at: 0.04 })
+    },
+  },
+  'door.close': {
+    label: '출입문 닫힘',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 600,
+    length: 0.3,
+    // the door meeting its frame: a wooden thud, the latch catching right after, a little air pushed out
+    play: (o) => {
+      knock(o, 140, 0.16, 0.042, 4, 0.6)
+      knock({ ...o, t: o.t + 0.015 }, 2600, 0.025, 0.0126, 14, 0.4)
+      noise(o, 0.25, { kind: 'pink', filter: 'lowpass', freq: 450, level: 0.017, attack: 0.004 })
+    },
+  },
+  'book.out': {
+    label: '책장에서 책 꺼냄',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 500,
+    length: 0.34,
+    // a hardback slid out from between its neighbours: the cover rubbing paper, a little brighter as it frees, a faint tick as it clears the shelf
+    play: (o) => {
+      noise(o, 0.3, { kind: 'pink', freq: 1400, to: 2200, q: 0.9, level: 0.03, shape: 'swell' })
+      noise(o, 0.26, { kind: 'pink', filter: 'lowpass', freq: 500, level: 0.012, shape: 'swell' })
+      knock({ ...o, t: o.t + 0.3 }, 900, 0.03, 0.006, 6, 0.5)
+    },
+  },
+  'book.in': {
+    label: '책을 책장에 되꽂음',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 500,
+    length: 0.32,
+    // the same rub going in, falling, and a soft knock of the spine against the back of the shelf
+    play: (o) => {
+      noise(o, 0.22, { kind: 'pink', freq: 2000, to: 1300, q: 0.9, level: 0.028, shape: 'swell' })
+      knock({ ...o, t: o.t + 0.21 }, 260, 0.09, 0.02, 4, 0.7)
+    },
+  },
+  'book.page': {
+    label: '책장 넘김',
+    kind: 'repeat',
+    bus: 'sfx',
+    spatial: true,
+    gap: 600,
+    length: 0.24,
+    // a page lifted at the corner and flipped over: a soft lift, then a brighter swish settling
+    play: (o) => {
+      noise(o, 0.08, { kind: 'pink', freq: 2800, q: 1.2, level: 0.0096, shape: 'swell' })
+      noise(o, 0.16, { kind: 'pink', freq: 3600, to: 2400, q: 0.8, level: 0.019, shape: 'swell', at: 0.06 })
+    },
+  },
+  'treat.take': {
+    label: '간식을 손에 받아 듦',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 300,
+    length: 0.14,
+    // the receiving hand closing on the snack: a few small wrapper crinkles and the soft weight in the palm
+    play: (o) => {
+      for (let k = 0; k < 3; k++) noise({ ...o, t: o.t + k * 0.035 + Math.random() * 0.01 }, 0.02, { freq: 4000 + Math.random() * 1500, q: 3, level: 0.023 })
+      tone(o, 150, 0.06, { type: 'sine', level: 0.019, slide: 0.8, attack: 0.004 })
+    },
+  },
   'door.enter': {
     label: '출입문 (따로 열었을 때)',
     kind: 'ui',

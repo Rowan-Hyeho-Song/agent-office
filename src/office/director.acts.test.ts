@@ -7,7 +7,14 @@ import type { StatusMap } from './status'
 // The lounge acts through the Director (director.ts, actRun.ts): sent by the schedule or the music's wish for a break, run from the moment the agent is at its stand, over when their length is,
 // and the turntable's state follows them.
 const IDS = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
-const T0 = Date.UTC(2026, 10, 9, 5, 0, 0)
+/**
+ * A start at which nobody's own plan sends it on a lounge act in the next 2 minutes: the acts here are the forced ones (the drive below has every agent
+ * standing at the act's place; #490's plans change with every rule, a fixed time would meet a planned act sooner or later)
+ */
+const T0 = (() => {
+  const planned = (u: number) => Object.values(playAt(u, IDS)).some((x) => ['fridge', 'dispenser', 'record'].includes(x.kind))
+  for (let t = Date.UTC(2026, 10, 9, 5, 0, 0); ; t += 10_000) if (!Array.from({ length: 25 }, (_, k) => t + k * 5000).some(planned)) return t
+})()
 const idle = (): StatusMap => Object.fromEntries(IDS.map((id) => [id, { state: 'idle' as const, since: 0 }]))
 
 /** drive the Director with `where` saying who stands at which spot; returns the goals of each frame we ask for */
@@ -133,7 +140,8 @@ describe('the turntable through the Director', () => {
     // somebody the schedule has already sent on an errand (the book, #280; the can; another act) is not resting: the record goes to the first of the others
     const away = new Set<string>()
     drive(d, 0, 3, () => null, { wantsBreak: true, status: st }, (_t, g) => {
-      for (const x of IDS) if (g[x].read || g[x].water || (g[x].act && g[x].act!.kind !== 'record')) away.add(x)
+      // (the white bowl for a record placed alone is an errand too)
+      for (const x of IDS) if (g[x].read || g[x].water || g[x].bowl || (g[x].act && g[x].act!.kind !== 'record')) away.add(x)
       who ??= IDS.find((a) => g[a].act?.kind === 'record') ?? null
     })
     expect(who).toBe(IDS.find((x) => x !== 'agent_4' && !away.has(x)))
@@ -168,5 +176,29 @@ describe('the turntable through the Director', () => {
     const day = Date.UTC(2026, 10, 9, 0, 0, 0)
     for (let t = day; t < day + 86_400_000; t += 30_000) for (const a of Object.values(playAt(t, IDS))) kinds.add(a.kind)
     for (const k of ['fridge', 'dispenser', 'record']) expect(kinds.has(k), k).toBe(true)
+  })
+})
+
+// #527: the break's crowd flickering around two (gaps were not counted as resting, #490) flipped the music's wish every 9 s or so; the same agent lifted the arm
+// and put it back on, again and again, walking to and from the turntable. Whatever the wish does, the needle changes at most once in PUT/LIFT_AFTER (25 s).
+describe('the turntable with the break flickering (#527)', () => {
+  it('the music wishes break / work every 9 s for three minutes: the needle never changes again within 25 s', () => {
+    const d = new Director(IDS)
+    // the break: the record goes on
+    drive(d, 0, 10, stands(ACT_PLACE.record.spot, 0.5), { wantsBreak: true })
+    expect(d.deckState().needle).toBe(true)
+    const changes: number[] = []
+    let needle = d.deckState().needle
+    // everybody stands at the turntable whenever sent there (an arrival at once: the worst case)
+    const flicker = (t: number) => Math.floor(t / 9) % 2 === 1
+    for (let t = 10; t <= 190; t += 0.1) {
+      const now = T0 + t * 1000
+      d.goals(now, Math.floor(now / 60000), idle(), () => ACT_PLACE.record.spot, { wantsBreak: flicker(t) })
+      if (d.deckState().needle !== needle) {
+        needle = d.deckState().needle
+        changes.push(t)
+      }
+    }
+    for (let k = 1; k < changes.length; k++) expect(changes[k] - changes[k - 1], `changes at ${changes.map((c) => c.toFixed(1)).join(', ')}`).toBeGreaterThanOrEqual(25)
   })
 })

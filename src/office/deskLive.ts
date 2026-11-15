@@ -178,7 +178,8 @@ export class DeskLive {
       }
       if (!p.hourglass) this.flip.target = Math.round(this.flip.target / (2 * Math.PI)) * 2 * Math.PI
       this.flip.angle = reduced ? this.flip.target : MathUtils.damp(this.flip.angle, this.flip.target, 5, dt)
-      this.hourglass.turn(this.flip.angle)
+      // about its middle, lifted so the plates never go into the felt coaster it stands on (#493)
+      this.hourglass.turnResting(this.flip.angle)
     }
     // 메시: the turntable spins while baking; the ring light is on while baking and blinks after
     if (this.turntable && p.turntable) {

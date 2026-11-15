@@ -52,6 +52,9 @@ import {
 } from './handPose'
 import { CRUISE, CRUISE_TUNED, TRAFFIC, type Sample } from './traffic'
 import type { AgentStatus } from './status'
+import { gapHead, stretchLift } from './gapMotion'
+import { STRETCH_ABOVE } from './stretch.data'
+import { LIE_POSE } from './lie.data'
 import { musicGlow, speakerCone, speakerOn } from '../audio/speaker'
 
 /** the poses of the play schedule (play.ts PlayKind): what "resting" means (sound.md 5) */
@@ -78,7 +81,12 @@ const NOD_HAND_S = 0.8
 const LIFT = 0.06 // extra hover height while moving
 /** seated spots: the head floats lower over the cushion / stool */
 /** lying on the chaise: the head's height above the floor (the cushion's top 0.44 + the head's own half height) and how far it tips back (face up, rad) */
-const LIE = { headY: 0.62, faceUpRad: (80 * Math.PI) / 180 }
+/**
+ * Lying on the east seat (lounge-props.md 1, #519): face up 80°; the head's middle `southM` from the nav `head` point toward the seat (its crown on the pillow,
+ * not over the armrest) at its own height (lie.data.ts: the back of the head 5 mm over the pillow), else `headY`; the two hands palm down on the cushion
+ * `handsSouthM` further on (the belly), `handsWestM` west of the head's line, `handsApartM` apart, at their own height (lie.data.ts), else `handY`
+ */
+const LIE = { headY: 0.62, faceUpRad: (80 * Math.PI) / 180, southM: 0.255, handsSouthM: 0.38, handsWestM: 0.03, handsApartM: 0.1, handY: 0.48 }
 const SEAT: Record<string, number> = { sofa: -0.3, stool: -0.2 }
 /** where the beam of light ends when the agent hovers over furniture (else the floor) */
 const SURFACE: Record<string, number> = { work: 0.76, stool: 0.525, sofa: 0.44 }
@@ -664,6 +672,11 @@ const HOLD_POSE = POSES.wrap
 const PINCH_POSE = POSES.ok
 const POINT_POSE = POSES.point
 const WAVE_POSE = POSES.spread
+/**
+ * #490 B the stretch: the hands out in a V, each this far to its side, this far along the body (− forward), m; how high: per agent, the hand's place this far
+ * above the head's rest so its underside is 6 cm over the top of the head and what it wears (stretch.data.ts), else `aboveM`
+ */
+const STRETCH_HAND = { sideM: 0.24, aboveM: 0.38, z: 0.02 } as const
 const FRAME_POSE = VARIANTS.frame
 const STAMP_POSE = VARIANTS.stamp
 const YIELD_POSE = POSES.sweep
@@ -756,6 +769,9 @@ export class AgentRig {
   /** lying on the chaise (nav extras lie + head, lounge-props.md 1): how far it has gone (0 … 1), and where the head goes in the root's frame */
   private lying = 0
   private lieOff = new Vector3()
+  /** #519: where the hands lie on the cushion (world), while lying; the measuring sets `lieAt` instead of this agent's lie.data.ts heights */
+  private lieHands: Record<'l' | 'r', Vector3> | null = null
+  lieAt: { headY: number; handY: number } | null = null
   private headRest: { x: number; z: number } | null = null
   private look = { pitch: 0, yaw: 0, roll: 0 }
   /** the current bends per hand (eased toward the pose's shape): four fingers, then the thumb's bend and opposition */
@@ -805,6 +821,9 @@ export class AgentRig {
   /** the meeting reaction in progress (#141): when it started on the scene clock, whether a hand lifts with it; the key it answered last */
   private nod: { t0: number; hand: boolean } | null = null
   private nodKey = ''
+  /** #490 B: the goal it rests at (spot | pose | gap; empty on the way) and since when (scene clock, s) */
+  private restKey = ''
+  private restT0 = 0
   /** a received paper / plane (#267, paper-pass.md 4): the wide eyes of surprise until `until`, then a nod at `nodAt` */
   private paperFace: { until: number; nodAt: number | null } | null = null
 
@@ -975,7 +994,9 @@ export class AgentRig {
   }
 
   get resting(): boolean {
-    return !!this.goal && RESTING_POSES.has(this.goal.pose)
+    // #527: a gap between two plays and watching a game are the break too (#490: a good share of it); counted out, the break's crowd flickered around
+    // two and the music sent the turntable's arm up and down
+    return !!this.goal && (RESTING_POSES.has(this.goal.pose) || !!this.goal.gap || !!this.goal.watching)
   }
   /** a throw / catch is under way this frame (set in update) */
   private gesturing = false
@@ -1139,6 +1160,10 @@ export class AgentRig {
 
     const goal = this.goal
     const resting = !moving && this.arrived === goal.spot
+    // #490 B: since when it has stood (or sat) at this goal; a new pose or gap at the same spot (a stretch where the coffee was) starts again
+    const restKey = resting ? `${goal.spot}|${goal.pose}|${goal.gap ?? ''}` : ''
+    if (restKey !== this.restKey) this.restT0 = t
+    this.restKey = restKey
     // seated on arrival, and kept seated while sliding from one seat to the next (sofa_1 → sofa_2)
     const kindOf = (id: string | null | undefined) => (id ? g.spots[id]?.kind : undefined)
     const seatKind = resting ? kindOf(goal.spot) : moving && kindOf(this.from) === kindOf(this.path[0]) ? kindOf(this.from) : undefined
@@ -1234,11 +1259,29 @@ export class AgentRig {
     this.headRest ??= { x: head.position.x, z: head.position.z }
     if (lieK > 0.001) {
       if (lieSpot) {
-        const wx = lieSpot.x - this.x
-        const wz = lieSpot.z - this.z
+        // along the seat: from the head point toward the seat's spot (south on the east seat)
+        const sp = g.spots[goal.spot]
+        const len = Math.hypot(sp.x - lieSpot.x, sp.z - lieSpot.z) || 1
+        const dx = (sp.x - lieSpot.x) / len
+        const dz = (sp.z - lieSpot.z) / len
+        const own = this.lieAt ?? LIE_POSE[Number(this.id.split('_')[1])]
+        const hx = lieSpot.x + dx * LIE.southM
+        const hz = lieSpot.z + dz * LIE.southM
+        const wx = hx - this.x
+        const wz = hz - this.z
         const c = Math.cos(this.heading)
         const sn = Math.sin(this.heading)
-        this.lieOff.set(wx * c - wz * sn, LIE.headY - this.parts.headRestY, wx * sn + wz * c)
+        this.lieOff.set(wx * c - wz * sn, (own?.headY ?? LIE.headY) - this.parts.headRestY, wx * sn + wz * c)
+        // the hands on the belly: across the seat, the right one west (lying face up, head north)
+        const ax = -dz
+        const az = dx
+        const mx = hx + dx * LIE.handsSouthM - ax * LIE.handsWestM
+        const mz = hz + dz * LIE.handsSouthM - az * LIE.handsWestM
+        const hy = own?.handY ?? LIE.handY
+        this.lieHands = {
+          r: new Vector3(mx - (ax * LIE.handsApartM) / 2, hy, mz - (az * LIE.handsApartM) / 2),
+          l: new Vector3(mx + (ax * LIE.handsApartM) / 2, hy, mz + (az * LIE.handsApartM) / 2),
+        }
       }
       head.position.set(this.headRest.x + this.lieOff.x * lieK, this.parts.headRestY + MathUtils.lerp(dy, this.lieOff.y, lieK), this.headRest.z + this.lieOff.z * lieK)
     } else head.position.set(this.headRest.x, this.parts.headRestY + dy, this.headRest.z)
@@ -1363,6 +1406,9 @@ export class AgentRig {
     const m = reduced ? 0.3 : this.ambient
     const s = (f: number, o = 0) => Math.sin(t * f + this.phase + o) * m
     const idle = { pitch: 0, yaw: reduced ? 0 : s(0.35) * 0.25, roll: 0 }
+    // #490 B a gap (play.md 9.3): the head back with the stretch, breathing at the window, one look left and right after a stroll
+    const gh = pose === 'idle' && this.restKey ? gapHead(this.goal?.gap, t - this.restT0, reduced) : null
+    if (gh) return { pitch: gh.pitch, yaw: gh.yaw ?? idle.yaw, roll: 0 }
     // looking at something on the desk (the duck): turn toward it and look down at it
     if (this.watch && pose !== 'move') {
       const dx = this.watch.x - this.x
@@ -1434,6 +1480,8 @@ export class AgentRig {
   private place: WritePlace = null
   /** #505: where this desk's other hand rests beside the card, instead of its own (writePress.data.ts, found per desk): the search sets it */
   pressAt: PressAt | null = null
+  /** #490 B: the stretch's hand height over the head's rest, instead of this agent's own (stretch.data.ts): the measuring sets it */
+  stretchAt: number | null = null
   private get press(): PressAt | undefined {
     return this.pressAt ?? WRITE_PRESS[Number(this.id.split('_')[1])]
   }
@@ -1469,6 +1517,30 @@ export class AgentRig {
     this.parts.root.getWorldQuaternion(out)
     return out.multiply(this.tmpQuat2.setFromAxisAngle(UP, -this.writeTurn))
   }
+  /** where cards lie on a palm, in the hand's own frame: the palm's normal `n`, the card's turn (x across, y = n, z along the fingers) and its centre `base` */
+  private palmFrame(side: 'l' | 'r') {
+    const hand = this.parts.hands[side]
+    // the palm's normal and the finger direction in the hand's own frame (the palm faces +x of the agent at rest)
+    const n = new Vector3(...REST_PALM[side]).applyQuaternion(hand.restQuat.clone().invert()).normalize()
+    const knuckle = hand.fingers[1][0]?.node.position ?? new Vector3(0, 0.08, 0)
+    const f = knuckle.clone().addScaledVector(n, -knuckle.dot(n)).normalize()
+    const x = new Vector3().crossVectors(n, f)
+    return { n, q: new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(x, n, f)), base: f.clone().multiplyScalar(Math.max(0.045, knuckle.length() * 0.8)) }
+  }
+
+  /** #481 (wrapup.md 9.4): one card held on a palm where the stack is carried, its written face out of the palm: the card's top centre in world */
+  palmCard(side: 'l' | 'r', out = new Matrix4()): Matrix4 {
+    const p = this.palmFrame(side)
+    const hand = this.parts.hands[side].node
+    hand.updateMatrixWorld(true)
+    return out.multiplyMatrices(hand.matrixWorld, new Matrix4().compose(p.base.clone().addScaledVector(p.n, 0.012 + 0.004), p.q, new Vector3(1, 1, 1)))
+  }
+
+  /** the palm the stack is carried on (the one that pressed the card): the left, or on the aisle-side desks the one opposite the pen */
+  get cardSide(): 'l' | 'r' {
+    return this.place && this.place.side < 0 ? 'r' : 'l'
+  }
+
   private updateCards(count: number, flat: boolean) {
     // the stack is on the hand that presses the card: the left, or on the aisle-side desks the one opposite the pen
     const side: 'l' | 'r' = this.place && this.goal?.pose === 'write' && this.place.side < 0 ? 'r' : 'l'
@@ -1477,16 +1549,12 @@ export class AgentRig {
     const hand = this.parts.hands[side]
     if (!this.cards[side]) {
       if (count <= 0) return
-      // the palm's normal and the finger direction in the hand's own frame (the palm faces +x of the agent at rest)
-      const n = new Vector3(...REST_PALM[side]).applyQuaternion(hand.restQuat.clone().invert()).normalize()
-      const knuckle = hand.fingers[1][0]?.node.position ?? new Vector3(0, 0.08, 0)
-      const f = knuckle.clone().addScaledVector(n, -knuckle.dot(n)).normalize()
-      const x = new Vector3().crossVectors(n, f)
+      const p = this.palmFrame(side)
       // the same card as the one written on the desk (wrapPose.ts WRITE_CARD, #499: 10 x 13 cm)
       const m = new Mesh(new BoxGeometry(WRITE_CARD.w, 0.004, WRITE_CARD.d), new MeshBasicMaterial({ color: WRITE_CARD.paper }))
-      m.quaternion.setFromRotationMatrix(new Matrix4().makeBasis(x, n, f))
-      m.userData.base = f.clone().multiplyScalar(Math.max(0.045, knuckle.length() * 0.8))
-      m.userData.n = n
+      m.quaternion.copy(p.q)
+      m.userData.base = p.base
+      m.userData.n = p.n
       hand.node.add(m)
       this.cards[side] = m
     }
@@ -1637,6 +1705,13 @@ export class AgentRig {
     const wg = this.goal
     if (side === 'l' && wg?.carry && pose !== 'write' && pose !== 'tidy') return at(-0.13, 1.0 + sit, -0.3, down.clone().invert(), STAMP_POSE)
     const wb = wg?.beat
+    // #490 B 기지개 (play.md 9.3): both hands up over the head and down again, palms up; reduced motion: none (only the label)
+    const lift = pose === 'idle' && wg?.gap === 'stretch' && this.restKey ? stretchLift(t - this.restT0, reduced) : 0
+    if (lift > 0) {
+      const above = this.stretchAt ?? STRETCH_ABOVE[Number(this.id.split('_')[1])] ?? STRETCH_HAND.aboveM
+      const top = v(sx * STRETCH_HAND.sideM, this.parts.headRestY + sit + above, STRETCH_HAND.z)
+      return at(rest.x + (top.x - rest.x) * lift, rest.y + (top.y - rest.y) * lift, rest.z + (top.z - rest.z) * lift, NONE.clone().slerp(down.clone().invert(), lift), WAVE_POSE)
+    }
     switch (pose) {
       case 'write':
         // the pieces of writing (wrap.ts, wrapPose.ts): the right hand writes, the left presses the card flat, lifts it to read, pushes it to the stack
@@ -1876,7 +1951,11 @@ export class AgentRig {
       }
       // the tuck: the free hand on a sitter's side comes in toward the body (the walking place and the standing rest place only)
       // lying: the hands come with the head (the free ones rest beside it)
-      if (this.lying > 0.001) p.pos.add(new Vector3(this.lieOff.x, this.lieOff.y * 0.6, this.lieOff.z).multiplyScalar(this.lying))
+      // #519: on the east seat both hands lie palm down on the cushion at the belly
+      if (this.lying > 0.001 && this.lieHands) {
+        p.pos.lerp(this.parts.root.worldToLocal(this.lieHands[side].clone()), this.lying)
+        p.turn = p.turn.clone().slerp(palmDown(side), this.lying)
+      } else if (this.lying > 0.001) p.pos.add(new Vector3(this.lieOff.x, this.lieOff.y * 0.6, this.lieOff.z).multiplyScalar(this.lying))
       const tk = this.tuck[side] * (1 - this.heldAmount(side))
       if (tk > 0.001 && (p.walk || p.rest)) p.pos.x -= (side === 'l' ? -1 : 1) * TUCK.inM * tk
       if (this.forced[side]) p.curl = this.forced[side]!

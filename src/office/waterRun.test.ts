@@ -105,7 +105,7 @@ describe('Director: the schedule sends one agent at a time for the can', () => {
     expect(g[waterer].spot.startsWith('water_')).toBe(true)
   })
 
-  it('only one errand at a time: a second agent assigned water waits at its desk', () => {
+  it('only one errand at a time: a second agent assigned water waits its turn near the plants, not at its desk (#517)', () => {
     // two agents three minutes apart (#490: their own stays): the second as the Director sees it, with the first still away on its errand (the plan
     // without it), and nobody else away (no lounge act or reading under way either time, they would be taken out too)
     const LATER = 180_000
@@ -139,7 +139,9 @@ describe('Director: the schedule sends one agent at a time for the can', () => {
     const g = d.goals(t0 + LATER, m + 3, idle(), at)
     expect(g[first].water, 'the first is still on it').toBeTruthy()
     expect(g[second!].water, 'the second does not start').toBeUndefined()
-    expect(g[second!]).toMatchObject({ spot: `work_${second!.split('_')[1]}`, pose: 'idle' })
+    expect(g[second!]).toMatchObject({ pose: 'idle' })
+    expect(g[second!].spot.startsWith('work_'), 'not at the desk').toBe(false)
+    expect(g[second!].gap, 'a gap meanwhile').toBeDefined()
     expect(g[second!].label).toContain('차례')
   })
 
@@ -186,12 +188,12 @@ describe('Director: the schedule sends one agent at a time for the can', () => {
 })
 
 describe('Director: a prop goes back by hand before the agent walks off (#228)', () => {
-  it('whoever was playing coffee / ping-pong / omok / reading stands 0.8 s after the play ends; others set off at once', () => {
+  it('whoever was playing coffee / ping-pong / omok stands 0.8 s after the play ends; others set off at once (the book goes back on its own errand)', () => {
     // a play that ends (#490: the agent's own stay) and something somewhere else after it
     let found: { before: number; now: number; agent: string } | null = null
     for (let t = Date.UTC(2026, 10, 9, 1, 0, 0); !found && t < Date.UTC(2026, 10, 9, 13, 0, 0); t += 10_000) {
       for (const [id, x] of Object.entries(playAt(t, AGENTS))) {
-        if (!['coffee', 'books', 'pingpong', 'boardgame'].includes(x.kind) || x.until - t < 2000) continue
+        if (!['coffee', 'pingpong', 'boardgame'].includes(x.kind) || x.until - t < 2000) continue
         const next = playAt(x.until + 1, AGENTS)[id]
         if (next && next.spot !== x.spot && next.kind !== 'water') found = { before: x.until - 1000, now: x.until + 1, agent: id }
       }

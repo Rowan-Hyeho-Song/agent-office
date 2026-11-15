@@ -3,8 +3,8 @@ import { conversations, type DocMeta } from '../docs/library'
 import { buildScript } from './meeting'
 import { MEET_WORDS, MeetingRunner } from './meetingRun'
 import { BUBBLE_ASK, BUBBLE_REPLY, Director } from './director'
-import { playAt, schedulePose } from './play'
-import { startWrap, totalOf, TOUCH_LABEL, WRAP_LABEL } from './wrap'
+import { dayPlan, planDay, playAt, schedulePose } from './play'
+import { startWrap, totalOf, TOUCH_LABEL, WRAP, WRAP_LABEL } from './wrap'
 import type { AgentStatus, OfficeMessage, StatusMap } from './status'
 
 const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
@@ -125,8 +125,8 @@ describe('wrapping (#186): real work, then rest', () => {
     expect(d.shown.agent_0).toMatchObject({ kind: 'wrap', detail: WRAP_LABEL.seat, status: { state: 'wrapping' } })
     at.agent_0 = 'work_0'
     expect(step(100).g).toMatchObject({ spot: 'work_0', pose: 'write', carry: 1 })
-    // the cards are written for the desk's share of the time (wrapup.md 1), then it sets off with all of them
-    for (let s = 0; s < totalOf(plan.plan.desk) * 10 - 1; s++) step(100)
+    // the cards are written for the desk's share of the time (wrapup.md 1) and gathered (0.5 s, #481), then it sets off with all of them
+    for (let s = 0; s < (totalOf(plan.plan.desk) + WRAP.collect) * 10 - 1; s++) step(100)
     expect(step(100).g).toMatchObject({ spot: 'whiteboard', pose: 'carry', carry: n })
     at.agent_0 = 'whiteboard'
     expect(step(100).g).toMatchObject({ spot: 'whiteboard', pose: 'cardpost', carry: n })
@@ -146,7 +146,15 @@ describe('wrapping (#186): real work, then rest', () => {
     // the frame the tidy-up ends: shown = rest, and the play assignment is the goal in that same frame
     expect(last.sh).toMatchObject({ kind: 'rest', status: { state: 'idle' } })
     expect(last.sh.detail).toBeUndefined()
-    expectPlan(last.g, playAt(now, AGENTS).agent_0)
+    // the plan's own goal; a game at the board kept off by the white bowl under way (#137 ①: its partner, alone while this one wrapped up, went for it)
+    // waits near the board, not at the desk (#517)
+    const planned = playAt(now, AGENTS).agent_0
+    if (last.g.label.endsWith('판 정리 기다리는 중')) {
+      expect(planned?.kind).toBe('boardgame')
+      expect(last.g).toMatchObject({ pose: 'idle' })
+      expect(last.g.gap).toBeDefined()
+      expect(last.g.spot.startsWith('work_')).toBe(false)
+    } else expectPlan(last.g, planned)
     expect(seen).toEqual([WRAP_LABEL.seat, WRAP_LABEL.write, WRAP_LABEL.walk, WRAP_LABEL.post, TOUCH_LABEL, WRAP_LABEL.seat, WRAP_LABEL.tidy, 'idle'])
     expect(poses.slice(0, 7)).toEqual(['idle', 'write', 'carry', 'cardpost', 'cardpost', 'idle', 'tidy'])
     // the whole wrap-up lasted to about 6 s before the display's end (2 min from the status' since)
@@ -580,4 +588,60 @@ describe('Director start rule: not just before the night changes', () => {
     const edge = day.now + 10_000
     expect(goalsAt(d, edge, idleAll())[day.who].water?.stage).toBe('fetch')
   })
+})
+
+// #516 (play.md 9.2): a ping-pong partner goes to work: the one left is off the table at once (a gap, then a solo play); back from work, neither goes back to
+// the table for that stay; the timeline's own times decide it, so a second Director run over the same statuses does the same
+describe('a ping-pong partner goes to work (#516)', () => {
+  it('the one left leaves the table within a second; the partner back from work plays on alone too', () => {
+    const plan = dayPlan(planDay(5_000_000_000_000).day, AGENTS)
+    const pair = plan.flatMap((segs, i) => segs.filter((s) => s.kind === 'pingpong' && s.spot === 'pingpong_a' && s.end - s.start > 4 * 60_000).map((s) => ({ s, a: [...AGENTS].sort()[i] })))[0]
+    expect(pair, 'a ping-pong game that day').toBeDefined()
+    const { s, a } = pair
+    const k = s.partner!
+    const run = () => {
+      const d = new Director(AGENTS)
+      const { fn } = makeArrived()
+      const st = allIdle()
+      const seen: { t: number; mine: string; theirs?: string }[] = []
+      const off = s.start + 60_000
+      const back = off + 90_000
+      for (let t = s.start + 1000; t < s.end - 1000; t += 250) {
+        st[k] = t < off ? idle() : t < back ? { state: 'working', since: off, activity: 'test' } : idle(back)
+        const g = d.goals(t, MINUTE, st, fn)
+        seen.push({ t, mine: `${g[a].spot}|${g[a].pose}`, theirs: t >= back ? `${g[k].spot}|${g[k].pose}` : undefined })
+      }
+      return { seen, off, back }
+    }
+    const { seen, off } = run()
+    for (const x of seen) {
+      if (x.t < off) expect(x.mine).toBe('pingpong_a|pingpong')
+      else if (x.t >= off + 1000) expect(x.mine, `${x.t - off} ms after`).not.toContain('pingpong')
+      if (x.theirs) expect(x.theirs, 'back from work').not.toContain('pingpong')
+    }
+    expect(seen.some((x) => x.t >= off + 31_000 && !x.mine.includes('|idle')), 'a solo play after the stroll').toBe(true)
+    // the same over the same statuses
+    expect(run().seen).toEqual(seen)
+  })
+})
+
+// #517 (play.md 9.1): resting, nobody sits at its desk waiting: an errand waiting its turn or done before its stay is, a game kept off by the white bowl,
+// all rest near their places instead (gaps)
+describe('resting never waits at the desk (#517)', () => {
+  it('three hours of everybody free: no goal at a desk', () => {
+    const d = new Director(AGENTS)
+    const { at, fn } = makeArrived()
+    const st = allIdle()
+    const t0 = Date.UTC(2026, 10, 10, 1, 0, 0)
+    const atDesk: string[] = []
+    for (let t = t0; t < t0 + 3 * 3_600_000; t += 1000) {
+      const g = d.goals(t, MINUTE, st, fn)
+      for (const a of AGENTS) {
+        // arrives at once (the errands go on as they would)
+        at[a] = g[a].spot
+        if (g[a].spot.startsWith('work_')) atDesk.push(`${new Date(t).toISOString()} ${a} ${g[a].label}`)
+      }
+    }
+    expect(atDesk.slice(0, 5)).toEqual([])
+  }, 120_000)
 })

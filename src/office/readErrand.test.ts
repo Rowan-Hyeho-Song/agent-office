@@ -211,10 +211,13 @@ describe('the Director sends a reader (#280)', () => {
     expect(g[reader].slot).toMatchObject({ x: 3.12, z: 2.72 })
   })
 
-  it('both seats taken: this reading is skipped, nobody goes to the table, and the agent rests at its desk for the block', () => {
+  it('both seats taken: this reading is skipped, nobody goes to the table, and the agent rests near the shelf for the stay, not at its desk (#517)', () => {
     const { d, g } = goalsWith(['sofa_0', 'sofa_1'])
     expect(g[reader].read).toBeUndefined()
-    expect(g[reader]).toMatchObject({ spot: `work_${reader.split('_')[1]}`, pose: 'idle', label: '자리에서 쉬는 중' })
+    expect(g[reader]).toMatchObject({ pose: 'idle' })
+    expect(g[reader].spot.startsWith('work_'), 'not at the desk').toBe(false)
+    expect(g[reader].gap, 'a gap').toBeDefined()
+    expect(g[reader].label.startsWith('쉬는 중'), g[reader].label).toBe(true)
     // and it does not try again later in the block, even when a seat is free by then
     const later = d.goals(T + 30_000, minute, idle(), () => null)
     expect(later[reader].read).toBeUndefined()

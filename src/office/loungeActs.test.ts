@@ -4,6 +4,7 @@
 import { playAt } from './play'
 import { describe, expect, it } from 'vitest'
 import { Vector3 } from 'three'
+import { LIE_POSE } from './lie.data'
 import { stubCanvas } from './glbLoad'
 import { Guard, IDS, Walk, expectCleanAll, world, type World } from './errandWorld.fixture'
 import { GRAPH } from './navSpots.fixture'
@@ -17,13 +18,16 @@ const rad = (d: number) => (d * Math.PI) / 180
 
 /** everybody works at their desks but `agent`, who is free and is sent to the act */
 /**
- * #490: a start time at which the agent's own plan hands it no errand (an act, the can, the book, the bowl) for the next 90 s: the act forced here is the only one
- * it runs (its next stay could otherwise start another act right after, cues and all)
+ * #490: a start time at which the agent's own plan hands it no errand (an act, the can, the book, the bowl) for the next 150 s (a run: up to 60 s of the act and
+ * what comes after it, #516): the act forced here is the only one
+ * it runs (its next stay could otherwise start another act right after, cues and all). The plan is read as the run sees it: the others at work
  */
 function quietStart(agent: string) {
+  // as in setup(): everybody else at work (a ping-pong partner at work sends the agent to a solo play, #516)
+  const others = new Set(IDS.filter((x) => x !== agent))
   for (let t = Date.UTC(2026, 10, 9, 5, 0, 0); ; t += 10_000) {
     let quiet = true
-    for (let u = t; u < t + 90_000 && quiet; u += 5_000) quiet = !['fridge', 'dispenser', 'record', 'water', 'books', 'boardgame_solo'].includes(playAt(u, IDS)[agent]?.kind ?? '')
+    for (let u = t; u < t + 150_000 && quiet; u += 5_000) quiet = !['fridge', 'dispenser', 'record', 'water', 'books', 'boardgame_solo'].includes(playAt(u, IDS, others)[agent]?.kind ?? '')
     if (quiet) return t
   }
 }
@@ -236,7 +240,7 @@ describe('the sofa', () => {
     expect(hug!.hugged).toBeGreaterThan(50)
   }, 240000)
 
-  it('the east seat lies down: the head goes to the head point of the model, face up, whatever way that point lies (nav extras lie + head, no direction in the code)', async () => {
+  it('the east seat lies down: the head goes from the head point of the model 25.5 cm toward the seat (on the pillow, #519), face up, whatever way that point lies (nav extras lie + head, no direction in the code)', async () => {
     const ud = (await world()).scene.getObjectByName('nav_sofa_3')!.userData as { lie?: boolean; head?: number[] }
     expect(ud.lie).toBe(true)
     const spot = GRAPH.spots.sofa_3
@@ -257,9 +261,11 @@ describe('the sofa', () => {
         expect(rig.arrived).toBe('sofa_3')
         w.scene.updateMatrixWorld(true)
         const at = rig.parts.head.getWorldPosition(new Vector3())
-        expect(Math.hypot(at.x - head.x, at.z - head.z), 'the head is at the head point').toBeLessThan(0.02)
-        expect(at.y, 'low, on the cushion').toBeLessThan(0.75)
-        expect(at.y).toBeGreaterThan(0.5)
+        // #519: on the pillow, south of the armrest: from the head point toward the seat's spot
+        const len = Math.hypot(spot.x - head.x, spot.z - head.z)
+        const want = { x: head.x + ((spot.x - head.x) / len) * 0.255, z: head.z + ((spot.z - head.z) / len) * 0.255 }
+        expect(Math.hypot(at.x - want.x, at.z - want.z), 'the head on the pillow').toBeLessThan(0.02)
+        expect(at.y, 'its own height (lie.data.ts)').toBeCloseTo(LIE_POSE[2].headY, 2)
         // the face (the head's -z) looks up
         const face = new Vector3(0, 0, -1).transformDirection(rig.parts.head.matrixWorld)
         expect(face.y, 'face up').toBeGreaterThan(0.9)
