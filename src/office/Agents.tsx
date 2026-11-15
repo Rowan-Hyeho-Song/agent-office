@@ -462,6 +462,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
       colors: AGENT_COLORS,
       forcedSessions: world.debug ? world.forcedSessions : undefined,
       visitorOmok: omokView(st ? null : now),
+      // #455 the treats in a hand (not in the replay: a treat is a live visitor's)
+      treats: st ? undefined : world.treats,
       // #137 ② the visitor plays black from the empty chair, the agent white: its bowl rests by the agent (the corner by game_a) while they play
       bowlRest: !st && omokView(now) ? 'corner' : world.director.bowlRest(),
       gripDemo: world.debug ? world.gripDemo : null,

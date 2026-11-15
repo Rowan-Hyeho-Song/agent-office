@@ -127,6 +127,11 @@ export function TreatRig({ world }: { world: OfficeWorld }) {
     if (r.rest === 'floor') f.restAt = new Vector3(rig.x, 0.05, rig.z).addScaledVector(fwd, -0.6)
     const at = f.restAt ?? hand
     cue('treat.arrive', { pos: { x: at.x, y: at.y, z: at.z }, key, agent: id })
+    // #455: resting or playing, the robot takes it in a free hand: the 3D treat (PlayStage), not the icon
+    if (r.rest === 'hand') {
+      world.treats[id] = { kind: f.treat.kind, at: officeNow(world) }
+      f.el.remove()
+    }
   }
 
   /** after the arrival: the snack stays, then fades; the hearts rise (one stays a second when the robot sleeps) */
@@ -154,6 +159,8 @@ export function TreatRig({ world }: { world: OfficeWorld }) {
       f.hearts.forEach((h) => h.remove())
       return false
     }
+    // #455 in the hand: the stage holds the 3D treat now
+    if (r.rest === 'hand') return false
     const stay = REST_MS[r.rest ?? 'hand']
     const p = toScreen(f.restAt ?? hand)
     const o = since < stay ? 1 : 1 - (since - stay) / FADE_MS
