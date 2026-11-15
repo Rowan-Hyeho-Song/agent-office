@@ -102,7 +102,7 @@ export function PingpongVisitUi(_: { world: OfficeWorld }) {
           </p>
           {help && (
             <p className="pp-help" role="status">
-              {touch ? '아래쪽을 끌어 라켓을 움직이세요' : '마우스로 라켓을 움직여 받아치세요 · 공 그림자와 고리를 보세요'}
+              {touch ? '아래를 끌어 라켓을 움직이세요' : '마우스로 라켓을 움직여 받아치세요 · 공 그림자와 고리를 보세요'}
             </p>
           )}
           <section className="omok-hud pp-hud" aria-label="탁구 경기">
