@@ -9,6 +9,7 @@ import { Guard, Walk, expectCleanAll, world } from './errandWorld.fixture'
 import { contactNormal, handGripMatrix } from './gripTargets'
 import { DeskLive } from './deskLive'
 import { HELD_T, TrayPile } from './tray'
+import { beatAt, tidyBeats, totalOf } from './wrap'
 import type { AgentRig } from './rig'
 import type { StatusMap } from './status'
 
@@ -445,5 +446,103 @@ describe('the top sheet of the IN pile read (#370 B3, grips.md 서류 한 장 �
     // the sheet in a hand is HELD_T thick: a finger pad on its back (grips.md: within 1 mm) comes no further than 1 mm past its face
     expect(through, 'no finger through the sheet').toBeLessThanOrEqual(HELD_T + 0.001)
     expect(end.distanceTo(squared), 'laid back squared').toBeLessThan(0.001)
+  }, 120_000)
+})
+
+describe('the IN pile squared at the tidy-up (#370 B3b, desk-props.md 4)', () => {
+  /** the planner's tidy-up beats (wrap.ts) played at its desk, the desk drawn as Agents.tsx does; `inbox` sheets in its IN pile */
+  async function tidyRun(inbox: number, onFrame: (w: Awaited<ReturnType<typeof world>>, kind: string, u: number) => void) {
+    const w = await world()
+    const walk = new Walk(w, Date.UTC(2026, 10, 9, 1, 0, 0))
+    walk.status = Object.fromEntries(['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4'].map((id) => [id, { state: 'working' as const, activity: 'edit', since: 0 }]))
+    walk.inbox = inbox
+    const live = new DeskLive(w.nodes)
+    const desk = base({ inbox })
+    const dt = 1 / 60
+    const step = () => {
+      live.update(desk, walk.t, dt, false)
+      w.scene.updateMatrixWorld(true)
+      walk.step(dt)
+    }
+    for (let k = 0; k < 360; k++) step()
+    const beats = tidyBeats(0)
+    let beat: Record<string, unknown> | null = null
+    const goals = walk.director.goals.bind(walk.director)
+    walk.director.goals = ((...a: Parameters<typeof goals>) => {
+      const g = goals(...a)
+      return beat ? { ...g, agent_0: { spot: 'work_0', pose: 'tidy', label: '', wrapStep: 'tidy', beat } } : g
+    }) as typeof walk.director.goals
+    const total = totalOf(beats)
+    for (let t = 0; t <= total + 0.3; t += dt) {
+      const at = beatAt(beats, Math.min(t, total))
+      beat = { ...at.beat, u: t > total ? 1 : at.u }
+      step()
+      onFrame(w, at.beat.kind, at.u)
+    }
+    beat = null
+    for (let k = 0; k < 30; k++) step()
+    return w
+  }
+
+  it('both palms on its sides, stood up on its near edge and tapped down twice, set back exactly where it rests', async () => {
+    let stood = 0
+    let into = 0
+    const gap = { l: Infinity, r: Infinity }
+    let restP: Vector3 | null = null
+    let restQ: Quaternion | null = null
+    const w = await tidyRun(3, (w, kind) => {
+      const node = w.scene.getObjectByName('desk_0_in')!
+      const p = new Vector3()
+      const q = new Quaternion()
+      node.matrixWorld.decompose(p, q, new Vector3())
+      if (!restP) {
+        restP = p.clone()
+        restQ = q.clone()
+      }
+      stood = Math.max(stood, new Vector3(0, 1, 0).applyQuaternion(q).angleTo(new Vector3(0, 1, 0)))
+      if (kind !== 'tap') return
+      // no hand vertex inside the pile's box (its frame without the sheet stretch)
+      const pile = TrayPile.of(node)!
+      const size = pile.pileSize
+      const inv = new Matrix4().compose(p, q, new Vector3(1, 1, 1)).invert()
+      const v = new Vector3()
+      for (const side of ['l', 'r'] as const)
+        w.rigs.agent_0.parts.hands[side].node.traverseVisible((m) => {
+          const g = (m as Mesh).geometry?.getAttribute('position')
+          if (!(m as Mesh).isMesh || !g) return
+          for (let k = 0; k < g.count; k++) {
+            v.fromBufferAttribute(g, k).applyMatrix4(m.matrixWorld).applyMatrix4(inv)
+            const d = Math.min(v.x - size.min.x, size.max.x - v.x, v.z - size.min.z, size.max.z - v.z, v.y, size.height - v.y)
+            if (d > 0) into = Math.max(into, d)
+            // the palm on its side: the nearest vertex beside it (within its length and height)
+            if (v.z > size.min.z && v.z < size.max.z && v.y > 0 && v.y < size.height) {
+              const off = side === 'l' ? size.min.x - v.x : v.x - size.max.x
+              if (off >= 0) gap[side] = Math.min(gap[side], off)
+            }
+          }
+        })
+    })
+    const node = w.scene.getObjectByName('desk_0_in')!
+    const p = new Vector3()
+    const q = new Quaternion()
+    node.matrixWorld.decompose(p, q, new Vector3())
+    if (LOG) appendFileSync(LOG, `pile tidy: stood ${((stood * 180) / Math.PI).toFixed(0)}°, hands ${(into * 1000).toFixed(1)} mm into the pile at most, palms ${(gap.l * 1000).toFixed(1)} / ${(gap.r * 1000).toFixed(1)} mm off its sides, back ${(p.distanceTo(restP!) * 1000).toFixed(2)} mm / ${((q.angleTo(restQ!) * 180) / Math.PI).toFixed(2)}° from its rest
+`)
+    expect((stood * 180) / Math.PI, 'stood up').toBeGreaterThan(60)
+    expect(into, 'no hand into the pile').toBeLessThanOrEqual(0.002)
+    expect(Math.max(gap.l, gap.r), 'the palms on its sides').toBeLessThan(0.006)
+    expect(p.distanceTo(restP!), 'set back').toBeLessThan(1e-4)
+    expect(q.angleTo(restQ!), 'set back straight').toBeLessThan(1e-4)
+  }, 120_000)
+
+  it('an empty IN pile is not squared (the tidy-up as before)', async () => {
+    let moved = 0
+    let rest: Vector3 | null = null
+    await tidyRun(0, (w) => {
+      const p = w.scene.getObjectByName('desk_0_in')!.getWorldPosition(new Vector3())
+      rest ??= p.clone()
+      moved = Math.max(moved, p.distanceTo(rest))
+    })
+    expect(moved).toBe(0)
   }, 120_000)
 })

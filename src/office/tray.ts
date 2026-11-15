@@ -86,6 +86,11 @@ export class TrayPile {
   private lifted = false
   /** #370 B3 the top sheet's unstretched frame (desk_0_in_top): its grips and contacts */
   private frame: Object3D
+  /** #370 B3b the pile's own place (node local) and its size (node frame: the sheets' box, x/z in m, y the drawn height) */
+  private home: { p: Vector3; q: Quaternion }
+  private box: { min: Vector3; max: Vector3 }
+  private height = 0
+  private posed = false
   private squared = false
   private count = -1
 
@@ -121,6 +126,7 @@ export class TrayPile {
 
     // #370 B3 the top sheet's own frame, unstretched (the pile draws each sheet SHEET_H thick by scaling its node: a hand's fit is in metres), at the
     // sheet's bottom face: it lies where the top sheet lies, or where a hand holds it. Its grip frames and contacts are its children.
+    this.home = { p: node.position.clone(), q: node.quaternion.clone() }
     this.frame = new Object3D()
     this.frame.name = `${node.name}_top`
     this.frame.matrixAutoUpdate = false
@@ -131,6 +137,7 @@ export class TrayPile {
     // the surface.
     node.geometry.computeBoundingBox()
     const bb = node.geometry.boundingBox!
+    this.box = { min: bb.min.clone(), max: bb.max.clone() }
     const corner = { x: bb.max.x - 0.015, z: bb.max.z - 0.015 }
     const empty = (suffix: string, p: [number, number, number], q: Quaternion) => {
       const o = new Object3D()
@@ -201,6 +208,37 @@ export class TrayPile {
     return this.frame
   }
 
+  /** #370 B3b the pile as it rests (world, without the sheet stretch), its size (x / z of a sheet, m) and drawn height (m) */
+  pileRest(): Matrix4 {
+    const parent = this.node.parent
+    parent?.updateWorldMatrix(true, false)
+    const local = new Matrix4().compose(this.home.p, this.home.q, new Vector3(1, 1, 1))
+    return parent ? parent.matrixWorld.clone().multiply(local) : local
+  }
+  get pileSize() {
+    return { min: this.box.min.clone(), max: this.box.max.clone(), height: this.height }
+  }
+
+  /** #370 B3b the whole pile held at `world` (its pose without the stretch: the hands square it), or back where it rests (null); the '+' tab hides meanwhile */
+  pose(world: Matrix4 | null) {
+    const node = this.node
+    if (!world) {
+      if (!this.posed) return
+      this.posed = false
+      node.position.copy(this.home.p)
+      node.quaternion.copy(this.home.q)
+    } else {
+      this.posed = true
+      const parent = node.parent
+      parent?.updateWorldMatrix(true, false)
+      const local = parent ? parent.matrixWorld.clone().invert().multiply(world) : world.clone()
+      const sc = new Vector3()
+      local.decompose(node.position, node.quaternion, sc)
+    }
+    node.updateMatrixWorld(true)
+    if (!this.lifted) this.place(this.topRest())
+  }
+
   /** the frame where the sheet is (world) */
   private place(world: Matrix4) {
     const parent = this.frame.parent
@@ -264,13 +302,14 @@ export class TrayPile {
     const l = pileLayout(n, this.sheets, more)
     const node = this.node
     node.visible = l.visible
-    this.tab.visible = l.tab
+    this.tab.visible = l.tab && !this.posed
     if (!l.visible) return
     // every modeled sheet drawn SHEET_H thick
     node.scale.y = (this.rest * SHEET_H) / this.sheetH
     node.geometry.setDrawRange(0, l.under ? this.ends[l.under - 1] : 0)
     // local units are the model's (scaled by the node): one modeled sheet = sheet_h
     this.top.position.y = l.under * this.sheetH
+    this.height = l.height
     // its root on the top sheet
     this.tab.position.y = node.position.y + l.height + (Math.sin(TAB_UP) * TAB_H) / 2
     // the top sheet's frame where it lies (a hand that holds it places it: lift)
