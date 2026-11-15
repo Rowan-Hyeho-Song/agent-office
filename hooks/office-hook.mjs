@@ -131,7 +131,9 @@ async function main() {
   // #535: a background wait ends by itself after backgroundMinutes if the session does not wake (a process of its own: the hook returns now)
   if (res.ok && signal.kind === 'activity' && BACKGROUND.includes(signal.activity)) {
     const minutes = Number(config.backgroundMinutes) > 0 ? Number(config.backgroundMinutes) : BACKGROUND_MINUTES
-    spawn(process.execPath, [fileURLToPath(import.meta.url), '--expire', file, String(now), String(minutes)], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
+    // AGENT_OFFICE_BG_EXPIRE=manual (tests): no process of its own, the caller runs `--expire` itself when it means to (no race with the clock)
+    if (process.env.AGENT_OFFICE_BG_EXPIRE !== 'manual')
+      spawn(process.execPath, [fileURLToPath(import.meta.url), '--expire', file, String(now), String(minutes)], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
   }
 }
 

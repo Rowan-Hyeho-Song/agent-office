@@ -154,6 +154,12 @@ describe('cues', () => {
     expect(CUES['book.page'].spatial).toBe(true)
     expect(CUES['treat.take'].length).toBeLessThan(CUES['treat.arrive'].length)
   })
+  it('#370 C3 stamp.ink: the two dabs on the ink pad are a short event in the room, shorter than the stamp and allowed 0.2 s apart', () => {
+    expect(CUES['stamp.ink'].kind).toBe('event')
+    expect(CUES['stamp.ink'].spatial).toBe(true)
+    expect(CUES['stamp.ink'].length).toBeLessThan(CUES.stamp.length)
+    expect(CUES['stamp.ink'].gap).toBeLessThan(200)
+  })
   it('only room sounds are spatial', () => {
     expect(CUES.approve.spatial).toBe(false)
     expect(CUES['omok.place'].spatial).toBe(true)

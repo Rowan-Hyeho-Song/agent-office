@@ -12,9 +12,9 @@
 import { hash } from './play'
 import type { DeskProps } from './props'
 
-export type TouchKind = 'signal' | 'lamp' | 'turntable' | 'knob' | 'calendar' | 'hourglass' | 'duck' | 'keycap' | 'shape' | 'swatch' | 'paper'
+export type TouchKind = 'signal' | 'lamp' | 'turntable' | 'knob' | 'calendar' | 'hourglass' | 'duck' | 'keycap' | 'shape' | 'swatch' | 'paper' | 'leaf'
 
-export const TOUCH_SEAT: Record<TouchKind, number> = { signal: 3, lamp: 2, turntable: 1, knob: 1, calendar: 0, hourglass: 0, duck: 3, keycap: 3, shape: 1, swatch: 2, paper: 0 }
+export const TOUCH_SEAT: Record<TouchKind, number> = { signal: 3, lamp: 2, turntable: 1, knob: 1, calendar: 0, hourglass: 0, duck: 3, keycap: 3, shape: 1, swatch: 2, paper: 0, leaf: 2 }
 
 /**
  * Each touch's times, s from its start: `len` the whole (the hand back at its end), `at` when its effect happens (the press, the page let go, the
@@ -43,6 +43,21 @@ export const TOUCH_S: Record<TouchKind, { len: number; at: number; back: number 
   swatch: { len: 3.8, at: 1.2, back: 3.0 },
   // #370 B3 메모 reads the IN pile's top sheet: pinched by 0.6 s, before the chest by 1.2 s (the left palm under it), read, laid back squared by 4.0 s
   paper: { len: 4.6, at: 0.6, back: 4.0 },
+  // #370 C3 휴 strokes the succulent's front leaf twice with an index fingertip (0.6–1.2 s, 1.5–2.1 s), the leaf giving under it
+  leaf: { len: 2.7, at: 0.6, back: 2.2 },
+}
+
+/** #370 C3 the succulent's strokes (s from the touch's start) and how far the leaf gives under the finger (its baked sway_deg at the stroke's middle) */
+export const LEAF_STROKE = { strokes: [[0.6, 1.2], [1.5, 2.1]], deg: 6 } as const
+
+/** the leaf's sway at `u` s of the touch, degrees, and the stroke's progress (0..1 along it, or -1 between strokes) */
+export function leafAt(u: number | null, reduced: boolean): { sway: number; k: number } {
+  if (u === null) return { sway: 0, k: -1 }
+  for (const [a, b] of LEAF_STROKE.strokes) if (u >= a && u <= b) {
+    const k = (u - a) / (b - a)
+    return { sway: reduced ? 0 : LEAF_STROKE.deg * Math.sin(Math.PI * k), k }
+  }
+  return { sway: 0, k: -1 }
 }
 
 /**
@@ -78,6 +93,7 @@ export const HABIT_PER_HOUR: Partial<Record<TouchKind, { work: number; rest: num
   shape: { work: 2, rest: 3 },
   swatch: { work: 3, rest: 0 },
   paper: { work: 4, rest: 0 },
+  leaf: { work: 0, rest: 2 },
 }
 export const NO_REPEAT_S = 120
 
@@ -116,6 +132,8 @@ export interface TouchShown {
   calendarPage: number | null
   /** #370 B2 the swatch fan spread past its rest: 0 (as baked) .. 1 (each chip twice its rest angle) */
   swatchSpread: number
+  /** #370 C3 the succulent's front leaf giving under the finger, degrees about its own x */
+  leafSway: number
 }
 
 const ease = (k: number) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k))
@@ -180,11 +198,11 @@ export class DeskTouches {
     if (dayKey(desk.calendar) !== dayKey(this.calendar) && free(0) && i.awake(0)) start('calendar')
     // the habits at their seeded times this hour
     const hourMs = 3_600_000
-    for (const kind of ['turntable', 'knob', 'keycap', 'shape', 'swatch', 'paper'] as const) {
+    for (const kind of ['turntable', 'knob', 'keycap', 'shape', 'swatch', 'paper', 'leaf'] as const) {
       const seat = TOUCH_SEAT[kind]
       const working = i.working(seat)
       // the turntable while it bakes; the knob and the shape while it works and does not bake; the keycap and the shape while it rests awake too
-      const on = kind === 'turntable' ? desk.turntable : kind === 'knob' ? working && !desk.turntable : kind === 'shape' ? i.awake(seat) && !desk.turntable : kind === 'swatch' ? working : kind === 'paper' ? working && desk.inbox > 0 : i.awake(seat)
+      const on = kind === 'turntable' ? desk.turntable : kind === 'knob' ? working && !desk.turntable : kind === 'shape' ? i.awake(seat) && !desk.turntable : kind === 'swatch' ? working : kind === 'paper' ? working && desk.inbox > 0 : kind === 'leaf' ? i.awake(seat) && !working : i.awake(seat)
       if (!on || !free(seat) || !(i.now > this.prevNow)) continue
       const last = this.lastStart.get(kind)
       if (last !== undefined && t - last < NO_REPEAT_S) continue
@@ -267,6 +285,7 @@ export class DeskTouches {
       knobTurn: (this.knobAt + this.knobDir * KNOB_TURN.deg * knob) * D,
       calendarPage: calendarPage(u('calendar'), reduced),
       swatchSpread: swatchSpread(u('swatch'), reduced),
+      leafSway: leafAt(u('leaf'), reduced).sway,
     }
   }
 }

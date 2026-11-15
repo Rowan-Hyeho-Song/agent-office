@@ -180,6 +180,19 @@ export const CUES = {
       noise(o, 0.04, { kind: 'pink', filter: 'lowpass', freq: 500, level: 0.09 })
     },
   },
+  'stamp.ink': {
+    label: '도장을 인주에 콕',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 120,
+    length: 0.07,
+    // #370 C3: the stamp dabbed on the ink pad, twice before the press: a soft damp rubber pat, far under the stamp's thud
+    play: (o) => {
+      tone(o, 180, 0.05, { type: 'sine', level: 0.012, slide: 0.7, attack: 0.002 })
+      noise(o, 0.035, { kind: 'pink', filter: 'lowpass', freq: 900, level: 0.02, attack: 0.002 })
+    },
+  },
   'omok.place': {
     label: '오목 돌 딱',
     kind: 'event',

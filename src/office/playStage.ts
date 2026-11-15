@@ -44,6 +44,10 @@ import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFo
 import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
 import { TrayPile } from './tray'
+import { localBox } from './localBox'
+
+/** #370 C3 the stamping, s from the decision (props.ts STAMP_MS = 2 s): to the ink pad, two dabs, back and pressed on the paper; hover 1 cm, arc 4 cm */
+export const STAMP_INK = { toPad: [0.35, 0.7], dabs: [0.7, 1.1], press: [1.45, 1.7], hover: 0.01, arc: 0.04 } as const
 
 /**
  * #559 how far each pressed button goes in, m: the fingertip goes in with it. None is a moving part of the model (the coffee button is baked into the
@@ -56,7 +60,7 @@ export const PRESS_TAP = { m: 0.001, s: 0.08 }
 
 /** #370 B3b the IN pile squared at the tidy-up: lifted 4 cm, stood 70° on its near edge, tapped down 1.2 cm; the palms 2 mm off its sides (the hand frame 9 mm behind the palm), 2 cm in from its near edge */
 export const PILE_TIDY = { lift: 0.04, standDeg: 70, tap: 0.012, out: 0.002, palm: 0.009, near: 0.02 }
-import { KEYCAP_ROLL, PAPER_READ, SHAPE_TURN, SWATCH, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, type Touch } from './deskTouch'
+import { KEYCAP_ROLL, LEAF_STROKE, PAPER_READ, SHAPE_TURN, SWATCH, leafAt, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, type Touch } from './deskTouch'
 import { SIP_TOP_S, TREAT_HOLD, TREAT_LOOK, TREAT_PROP, takeSounds, treatPhase, type SnackKind } from './treatHold'
 import { handsOf } from './paperRun'
 import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, pageTau, rowOf } from './shelfRun'
@@ -1224,16 +1228,22 @@ export class PlayStage {
     // the planner's stamp (the owner decided something)
     if (inp.stamp && seat === 0) {
       const home = this.props.info(rig, 'stamp')
-      const c = (inp.t * 1000) % 1200
-      const lift = 0.05 * (c < 350 ? ease(c / 350) : c < 450 ? 1 : c < 550 ? 1 - ease((c - 450) / 100) : 0)
       if (home) {
-        const m = this.props.homeWorld(home.node)
-        m.elements[13] += lift
-        this.grip(rig, 'r', 'stamp', home.node.name, true, m, inp)
-        this.sounds.stamp(inp.t, home.node.getWorldPosition(new Vector3()))
+        if (this.stampAt === null) this.stampAt = inp.t
+        const s = inp.t - this.stampAt
+        this.grip(rig, 'r', 'stamp', home.node.name, true, this.stampPose(home.node, s, inp), inp)
+        // the stamp heard as it comes down on the paper, once a decision
+        if (s >= STAMP_INK.press[0] && !this.stampHeard) {
+          this.stampHeard = true
+          cue('stamp', { pos: home.node.getWorldPosition(new Vector3()) })
+        }
         noteTourEvent(rig.id, 2500) // the tour (#207)
       }
       return
+    }
+    if (seat === 0) {
+      this.stampAt = null
+      this.stampHeard = false
     }
     if (goal.pose === 'coffee' && resting) {
       // press the machine's button with the index fingertip, then take the mug and drink now and then
@@ -1865,6 +1875,26 @@ export class PlayStage {
       this.indexOn(rig, c.getWorldPosition(new Vector3()), contactNormal(this.sceneRef, c), 0, false, inp, want)
     } else if (kind === 'paper') {
       if (!this.paperTouch(rig, u, inp)) return false
+    } else if (kind === 'leaf') {
+      // #370 C3 the index fingertip along the leaf from its touch start to its end, riding it down as it gives (about the leaf's own pivot)
+      const a = node('succulent_leaf_touch_0')
+      const b = node('succulent_leaf_touch_1')
+      const lf = node('succulent_leaf')
+      if (!a || !b || !lf) return false
+      const L = leafAt(u, inp.reduced)
+      const first = LEAF_STROKE.strokes[0][0]
+      const k = L.k >= 0 ? L.k : u < first ? 0 : u < LEAF_STROKE.strokes[1][0] ? 0 : 1
+      const P = a.getWorldPosition(new Vector3()).lerp(b.getWorldPosition(new Vector3()), k)
+      // the leaf turned by its sway about its own x through its pivot (as DeskLive turns it): the point under the finger goes with it
+      const pv = lf.userData.pivot_at as number[]
+      const pivot = new Vector3(pv[0], pv[1], pv[2])
+      const ax = new Vector3(1, 0, 0).transformDirection(lf.matrixWorld)
+      const turn = new Quaternion().setFromAxisAngle(ax, (L.sway * Math.PI) / 180)
+      P.sub(pivot).applyQuaternion(turn).add(pivot)
+      const n = contactNormal(this.sceneRef, a).applyQuaternion(turn)
+      // between the strokes the finger is off it 1.5 cm (going back to the start)
+      const off = L.k < 0 && u > first ? 0.015 : 0
+      this.indexOn(rig, P, n, -off, false, inp, want)
     } else if (kind === 'swatch') {
       if (!this.swatchTouch(rig, tc.k ?? 0, u, inp)) return false
     } else if (TOUCH_PROP[kind]) {
@@ -2004,6 +2034,44 @@ export class PlayStage {
     this.indexOn(rig, P, n, 0, false, inp, u >= 0.3 && u < S.back)
     return true
   }
+
+  /**
+   * #370 C3 (desk-props.md 4 도장에 인주 묻혀 찍기): where the stamp is `s` s into a decision's stamping: taken where it rests, over to the ink pad
+   * (an arc 4 cm up), dabbed twice (its face down onto the felt, `press` into it), back over to where it rests and pressed down there. Its face is the
+   * bottom of its own box. Reduced motion: no dabs, lifted and pressed where it rests.
+   */
+  private stampPose(node: Object3D, s: number, inp: StageIn): Matrix4 {
+    const home = this.props.homeWorld(node)
+    const pad = this.sceneRef.getObjectByName('desk_0_inkpad')
+    const I = STAMP_INK
+    const k = (a: number, b: number) => ease(Math.min(1, Math.max(0, (s - a) / (b - a))))
+    const hq = new Quaternion().setFromRotationMatrix(home)
+    const hp = new Vector3().setFromMatrixPosition(home)
+    const up = new Vector3(0, 1, 0)
+    // the press on the paper: down from the hover over where it rests, and it stays there
+    const pressed = () => hp.clone().addScaledVector(up, I.hover * (1 - k(I.press[0], (I.press[0] + I.press[1]) / 2)))
+    if (!pad || inp.reduced) return new Matrix4().compose(s < I.press[0] ? hp.clone().addScaledVector(up, I.hover * k(0.2, 0.5)) : pressed(), hq, ONE)
+    const face = (this.stampFace ??= localBox(node).min.y)
+    const padPos = pad.getWorldPosition(new Vector3()).sub(new Vector3(0, face, 0).applyQuaternion(hq))
+    const press = Number(pad.userData.press) || 0.002
+    let p: Vector3
+    if (s < I.toPad[0]) p = hp.clone()
+    else if (s < I.toPad[1]) {
+      const t = k(I.toPad[0], I.toPad[1])
+      p = hp.clone().lerp(padPos.clone().addScaledVector(up, I.hover), t).addScaledVector(up, I.arc * Math.sin(Math.PI * t))
+    } else if (s < I.dabs[1]) {
+      // two dabs: down onto the felt (`press` into it) and up again, each half the time
+      const f = ((s - I.dabs[0]) / (I.dabs[1] - I.dabs[0])) * 2
+      p = padPos.clone().addScaledVector(up, I.hover - (I.hover + press) * Math.sin(Math.PI * (f % 1)))
+    } else if (s < I.press[0]) {
+      const t = k(I.dabs[1], I.press[0])
+      p = padPos.clone().addScaledVector(up, I.hover).lerp(hp.clone().addScaledVector(up, I.hover), t).addScaledVector(up, I.arc * Math.sin(Math.PI * t))
+    } else p = pressed()
+    return new Matrix4().compose(p, hq, ONE)
+  }
+  private stampAt: number | null = null
+  private stampHeard = false
+  private stampFace: number | undefined
 
   /**
    * #370 B a prop taken from the desk (grips.md): reached, lifted to where it is held (its own rotation as it rests: the duck still faces its owner),
