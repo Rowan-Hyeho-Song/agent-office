@@ -16,6 +16,8 @@ export interface Say {
   to?: string
   /** the tab's word instead of the kind's (#4: a visitor's snack or cheer says '방문자', never who) */
   tag?: string
+  /** a line written in the code, said whole ("졌어요! 한 판 더?"): not cut at its first sentence as a markdown cell is (still at most a bubble's length) */
+  whole?: boolean
 }
 
 interface Live {
@@ -32,6 +34,12 @@ interface Live {
 
 export const seatOfAgent = (agent: string) => Number(agent.split('_')[1])
 
+/** a line said whole, at most `max` characters (the last one an ellipsis when cut) */
+const wholeLine = (text: string, max: number) => {
+  const chars = [...text.replace(/\s+/g, ' ').trim()]
+  return chars.length > max ? `${chars.slice(0, max - 1).join('').trimEnd()}…` : chars.join('')
+}
+
 export class BubbleCenter {
   private live = new Map<string, Live>()
   private goalLive = new Map<string, Live>()
@@ -40,7 +48,7 @@ export class BubbleCenter {
   /** a bubble over an agent: 'react' pops at once, 'talk' types, 'private' shows the lock's words and no content */
   say(agent: string, s: Say = {}, now = Date.now()) {
     const kind = s.kind ?? 'talk'
-    const text = kind === 'private' ? '비공개 대화' : firstSentence(s.text ?? '', lineChars())
+    const text = kind === 'private' ? '비공개 대화' : s.whole ? wholeLine(s.text ?? '', lineChars()) : firstSentence(s.text ?? '', lineChars())
     this.live.set(agent, { key: `say${++this.seq}`, agent, kind, text, from: now, until: now + (s.ms ?? 5000), to: s.to ?? null, n: this.seq, tag: s.tag })
   }
 

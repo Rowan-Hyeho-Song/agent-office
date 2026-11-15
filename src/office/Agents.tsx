@@ -1,7 +1,7 @@
 import { Html } from '@react-three/drei'
 import { setDoorMessage } from '../room/doorMessage'
 import { BubbleLayer, type Anchor, type TagItem } from './bubbleLayer'
-import { statusTag, type BubbleItem } from './bubbles'
+import { BUBBLE, statusTag, type BubbleItem } from './bubbles'
 import { openDocs } from './docs/panel'
 import { seatName } from './meeting'
 import { captionOf } from './minutes'
@@ -40,6 +40,7 @@ import { ANXIOUS_AFTER_MS } from './faceMind'
 import { greetsOwner, questionFaceFor } from './liveFace'
 import { isLateHour } from './duty'
 import { getOmokVisit, workOmok } from './omokVisit/store'
+import { faceScreenRect } from './omokVisit/bubbleAnchor'
 import { viewOf } from '../play/visitorOmok'
 
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
@@ -587,10 +588,21 @@ export function Agents({ world }: { world: OfficeWorld }) {
     const tags: TagItem[] = []
     // the replay shows the past: no live night / duty state (sleepers' z, status tags) reaches the bubble layer
     const status = replaying ? (replay.scene()?.status ?? {}) : world.source.getSnapshot()
+    const omok = getOmokVisit()
     for (const id in rigs) {
       const rig = rigs[id]
       head.set(rig.group.position.x, rig.parts.head.position.y + 0.3, rig.group.position.z).project(state.camera)
       anchors[id] = { x: rect.left + ((head.x + 1) / 2) * rect.width, y: rect.top + ((1 - head.y) / 2) * rect.height, visible: head.z < 1 && !rig.hidden }
+      // #137 ② C: at the board the head point is above the screen; the agent the visitor plays speaks from its face screen's corner
+      if (omok.phase === 'open' && omok.agent === id && rig.parts.face && anchors[id].y < rect.top + BUBBLE.safeTop) {
+        // a wide screen: beside the face at its lower right corner; a phone has no room there: over its top edge (the eyes and the hands stay clear)
+        const f = faceScreenRect(rig.parts.face, state.camera, rect)
+        if (f) {
+          const avoid = [...document.querySelectorAll('.omok-hud, .desk-link, .door-btn')].map((el) => el.getBoundingClientRect())
+          const beside = !narrow.matches
+          anchors[id] = { x: beside ? f.right : (f.left + f.right) / 2, y: beside ? f.bottom : f.top, visible: !rig.hidden, face: { below: f.bottom, avoid, beside } }
+        }
+      }
       if (anchors[id].x > area.w || anchors[id].y > area.h) anchors[id].visible = false
       const tag = replaying ? null : statusTag(world.director.shown[id]?.status ?? status[id], world.director.shown[id]?.detail)
       if (tag) tags.push({ id, seat: Number(id.split('_')[1]), ...tag })

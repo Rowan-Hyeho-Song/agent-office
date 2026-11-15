@@ -47,6 +47,30 @@ describe('placement', () => {
     expect(pairSide(400, 600)).toBe('left')
     expect(pairSide(600, 400)).toBe('right')
   })
+  it('#137 ② C over a face screen (the phone at the omok board): above its top, centred, 8 px inside the sides; below the face only when the top has no room', () => {
+    const phone = { w: 390, h: 844, narrow: true }
+    const face = { below: 180, avoid: [] }
+    // the face's top at y 120 (above the safe line 64 a plain bubble keeps): still up, its lead pointing at the face
+    const p = placeBubbles([item({ x: 195, y: 120, w: 130, h: 50, face })], phone).a
+    expect(p).toMatchObject({ dir: 'up', visible: true })
+    expect(p.y).toBeUndefined()
+    const r = cardRect(item({ x: 195, y: 120, w: 130, h: 50 }), p)
+    expect((r.left + r.right) / 2).toBeCloseTo(195, 0)
+    expect(r.bottom).toBeLessThan(120)
+    // near a side: kept 8 px inside
+    const q = placeBubbles([item({ x: 360, y: 120, w: 130, h: 50, face })], phone).a
+    expect(cardRect(item({ x: 360, y: 120, w: 130, h: 50 }), q).right).toBeCloseTo(390 - BUBBLE.faceEdge, 5)
+    // the '← 책상으로' link where the card would be, or the screen top too close: below the face
+    const link = { left: 150, top: 10, right: 260, bottom: 40 }
+    expect(placeBubbles([item({ x: 195, y: 120, w: 130, h: 50, face: { below: 180, avoid: [link] } })], phone).a).toMatchObject({ dir: 'down', y: 180 - BUBBLE.anchorDown })
+    expect(placeBubbles([item({ x: 195, y: 70, w: 130, h: 50, face })], phone).a.dir).toBe('down')
+    // beside the face (a wide screen): from its lower right corner, up and right, even above the office's safe line
+    const wide = placeBubbles([item({ x: 780, y: 140, w: 120, h: 54, face: { below: 140, avoid: [], beside: true } })], { w: 1280, h: 800, narrow: false }).a
+    expect(wide).toMatchObject({ dir: 'up', side: 'right', shift: 0 })
+    expect(cardRect(item({ x: 780, y: 140, w: 120, h: 54 }), wide).top).toBeLessThan(BUBBLE.safeTop)
+    // the link off to the side does not matter
+    expect(placeBubbles([item({ x: 195, y: 120, w: 130, h: 50, face: { below: 180, avoid: [{ left: 10, top: 10, right: 100, bottom: 40 }] } })], phone).a.dir).toBe('up')
+  })
   it('opens down when it would pass the safe line', () => {
     const p = placeBubbles([item({ y: 80 })], view).a
     expect(p.dir).toBe('down')
