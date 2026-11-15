@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Director } from './director'
 import { NOTE_LABEL, NOTE_READ, pinnedAt, stepNote, stillWaiting, thanksNow } from './noteRead'
 import type { StatusMap } from './status'
+import { playAt } from './play'
 
 // #4 notes 2b (office-ui.md 12.3 '에이전트 반응'): the robot a note is for walks to the cork board the next time it rests, looks 2 s, nods and
 // thanks; working, it waits; after an hour it lets the note go.
@@ -28,11 +29,13 @@ describe('the rules (noteRead.ts)', () => {
 
 describe('notes in the Director', () => {
   /** frames of 0.1 s from `from` to `to` s; each agent is where it was sent once its goal's spot has stayed the same `walkS` */
+  /** the drive's start (T0, or a test's own) */
+  let base = T0
   function drive(d: Director, from: number, to: number, status: (t: number) => StatusMap, each?: (t: number, g: ReturnType<Director['goals']>) => void, walkS = 2) {
     const sent: Record<string, { spot: string; at: number }> = {}
     for (let k = Math.round(from * 10); k <= Math.round(to * 10); k++) {
       const t = k / 10
-      const now = T0 + t * 1000
+      const now = base + t * 1000
       const g = d.goals(now, Math.floor(now / 60000), status(t), (a) => (sent[a] && t - sent[a].at >= walkS ? sent[a].spot : null))
       for (const a of IDS) if (sent[a]?.spot !== g[a].spot) sent[a] = { spot: g[a].spot, at: t }
       each?.(t, g)
@@ -108,9 +111,14 @@ describe('notes in the Director', () => {
   })
 
   it('called to work on the way it gives up and goes again when it rests; one robot at the board at a time', () => {
+    // a start where neither has an errand of its own plan in the first seconds (the others at work: a ping-pong partner at work sends one to a solo play, #516)
+    const others = new Set(IDS.filter((a) => a !== 'agent_0' && a !== 'agent_4'))
+    const errand = (t: number) => ['agent_0', 'agent_4'].some((a) => ['books', 'water', 'fridge', 'dispenser', 'record', 'boardgame_solo'].includes(playAt(t, IDS, others)[a]?.kind ?? ''))
+    base = T0
+    while ([0, 2, 4, 6, 8, 10].some((s) => errand(base + s * 1000))) base += 10_000
     const d = new Director(IDS)
-    d.noteArrived('agent_0', 21, T0, T0)
-    d.noteArrived('agent_4', 22, T0, T0)
+    d.noteArrived('agent_0', 21, base, base)
+    d.noteArrived('agent_4', 22, base, base)
     let both = 0
     let n = 0
     let first = ''
@@ -129,5 +137,6 @@ describe('notes in the Director', () => {
     drive(d, 4, 120, st)
     expect(d.notesWaiting('agent_0')).toEqual([])
     expect(d.notesWaiting('agent_4')).toEqual([])
+    base = T0
   })
 })

@@ -63,7 +63,7 @@ export interface Goal {
   /** #490 B (play.md 9.2 · 9.3): a gap between two stays (a stretch, a slower stroll, breathing at the window), or the game it watches (a cheer now and then) */
   gap?: GapKind
   watching?: 'pingpong' | 'boardgame'
-  /** at the ping-pong table before the partner is there (play.md 9.2): the ball is bounced on the paddle. Not set for a pair whose rally is not shown (the timelapse) */
+  /** at the ping-pong table while the partner is still walking there (play.md 9.2, #516): the ball is bounced on the paddle. Not set once both are there (in the timelapse too, where no rally is shown) */
   partnerWait?: boolean
   /** what it's doing, for the debug panel */
   label: string
@@ -127,6 +127,8 @@ export class Director {
   private talks: Talk[] = []
   /** the wrap-up in progress (wrap.ts) and the status `since` each agent already finished */
   private runs: Record<string, WrapRun> = {}
+  /** #516: ping-pong stays broken by a partner gone to work: when (office ms), and when the stay ends */
+  private brokenPairs = new Map<number, { from: number; until: number }>()
   private wrapDone: Record<string, number> = {}
   /** the watering errands in progress (waterRun.ts; at most one: there is one can) and the block each agent has watered in already */
   private waters: Record<string, WaterRun> = {}
@@ -395,7 +397,20 @@ export class Director {
     }
 
     const busy = new Set(this.agents.filter((a) => status[a]?.state === 'working' || status[a]?.state === 'off' || status[a]?.night === 'duty' || this.runs[a]))
-    let play = playAt(now, this.agents, busy)
+    // #516 (play.md 9.2): a ping-pong game whose partner goes to work is over for both: the one left plays on alone, and the partner, back, too. Kept from
+    // the status timeline (when the work began, when it came back: the statuses' own times), so the timelapse and seeking show the same
+    for (const [k, b] of this.brokenPairs) if (now < b.from || now >= b.until) this.brokenPairs.delete(k)
+    const planned = playAt(now, this.agents)
+    for (const a of this.agents) {
+      const p = planned[a]
+      if (p?.kind !== 'pingpong' || !p.partner || p.pairAt === undefined || now < p.pairAt || this.brokenPairs.has(p.stay) || !busy.has(p.partner)) continue
+      this.brokenPairs.set(p.stay, { from: Math.max(p.pairAt, Math.min(now, status[p.partner]?.since ?? now)), until: p.until })
+    }
+    const alone = {
+      broken: new Map([...this.brokenPairs].map(([k, b]) => [k, b.from] as const)),
+      back: Object.fromEntries(this.agents.filter((a) => !busy.has(a) && status[a]).map((a) => [a, status[a]!.since])),
+    }
+    let play = playAt(now, this.agents, busy, alone)
     // #490: no blocks; each agent's errands count "done" per stay of its own plan (play.ts), the minute when it has none
     const stayOf = (a: string) => play[a]?.stay ?? minute
 
@@ -586,7 +601,7 @@ export class Director {
     const blocked = (k: PlayAssignment['kind'] | undefined) => (k === 'boardgame' && (this.bowlAtCorner || !!this.bowl)) || (k === 'boardgame_solo' && this.bowl?.way === 'home')
     for (const x of this.agents) if (blocked(play[x]?.kind) && !away.includes(x)) away.push(x)
     for (let k = 0; k < 4 && away.length; k++) {
-      play = playAt(now, this.agents, new Set([...busy, ...away]))
+      play = playAt(now, this.agents, new Set([...busy, ...away]), alone)
       const more = this.agents.filter((x) => blocked(play[x]?.kind) && !away.includes(x))
       if (!more.length) break
       away.push(...more)
@@ -727,7 +742,7 @@ export class Director {
       }
       if (p) playing.push(a)
       // a gap between two stays (a stretch where it was, a stroll, the window) and watching a game stand still: the label says which (#490)
-      out[a] = p ? { spot: p.spot, pose: schedulePose(p.kind), face: p.face, ...standSlot(p), ...(p.gap ? { gap: p.gap } : {}), ...(p.watch ? { watching: p.watch } : {}), ...(p.kind === 'pingpong' && !p.partner ? { partnerWait: true } : {}), label: p.label } : deskIdle(desk)
+      out[a] = p ? { spot: p.spot, pose: schedulePose(p.kind), face: p.face, ...standSlot(p), ...(p.gap ? { gap: p.gap } : {}), ...(p.watch ? { watching: p.watch } : {}), ...(p.kind === 'pingpong' && p.partner && arrivedAt(p.partner) !== play[p.partner]?.spot ? { partnerWait: true } : {}), label: p.label } : deskIdle(desk)
     }
     this.settle(out, playing, deskIdle)
     this.putAway(now, out)

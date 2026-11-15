@@ -186,12 +186,12 @@ describe('Director: the schedule sends one agent at a time for the can', () => {
 })
 
 describe('Director: a prop goes back by hand before the agent walks off (#228)', () => {
-  it('whoever was playing coffee / ping-pong / omok / reading stands 0.8 s after the play ends; others set off at once', () => {
+  it('whoever was playing coffee / ping-pong / omok stands 0.8 s after the play ends; others set off at once (the book goes back on its own errand)', () => {
     // a play that ends (#490: the agent's own stay) and something somewhere else after it
     let found: { before: number; now: number; agent: string } | null = null
     for (let t = Date.UTC(2026, 10, 9, 1, 0, 0); !found && t < Date.UTC(2026, 10, 9, 13, 0, 0); t += 10_000) {
       for (const [id, x] of Object.entries(playAt(t, AGENTS))) {
-        if (!['coffee', 'books', 'pingpong', 'boardgame'].includes(x.kind) || x.until - t < 2000) continue
+        if (!['coffee', 'pingpong', 'boardgame'].includes(x.kind) || x.until - t < 2000) continue
         const next = playAt(x.until + 1, AGENTS)[id]
         if (next && next.spot !== x.spot && next.kind !== 'water') found = { before: x.until - 1000, now: x.until + 1, agent: id }
       }
