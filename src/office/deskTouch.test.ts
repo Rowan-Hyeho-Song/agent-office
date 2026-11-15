@@ -1,11 +1,11 @@
 // #370 A (desk-props.md 4, grips.md): when a hand touches a thing of its own desk, what the desk shows of it, and the hand on the baked model.
 /// <reference types="node" />
 import { appendFileSync } from 'node:fs'
-import { Quaternion, Vector3 } from 'three'
+import { Box3, Quaternion, Vector3, type Mesh } from 'three'
 import { describe, expect, it } from 'vitest'
-import { DeskTouches, HABIT_PER_HOUR, NO_REPEAT_S, TOUCH_S, TURNTABLE_PUSH, calendarPage, habitTimes, hourglassAt, type TouchIn, type TouchKind } from './deskTouch'
+import { DUCK_BUBBLE, DUCK_LINES, DeskTouches, HABIT_PER_HOUR, TOUCH_PROP, NO_REPEAT_S, TOUCH_S, TURNTABLE_PUSH, calendarPage, habitTimes, hourglassAt, type TouchIn, type TouchKind } from './deskTouch'
 import { deskProps, type DeskProps } from './props'
-import { Walk, world } from './errandWorld.fixture'
+import { Guard, Walk, expectCleanAll, world } from './errandWorld.fixture'
 import { contactNormal } from './gripTargets'
 import { DeskLive } from './deskLive'
 import type { AgentRig } from './rig'
@@ -18,6 +18,48 @@ const base = (over: Partial<DeskProps> = {}): DeskProps => ({
   ...over,
 })
 const inp = (t: number, desk: DeskProps, o: Partial<TouchIn> = {}): TouchIn => ({ t, now: NOW + t * 1000, desk, seated: () => true, awake: () => true, working: () => false, ...o })
+
+describe('the props taken from the desk (#370 B)', () => {
+  it('루프 takes its duck at a failure, talks to it (a line of five, not the same twice running) only while it holds it before its face', () => {
+    const d = new DeskTouches()
+    const seen: string[] = []
+    let t = 0
+    for (let n = 0; n < 12; n++) {
+      d.step(inp(t, base({ signal: 'yellow' })))
+      d.step(inp((t += 0.1), base({ signal: 'red' })))
+      expect(d.of(3, t)?.kind).toBe('duck')
+      const t0 = t
+      expect(d.bubble('agent_3')).toBeUndefined()
+      d.step(inp(t0 + DUCK_BUBBLE.from + 0.1, base({ signal: 'red' })))
+      const line = d.bubble('agent_3')!
+      expect(DUCK_LINES).toContain(line)
+      expect(line.length).toBeLessThanOrEqual(36)
+      expect(d.bubble('agent_2')).toBeUndefined()
+      d.step(inp(t0 + DUCK_BUBBLE.to + 0.05, base({ signal: 'red' })))
+      expect(d.bubble('agent_3')).toBeUndefined()
+      if (seen.length) expect(line).not.toBe(seen[seen.length - 1])
+      seen.push(line)
+      t = t0 + 10
+    }
+    expect(new Set(seen).size).toBeGreaterThan(2)
+  })
+
+  it('the keycap and the shape: 2 an hour while working, 3 while resting awake at the desk', () => {
+    for (const [mode, n] of [['work', 2], ['rest', 3]] as const) {
+      const d = new DeskTouches()
+      let count = 0
+      let prev: TouchKind | null = null
+      const hour0 = Math.floor(NOW / 3_600_000) * 3_600_000
+      for (let t = 0; t < 4 * 3600; t += 1) {
+        d.step({ t, now: hour0 + t * 1000, desk: base(), seated: () => true, awake: () => true, working: () => mode === 'work' })
+        const k = d.of(3, t)?.kind ?? null
+        if (k === 'keycap' && prev !== 'keycap') count++
+        prev = k
+      }
+      expect(count, mode).toBe(4 * n)
+    }
+  })
+})
 
 describe('when a desk thing is touched (#370 A)', () => {
   it('루프 taps the signal as it turns green while it sits at its desk; not when away', () => {
@@ -89,7 +131,7 @@ describe('when a desk thing is touched (#370 A)', () => {
     for (const kind of ['turntable', 'knob'] as const) {
       for (let h = 0; h < 50; h++) {
         const ts = habitTimes(kind, h)
-        expect(ts.length).toBe(HABIT_PER_HOUR[kind])
+        expect(ts.length).toBe(HABIT_PER_HOUR[kind]!.work)
         for (const x of ts) expect(Math.floor(x / 3_600_000)).toBe(h)
         for (let k = 1; k < ts.length; k++) expect(ts[k] - ts[k - 1]).toBeGreaterThanOrEqual(NO_REPEAT_S * 1000)
       }
@@ -131,8 +173,9 @@ const tipWorld = (rig: AgentRig, f: number | 'thumb') => {
 }
 
 /** everyone working at their desk; then `kind` begun and its whole length stepped, the desk drawn by DeskLive with the touch, as Agents.tsx does */
-async function touchRun(kind: TouchKind, onFrame: (w: Awaited<ReturnType<typeof world>>, u: number) => void) {
+async function touchRun(kind: TouchKind, onFrame: (w: Awaited<ReturnType<typeof world>>, u: number) => void, withGuard = false) {
   const w = await world()
+  const guard = withGuard ? new Guard(w) : undefined
   const walk = new Walk(w, Date.UTC(2026, 10, 9, 1, 0, 0))
   walk.status = Object.fromEntries(['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4'].map((id) => [id, { state: 'working' as const, activity: 'edit', since: 0 }]))
   const live = new DeskLive(w.nodes)
@@ -146,10 +189,11 @@ async function touchRun(kind: TouchKind, onFrame: (w: Awaited<ReturnType<typeof 
     walk.touches = touches.all(walk.t)
     live.update(touches.desk(desk), walk.t, dt, false, touches.shown(walk.t, false))
     w.scene.updateMatrixWorld(true)
-    walk.step(dt)
+    walk.step(dt, guard)
     onFrame(w, walk.t - t0)
     touches.step({ t: walk.t, now: NOW, desk, seated: () => true, awake: () => true, working: () => true })
   }
+  if (guard) expectCleanAll(kind, w, guard)
   return w
 }
 
@@ -230,4 +274,60 @@ describe('the hand on the desk thing (#370 A, grips.md)', () => {
     })
     if (has) expect(worst, 'thumb and index on the pillars').toBeLessThan(0.01)
   }, 120_000)
+})
+
+describe('the prop in the hand (#370 B, grips.md)', () => {
+  for (const kind of ['duck', 'keycap', 'shape'] as const) {
+    it(`${kind}: taken from where it rests, held off the desk, its contacts under the fingertips, put back exactly where it rested`, async () => {
+      const name = TOUCH_PROP[kind]!
+      let homePos: Vector3 | null = null
+      let farthest = 0
+      let worst = 0
+      let under = Infinity
+      const w = await touchRun(
+        kind,
+        (w, u) => {
+          const node = w.scene.getObjectByName(name)!
+          const p = node.getWorldPosition(new Vector3())
+          homePos ??= p.clone()
+          farthest = Math.max(farthest, p.distanceTo(homePos))
+          const rig = w.rigs[`agent_${kind === 'shape' ? 1 : 3}`]
+          // held: each contact under its fingertip
+          if (u > 1.4 && u < TOUCH_S[kind].back - 0.6) {
+            for (const [f, c] of [[0, 'index'], ['thumb', 'thumb']] as const) {
+              const cn = w.scene.getObjectByName(`${name}_contact_${c}`)
+              if (cn) worst = Math.max(worst, tipWorld(rig, f).distanceTo(cn.getWorldPosition(new Vector3())))
+            }
+            if (kind === 'shape') {
+              // the gap from the open left hand to the bottom of the shape, over the shape's footprint (the hand's vertices under it)
+              const shape = new Box3().setFromObject(node)
+              let top = -Infinity
+              rig.parts.hands.l.node.updateMatrixWorld(true)
+              rig.parts.hands.l.node.traverseVisible((m) => {
+                const g = (m as Mesh).geometry?.getAttribute('position')
+                if (!(m as Mesh).isMesh || !g) return
+                const v = new Vector3()
+                for (let k = 0; k < g.count; k++) {
+                  v.fromBufferAttribute(g, k).applyMatrix4(m.matrixWorld)
+                  if (v.x >= shape.min.x && v.x <= shape.max.x && v.z >= shape.min.z && v.z <= shape.max.z) top = Math.max(top, v.y)
+                }
+              })
+              if (top > -Infinity) under = Math.min(under, shape.min.y - top)
+            }
+          }
+        },
+        true,
+      )
+      const end = w.scene.getObjectByName(name)!.getWorldPosition(new Vector3())
+      if (LOG) appendFileSync(LOG, `${kind}: lifted ${(farthest * 100).toFixed(1)} cm, fingertips ${(worst * 1000).toFixed(1)} mm off their contacts, back ${(end.distanceTo(homePos!) * 1000).toFixed(2)} mm from its rest${kind === 'shape' ? `, the left hand ${(under * 1000).toFixed(1)} mm under it` : ''}
+`)
+      expect(farthest, 'lifted off the desk').toBeGreaterThan(0.12)
+      expect(worst, 'fingertips on the contacts').toBeLessThan(0.012)
+      expect(end.distanceTo(homePos!), 'back where it rested').toBeLessThan(0.001)
+      if (kind === 'shape') {
+        expect(under, 'the left hand not into the shape, about 1 cm under it').toBeGreaterThanOrEqual(0.005)
+        expect(under, 'the left hand just under it').toBeLessThan(0.015)
+      }
+    }, 120_000)
+  }
 })

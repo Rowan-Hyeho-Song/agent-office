@@ -517,7 +517,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
     const byId = new Map<string, BubbleItem>()
     const replaying = replayNow.current !== null
     if (!replaying) {
-      for (const id in rigs) world.bubbles.goal(id, world.goals[id]?.bubble, now, world.goals[id]?.lookAt)
+      for (const id in rigs) world.bubbles.goal(id, world.goals[id]?.bubble ?? touches.bubble(id), now, world.goals[id]?.lookAt)
       for (const b of world.bubbles.items(now, reduced)) byId.set(b.id, b)
     }
     const meet = world.meeting.view(replayNow.current ?? now)

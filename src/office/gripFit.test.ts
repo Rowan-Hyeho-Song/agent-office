@@ -27,6 +27,8 @@ const OBJECTS: [string, string, 'l' | 'r'][] = [
   ['prop_record', 'record', 'r'],
   // the loose sheet held by its long sides for reading (#374): the grip empties of the lower half
   ['prop_paper_a', 'paper_side', 'l'], ['prop_paper_a', 'paper_side', 'r'],
+  // #370 B the desk props taken for a moment: the duck, the keycap, a plaster shape
+  ['prop_duck', 'duck', 'r'], ['prop_keycap_0', 'keycap', 'r'], ['prop_shape_1', 'shape', 'r'],
   ['desk_0_mouse', 'mouse', 'r'], ['desk_1_mouse', 'mouse', 'r'], ['desk_3_mouse', 'mouse', 'r'], ['desk_4_mouse', 'mouse', 'r'],
 ]
 const LOG = process.env.FIT_LOG
