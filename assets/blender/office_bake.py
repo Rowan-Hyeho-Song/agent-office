@@ -5406,15 +5406,19 @@ def build_beanbag():
     return l2("beanbag", p)
 
 
+PILLOW_NAP = (4.12, 0.50, 2.66)  # #519: the nap pillow's centre on the east seat (cushion top 0.44 + 0.12 = arm top 0.56)
+
+
 def build_lounge2():
     # #280 3 (user): the beanbag is gone (its quality fell short); build_beanbag stays for the record, unused, its
     # place left empty
     out = [build_sofa_l(), build_table_low(), build_coffee_bar(), build_entry()]
     out += build_records() + build_hanging_plants() + build_frames() + build_wall_shelf()
-    # 1a: the throw pillows: mustard against the long side's west back cushion, blue-grey on the chaise by the corner
+    # 1a: the throw pillows: mustard against the long side's west back cushion, blue-grey lying at the chaise's north
+    # end (#519: the nap pillow, always there; its north face against the arm's inner face, its top level with the arm)
     x0, zb = SOFA_L[0] - 1.2, SOFA_L[1] + 0.435
     pillow("prop_pillow_0", "#d9b45a", (x0 + 0.2 + 0.09, 0.64, zb - 0.55), (math.radians(-12), -math.pi / 2, 0.0))  # #280 3: against the west arm
-    pillow("prop_pillow_1", "#7f95a8", (4.27, 0.64, 3.63), (math.radians(-12), math.pi / 4, 0.0))  # #280 3: in the corner, facing north-west
+    pillow("prop_pillow_1", "#7f95a8", PILLOW_NAP, (-math.pi / 2, 0.0, math.radians(3)))  # #519: lying, turned 3 deg
     return out
 
 
