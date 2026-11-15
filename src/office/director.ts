@@ -90,6 +90,8 @@ const kstDay = (ms: number) => Math.floor((ms + 9 * 3600_000) / 86_400_000)
 
 /** the needle has been down at least this long (ms) before the end of the break sends somebody to lift the arm (speaker.ts holds a state 8 s; this is well past it) */
 const LIFT_AFTER_MS = 25_000
+/** #527: and the needle lifted stays up this long before a record goes on again (the break's crowd flickering around two must not send the arm up and down) */
+const PUT_AFTER_MS = 25_000
 
 /** how long a face-to-face talk lasts, how long to wait for both to arrive */
 const TALK_MS = 6000
@@ -165,6 +167,8 @@ export class Director {
   private deck = { recordOn: false, needle: false }
   /** when the needle went down (office ms): the arm is not lifted for the break being over until it has been down a while */
   private needleAt = 0
+  /** #527: when the needle last came up (office ms) */
+  private liftedAt = -Infinity
   /** what each agent's goal was last frame, and the departure its goal was held back to (putAway) */
   private lastPose: Record<string, { pose: Pose; spot: string }> = {}
   private leaving: Record<string, { spot: string; depart: number }> = {}
@@ -539,6 +543,7 @@ export class Director {
         this.deck.recordOn = d.recordOn
         if (d.needle !== null) {
           if (d.needle && !this.deck.needle) this.needleAt = now
+          if (!d.needle && this.deck.needle) this.liftedAt = now
           this.deck.needle = d.needle
         }
       }
@@ -552,7 +557,8 @@ export class Director {
       this.actDone[a] = stayOf(a)
     }
     // the break music is due and nobody has put the record on: whoever rests, agent_4 (echo) first; the break is over and the needle is still down: somebody lifts it
-    const wishes = opts.wantsBreak === undefined ? null : opts.wantsBreak ? !this.deck.needle : this.deck.needle && now - this.needleAt >= LIFT_AFTER_MS
+    // either way only after the last swap has had its time (#527: lifted, then put back on 9 s later by the same agent, again and again)
+    const wishes = opts.wantsBreak === undefined ? null : opts.wantsBreak ? !this.deck.needle && (now - this.liftedAt >= PUT_AFTER_MS || now < this.liftedAt) : this.deck.needle && now - this.needleAt >= LIFT_AFTER_MS
     if (wishes && !Object.values(this.acts).some((r) => r.kind === 'record')) {
       const free = this.agents.filter((x) => !this.acts[x] && !this.waters[x] && !this.reads[x] && this.bowl?.agent !== x && resting(x) && steady(x))
       const a = free.includes('agent_4') ? 'agent_4' : free[0]
