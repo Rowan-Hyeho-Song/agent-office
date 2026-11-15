@@ -26,11 +26,16 @@ export const BOUNCE = { everyS: 0.6, heightM: 0.25 } as const
 /** 구경 (9.2): a cheer every everyS, the first firstS after arriving */
 export const CHEER = { everyS: 30, firstS: 10 } as const
 
-/** how far the stretch's hands are up (0 down … 1 over the head): a half sine over stretchS; 0 with reduced motion (only the label changes) */
+/**
+ * How far the stretch's hands are up (0 down … 1 over the head) over stretchS: up in its first third, held at the top for a third (the hands get all the way
+ * up: their place over the head is measured, stretch.data.ts), down in the last; 0 with reduced motion (only the label changes)
+ */
 export function stretchLift(u: number, reduced: boolean): number {
   if (reduced || u < GAP_MOTION.stretchDelayS) return 0
   const k = (u - GAP_MOTION.stretchDelayS) / GAP_MOTION.stretchS
-  return k >= 1 ? 0 : Math.sin(k * Math.PI)
+  if (k >= 1) return 0
+  const ease = (x: number) => x * x * (3 - 2 * x)
+  return k < 1 / 3 ? ease(k * 3) : k < 2 / 3 ? 1 : ease((1 - k) * 3)
 }
 
 /** the head on top of the standing pose in a gap (rad): `yaw` null keeps the usual slow look round */

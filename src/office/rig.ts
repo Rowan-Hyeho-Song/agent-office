@@ -53,6 +53,7 @@ import {
 import { CRUISE, CRUISE_TUNED, TRAFFIC, type Sample } from './traffic'
 import type { AgentStatus } from './status'
 import { gapHead, stretchLift } from './gapMotion'
+import { STRETCH_ABOVE } from './stretch.data'
 import { musicGlow, speakerCone, speakerOn } from '../audio/speaker'
 
 /** the poses of the play schedule (play.ts PlayKind): what "resting" means (sound.md 5) */
@@ -665,8 +666,11 @@ const HOLD_POSE = POSES.wrap
 const PINCH_POSE = POSES.ok
 const POINT_POSE = POSES.point
 const WAVE_POSE = POSES.spread
-/** #490 B the stretch: each hand this far out to its side, this far above the head's rest, this far along the body (− forward), m */
-const STRETCH_HAND = { sideM: 0.14, aboveM: 0.38, z: 0.02 } as const
+/**
+ * #490 B the stretch: the hands out in a V, each this far to its side, this far along the body (− forward), m; how high: per agent, the hand's place this far
+ * above the head's rest so its underside is 6 cm over the top of the head and what it wears (stretch.data.ts), else `aboveM`
+ */
+const STRETCH_HAND = { sideM: 0.24, aboveM: 0.38, z: 0.02 } as const
 const FRAME_POSE = VARIANTS.frame
 const STAMP_POSE = VARIANTS.stamp
 const YIELD_POSE = POSES.sweep
@@ -1447,6 +1451,8 @@ export class AgentRig {
   private place: WritePlace = null
   /** #505: where this desk's other hand rests beside the card, instead of its own (writePress.data.ts, found per desk): the search sets it */
   pressAt: PressAt | null = null
+  /** #490 B: the stretch's hand height over the head's rest, instead of this agent's own (stretch.data.ts): the measuring sets it */
+  stretchAt: number | null = null
   private get press(): PressAt | undefined {
     return this.pressAt ?? WRITE_PRESS[Number(this.id.split('_')[1])]
   }
@@ -1653,7 +1659,8 @@ export class AgentRig {
     // #490 B 기지개 (play.md 9.3): both hands up over the head and down again, palms up; reduced motion: none (only the label)
     const lift = pose === 'idle' && wg?.gap === 'stretch' && this.restKey ? stretchLift(t - this.restT0, reduced) : 0
     if (lift > 0) {
-      const top = v(sx * STRETCH_HAND.sideM, this.parts.headRestY + sit + STRETCH_HAND.aboveM, STRETCH_HAND.z)
+      const above = this.stretchAt ?? STRETCH_ABOVE[Number(this.id.split('_')[1])] ?? STRETCH_HAND.aboveM
+      const top = v(sx * STRETCH_HAND.sideM, this.parts.headRestY + sit + above, STRETCH_HAND.z)
       return at(rest.x + (top.x - rest.x) * lift, rest.y + (top.y - rest.y) * lift, rest.z + (top.z - rest.z) * lift, NONE.clone().slerp(down.clone().invert(), lift), WAVE_POSE)
     }
     switch (pose) {
