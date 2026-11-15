@@ -133,7 +133,8 @@ describe('the turntable through the Director', () => {
     // somebody the schedule has already sent on an errand (the book, #280; the can; another act) is not resting: the record goes to the first of the others
     const away = new Set<string>()
     drive(d, 0, 3, () => null, { wantsBreak: true, status: st }, (_t, g) => {
-      for (const x of IDS) if (g[x].read || g[x].water || (g[x].act && g[x].act!.kind !== 'record')) away.add(x)
+      // (the white bowl for a record placed alone is an errand too)
+      for (const x of IDS) if (g[x].read || g[x].water || g[x].bowl || (g[x].act && g[x].act!.kind !== 'record')) away.add(x)
       who ??= IDS.find((a) => g[a].act?.kind === 'record') ?? null
     })
     expect(who).toBe(IDS.find((x) => x !== 'agent_4' && !away.has(x)))
