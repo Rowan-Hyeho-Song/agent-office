@@ -4,7 +4,7 @@ import { buildScript } from './meeting'
 import { MEET_WORDS, MeetingRunner } from './meetingRun'
 import { BUBBLE_ASK, BUBBLE_REPLY, Director } from './director'
 import { playAt, schedulePose } from './play'
-import { startWrap, totalOf, TOUCH_LABEL, WRAP_LABEL } from './wrap'
+import { startWrap, totalOf, TOUCH_LABEL, WRAP, WRAP_LABEL } from './wrap'
 import type { AgentStatus, OfficeMessage, StatusMap } from './status'
 
 const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
@@ -125,8 +125,8 @@ describe('wrapping (#186): real work, then rest', () => {
     expect(d.shown.agent_0).toMatchObject({ kind: 'wrap', detail: WRAP_LABEL.seat, status: { state: 'wrapping' } })
     at.agent_0 = 'work_0'
     expect(step(100).g).toMatchObject({ spot: 'work_0', pose: 'write', carry: 1 })
-    // the cards are written for the desk's share of the time (wrapup.md 1), then it sets off with all of them
-    for (let s = 0; s < totalOf(plan.plan.desk) * 10 - 1; s++) step(100)
+    // the cards are written for the desk's share of the time (wrapup.md 1) and gathered (0.5 s, #481), then it sets off with all of them
+    for (let s = 0; s < (totalOf(plan.plan.desk) + WRAP.collect) * 10 - 1; s++) step(100)
     expect(step(100).g).toMatchObject({ spot: 'whiteboard', pose: 'carry', carry: n })
     at.agent_0 = 'whiteboard'
     expect(step(100).g).toMatchObject({ spot: 'whiteboard', pose: 'cardpost', carry: n })
