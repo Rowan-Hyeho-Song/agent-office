@@ -64,7 +64,7 @@ export const PRESS_TAP = { m: 0.001, s: 0.08 }
 
 /** #370 B3b the IN pile squared at the tidy-up: lifted 4 cm, stood 70° on its near edge, tapped down 1.2 cm; the palms 2 mm off its sides (the hand frame 9 mm behind the palm), 2 cm in from its near edge */
 export const PILE_TIDY = { lift: 0.04, standDeg: 70, tap: 0.012, out: 0.002, palm: 0.009, near: 0.02 }
-import { HEADPHONES, KEYCAP_ROLL, cupSwivel, LEAF_STROKE, PAPER_READ, SHAPE_TURN, SWATCH, leafAt, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, type Touch } from './deskTouch'
+import { HEADPHONES, KEYCAP_ROLL, cupSwivel, LEAF_STROKE, MIXER, PAPER_READ, SHAPE_TURN, SNAP, SWATCH, leafAt, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, type Touch } from './deskTouch'
 import { SIP_TOP_S, TREAT_HOLD, TREAT_LOOK, TREAT_PROP, takeSounds, treatPhase, type SnackKind } from './treatHold'
 import { handsOf } from './paperRun'
 import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, pageTau, rowOf } from './shelfRun'
@@ -1889,6 +1889,23 @@ export class PlayStage {
       this.indexOn(rig, c.getWorldPosition(new Vector3()), contactNormal(this.sceneRef, c), 0, false, inp, want)
     } else if (kind === 'paper') {
       if (!this.paperTouch(rig, u, inp)) return false
+    } else if (kind === 'mixer') {
+      // #370 C4 the right index and middle on fader_0's cap, going with it along its slot (its contact rests where the fader rests); the left hand
+      // pinches knob_0 and turns with it, MIXER.lag later
+      const c = node('desk_4_fader_0_contact_index')
+      const f = node('desk_4_fader_0')
+      if (!c || !f) return false
+      const rest = (f.userData.liveRest as { p: Vector3 } | undefined)?.p
+      const slid = rest ? f.position.clone().sub(rest) : new Vector3()
+      if (f.parent) slid.transformDirection(f.parent.matrixWorld).multiplyScalar(f.position.clone().sub(rest ?? f.position).length())
+      this.indexOn(rig, c.getWorldPosition(new Vector3()).add(slid), contactNormal(this.sceneRef, c), 0, false, inp, want)
+      const k = node('desk_4_knob_0')
+      if (k && node('desk_4_knob_0_grip_l')) {
+        k.updateWorldMatrix(true, false)
+        this.grip(rig, 'l', 'mixerknob', 'desk_4_knob_0', u >= MIXER.lag && u < TOUCH_S.mixer.back + MIXER.lag, k.matrixWorld.clone(), inp)
+      }
+    } else if (kind === 'snap') {
+      if (!this.snapHand(rig, u, inp)) return false
     } else if (kind === 'leaf') {
       // #370 C3 the index fingertip along the leaf from its touch start to its end, riding it down as it gives (about the leaf's own pivot)
       const a = node('succulent_leaf_touch_0')
@@ -1928,7 +1945,7 @@ export class PlayStage {
       this.grip(rig, 'r', 'hourglass', 'desk_0_hourglass', want, held, inp)
     }
     // the shape takes both hands
-    if (goal.pose === 'type' && kind !== 'shape' && kind !== 'swatch' && kind !== 'paper') this.typeAtDesk(rig, inp, seat, true)
+    if (goal.pose === 'type' && kind !== 'shape' && kind !== 'swatch' && kind !== 'paper' && kind !== 'mixer') this.typeAtDesk(rig, inp, seat, true)
     return true
   }
 
@@ -2048,6 +2065,36 @@ export class PlayStage {
     this.indexOn(rig, P, n, 0, false, inp, u >= 0.3 && u < S.back)
     return true
   }
+
+  /**
+   * #370 C4 (agents.md 2.11) 에코's finger snap: the right hand beside the face screen (the head's middle height, SNAP.out outside its right side, at its
+   * front), the palm forward, the thumb and the middle tips together (the middle 0.6, the thumb (0.4, 0.9)); the middle flicked to 0.9 over 0.08 s, the
+   * cue 'snap' as it lands. Reduced motion: no hand, the cue only.
+   */
+  private snapHand(rig: AgentRig, u: number, inp: StageIn): boolean {
+    const [f0, f1] = SNAP.flick
+    if (u >= f1 && this.snapped !== rig.id + ':' + Math.round(inp.t - u)) {
+      this.snapped = rig.id + ':' + Math.round(inp.t - u)
+      cue('snap', { pos: rig.parts.head.getWorldPosition(new Vector3()), agent: rig.id, key: `snap:${rig.id}:${Math.round((inp.now - u * 1000) / 1000)}` })
+    }
+    if (inp.reduced) return true
+    const head = rig.parts.head
+    head.updateWorldMatrix(true, true)
+    const b = (this.headBoxes ??= new Map()).get(rig.id) ?? localBox(head)
+    this.headBoxes.set(rig.id, b)
+    const at = head.localToWorld(new Vector3(b.max.x + SNAP.out, (b.min.y + b.max.y) / 2, b.min.z))
+    const hq = head.getWorldQuaternion(new Quaternion())
+    const fwd = new Vector3(0, 0, -1).applyQuaternion(hq)
+    const up = new Vector3(0, 1, 0).applyQuaternion(hq)
+    const target = new Matrix4().makeBasis(new Vector3().crossVectors(up, fwd).normalize(), up, fwd).setPosition(at)
+    const e = (x: number) => ease(Math.min(1, Math.max(0, x)))
+    const w = u < SNAP.up ? e(u / SNAP.up) : 1 - e((u - SNAP.down[0]) / (SNAP.down[1] - SNAP.down[0]))
+    const mid = 0.6 + 0.3 * e((u - f0) / (f1 - f0))
+    rig.drive.r = { target, w, curl: [0.5, mid, 0.8, 0.85, 0.4, 0.9], wc: w, spread: null }
+    return true
+  }
+  private snapped = ''
+  private headBoxes: Map<string, Box3> | undefined
 
   /**
    * #370 C3 (desk-props.md 4 도장에 인주 묻혀 찍기): where the stamp is `s` s into a decision's stamping: taken where it rests, over to the ink pad

@@ -14,7 +14,7 @@ import { sideArea } from './sidePanel/store'
 import { requestOf, type Goal } from './director'
 import { TrafficPlanner, type Request, type Sample } from './traffic'
 import { syncFridgeHold } from './lounge'
-import { musicWantsBreak, recordComing, resetDeck } from '../audio/speaker'
+import { musicWantsBreak, recordComing, resetDeck, speakerOn } from '../audio/speaker'
 import { demoRequest } from './trafficDemo'
 import { checkNav, edgeKey } from './navcheck'
 import { rasterFootprint } from './floorMask'
@@ -466,6 +466,9 @@ export function Agents({ world }: { world: OfficeWorld }) {
       },
       awake: (seat) => !!status[`agent_${seat}`] && status[`agent_${seat}`].state !== 'off',
       working: (seat) => status[`agent_${seat}`]?.state === 'working',
+      // #370 C4 the speaker playing (에코's mixer), the tidy-up starting (its snap)
+      speaker: speakerOn(),
+      tidying: (seat) => (st ? undefined : goals[`agent_${seat}`])?.pose === 'tidy',
     })
     // the desk things first: a hand on one follows it where it is this frame (#370 A)
     desks.update(touches.desk(desk), t, Math.min(dt, 0.1), reduced, touches.shown(touchT, reduced))
