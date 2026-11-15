@@ -38,11 +38,21 @@ import { STAMP_MS } from './props'
 import { ANXIOUS_AFTER_MS } from './faceMind'
 import { greetsOwner, questionFaceFor } from './liveFace'
 import { isLateHour } from './duty'
+import { getOmokVisit, workOmok } from './omokVisit/store'
+import { viewOf } from '../play/visitorOmok'
+
 import { AGENT_COLORS, officeNow, type OfficeWorld } from './world'
 import { NOTE_READ, pinnedAt, thanksNow } from './noteRead'
 import { notesStore } from './visit/notes'
 import { groundAt, readRugs, type Rug } from './ground'
 import type { RootState } from '@react-three/fiber'
+
+/** #137 ② the visitor's game as the stage draws it, while the visitor is at the board (not in the replay) */
+function omokView(now: number | null) {
+  const v = getOmokVisit()
+  if (now === null || v.phase === 'closed' || !v.agent || !v.game) return null
+  return { agent: v.agent, view: viewOf(v.game, now) }
+}
 
 /**
  * Same rule as the design tokens (src/styles/tokens.css): html[data-motion="reduce"|"full"] (the setting shared
@@ -313,6 +323,14 @@ export function Agents({ world }: { world: OfficeWorld }) {
     // ?debug=1: window.__office.forceSpots = { agent_0: 'whiteboard', ... } sends agents to spots (head-on tests, screenshots)
     if (world.debug && world.forceSpots) for (const id in world.forceSpots) if (goals[id]) goals[id] = { ...goals[id], spot: world.forceSpots[id], pose: 'idle', label: 'debug' }
     if (world.debug && world.forceGoal) for (const id in world.forceGoal) if (goals[id]) goals[id] = { ...goals[id], ...world.forceGoal[id], label: 'debug' }
+    // #137 ② a visitor plays omok with the agent at the board (this tab only): it stays in its chair for the game; called to work, it ends it (중단)
+    const visit = st ? null : getOmokVisit()
+    if (visit && visit.phase !== 'closed' && visit.agent && goals[visit.agent]) {
+      const s = status[visit.agent]
+      if (s && (s.state !== 'idle' || s.night === 'duty')) workOmok(now)
+      const g = getOmokVisit().game
+      if (g && !(g.end && (g.end.result === 'work' || visit.phase === 'leaving'))) goals[visit.agent] = { spot: 'game_a', pose: 'boardgame', label: '오목 · 방문자와 대국' }
+    }
     if (!st) {
       // forget the departures no goal holds any more (a held one keeps its planner time: recomputed each frame it would drift and replan every frame,
       // #228). After the debug overrides: a forced spot keys the departure it is requested with; judged on the director's own spot, the forced one's
@@ -443,7 +461,9 @@ export function Agents({ world }: { world: OfficeWorld }) {
       stamp: desk.stamp,
       colors: AGENT_COLORS,
       forcedSessions: world.debug ? world.forcedSessions : undefined,
-      bowlRest: world.director.bowlRest(),
+      visitorOmok: omokView(st ? null : now),
+      // #137 ② the visitor plays black from the empty chair, the agent white: its bowl rests by the agent (the corner by game_a) while they play
+      bowlRest: !st && omokView(now) ? 'corner' : world.director.bowlRest(),
       gripDemo: world.debug ? world.gripDemo : null,
     })
     const tag = playStage.tag

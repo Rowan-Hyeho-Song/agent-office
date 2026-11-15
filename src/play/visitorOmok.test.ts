@@ -232,4 +232,11 @@ describe('a visitor game', () => {
     expect(statusLine(r.g, '메모', 0)).toBe('● 오목 · 메모와 대국 · 메모가 생각 중.')
     expect(statusLine(r.g, '메모', 900)).toBe('● 오목 · 메모와 대국 · 메모가 생각 중...')
   })
+
+  it('#536: the thinking line never throws, even with a clock from before the move began (it read repeat(-1) and took the page down)', () => {
+    const r = visitorMove(startVisitorGame('agent_0', 7, 1000), at(7, 7), 1000)!
+    expect(r.g.pending).not.toBeNull()
+    for (const now of [r.g.pending!.at - 5000, r.g.pending!.at - 1, r.g.pending!.at, r.g.pending!.at + 900]) expect(() => statusLine(r.g, '메모', now)).not.toThrow()
+    expect(statusLine(r.g, '메모', r.g.pending!.at - 5000)).toMatch(/생각 중\.$/)
+  })
 })
