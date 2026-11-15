@@ -8,6 +8,7 @@ import { officeNow, prefersReducedMotion, type OfficeWorld } from '../world'
 import { replay } from '../../replay/store'
 import type { Face } from '../../play/visitorOmok'
 import { isBoardOpen } from '../boardView/store'
+import { isPingpongActive } from '../pingpongVisit/store'
 import {
   armOmok, closeOmok, drainOmokEvents, getOmokVisit, omokArrived, omokLeft, placeOmok, setOmokPreview, setOmokTag, stepOmok, visitorMayPlace,
 } from './store'
@@ -177,7 +178,7 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
 
     // the tag: an agent alone at the board placing a record (play.md 2.1, 5.5); not during the game, the tour, the board view or the replay
     let tag: ReturnType<typeof getOmokVisit>['tag'] = null
-    if (v.phase === 'closed' && center && seat && !isTouring() && !isBoardOpen() && replay.getSnapshot().mode === 'off') {
+    if (v.phase === 'closed' && center && seat && !isPingpongActive() && !isTouring() && !isBoardOpen() && replay.getSnapshot().mode === 'off') {
       const goals = world.goals
       const alone = Object.keys(goals).find((a) => goals[a].pose === 'boardgame' && goals[a].spot === 'game_a' && world.rigs[a]?.arrived === 'game_a')
       const opposite = Object.values(goals).some((x) => x.spot === 'game_b')

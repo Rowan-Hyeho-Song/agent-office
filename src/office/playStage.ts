@@ -146,6 +146,8 @@ export interface StageIn {
   forcedSessions?: PlaySession[]
   /** #137 ② a visitor's game with the agent at the board (omokVisit/store.ts): drawn instead of the board's own game, in this tab only */
   visitorOmok?: { agent: string; view: OmokView } | null
+  /** #137 ③ the visitor's match with the agent at the far end (pingpong_b): its rally (visitorPingpong.ts rallyOf) on the match clock, this tab only */
+  visitorPingpong?: { agent: string; rally: Rally; tMs: number } | null
   /** #455 the treats taken in a hand: which, and when it landed (office ms) */
   treats?: Record<string, { kind: SnackKind; at: number }>
   /** #137 ① where the white bowl rests when no hand has it (Director.bowlRest): its home by game_b, or the corner by game_a */
@@ -604,6 +606,9 @@ export class PlayStage {
     // #137 ② the visitor sat down opposite: their game on the board (the agent at game_a, the visitor at the empty chair, no hand of theirs)
     const vo = inp.visitorOmok
     if (vo) og = inp.rigs[vo.agent]?.arrived === 'game_a' ? { kind: 'boardgame', spot: 'game_a', players: [vo.agent, VISITOR], seed: hash(`visitor|${vo.agent}`), startMs: 0, visitor: vo.view } : null
+    // #137 ③ the visitor holds the near paddle: their match, the agent at the far end (no hand at the near one)
+    const vp = inp.visitorPingpong
+    if (vp) pp = inp.rigs[vp.agent]?.arrived === 'pingpong_b' ? { kind: 'pingpong', spot: 'pingpong_a', players: [VISITOR, vp.agent], seed: hash(`visitor|pp|${vp.agent}`), startMs: 0 } : null
     this.pingpong(pp, inp)
     this.omok(og, inp)
     for (const e of this.carry.values()) e.seen = false
@@ -643,9 +648,10 @@ export class PlayStage {
       }
       return
     }
-    const tMs = sessionTime(s, inp.now)
+    const vp = s.players[0] === VISITOR ? inp.visitorPingpong : null
+    const tMs = vp ? vp.tMs : sessionTime(s, inp.now)
     const d = this.dims
-    const rally: Rally = rallyAt(s.seed, s.players, Math.max(tMs, -1), d, inp.reduced)
+    const rally: Rally = vp ? vp.rally : rallyAt(s.seed, s.players, Math.max(tMs, -1), d, inp.reduced)
     const playing = tMs >= 0
     if (playing) this.sounds.pingpong(s.seed, tMs, rally, d.ballR!, rally.ballPos ? this.tableWorld(rally.ballPos) : null)
     if (ball) {
@@ -657,7 +663,8 @@ export class PlayStage {
         this.shadow.visible = over
         this.shadow.position.set(ball.position.x, this.tableWorld([0, 0, 0]).y + 0.002, ball.position.z)
         this.shadow.scale.setScalar(d.ballR! * (1.1 + h * 0.8))
-        ;(this.shadow.material as MeshBasicMaterial).opacity = 0.4 / (1 + h * 3)
+        // the visitor reads the depth from it (play.md 3.2): darker in their match
+        ;(this.shadow.material as MeshBasicMaterial).opacity = (vp ? 0.75 : 0.4) / (1 + h * 3)
       } else {
         ball.visible = !playing || inp.reduced // between points the ball is in somebody's pocket; at the start it waits on the table
         ball.position.copy(this.ballHome)
@@ -665,6 +672,8 @@ export class PlayStage {
     }
     for (const side of [0, 1] as const) {
       const rig = inp.rigs[s.players[side]]
+      // the visitor's end has no hand: their paddle floats (PingpongVisitRig)
+      if (!rig) continue
       const dir = side === 0 ? 1 : -1
       const planeX = -dir * (d.L! / 2 + d.reach!)
       const ready: V3 = [planeX + dir * 0.12, 0.2, 0]
@@ -704,7 +713,7 @@ export class PlayStage {
       this.grip(rig, 'r', 'paddle', `prop_paddle_${side === 0 ? 'a' : 'b'}`, true, held, inp, `prop_paddle_${side === 0 ? 'a' : 'b'}`)
     }
     // the tag over the net for 2 s after a point: the score, as the server's side reads it
-    const before = playing ? rallyAt(s.seed, s.players, tMs - 2000, d, true) : null
+    const before = playing && !vp ? rallyAt(s.seed, s.players, tMs - 2000, d, true) : null
     if (playing && before && (before.score[0] !== rally.score[0] || before.score[1] !== rally.score[1]) && before.game === rally.game) {
       this.tag = { text: `${rally.score[0]} : ${rally.score[1]}`, at: this.tableWorld([0, d.netH! + 0.35, 0]) }
       // the one who lost the point is startled (놀람); once per point
@@ -722,6 +731,11 @@ export class PlayStage {
   private cellPos(cell: number, out = new Vector3()) {
     const g = this.grid!
     return out.set(g.o.x + (cell % g.n) * g.cell, g.o.y, g.o.z + Math.floor(cell / g.n) * g.cell)
+  }
+
+  /** #137 ③ the ping-pong table for the visitor's match: its top's middle (the rally's origin) and its size; null before the model */
+  get pingpongTable(): { o: Vector3; dims: Dims } | null {
+    return this.tableNode ? { o: this.tableWorld([0, 0, 0]), dims: this.dims } : null
   }
 
   /** #137 ② for the visitor's input: the board's points (origin, count, step: column i is +x, row j is +z), null before the model */
