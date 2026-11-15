@@ -106,6 +106,25 @@ describe('stays (play.md 9.1)', () => {
     expect(soon).toBeGreaterThan(10)
   })
 
+  it('never the same play twice in a row, gaps, watching and short errands not counted; the same two again only now and then (#524)', () => {
+    const skip = new Set(['gap', 'watch', 'water', 'fridge', 'dispenser', 'record'])
+    let pairs = 0
+    let again = 0
+    for (const d of [...DAYS, 20_406]) {
+      for (const segs of dayPlan(d, FIVE)) {
+        const plays = segs.filter((x) => !skip.has(x.kind))
+        for (let k = 1; k < plays.length; k++) expect(plays[k].kind, `${new Date(plays[k].start).toISOString()}`).not.toBe(plays[k - 1].kind)
+        const games = segs.filter((x) => x.partner)
+        for (let k = 1; k < games.length; k++) {
+          pairs++
+          if (games[k].partner === games[k - 1].partner) again++
+        }
+      }
+    }
+    expect(pairs).toBeGreaterThan(100)
+    expect(again / pairs, `${again} of ${pairs}`).toBeLessThan(0.05)
+  })
+
   it('a pair game drawn with nobody free within 30 s is a record placed alone (no ping-pong); a record alone is joined when one draws a pair game', () => {
     for (const d of DAYS) {
       const plan = dayPlan(d, FIVE)
@@ -226,7 +245,7 @@ describe('a ping-pong pair broken by work (#516)', () => {
         for (const s of segs) if (s.kind === 'pingpong' && s.spot === 'pingpong_a' && s.end - s.start > 3 * MIN && s.end < dayStart(d) + 86_400_000) out.push({ d, s, a: FIVE[i] })
     return out
   }
-  it('the one left: a stroll from the moment the partner went, then a solo play nobody else uses (coffee, books, a record) or gaps by turns; never the table', () => {
+  it('the one left: a stroll from the moment the partner went, then the first free of coffee, books, a record, watching, the window; never back and forth, never the table', () => {
     const list = games()
     expect(list.length).toBeGreaterThan(5)
     let filled = 0
@@ -234,13 +253,21 @@ describe('a ping-pong pair broken by work (#516)', () => {
       const from = s.start + 40_000
       const alone = { broken: new Map([[s.stay, from]]) }
       const busy = new Set([s.partner!])
+      const spots: string[] = []
       for (let t = from; t < s.end; t += 5_000) {
         const o = playAt(t, FIVE, busy, alone)[a]
         expect(o.kind, `${new Date(t).toISOString()}`).not.toBe('pingpong')
         if (t < from + 30_000) expect(o).toMatchObject({ kind: 'gap', gap: 'wander' })
-        else if (o.kind !== 'gap') {
-          expect(['coffee', 'books', 'boardgame_solo']).toContain(o.kind)
-          filled++
+        else {
+          if (o.kind !== 'gap') {
+            expect(['coffee', 'books', 'boardgame_solo', 'watch']).toContain(o.kind)
+            filled++
+          }
+          // #524: one place after another, never back to one it has left (no stroll to and fro)
+          if (spots.at(-1) !== o.spot) {
+            expect(spots, `${o.spot} again`).not.toContain(o.spot)
+            spots.push(o.spot)
+          }
         }
         // the same at the same moment (seeking, another browser)
         expect(playAt(t, FIVE, busy, alone)[a]).toEqual(o)
