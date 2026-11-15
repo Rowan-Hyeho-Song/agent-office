@@ -741,9 +741,6 @@ body:has(.tour-bar) .cam-hint { display: none; }
 html[data-motion='reduce'] .tour-bar { animation: none; }
 
 /* echo's speaker switch (#193): a small tag by the sound button, 1.5 s */
-.speaker-tag { position: fixed; right: 56px; bottom: 96px; z-index: 30; margin: 0; padding: var(--space-1) var(--space-2); background: var(--color-panel, #0b0e13); color: var(--color-text, #f3ead8); border: 1px solid var(--color-border, #3a4250); border-radius: 4px; font: 13px var(--font-pixel, monospace); pointer-events: none; opacity: 0; transition: opacity 0.15s; }
-.speaker-tag[data-show] { opacity: 1; }
-@media (prefers-reduced-motion: reduce) { .speaker-tag { transition: none; } }
 
 /* topic badges (#236, docs/design/docs-ui.md 3.6): icon + name in the topic colour; 1px border at 70%, 12% fill; square like the SECRET badge (designer, #289) */
 .topics { display: inline-flex; flex: none; max-width: 100%; }
@@ -863,6 +860,16 @@ html[data-motion='reduce'] .sound-panel.sheet { animation: sound-sheet-fade 120m
 .kr-outline[data-armed='1'] .kr-tag { pointer-events: auto; cursor: pointer; display: flex; align-items: center; min-height: 44px; box-sizing: border-box; padding: 0 12px; }
 .key-rack-btn { pointer-events: auto; transform: translate(-50%, -50%); width: 44px; height: 44px; padding: 0; background: none; border: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .key-rack-btn:focus-visible { outline: none; }
+/* #370 D the desk things a visitor may press (PropPress, desk-props.md 7.2): the key rack's outline and tag; pressed, a second line (what it shows now).
+   The 44 px buttons are for the keyboard and screen readers only: the pointer and fingers go to the canvas, where the nearest thing wins */
+.pp-outline { position: fixed; left: 0; top: 0; z-index: 25; pointer-events: none; box-sizing: border-box; border: 2px solid var(--color-cyan); border-radius: 4px; display: none; }
+.pp-outline[data-show='1'] { display: block; }
+.pp-outline[data-press='1'] { background: rgb(77 243 255 / 0.25); box-shadow: 0 0 8px var(--color-cyan); }
+.pp-tag { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; white-space: nowrap; padding: 2px 8px; background: var(--color-surface-alpha); color: var(--color-text);
+  box-shadow: inset 0 0 0 1px var(--color-cyan); font: 12px var(--font-pixel, monospace); }
+.pp-tag small { font-size: 11px; color: var(--color-text-muted); }
+.prop-press-btn { pointer-events: none; transform: translate(-50%, -50%); width: 44px; height: 44px; padding: 0; background: none; border: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.prop-press-btn:focus-visible { outline: none; }
 
 /* ---- the agent's badge (사원증, office-ui.md 12.1a, #4) ------------------------------------------------------------------ */
 .agent-list .agent-card-btn { all: unset; pointer-events: auto; cursor: pointer; display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 2px; color: var(--color-text-muted); font-size: 12px; line-height: 1; }

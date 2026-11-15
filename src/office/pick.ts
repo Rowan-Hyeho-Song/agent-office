@@ -24,6 +24,12 @@ export function hitBox(scene: Object3D, kind: string, name = `hit_${kind}`): Mes
   return box
 }
 
+/** #370 D a picker that goes first: while it says a screen point is its own (a desk thing under the pointer), the others see nothing there */
+let claim: ((x: number, y: number) => boolean) | null = null
+export function claimPicks(fn: ((x: number, y: number) => boolean) | null) {
+  claim = fn
+}
+
 /**
  * Pointer cursor over the targets and a click (not a camera drag) on them. `targets` is read at every pointer event, so
  * it may change; `onPick` gets all hits nearest first; `onHover` fires when the pointer enters or leaves the targets.
@@ -42,6 +48,8 @@ export function useCanvasPick(targets: () => Object3D[], onPick: (hits: Intersec
       ray.setFromCamera(ndc, camera)
       // #137 ② at the board with the visitor's game, the scene's other picks (a badge, a board, the door) stand aside: the board takes the clicks
       if (isVisitPlaying()) return []
+      // #370 D a desk thing the visitor points at goes before the agent sitting at it (its badge) and the desk's other picks
+      if (claim?.(e.clientX, e.clientY)) return []
       return ray.intersectObjects(latest.current.targets(), false).filter(hitAllowed)
     }
     let down: [number, number] | null = null
