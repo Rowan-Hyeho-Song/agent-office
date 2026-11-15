@@ -164,7 +164,9 @@ describe('the turntable through the Director', () => {
 
   it('the schedule sends agents to the three acts through the day', () => {
     const kinds = new Set<string>()
-    for (let m = 0; m < 24 * 60; m += 3) for (const a of Object.values(playAt(m, IDS))) kinds.add(a.kind)
+    // #490: one day of the plan, every 30 s
+    const day = Date.UTC(2026, 10, 9, 0, 0, 0)
+    for (let t = day; t < day + 86_400_000; t += 30_000) for (const a of Object.values(playAt(t, IDS))) kinds.add(a.kind)
     for (const k of ['fridge', 'dispenser', 'record']) expect(kinds.has(k), k).toBe(true)
   })
 })

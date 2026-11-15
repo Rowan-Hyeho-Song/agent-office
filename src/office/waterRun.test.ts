@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Director } from './director'
-import { BLOCK_MINUTES, playAt } from './play'
+import { playAt } from './play'
 import type { StatusMap } from './status'
 import { CAN_SPOT, WATER_LABEL, WATER_S, holding, plantSpot, startWater, stepWater, type WaterRun } from './waterRun'
 import { pourTotal } from './water'
@@ -79,16 +79,17 @@ describe('stepWater: the errand in stages (#228)', () => {
 })
 
 describe('Director: the schedule sends one agent at a time for the can', () => {
-  // a block where somebody waters, and the minute (in that block) to ask at
-  const block = (() => {
-    for (let m = 3_000_000; ; m += BLOCK_MINUTES) if (Object.values(playAt(m, AGENTS)).some((a) => a.kind === 'water')) return m - (m % BLOCK_MINUTES)
+  // a moment somebody is to water (#490: its own stay in the day plan), and the minute to ask at
+  const T1 = (() => {
+    for (let t = Date.UTC(2026, 10, 9, 1, 0, 0); ; t += 10_000) if (Object.values(playAt(t, AGENTS)).some((a) => a.kind === 'water')) return t
   })()
-  const waterer = Object.entries(playAt(block, AGENTS)).find(([, a]) => a.kind === 'water')![0]
+  const block = Math.floor(T1 / 60000)
+  const waterer = Object.entries(playAt(T1, AGENTS)).find(([, a]) => a.kind === 'water')![0]
 
   it('the assigned agent goes for the can (its own stand, facing it), carrying on whatever the schedule says next', () => {
     const d = new Director(AGENTS)
     const arrived: Record<string, string | null> = {}
-    let now = block * 60000
+    let now = T1
     let g = d.goals(now, block, idle(), (a) => arrived[a] ?? null)
     expect(g[waterer]).toMatchObject({ spot: CAN_SPOT, pose: 'water', water: { stage: 'fetch' } })
     expect(g[waterer].slot).toBeTruthy()
@@ -97,41 +98,45 @@ describe('Director: the schedule sends one agent at a time for the can', () => {
     g = d.goals(now, block, idle(), (a) => arrived[a] ?? null)
     expect(g[waterer].water?.stage).toBe('lift')
     now += (WATER_S.lift + 0.1) * 1000
-    // the block is over: the errand is not (the can is always brought back)
-    const next = block + BLOCK_MINUTES
-    g = d.goals(now + BLOCK_MINUTES * 60000, next, idle(), (a) => arrived[a] ?? null)
-    expect(g[waterer].water?.stage, 'carry, in a later block').toBe('carry')
+    // its stay is over: the errand is not (the can is always brought back)
+    const later = playAt(T1, AGENTS)[waterer].until + 60_000
+    g = d.goals(later, Math.floor(later / 60000), idle(), (a) => arrived[a] ?? null)
+    expect(g[waterer].water?.stage, 'carry, after its stay').toBe('carry')
     expect(g[waterer].spot.startsWith('water_')).toBe(true)
   })
 
   it('only one errand at a time: a second agent assigned water waits at its desk', () => {
-    // two agents in a row (the next block's water agent is someone else)
-    let m = block
+    // two agents three minutes apart (#490: their own stays): the second as the Director sees it, with the first still away on its errand (the plan
+    // without it), and nobody else away (no lounge act or reading under way either time, they would be taken out too)
+    const LATER = 180_000
+    const errandFree = (p: ReturnType<typeof playAt>) => Object.values(p).every((x) => !['fridge', 'dispenser', 'record', 'books'].includes(x.kind))
+    let t0 = T1
+    let first = ''
     let second: string | null = null
-    for (; m < block + 3000 && !second; m += BLOCK_MINUTES) {
-      const a = Object.entries(playAt(m, AGENTS)).find(([, x]) => x.kind === 'water')
-      // the next block's water agent as the Director sees it: with the first still away on its errand the schedule is re-planned without it,
-      // and nobody else is away (no lounge act or reading starts in that block, they would be taken out of it too)
-      const errandFree = (p: ReturnType<typeof playAt>) => Object.values(p).every((x) => !['fridge', 'dispenser', 'record', 'books'].includes(x.kind))
-      const without = a ? playAt(m + BLOCK_MINUTES, AGENTS, new Set([a[0]])) : null
-      // (an act started in the first block would still be waiting for its agent to arrive in the second: none there either)
-      const b = a && without && errandFree(playAt(m, AGENTS)) && errandFree(playAt(m + BLOCK_MINUTES, AGENTS)) && errandFree(without) ? Object.entries(without).find(([, x]) => x.kind === 'water') : undefined
-      if (a && b && a[0] !== b[0]) second = b[0]
+    for (; t0 < T1 + 20 * 86_400_000 && !second; t0 += 10_000) {
+      const a = Object.entries(playAt(t0, AGENTS)).find(([, x]) => x.kind === 'water')
+      if (!a) continue
+      const without = playAt(t0 + LATER, AGENTS, new Set([a[0]]))
+      const b = errandFree(playAt(t0, AGENTS)) && errandFree(playAt(t0 + LATER, AGENTS)) && errandFree(without) ? Object.entries(without).find(([, x]) => x.kind === 'water') : undefined
+      if (b && a[0] !== b[0]) {
+        first = a[0]
+        second = b[0]
+        break
+      }
     }
     expect(second).toBeTruthy()
-    const first = Object.entries(playAt(m - BLOCK_MINUTES, AGENTS)).find(([, x]) => x.kind === 'water')![0]
+    const m = Math.floor(t0 / 60000)
     const d = new Director(AGENTS)
     const arrived: Record<string, string | null> = {}
-    const t0 = (m - BLOCK_MINUTES) * 60000
     const at = (a: string) => arrived[a] ?? null
-    d.goals(t0, m - BLOCK_MINUTES, idle(), at)
+    d.goals(t0, m, idle(), at)
     arrived[first] = CAN_SPOT
-    d.goals(t0 + 1000, m - BLOCK_MINUTES, idle(), at)
-    d.goals(t0 + 3000, m - BLOCK_MINUTES, idle(), at) // lifted
+    d.goals(t0 + 1000, m, idle(), at)
+    d.goals(t0 + 3000, m, idle(), at) // lifted
     arrived[first] = null // and never gets to the plant: it brings the can back unused after carryMax
-    d.goals(t0 + 170_000, m - BLOCK_MINUTES, idle(), at)
-    // the next block: the first is still on its errand
-    const g = d.goals(t0 + BLOCK_MINUTES * 60000, m, idle(), at)
+    d.goals(t0 + 170_000, m, idle(), at)
+    // three minutes on: the first is still on its errand
+    const g = d.goals(t0 + LATER, m + 3, idle(), at)
     expect(g[first].water, 'the first is still on it').toBeTruthy()
     expect(g[second!].water, 'the second does not start').toBeUndefined()
     expect(g[second!]).toMatchObject({ spot: `work_${second!.split('_')[1]}`, pose: 'idle' })
@@ -182,24 +187,27 @@ describe('Director: the schedule sends one agent at a time for the can', () => {
 
 describe('Director: a prop goes back by hand before the agent walks off (#228)', () => {
   it('whoever was playing coffee / ping-pong / omok / reading stands 0.8 s after the play ends; others set off at once', () => {
-    let found: { m: number; agent: string } | null = null
-    for (let m = 3_000_000; !found && m < 3_003_000; m += BLOCK_MINUTES) {
-      const a = playAt(m, AGENTS)
-      const b = playAt(m + BLOCK_MINUTES, AGENTS)
-      for (const [id, x] of Object.entries(a)) if (['coffee', 'books', 'pingpong', 'boardgame'].includes(x.kind) && b[id] && b[id].spot !== x.spot && b[id].kind !== 'water') found = { m, agent: id }
+    // a play that ends (#490: the agent's own stay) and something somewhere else after it
+    let found: { before: number; now: number; agent: string } | null = null
+    for (let t = Date.UTC(2026, 10, 9, 1, 0, 0); !found && t < Date.UTC(2026, 10, 9, 13, 0, 0); t += 10_000) {
+      for (const [id, x] of Object.entries(playAt(t, AGENTS))) {
+        if (!['coffee', 'books', 'pingpong', 'boardgame'].includes(x.kind) || x.until - t < 2000) continue
+        const next = playAt(x.until + 1, AGENTS)[id]
+        if (next && next.spot !== x.spot && next.kind !== 'water') found = { before: x.until - 1000, now: x.until + 1, agent: id }
+      }
     }
     expect(found).toBeTruthy()
     const d = new Director(AGENTS)
     const at = () => null
-    const m = found!.m - (found!.m % BLOCK_MINUTES)
-    d.goals(m * 60000, m, idle(), at)
-    const now = (m + BLOCK_MINUTES) * 60000
-    const g = d.goals(now, m + BLOCK_MINUTES, idle(), at)
+    const m = Math.floor(found!.before / 60000)
+    d.goals(found!.before, m, idle(), at)
+    const now = found!.now
+    const g = d.goals(now, m, idle(), at)
     expect(g[found!.agent].depart, 'held back until the prop is down').toBe(now + 800)
     // the same hold on the next frame (the planner is asked the same thing)
-    expect(d.goals(now + 16, m + BLOCK_MINUTES, idle(), at)[found!.agent].depart).toBe(now + 800)
+    expect(d.goals(now + 16, m, idle(), at)[found!.agent].depart).toBe(now + 800)
     // and the same after the time has passed: a request that changes is a replan, it must not change again
-    expect(d.goals(now + 900, m + BLOCK_MINUTES, idle(), at)[found!.agent].depart).toBe(now + 800)
-    expect(d.goals(now + 916, m + BLOCK_MINUTES, idle(), at)[found!.agent].depart).toBe(now + 800)
+    expect(d.goals(now + 900, m, idle(), at)[found!.agent].depart).toBe(now + 800)
+    expect(d.goals(now + 916, m, idle(), at)[found!.agent].depart).toBe(now + 800)
   })
 })
