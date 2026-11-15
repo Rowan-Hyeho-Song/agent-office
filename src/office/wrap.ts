@@ -476,7 +476,7 @@ export interface WrapView {
   /** the cards still in the left hand while carrying / posting / (walking back after a wait) */
   carry: number
   /** the current beat (write / post / tidy), with how far into it */
-  beat?: { kind: BeatKind; u: number; k: number; piece: PieceKind; v?: number; end?: boolean; n?: number }
+  beat?: { kind: BeatKind; u: number; k: number; piece: PieceKind; v?: number; end?: boolean; n?: number; wait?: number }
   /** the cards are written and the desk pieces go round while the board is taken */
   reread: boolean
   /** waiting beside a taken board with the stack */
@@ -503,7 +503,8 @@ export function viewOf(run: WrapRun, inp: Pick<WrapInput, 'now' | 'gm' | 'boardT
       // the board is taken: the desk pieces go round on the top card (no new cards), what is written over is added to it
       const loop = waitBeats(run.agent, run.since)
       const w = beatAt(loop, el % totalOf(loop))
-      return { ...base, label: REREAD_LABEL, carry: run.n, beat: { ...out(w.beat, w.u), k: top, n: run.plan.cards } }
+      // #532 (wrapup.md 9.4): how long it has waited for the board at its desk, s (the held cards are lowered after 20 s)
+      return { ...base, label: REREAD_LABEL, carry: run.n, beat: { ...out(w.beat, w.u), k: top, n: run.plan.cards, wait: el } }
     }
     const w = beatAt(run.plan.desk, el)
     // #532: the bundle held while writing is the cards of this sitting (wrapup.md 9.1)
