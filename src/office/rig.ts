@@ -54,6 +54,7 @@ import { CRUISE, CRUISE_TUNED, TRAFFIC, type Sample } from './traffic'
 import type { AgentStatus } from './status'
 import { gapHead, stretchLift } from './gapMotion'
 import { STRETCH_ABOVE } from './stretch.data'
+import { LIE_POSE } from './lie.data'
 import { musicGlow, speakerCone, speakerOn } from '../audio/speaker'
 
 /** the poses of the play schedule (play.ts PlayKind): what "resting" means (sound.md 5) */
@@ -80,7 +81,12 @@ const NOD_HAND_S = 0.8
 const LIFT = 0.06 // extra hover height while moving
 /** seated spots: the head floats lower over the cushion / stool */
 /** lying on the chaise: the head's height above the floor (the cushion's top 0.44 + the head's own half height) and how far it tips back (face up, rad) */
-const LIE = { headY: 0.62, faceUpRad: (80 * Math.PI) / 180 }
+/**
+ * Lying on the east seat (lounge-props.md 1, #519): face up 80°; the head's middle `southM` from the nav `head` point toward the seat (its crown on the pillow,
+ * not over the armrest) at its own height (lie.data.ts: the back of the head 5 mm over the pillow), else `headY`; the two hands palm down on the cushion
+ * `handsSouthM` further on (the belly), `handsWestM` west of the head's line, `handsApartM` apart, at their own height (lie.data.ts), else `handY`
+ */
+const LIE = { headY: 0.62, faceUpRad: (80 * Math.PI) / 180, southM: 0.255, handsSouthM: 0.38, handsWestM: 0.03, handsApartM: 0.1, handY: 0.48 }
 const SEAT: Record<string, number> = { sofa: -0.3, stool: -0.2 }
 /** where the beam of light ends when the agent hovers over furniture (else the floor) */
 const SURFACE: Record<string, number> = { work: 0.76, stool: 0.525, sofa: 0.44 }
@@ -763,6 +769,9 @@ export class AgentRig {
   /** lying on the chaise (nav extras lie + head, lounge-props.md 1): how far it has gone (0 … 1), and where the head goes in the root's frame */
   private lying = 0
   private lieOff = new Vector3()
+  /** #519: where the hands lie on the cushion (world), while lying; the measuring sets `lieAt` instead of this agent's lie.data.ts heights */
+  private lieHands: Record<'l' | 'r', Vector3> | null = null
+  lieAt: { headY: number; handY: number } | null = null
   private headRest: { x: number; z: number } | null = null
   private look = { pitch: 0, yaw: 0, roll: 0 }
   /** the current bends per hand (eased toward the pose's shape): four fingers, then the thumb's bend and opposition */
@@ -1248,11 +1257,29 @@ export class AgentRig {
     this.headRest ??= { x: head.position.x, z: head.position.z }
     if (lieK > 0.001) {
       if (lieSpot) {
-        const wx = lieSpot.x - this.x
-        const wz = lieSpot.z - this.z
+        // along the seat: from the head point toward the seat's spot (south on the east seat)
+        const sp = g.spots[goal.spot]
+        const len = Math.hypot(sp.x - lieSpot.x, sp.z - lieSpot.z) || 1
+        const dx = (sp.x - lieSpot.x) / len
+        const dz = (sp.z - lieSpot.z) / len
+        const own = this.lieAt ?? LIE_POSE[Number(this.id.split('_')[1])]
+        const hx = lieSpot.x + dx * LIE.southM
+        const hz = lieSpot.z + dz * LIE.southM
+        const wx = hx - this.x
+        const wz = hz - this.z
         const c = Math.cos(this.heading)
         const sn = Math.sin(this.heading)
-        this.lieOff.set(wx * c - wz * sn, LIE.headY - this.parts.headRestY, wx * sn + wz * c)
+        this.lieOff.set(wx * c - wz * sn, (own?.headY ?? LIE.headY) - this.parts.headRestY, wx * sn + wz * c)
+        // the hands on the belly: across the seat, the right one west (lying face up, head north)
+        const ax = -dz
+        const az = dx
+        const mx = hx + dx * LIE.handsSouthM - ax * LIE.handsWestM
+        const mz = hz + dz * LIE.handsSouthM - az * LIE.handsWestM
+        const hy = own?.handY ?? LIE.handY
+        this.lieHands = {
+          r: new Vector3(mx - (ax * LIE.handsApartM) / 2, hy, mz - (az * LIE.handsApartM) / 2),
+          l: new Vector3(mx + (ax * LIE.handsApartM) / 2, hy, mz + (az * LIE.handsApartM) / 2),
+        }
       }
       head.position.set(this.headRest.x + this.lieOff.x * lieK, this.parts.headRestY + MathUtils.lerp(dy, this.lieOff.y, lieK), this.headRest.z + this.lieOff.z * lieK)
     } else head.position.set(this.headRest.x, this.parts.headRestY + dy, this.headRest.z)
@@ -1922,7 +1949,11 @@ export class AgentRig {
       }
       // the tuck: the free hand on a sitter's side comes in toward the body (the walking place and the standing rest place only)
       // lying: the hands come with the head (the free ones rest beside it)
-      if (this.lying > 0.001) p.pos.add(new Vector3(this.lieOff.x, this.lieOff.y * 0.6, this.lieOff.z).multiplyScalar(this.lying))
+      // #519: on the east seat both hands lie palm down on the cushion at the belly
+      if (this.lying > 0.001 && this.lieHands) {
+        p.pos.lerp(this.parts.root.worldToLocal(this.lieHands[side].clone()), this.lying)
+        p.turn = p.turn.clone().slerp(palmDown(side), this.lying)
+      } else if (this.lying > 0.001) p.pos.add(new Vector3(this.lieOff.x, this.lieOff.y * 0.6, this.lieOff.z).multiplyScalar(this.lying))
       const tk = this.tuck[side] * (1 - this.heldAmount(side))
       if (tk > 0.001 && (p.walk || p.rest)) p.pos.x -= (side === 'l' ? -1 : 1) * TUCK.inM * tk
       if (this.forced[side]) p.curl = this.forced[side]!
