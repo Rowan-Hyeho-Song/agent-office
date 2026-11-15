@@ -200,14 +200,19 @@ ${rows}
       )
     }, 3_600_000)
   } else {
+    /**
+     * the gap a desk's stored point must keep: 1 cm, but 0.95 cm on desk 1 (the designer, #499 judged): no point there keeps 1 cm with something to
+     * spare. Up to +10 cm toward the body the resting hand's fingers reach the mouse pad; from +11 cm it hangs off the desk's front edge (#506). Resting
+     * on the pad (#507), the nearest the hands come is 0.98 cm
+     */
+    const GAP_OF: Record<number, number> = { 1: 0.0095 }
     for (const seat of SEATS) {
-      it(`desk ${seat}: the stored point keeps the hands ${GAP_M * 100} cm apart (or as found, where no point does) and the hand out of what is on the desk`, async () => {
+      it(`desk ${seat}: the stored point keeps the hands ${(GAP_OF[seat] ?? GAP_M) * 100} cm apart and the hand out of what is on the desk`, async () => {
         const p = WRITE_PRESS[seat]
         expect(p, 'a point for every desk').toBeDefined()
         const r = tryPress(await writer(seat), p)
         expect(r.hits, 'into nothing on the desk, all of it over the desk').toEqual([])
-        if (p.ok) expect(r.gap, r.where).toBeGreaterThanOrEqual(GAP_M)
-        else expect(r.gap).toBeCloseTo(p.gap ?? 0, 3)
+        expect(r.gap, r.where).toBeGreaterThanOrEqual(GAP_OF[seat] ?? GAP_M)
       }, 120_000)
     }
   }
