@@ -69,13 +69,21 @@ function palmPoints(hand: Object3D): Vector3[] {
   return hand.children.filter((c) => (c as Mesh).isMesh && own.test(c.name)).flatMap((m) => points(m))
 }
 
-/** how far `p` is above the desk or the thing under it (a ray straight down from above everything), or null over nothing of the desk */
+/**
+ * How far `p` is above the desk or the thing under it (a ray straight down from above everything), or null over nothing of the desk. The desk does
+ * not move: what is under each 5 mm column (`key`) is cast once and kept in `under` (the ray starts above everything, so it does not depend on p.y).
+ */
 const ray = new Raycaster()
-function above(things: Object3D[], p: Vector3): number | null {
-  ray.set(new Vector3(p.x, 2, p.z), new Vector3(0, -1, 0))
-  ray.far = 2
-  const hit = ray.intersectObjects(things, true)[0]
-  return hit ? p.y - hit.point.y : null
+function above(things: Object3D[], p: Vector3, key: string, under: Map<string, number | null>): number | null {
+  let y = under.get(key)
+  if (y === undefined) {
+    ray.set(new Vector3(p.x, 2, p.z), new Vector3(0, -1, 0))
+    ray.far = 2
+    const hit = ray.intersectObjects(things, true)[0]
+    y = hit ? hit.point.y : null
+    under.set(key, y)
+  }
+  return y === null ? null : p.y - y
 }
 
 /** the closest two point sets come */
@@ -113,6 +121,7 @@ describe('the bundle held in the hand while writing (#532, wrapup.md 9.5)', () =
       for (let k = 0; k < 40; k++) w.step(beat(w.spot.id, 'line', 0, 0))
       let low = Infinity
       let where = ''
+      const under = new Map<string, number | null>()
       for (const p of PIECES)
         for (let i = 0; i <= 24; i++) {
           w.step(beat(w.spot.id, p.kind, i / 24, p.k, p.v, 4, p.wait, p.reread))
@@ -126,8 +135,8 @@ describe('the bundle held in the hand while writing (#532, wrapup.md 9.5)', () =
             const c = cols.get(key)
             if (!c || q.y < c.y) cols.set(key, q)
           }
-          for (const q of cols.values()) {
-            const h = above(w.things, q)
+          for (const [key, q] of cols) {
+            const h = above(w.things, q, key, under)
             if (h !== null && h < low) {
               low = h
               where = `${p.kind}${p.wait ? ` wait ${p.wait}` : ''}${p.reread ? ' reread' : ''} u ${(i / 24).toFixed(2)}`
