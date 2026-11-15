@@ -4,8 +4,8 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { ATLASES, DEFERRED_ATLASES, FIRST_URLS, _resetFirstScreen, afterFirstScreen, atlasLoUrl, atlasUrl, firstUrl, isDeferred, markFirstScreen, swapAtlas, upgradeAtlases } from './atlases'
 
 describe('load order', () => {
-  it('only the close-up atlases are deferred, and they are real atlases', () => {
-    expect([...DEFERRED_ATLASES].sort()).toEqual(['desk_props', 'fridge', 'lounge', 'lounge2', 'wall_items'])
+  it('the close-up atlases and the floor (#402: the widest on the first screen) are deferred, and they are real atlases', () => {
+    expect([...DEFERRED_ATLASES].sort()).toEqual(['desk_props', 'floor', 'fridge', 'lounge', 'lounge2', 'wall_items'])
     for (const a of DEFERRED_ATLASES) expect(ATLASES).toContain(a)
   })
   it('scripts/atlas-lo.mjs makes stand-ins for exactly the deferred atlases', () => {
@@ -19,7 +19,7 @@ describe('load order', () => {
       expect(firstUrl(a)).toBe(isDeferred(a) ? atlasLoUrl(a) : atlasUrl(a))
       expect(firstUrl(a)).toMatch(isDeferred(a) ? /\.lo\.webp$/ : /[^o]\.webp$/)
     }
-    for (const a of ['room', 'floor', 'walls_nw', 'walls_se', 'work'] as const) expect(isDeferred(a)).toBe(false)
+    for (const a of ['room', 'walls_nw', 'walls_se', 'work'] as const) expect(isDeferred(a)).toBe(false)
   })
   it('every atlas has its file, every deferred one a stand-in far smaller than the full file', () => {
     const size = (f: string) => readFileSync(new URL(`../../public/models/${f}`, import.meta.url)).length

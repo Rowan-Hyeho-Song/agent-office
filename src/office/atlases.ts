@@ -8,7 +8,8 @@ export const ATLASES = ['room', 'floor', 'walls_nw', 'walls_se', 'work', 'wall_i
 export type AtlasName = (typeof ATLASES)[number]
 
 /** fetched after the first screen is shown (a 512 px stand-in is used until then) */
-export const DEFERRED_ATLASES: readonly AtlasName[] = ['wall_items', 'lounge', 'lounge2', 'desk_props', 'fridge']
+// #402 the floor too: the widest thing on the first screen, 145 KB before it; its 512 px stand-in first, the full one after
+export const DEFERRED_ATLASES: readonly AtlasName[] = ['floor', 'wall_items', 'lounge', 'lounge2', 'desk_props', 'fridge']
 export const isDeferred = (a: AtlasName) => DEFERRED_ATLASES.includes(a)
 
 export const atlasUrl = (a: AtlasName) => assetUrl(`models/${a}.webp`)
