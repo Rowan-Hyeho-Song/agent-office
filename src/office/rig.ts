@@ -1449,6 +1449,20 @@ export class AgentRig {
     const q = p.clone().applyAxisAngle(UP, this.writeTurn)
     return [q.x + this.writeShift, q.y, q.z]
   }
+  /** #481: where the card is written (writePlace; null in front), for the card and the pen the stage draws */
+  get writingPlace(): WritePlace {
+    return this.place
+  }
+  /** #481: a point in the seat's frame (wrapPose.ts) in world: the desk does not turn with the body */
+  seatToWorld(x: number, y: number, z: number, out = new Vector3()): Vector3 {
+    const [bx, by, bz] = this.seatToBody([x, y, z])
+    return this.parts.root.localToWorld(out.set(bx, by, bz))
+  }
+  /** #481: the seat frame's rotation in world (the body's without its turn toward the card) */
+  seatQuat(out = new Quaternion()): Quaternion {
+    this.parts.root.getWorldQuaternion(out)
+    return out.multiply(this.tmpQuat2.setFromAxisAngle(UP, -this.writeTurn))
+  }
   private updateCards(count: number, flat: boolean) {
     // the stack is on the hand that presses the card: the left, or on the aisle-side desks the one opposite the pen
     const side: 'l' | 'r' = this.place && this.goal?.pose === 'write' && this.place.side < 0 ? 'r' : 'l'
@@ -1470,7 +1484,8 @@ export class AgentRig {
       this.cards[side] = m
     }
     const m = this.cards[side]!
-    m.visible = count > 0 && this.parts.root.visible
+    // while writing the cards are on the desk (the stage draws them, #481 wrapup.md 9.1): the hand holds none
+    m.visible = count > 0 && this.parts.root.visible && !flat
     if (!m.visible) return
     const n = m.userData.n as Vector3
     m.scale.y = Math.max(1, count)
