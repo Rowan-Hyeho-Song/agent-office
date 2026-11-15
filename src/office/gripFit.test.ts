@@ -29,6 +29,10 @@ const OBJECTS: [string, string, 'l' | 'r'][] = [
   // the loose sheet held by its long sides for reading (#374): the grip empties of the lower half
   ['prop_paper_a', 'paper_side', 'l'], ['prop_paper_a', 'paper_side', 'r'],
   // #370 B the desk props taken for a moment: the duck, the keycap, a plaster shape
+  // #370 C the hourglass pinched at two pillars across (thumb -x, index +x)
+  ['desk_0_hourglass', 'hourglass', 'r'],
+  // #370 C the ring light's knob pinched (thumb over, index under)
+  ['desk_1_ringlight_knob', 'ringknob', 'r'],
   ['prop_duck', 'duck', 'r'], ['prop_keycap_0', 'keycap', 'r'], ['prop_shape_1', 'shape', 'r'],
   // #370 B3 the IN pile's top sheet pinched at its corner (its grip and contacts are made by TrayPile)
   ['desk_0_in_top', 'paper_corner', 'r'], ['desk_0_in_top', 'paper_tray_side', 'l'], ['desk_0_in_top', 'paper_tray_side', 'r'],
