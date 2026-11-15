@@ -11,6 +11,7 @@ import { PlayStage, type StageIn } from './playStage'
 import { STONE_DISC_R } from './grip'
 import { AgentRig, PropBank, buildRig } from './rig'
 import type { Goal } from './director'
+import { startVisitorGame, stepVisitorGame, viewOf, visitorMove, VISITOR_OMOK } from '../play/visitorOmok'
 
 stubCanvas()
 const IDS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
@@ -345,5 +346,58 @@ describe('PlayStage', () => {
     w.stage.update(inp(w, goals, s.startMs + 60_000, 1))
     expect(w.nodes.pp_ball.visible).toBe(true)
     expect(sessionTime(s, s.startMs + 60_000)).toBeGreaterThan(0)
+  })
+
+  it('#137 ②: the board takes a world point to its cell and back (the visitor pointer)', async () => {
+    const w = await world()
+    const g = w.stage.omokGrid!
+    expect(g.n).toBe(15)
+    for (const cell of [0, 14, 112, 210, 224, 37]) {
+      const p = w.stage.omokPoint(cell)!
+      expect(w.stage.omokCellAt(p)).toBe(cell)
+      expect(w.stage.omokCellAt(p.clone().add(new Vector3(g.cell * 0.3, 0, -g.cell * 0.3)))).toBe(cell)
+    }
+    expect(w.stage.omokCellAt(w.stage.omokPoint(0)!.add(new Vector3(-g.cell, 0, 0)))).toBeNull() // off the board
+  })
+
+  it('#137 ②: the visitor game is drawn at game_a; its white bowl fades over to the agent corner and back, never sliding', async () => {
+    const w = await world()
+    const goals = Object.fromEntries(IDS.map((id) => [id, { spot: 'work_0', pose: 'idle', label: '' } as Goal]))
+    const r = w.rigs.agent_0
+    r.at = 'game_a'
+    r.x = -2.2
+    r.z = 2.2
+    r.heading = -Math.PI / 2
+    r.parts.root.position.set(r.x, 0, r.z)
+    r.parts.root.rotation.set(0, r.heading, 0)
+    r.parts.root.updateMatrixWorld(true)
+    goals.agent_0 = { spot: 'game_a', pose: 'boardgame', label: '' }
+    expect(r.arrived).toBe('game_a')
+    let g = visitorMove(startVisitorGame('agent_0', 7, 0), 112, 0)!.g
+    g = stepVisitorGame(g, VISITOR_OMOK.thinkCapMs + 100).g
+    const bowl = w.scene.getObjectByName('prop_omok_bowl_w')!
+    const homeX = bowl.position.x
+    const frame = (t: number, visit: boolean) => {
+      const now = 10_000 + t * 1000
+      w.stage.update(inp(w, goals, now, t, { dt: 0.02, bowlRest: visit ? 'corner' : 'home', visitorOmok: visit ? { agent: 'agent_0', view: viewOf(g, now) } : null }))
+      w.props.hold(new Map(Object.values(w.rigs).map((x) => [x, x.want])))
+      w.props.update(0.02)
+      const st = (w.stage as unknown as { stones: { b: { count: number }; w: { count: number } } }).stones
+      return { o: (w.stage as unknown as { bowlOpacity: number }).bowlOpacity, x: bowl.position.x, b: st.b.count, wc: st.w.count }
+    }
+    for (let t = 0; t < 0.2; t += 0.02) frame(t, false)
+    const seen: { o: number; x: number; b: number; wc: number }[] = []
+    for (let t = 0.2; t < 0.8; t += 0.02) seen.push(frame(t, true))
+    const cornerX = seen.at(-1)!.x
+    expect(cornerX).toBeLessThan(homeX - 0.3)
+    expect(seen.every((f) => Math.abs(f.x - homeX) < 0.005 || Math.abs(f.x - cornerX) < 0.005)).toBe(true)
+    expect(Math.min(...seen.map((f) => f.o))).toBeLessThan(0.2)
+    expect(seen.at(-1)).toMatchObject({ o: 1, b: 1, wc: 1 }) // the visitor's black and the agent's white, nothing else
+    const back: { o: number; x: number }[] = []
+    for (let t = 0.8; t < 1.4; t += 0.02) back.push(frame(t, false))
+    expect(back.every((f) => Math.abs(f.x - homeX) < 0.005 || Math.abs(f.x - cornerX) < 0.005)).toBe(true)
+    expect(Math.min(...back.map((f) => f.o))).toBeLessThan(0.2)
+    expect(back.at(-1)!.x).toBeCloseTo(homeX, 4)
+    expect(back.at(-1)!.o).toBe(1)
   })
 })
