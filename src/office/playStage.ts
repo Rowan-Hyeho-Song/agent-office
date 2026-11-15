@@ -48,6 +48,7 @@ import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
 import { Typist } from './typist'
 import { LoungeActs } from './loungeActs'
+import { WriteDesk } from './writeDesk'
 import { DRINK_PROP_KINDS } from './lounge'
 
 const UP = new Vector3(0, 1, 0)
@@ -224,6 +225,8 @@ export class PlayStage {
   private sceneRef: Object3D
   /** the lounge's acts, drawn (#280, loungeActs.ts): the fridge door, the dispenser, the turntable, the pillow, the lever, the mat */
   readonly lounge: LoungeActs
+  /** #481 the card and the pen on the writing desk (writeDesk.ts) */
+  readonly writeDesk: WriteDesk
 
   constructor(
     scene: Object3D,
@@ -233,6 +236,7 @@ export class PlayStage {
     this.sceneRef = scene
     scene.updateMatrixWorld(true)
     this.typist = new Typist(nodes)
+    this.writeDesk = new WriteDesk(scene)
     this.lounge = new LoungeActs(scene, nodes, props, {
       grip: (rig, side, kind, objName, want, held, inp, prefer, via) => this.grip(rig, side, kind, objName, want, held, inp, prefer, false, via),
       partner: (rig, kind, side, objName, primary) => {
@@ -530,7 +534,9 @@ export class PlayStage {
     this.pingpong(pp, inp)
     this.omok(og, inp)
     for (const e of this.carry.values()) e.seen = false
-    for (const id of ids) if (inp.gripDemo?.agent !== id) this.solo(inp.rigs[id], inp.goals[id], inp, pp, og)
+    // #481 writing the wrap-up cards: the card on the desk, the pen hand on the pen; nothing else takes the hands meanwhile
+    const writing = new Set(ids.filter((id) => this.writeDesk.drive(inp.rigs[id], inp.goals[id], inp)))
+    for (const id of ids) if (inp.gripDemo?.agent !== id && !writing.has(id)) this.solo(inp.rigs[id], inp.goals[id], inp, pp, og)
     this.demo(inp)
     this.putBack(inp)
     for (const id of ids) if (!this.typed.has(id)) this.typist.fade(inp.rigs[id], inp.dt)
@@ -538,6 +544,7 @@ export class PlayStage {
       inp.rigs[id].applyDrive('l', inp.t, inp.reduced)
       inp.rigs[id].applyDrive('r', inp.t, inp.reduced)
     }
+    for (const id of ids) this.writeDesk.draw(inp.rigs[id], inp.goals[id], inp)
     this.lounge.update(inp)
     this.book(inp)
     this.water(inp)

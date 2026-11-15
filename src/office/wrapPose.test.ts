@@ -4,7 +4,7 @@ import { GRAPH } from './navSpots.fixture'
 import { DEFAULT_CAMERA } from './room'
 import { angleFromFront } from './tour'
 import { planBoard, planDesk, tidyBeats, type Beat } from './wrap'
-import { WRITE_ASIDE, wrapBack, wrapHand, wrapHead, writePlace, type HandSpec, type WritePlace } from './wrapPose'
+import { WRITE_ASIDE, WRITE_CARD, nibAt, wrapBack, wrapHand, wrapHead, writeCard, writePlace, type HandSpec, type WritePlace } from './wrapPose'
 
 const REST: [number, number, number] = [0.24, 0.86, -0.1]
 const READ: [number, number, number] = [-0.02, 1.25, -0.27]
@@ -66,11 +66,16 @@ describe('writing beside the monitor on the desks that face the camera (#229)', 
     expect(at(-1, 0.25)).toBeGreaterThan(at(-1, 0))
   })
 
-  it('without a place (the desks with their back to the camera) the writing is where it was', () => {
+  it('without a place (the desks with their back to the camera) the card is in front, the pen writes on it; the other hand presses its edge (#481, #495)', () => {
     const line: Beat = { kind: 'line', k: 0, dur: 2, piece: 'line', v: 0 }
-    expect(hand('r', 'write', line, 0.5).pos[2]).toBeCloseTo(-0.43, 1)
-    expect(hand('r', 'write', line, 0.5).pos[0]).toBeGreaterThan(0.1)
-    expect(hand('l', 'write', line, 0.5).pos[0]).toBeCloseTo(-0.13, 5)
+    // wrapup.md 9.1: the card's centre in front of the body (0, -0.41); the pen hand over the card
+    const card = writeCard(null)
+    expect([card.x, card.z]).toEqual([0, -0.41])
+    expect(Math.abs(hand('r', 'write', line, 0.5).pos[0] - card.x)).toBeLessThan(WRITE_CARD.w / 2)
+    expect(Math.abs(hand('r', 'write', line, 0.5).pos[2] - card.z)).toBeLessThan(WRITE_CARD.d / 2)
+    // #505: with no point of its own (writePress.data.ts) the palm rests beside the card, toward the pressing side and the body
+    expect(hand('l', 'write', line, 0.5).pos[0]).toBeCloseTo(card.x - WRITE_CARD.pressSide, 5)
+    expect(hand('l', 'write', line, 0.5).pos[2]).toBeCloseTo(card.z + WRITE_CARD.pressBack, 5)
   })
 })
 
@@ -172,5 +177,36 @@ describe('the hands of the wrap-up pieces (#229)', () => {
 
   it('the tidy-up still ends the same (the beats are the old ones)', () => {
     expect(tidyBeats().map((b) => b.kind)).toEqual(['gather', 'tap', 'tap', 'keys', 'lean'])
+  })
+})
+
+describe('the pen\'s tip on the card (#481, wrapup.md 9.2 · 9.3)', () => {
+  const places: WritePlace[] = [null, { side: 1 }, { side: -1 }]
+  const beat = (kind: string, u: number, v = 0) => ({ kind, u, k: 0, v }) as unknown as Parameters<typeof nibAt>[0]
+  it('on the card top while it writes a line or strikes one out, inside the card; up 1 cm on a new line, 1.6 cm between taps', () => {
+    for (const place of places) {
+      const c = writeCard(place)
+      for (let i = 0; i <= 40; i++) {
+        const u = i / 40
+        for (const [kind, maxLift] of [['line', 0], ['strike', 0], ['readUp', 0], ['newline', 0.01], ['tapPen', 0.016]] as const)
+          for (const row of [0, 3, 6]) {
+            const [x, lift, z] = nibAt(beat(kind, u, row), u * 3, { place, reduced: false, m: 1 })
+            expect(lift, `${kind} lift`).toBeLessThanOrEqual(maxLift + 1e-9)
+            expect(lift).toBeGreaterThanOrEqual(0)
+            expect(Math.abs(x - c.x), `${kind} x on the card`).toBeLessThan(WRITE_CARD.w / 2 - 0.005)
+            expect(Math.abs(z - c.z), `${kind} z on the card`).toBeLessThan(WRITE_CARD.d / 2 - 0.005)
+          }
+      }
+      // the line's left end 1.2 cm in from the card's left edge, the first line 1.5 cm in from its far edge
+      const [x0, , z0] = nibAt(beat('line', 0), 0, { place, reduced: false, m: 0 })
+      expect(x0 - (c.x - WRITE_CARD.w / 2)).toBeCloseTo(WRITE_CARD.inLeft, 6)
+      expect(z0 - (c.z - WRITE_CARD.d / 2)).toBeCloseTo(WRITE_CARD.inFar, 6)
+    }
+  })
+  it('reduced motion: the tip stands still on the line', () => {
+    const a = nibAt(beat('strike', 0.1), 1, { place: { side: 1 }, reduced: true, m: 0.3 })
+    const b = nibAt(beat('tapPen', 0.5), 1, { place: { side: 1 }, reduced: true, m: 0.3 })
+    expect(a[1]).toBe(0)
+    expect(b[1]).toBe(0)
   })
 })
