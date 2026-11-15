@@ -22,6 +22,8 @@ export const BUBBLE = {
   /** the anchor sits 4px above the head point; a bubble that opens downward hangs from 30px below it */
   anchorUp: 4,
   anchorDown: 30,
+  /** #137 ② C a bubble over a face screen (the phone at the omok board): kept this far inside the screen's sides, and this far from the screen top and the things it must not cover */
+  faceEdge: 8,
 } as const
 
 /** the first sentence of a markdown cell, plain, at most `max` characters (the last one an ellipsis when cut) */
@@ -88,6 +90,14 @@ export interface PlaceInput {
   dim: boolean
   /** hangs below the head (a meeting before the whiteboard: the board stays visible) */
   down?: boolean
+  /**
+   * #137 ② C (at the omok board, where the head point is off the screen): a bubble by the face screen, not held to the office's safe line.
+   * Over it (a phone): (x, y) is the face's top middle; the card stands over it, centred. Beside it (`beside`, a wide screen): (x, y) is
+   * the face's lower right corner; the card opens up and right from there. Either way kept BUBBLE.faceEdge inside the screen's sides; only
+   * when it would come within faceEdge of the screen top or of an `avoid` box (the HUD, '← 책상으로') does it hang below the face
+   * (`below`: the face's lower edge) instead.
+   */
+  face?: { below: number; avoid: readonly Rect[]; beside?: boolean }
 }
 
 export interface Placed {
@@ -99,6 +109,8 @@ export interface Placed {
   shift: number
   /** false when the anchor is off screen (the bubble hides; the log still gets its line) */
   visible: boolean
+  /** the anchor's y when it is not the input's (a face bubble hanging below the face) */
+  y?: number
 }
 
 export interface PlaceView {
@@ -107,7 +119,7 @@ export interface PlaceView {
   narrow: boolean
 }
 
-interface Rect {
+export interface Rect {
   left: number
   top: number
   right: number
@@ -126,6 +138,25 @@ export function cardRect(i: Pick<PlaceInput, 'x' | 'y' | 'w' | 'h'>, p: Pick<Pla
   return { left, right: left + i.w, top, bottom: top + i.h }
 }
 
+const near = (a: Rect, b: Rect, gap: number) => a.left < b.right + gap && a.right > b.left - gap && a.top < b.bottom + gap && a.bottom > b.top - gap
+
+/** a bubble by a face screen (PlaceInput.face): over its top edge centred, or beside it; inside the sides; below the face when the top has no room */
+function placeOverFace(i: PlaceInput, f: NonNullable<PlaceInput['face']>, p: Placed, view: PlaceView) {
+  const e = BUBBLE.faceEdge
+  p.side = 'right'
+  p.dir = 'up'
+  // over: centred on the anchor (side 'right' starts the card at x - stripe / 2); beside: from the anchor; then pushed inside the sides
+  p.shift = f.beside ? 0 : BUBBLE.stripe / 2 - i.w / 2
+  let r = cardRect(i, p)
+  if (r.left < e) p.shift += e - r.left
+  else if (r.right > view.w - e) p.shift -= r.right - (view.w - e)
+  r = cardRect(i, p)
+  if (r.top < e || f.avoid.some((a) => near(r, a, e))) {
+    p.dir = 'down'
+    p.y = f.below - BUBBLE.anchorDown
+  }
+}
+
 /**
  * Where every bubble goes (the mock's fit()): up unless the top edge would pass the safe line, then down; a lone
  * bubble flips to the other side at a screen edge while a facing one only slides inward; overlapping bubbles stack
@@ -142,6 +173,10 @@ export function placeBubbles(items: PlaceInput[], view: PlaceView): Record<strin
     out[i.id] = { side: i.prefSide, dir: 'up', stack: 0, shift: 0, visible: !gone }
     if (gone) continue
     const p = out[i.id]
+    if (i.face) {
+      placeOverFace(i, i.face, p, view)
+      continue
+    }
     if (i.down) p.dir = 'down'
     let r = cardRect(i, p)
     if (r.top < top && p.dir === 'up') {
