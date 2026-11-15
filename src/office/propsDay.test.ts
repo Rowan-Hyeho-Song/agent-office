@@ -206,10 +206,6 @@ describe('one can for the whole office: a second agent sent for it while the fir
         for (const seg of segs) {
           // by day: 09:00-23:00 KST (the plan's day starts at 04:00)
           if (start >= 0 || seg.kind !== 'water' || seg.start < dayStart + 5 * 3_600_000 || seg.start > dayStart + 19 * 3_600_000) continue
-        // a stretch with nobody at the board: the white bowl's errand is not what this test looks at (its grip is checked on its own)
-        let board = false
-        for (let u = seg.start - 61_000; u < seg.start + 110_000 && !board; u += 5_000) board = Object.values(playAt(u, roster)).some((x) => x.kind === 'boardgame_solo' || x.kind === 'boardgame')
-          if (board) continue
           const other = plan.findIndex((o, n) => n !== i && o.some((x) => x.kind === 'water' && x.start <= seg.start - 1000 && x.end > seg.start))
           if (other < 0) continue
           start = seg.start
