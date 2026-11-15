@@ -1,22 +1,23 @@
 // Makes the 512 px stand-ins (<name>.lo.webp) of the close-up atlases from their full-size webp (#280 9.4).
 // The first screen shows these until the full atlas has been fetched (src/office/atlases.ts). It reads the full files
 // in public/models/, so it never needs to know their size; run it after every bake (build-office.sh does):
-//   node scripts/atlas-lo.mjs [dir]        dir defaults to public/models
+//   node scripts/atlas-lo.mjs [dir] [name ...]   dir defaults to public/models; names: only these (default: all the deferred ones)
 // No image library is installed, so Chrome (already needed by smoke / a11y; playwright-core drives the system
 // browser) does the resize and the webp encode.
 import { readFileSync, writeFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { chromium } from 'playwright-core'
 
-const DEFERRED = ['wall_items', 'lounge', 'lounge2', 'desk_props', 'fridge'] // keep in step with DEFERRED_ATLASES in src/office/atlases.ts
+const DEFERRED = ['floor', 'wall_items', 'lounge', 'lounge2', 'desk_props', 'fridge'] // keep in step with DEFERRED_ATLASES in src/office/atlases.ts
 const SIZE = 512
 const QUALITY = 0.9
 const dir = process.argv[2] ?? 'public/models'
+const only = process.argv.slice(3)
 
 const browser = await chromium.launch({ channel: 'chrome' })
 try {
   const page = await browser.newPage()
-  for (const name of DEFERRED) {
+  for (const name of only.length ? DEFERRED.filter((n) => only.includes(n)) : DEFERRED) {
     const src = join(dir, `${name}.webp`)
     const b64 = readFileSync(src).toString('base64')
     const out = await page.evaluate(
