@@ -46,7 +46,7 @@ export interface Goal {
   quiet?: boolean
   /** the wrap-up (#186): cards still in the left hand, the current beat of the hands, re-reading, standing by the taken board */
   carry?: number
-  beat?: { kind: BeatKind; u: number; k: number; piece: PieceKind; v?: number; end?: boolean; n?: number }
+  beat?: { kind: BeatKind; u: number; k: number; piece: PieceKind; v?: number; end?: boolean; n?: number; wait?: number }
   reread?: boolean
   waiting?: boolean
   /** #481 the wrap-up's step while it lasts (the pen laid on the desk stays there until the tidy-up is over) */
@@ -665,7 +665,7 @@ export class Director {
       // called to work (or into a talk) on the way: the round is dropped (the lever can wait for tomorrow)
       if (busyNow(d.agent) || d.agent in this.meet) this.door = null
       else {
-        const r = stepDoor(d, { now, arrived: arrivedAt(d.agent) === DOOR_ROUND.spot })
+        const r = stepDoor(d, { now, arrived: arrivedAt(d.agent) === DOOR_ROUND.spot, minS: opts.gm ?? 0 })
         this.door = r.done || r.giveUp ? null : r.run
       }
     }

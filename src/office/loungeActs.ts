@@ -526,9 +526,10 @@ export class LoungeActs {
   private leverHands(rig: AgentRig, inp: StageIn, hold: number) {
     const at = this.hooks.arrivedAt(rig.id)
     if (at === undefined || !this.lever) return
-    const u = inp.t - at
     const p = this.lever.press
     const end = LEVER_T.grab + p.press_s + hold + p.release_s
+    // #451 the replay (x16, a rewind): the press stretched over the gesture minimum, so it is seen to go down and up once
+    const u = (inp.t - at) * (rig.gestureMin > end ? end / rig.gestureMin : 1)
     this.leverT.set(rig.id, u)
     this.leverHold.set(rig.id, hold)
     this.hooks.grip(rig, 'l', 'door_lever', 'door_lever', u < end, null, inp)

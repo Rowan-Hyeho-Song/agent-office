@@ -48,7 +48,8 @@ async function writer(seat: number) {
   return { rig, desk, spot, step, scene, things }
 }
 
-const beat = (spot: string, kind: string, u: number, k: number, v = 0, n = 4) => ({ spot, pose: 'write', label: '', wrapStep: 'write', beat: { kind, u, k, v, n } }) as unknown as Goal
+const beat = (spot: string, kind: string, u: number, k: number, v = 0, n = 4, wait?: number, reread?: boolean) =>
+  ({ spot, pose: 'write', label: '', wrapStep: 'write', ...(reread ? { reread } : {}), beat: { kind, u, k, v, n, ...(wait !== undefined ? { wait } : {}) } }) as unknown as Goal
 
 /** every vertex of the visible meshes under `o`, in world */
 function points(o: Object3D): Vector3[] {
@@ -68,13 +69,21 @@ function palmPoints(hand: Object3D): Vector3[] {
   return hand.children.filter((c) => (c as Mesh).isMesh && own.test(c.name)).flatMap((m) => points(m))
 }
 
-/** how far `p` is above the desk or the thing under it (a ray straight down from above everything), or null over nothing of the desk */
+/**
+ * How far `p` is above the desk or the thing under it (a ray straight down from above everything), or null over nothing of the desk. The desk does
+ * not move: what is under each 5 mm column (`key`) is cast once and kept in `under` (the ray starts above everything, so it does not depend on p.y).
+ */
 const ray = new Raycaster()
-function above(things: Object3D[], p: Vector3): number | null {
-  ray.set(new Vector3(p.x, 2, p.z), new Vector3(0, -1, 0))
-  ray.far = 2
-  const hit = ray.intersectObjects(things, true)[0]
-  return hit ? p.y - hit.point.y : null
+function above(things: Object3D[], p: Vector3, key: string, under: Map<string, number | null>): number | null {
+  let y = under.get(key)
+  if (y === undefined) {
+    ray.set(new Vector3(p.x, 2, p.z), new Vector3(0, -1, 0))
+    ray.far = 2
+    const hit = ray.intersectObjects(things, true)[0]
+    y = hit ? hit.point.y : null
+    under.set(key, y)
+  }
+  return y === null ? null : p.y - y
 }
 
 /** the closest two point sets come */
@@ -85,7 +94,7 @@ function gap(a: Vector3[], b: Vector3[]): number {
 }
 
 /** every piece of the writing, each swept through (k: the card on the front) */
-const PIECES: { kind: string; k: number; v?: number }[] = [
+const PIECES: { kind: string; k: number; v?: number; wait?: number; reread?: boolean }[] = [
   { kind: 'line', k: 0, v: 0 },
   { kind: 'line', k: 0, v: 4 },
   { kind: 'newline', k: 0, v: 2 },
@@ -94,6 +103,14 @@ const PIECES: { kind: string; k: number; v?: number }[] = [
   { kind: 'readUp', k: 1, v: 2 },
   { kind: 'next', k: 1, v: 4 },
   { kind: 'line', k: 2, v: 1 },
+  // #532 waiting at the desk for the board, rereading after the last card: at 25 s the held cards are lowered and laid back (every piece of the
+  // reread loop), and in the reread the back card comes over the top to the front
+  { kind: 'line', k: 3, v: 1, wait: 25, reread: true },
+  { kind: 'newline', k: 3, v: 2, wait: 25, reread: true },
+  { kind: 'tapPen', k: 3, v: 3, wait: 25, reread: true },
+  { kind: 'strike', k: 3, v: 3, wait: 25, reread: true },
+  { kind: 'readUp', k: 3, v: 0, wait: 25, reread: true },
+  { kind: 'readUp', k: 3, v: 0, wait: 0, reread: true },
   { kind: 'collect', k: 3, v: 0 },
 ]
 
@@ -104,9 +121,10 @@ describe('the bundle held in the hand while writing (#532, wrapup.md 9.5)', () =
       for (let k = 0; k < 40; k++) w.step(beat(w.spot.id, 'line', 0, 0))
       let low = Infinity
       let where = ''
+      const under = new Map<string, number | null>()
       for (const p of PIECES)
         for (let i = 0; i <= 24; i++) {
-          w.step(beat(w.spot.id, p.kind, i / 24, p.k, p.v))
+          w.step(beat(w.spot.id, p.kind, i / 24, p.k, p.v, 4, p.wait, p.reread))
           const s = w.desk.state(w.rig.id)!
           if (p.kind !== 'collect') expect(s.cards, `${p.kind}: the bundle`).toBe(4)
           const pts = [...s.cardGroups.flatMap(points), ...points(w.rig.parts.hands.l.node), ...points(w.rig.parts.hands.r.node), ...(s.pen ? points(s.pen) : [])]
@@ -117,11 +135,11 @@ describe('the bundle held in the hand while writing (#532, wrapup.md 9.5)', () =
             const c = cols.get(key)
             if (!c || q.y < c.y) cols.set(key, q)
           }
-          for (const q of cols.values()) {
-            const h = above(w.things, q)
+          for (const [key, q] of cols) {
+            const h = above(w.things, q, key, under)
             if (h !== null && h < low) {
               low = h
-              where = `${p.kind} u ${(i / 24).toFixed(2)}`
+              where = `${p.kind}${p.wait ? ` wait ${p.wait}` : ''}${p.reread ? ' reread' : ''} u ${(i / 24).toFixed(2)}`
             }
           }
         }
@@ -228,4 +246,41 @@ describe('turning a card over, reading, finishing (#532, wrapup.md 9.4)', () => 
     expect(s.cards, 'the bundle gone to the carrying hold').toBe(0)
     expect(s.pen, 'the pen gone').toBeNull()
   })
+})
+
+describe('rereading after the last card (#532, wrapup.md 9.4)', () => {
+  it('the back-most written card comes over the top to the front, is read on top, and goes back; the bundle stays the same cards', async () => {
+    const w = await writer(2)
+    const reread = (u: number) => ({ spot: w.spot.id, pose: 'write', label: '', wrapStep: 'write', reread: true, beat: { kind: 'readUp', u, k: 3, v: 0, n: 4 } }) as unknown as Goal
+    for (let k = 0; k < 40; k++) w.step(beat(w.spot.id, 'line', 1, 3, 4))
+    let onTop = 0
+    for (let i = 0; i <= 60; i++) {
+      w.step(reread(i / 60))
+      const s = w.desk.state(w.rig.id)!
+      expect(s.cards, 'the bundle').toBe(4)
+      const inv = new Matrix4().copy(s.front!).invert()
+      // a card laid on the front card's face (read on top of it)
+      if (s.cardGroups.some((g) => Math.abs(g.position.clone().applyMatrix4(inv).y - 0.0005) < 0.0002)) onTop++
+    }
+    // most of the 1.8 s (all but 0.3 s each way) on top
+    expect(onTop).toBeGreaterThan(30)
+    // at the end it is back: nothing on top
+    w.step(beat(w.spot.id, 'line', 0, 3, 0))
+    const s = w.desk.state(w.rig.id)!
+    const inv = new Matrix4().copy(s.front!).invert()
+    expect(s.cardGroups.some((g) => g.position.clone().applyMatrix4(inv).y > 0.0002)).toBe(false)
+  }, 60_000)
+
+  it('with reduced motion no card comes over: the bundle is read as it is', async () => {
+    const w = await writer(2)
+    const reread = (u: number) => ({ spot: w.spot.id, pose: 'write', label: '', wrapStep: 'write', reread: true, beat: { kind: 'readUp', u, k: 3, v: 0, n: 4 } }) as unknown as Goal
+    for (let k = 0; k < 40; k++) w.step(beat(w.spot.id, 'line', 1, 3, 4), true)
+    for (let i = 0; i <= 60; i++) {
+      w.step(reread(i / 60), true)
+      const s = w.desk.state(w.rig.id)!
+      expect(s.cards, 'the bundle').toBe(4)
+      const inv = new Matrix4().copy(s.front!).invert()
+      expect(s.cardGroups.some((g) => g.position.clone().applyMatrix4(inv).y > 0.0002), `nothing over the front card at u ${(i / 60).toFixed(2)}`).toBe(false)
+    }
+  }, 60_000)
 })
