@@ -44,6 +44,9 @@ import { PARTICLE_CAP, circleAt, flowAt, habitEnv, habitSeconds, habitU, levelFo
 import { WaterScene, isMobileish } from './waterScene'
 import { READ_HOLD, READ_S } from './readRun'
 import { TrayPile } from './tray'
+
+/** #370 B3b the IN pile squared at the tidy-up: lifted 4 cm, stood 70° on its near edge, tapped down 1.2 cm; the palms 2 mm off its sides (the hand frame 9 mm behind the palm), 2 cm in from its near edge */
+export const PILE_TIDY = { lift: 0.04, standDeg: 70, tap: 0.012, out: 0.002, palm: 0.009, near: 0.02 }
 import { KEYCAP_ROLL, PAPER_READ, SHAPE_TURN, SWATCH, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, hourglassAt, type Touch } from './deskTouch'
 import { SIP_TOP_S, TREAT_HOLD, TREAT_LOOK, TREAT_PROP, takeSounds, treatPhase, type SnackKind } from './treatHold'
 import { handsOf } from './paperRun'
@@ -101,6 +104,8 @@ const CAN_FADE_MS = 120
 const LEAN_MORE: Record<string, number> = { plant_sofa: 12 / 10 }
 
 export interface StageIn {
+  /** #370 B3b sheets in the planner's IN pile now (props.ts inbox) */
+  inbox?: number
   /** #370 A a hand on a thing of its own desk, by agent (deskTouch.ts) */
   touches?: Record<string, Touch>
   /** office time, ms */
@@ -1203,6 +1208,8 @@ export class PlayStage {
     if (goal.pose === 'pingpong' && goal.partnerWait && resting && !pp) return this.pingpongWait(rig, goal, u, inp)
     if (goal.watching && resting) return this.cheer(rig, u, inp)
     if (goal.watching) this.cheered.delete(rig.id)
+    // #370 B3b the planner's tidy-up squares its IN pile (not with reduced motion, not an empty pile)
+    if (goal.pose === 'tidy' && seat === 0 && resting && this.pileTidy(rig, goal, inp)) return
     // #370 A a hand on a thing of its own desk (deskTouch.ts), the other one typing on
     if (resting && goal.spot === `work_${seat}` && this.deskTouch(rig, goal, inp, seat)) return
     // the planner's stamp (the owner decided something)
@@ -1861,6 +1868,52 @@ export class PlayStage {
     }
     // the shape takes both hands
     if (goal.pose === 'type' && kind !== 'shape' && kind !== 'swatch' && kind !== 'paper') this.typeAtDesk(rig, inp, seat, true)
+    return true
+  }
+
+  /**
+   * #370 B3b (desk-props.md 4: 정리 때 IN 더미를 세워 탁탁 두 번): in the tidy-up's own beats, the planner's hands close on the IN pile's sides
+   * (gather), stand it up 70° on its near edge 4 cm over the tray and tap it down twice (the taps), set it back exactly where it rests (keys) and
+   * open (lean). False with no pile to square: the tidy-up's usual hands.
+   */
+  private pileTidy(rig: AgentRig, goal: Goal, inp: StageIn): boolean {
+    const pile = TrayPile.of(this.sceneRef.getObjectByName('desk_0_in'))
+    const b = goal.beat
+    if (!pile || !b || inp.reduced || !(inp.inbox && inp.inbox > 0)) {
+      pile?.pose(null)
+      return false
+    }
+    const T = PILE_TIDY
+    const e = (x: number) => ease(Math.min(1, Math.max(0, x)))
+    // how far it stands (0..1) and how far it is tapped down (0..1)
+    const stand = b.kind === 'tap' ? (b.k === 0 ? e(b.u / 0.4) : 1) : b.kind === 'keys' ? 1 - e(b.u) : 0
+    const tap = b.kind === 'tap' && (b.k > 0 || b.u > 0.4) ? Math.sin(Math.PI * (b.k > 0 ? b.u : (b.u - 0.4) / 0.6)) : 0
+    const size = pile.pileSize
+    const rest = pile.pileRest()
+    const edge = new Vector3(0, 0, size.max.z)
+    const local = new Matrix4()
+      .makeTranslation(0, T.lift * stand - T.tap * tap, 0)
+      .multiply(new Matrix4().makeTranslation(edge.x, edge.y, edge.z))
+      .multiply(new Matrix4().makeRotationX(T.standDeg * DEG * stand))
+      .multiply(new Matrix4().makeTranslation(-edge.x, -edge.y, -edge.z))
+    const pose = rest.clone().multiply(local)
+    pile.pose(stand > 0 || tap !== 0 ? pose : null)
+    // the hands on its sides, palms toward each other, the fingers along it away from the reader, at half its drawn height, near its near edge
+    const w = b.kind === 'gather' ? e(b.u) : b.kind === 'lean' ? 1 - e(b.u / 0.4) : 1
+    if (w <= 0) return b.kind !== 'lean'
+    const q = new Quaternion().setFromRotationMatrix(pose)
+    const px = new Vector3(1, 0, 0).applyQuaternion(q)
+    const pz = new Vector3(0, 0, 1).applyQuaternion(q)
+    // the hands at its near corners (2 cm in): the wrist cuffs, wider than the palms, stay off it; the fingers flat on its sides (curled, they go in)
+    const cz = size.max.z - PILE_TIDY.near
+    for (const side of ['l', 'r'] as const) {
+      const x = side === 'l' ? size.min.x - T.out : size.max.x + T.out
+      const at = new Vector3(x, size.height / 2, cz).applyMatrix4(pose)
+      const palm = side === 'l' ? px.clone() : px.clone().negate()
+      const fingers = pz.clone().negate()
+      const target = new Matrix4().makeBasis(new Vector3().crossVectors(fingers, palm).normalize(), fingers, palm).setPosition(at.addScaledVector(palm, -T.palm))
+      rig.drive[side] = { target, w, curl: [0, 0, 0, 0, 0.15, 0.3], wc: w, spread: null }
+    }
     return true
   }
 

@@ -471,6 +471,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
     // the hands: play from the office clock (nothing of it in the timelapse), grips on everything that is held or touched
     playStage.update({
       touches: touches.all(touchT),
+      // #370 B3b the planner's IN pile (its tidy-up squares it when there is one)
+      inbox: desk.inbox,
       // the replay's games run on the replay's own time (the schedule at that KST time, 12.1), never the live clock
       now: st ? st.time : now,
       t: st ? st.now / 1000 : t,
