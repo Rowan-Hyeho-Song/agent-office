@@ -51,6 +51,21 @@ export const isWaiting = (activity?: string | null) => !!activity && WAITING.inc
 export const SPIN = ['|', '/', '–', '\\'] as const
 export const spinFrame = (t: number, reduced: boolean) => (reduced ? 0 : Math.floor(t / 0.25) % SPIN.length)
 
+/** #535 (designer): the activity words' sizes, largest first: shrunk until they fit, then split in two lines at the smallest */
+export const LABEL_PX = { max: 48, min: 34, step: 2 } as const
+/**
+ * The activity words fitted to `width` px (measured by `measure(text, px)`): the largest size from 48 down to 34 that fits on one line; if even 34
+ * does not, two lines at 34 px, split at the space nearest the middle (a word too long for its line is left as it is)
+ */
+export function fitLabel(text: string, width: number, measure: (text: string, px: number) => number): { px: number; lines: string[] } {
+  for (let px = LABEL_PX.max; px >= LABEL_PX.min; px -= LABEL_PX.step) if (measure(text, px) <= width) return { px, lines: [text] }
+  const spaces = [...text.matchAll(/ /g)].map((m) => m.index!)
+  if (!spaces.length) return { px: LABEL_PX.min, lines: [text] }
+  const mid = text.length / 2
+  const at = spaces.reduce((b, i) => (Math.abs(i - mid) < Math.abs(b - mid) ? i : b))
+  return { px: LABEL_PX.min, lines: [text.slice(0, at), text.slice(at + 1)] }
+}
+
 /** a working agent whose hook says the session is outside the office's projects (#34) shows the private screen */
 export function screenState(s: Pick<AgentStatus, 'state' | 'activity'> | undefined): ScreenState {
   if (!s || s.state === 'off') return 'off'

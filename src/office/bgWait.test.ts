@@ -9,7 +9,7 @@ import { AgentRig, BG_WAIT, bgGlance, buildRig } from './rig'
 import { Typist, WAIT_HANDS } from './typist'
 import { CHUNK_S, makeChunk, modeOf } from './typingSchedule'
 import { onInput, type InputEvent } from './inputEvents'
-import { screenPlan, screenState, spinFrame, SPIN } from './screens'
+import { fitLabel, LABEL_PX, screenPlan, screenState, spinFrame, SPIN } from './screens'
 import { deskProps } from './props'
 import { activityLabel } from './status'
 
@@ -109,5 +109,20 @@ describe('waiting on background work: the monitor and the desk', () => {
     expect(at('bg_build')).toBe('yellow')
     expect(at('bg_delegate')).toBe('green')
     expect(at('test')).toBe('yellow')
+  })
+})
+
+describe('the activity words fit the monitor (#535 designer)', () => {
+  // a stand-in font: each character px * 0.9 wide
+  const measure = (text: string, px: number) => text.length * px * 0.9
+  it('the largest size that fits on one line, down to 34 px', () => {
+    expect(fitLabel('빌드 중', 400, measure)).toEqual({ px: 48, lines: ['빌드 중'] })
+    // 8 characters: 48 px is 345.6, 40 px is 288 → 40 fits 300
+    expect(fitLabel('백그라운드 작업', 300, measure)).toEqual({ px: 40, lines: ['백그라운드 작업'] })
+  })
+  it('two lines at 34 px when even 34 does not fit, split at the space nearest the middle', () => {
+    expect(fitLabel('테스트 결과 기다리는 중', 240, measure)).toEqual({ px: 34, lines: ['테스트 결과', '기다리는 중'] })
+    expect(fitLabel('아주긴한낱말로된문구입니다만', 100, measure)).toEqual({ px: 34, lines: ['아주긴한낱말로된문구입니다만'] })
+    expect(LABEL_PX).toEqual({ max: 48, min: 34, step: 2 })
   })
 })

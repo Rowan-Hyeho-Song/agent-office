@@ -3,11 +3,13 @@
 // (progress strip, elapsed time); a monitor outside the view is not drawn at all.
 
 import { CanvasTexture, Color, Frustum, LinearMipmapLinearFilter, Matrix4, MeshBasicMaterial, SRGBColorSpace, Sphere, type Camera, type Mesh, type Object3D } from 'three'
-import { hasStill, isWaiting, LIVE_OPS, screenPlan, screenState, ICONS, SPIN, spinFrame, WRAP_FIELDS, type IconName, type Op, type ScreenState } from './screens'
+import { fitLabel, hasStill, isWaiting, LIVE_OPS, screenPlan, screenState, ICONS, SPIN, spinFrame, WRAP_FIELDS, type IconName, type Op, type ScreenState } from './screens'
 import { clip, PRIVATE_TASK_LABEL, taskNumber, taskOf, type AgentStatus, type AgentTask, type StatusMap } from './status'
 import { AGENT_INFO } from './world'
 
 export const MW = 584
+/** #535 (designer): the activity words keep this far from the right edge */
+const LABEL_RIGHT = 16
 export const MH = 338
 const DRAW_MS = 125 // 8 per second
 /** the bottom band that holds the strip, the elapsed time and the wrap-up fields; its top is a multiple of 3 (scanlines line up) */
@@ -266,13 +268,22 @@ export class ScreenLive {
           g.textAlign = 'left'
           g.textBaseline = 'top'
           break
-        case 'label':
-          g.font = pixel(fsL, !o.light)
+        case 'label': {
+          // #535 (designer): the words fit beside the icon with the right margin: smaller down to 34 px, then two lines
+          const x = pad + ic + 24
+          const fit = fitLabel(o.text, MW - LABEL_RIGHT - x, (text, px) => {
+            g.font = pixel(Math.min(px, fsL), !o.light)
+            return g.measureText(text).width
+          })
+          const px = Math.min(fit.px, fsL)
+          g.font = pixel(px, !o.light)
           g.fillStyle = tone(o.tone)
           g.textBaseline = 'middle'
-          g.fillText(o.text, pad + ic + 24, 174)
+          const lh = Math.round(px * 1.15)
+          fit.lines.forEach((line, i) => g.fillText(line, x, 174 + (i - (fit.lines.length - 1) / 2) * lh))
           g.textBaseline = 'top'
           break
+        }
         case 'strip': {
           const c = o.tone === 'lock' ? tk.lock : col
           const head = f.reduced ? -1 : Math.floor(f.t * (o.half ? 4 : 8)) % 12
