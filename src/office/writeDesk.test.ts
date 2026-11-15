@@ -229,3 +229,27 @@ describe('turning a card over, reading, finishing (#532, wrapup.md 9.4)', () => 
     expect(s.pen, 'the pen gone').toBeNull()
   })
 })
+
+describe('rereading after the last card (#532, wrapup.md 9.4)', () => {
+  it('the back-most written card comes over the top to the front, is read on top, and goes back; the bundle stays the same cards', async () => {
+    const w = await writer(2)
+    const reread = (u: number) => ({ spot: w.spot.id, pose: 'write', label: '', wrapStep: 'write', reread: true, beat: { kind: 'readUp', u, k: 3, v: 0, n: 4 } }) as unknown as Goal
+    for (let k = 0; k < 40; k++) w.step(beat(w.spot.id, 'line', 1, 3, 4))
+    let onTop = 0
+    for (let i = 0; i <= 60; i++) {
+      w.step(reread(i / 60))
+      const s = w.desk.state(w.rig.id)!
+      expect(s.cards, 'the bundle').toBe(4)
+      const inv = new Matrix4().copy(s.front!).invert()
+      // a card laid on the front card's face (read on top of it)
+      if (s.cardGroups.some((g) => Math.abs(g.position.clone().applyMatrix4(inv).y - 0.0005) < 0.0002)) onTop++
+    }
+    // most of the 1.8 s (all but 0.3 s each way) on top
+    expect(onTop).toBeGreaterThan(30)
+    // at the end it is back: nothing on top
+    w.step(beat(w.spot.id, 'line', 0, 3, 0))
+    const s = w.desk.state(w.rig.id)!
+    const inv = new Matrix4().copy(s.front!).invert()
+    expect(s.cardGroups.some((g) => g.position.clone().applyMatrix4(inv).y > 0.0002)).toBe(false)
+  }, 60_000)
+})
