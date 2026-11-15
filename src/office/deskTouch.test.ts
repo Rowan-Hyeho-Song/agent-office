@@ -8,6 +8,7 @@ import { deskProps, type DeskProps } from './props'
 import { Guard, Walk, expectCleanAll, world } from './errandWorld.fixture'
 import { contactNormal, handGripMatrix } from './gripTargets'
 import { DeskLive } from './deskLive'
+import { TrayPile } from './tray'
 import type { AgentRig } from './rig'
 import type { StatusMap } from './status'
 
@@ -173,7 +174,7 @@ const tipWorld = (rig: AgentRig, f: number | 'thumb') => {
 }
 
 /** everyone working at their desk; then `kind` begun and its whole length stepped, the desk drawn by DeskLive with the touch, as Agents.tsx does */
-async function touchRun(kind: TouchKind, onFrame: (w: Awaited<ReturnType<typeof world>>, u: number) => void, withGuard = false) {
+async function touchRun(kind: TouchKind, onFrame: (w: Awaited<ReturnType<typeof world>>, u: number) => void, withGuard = false, deskOver: Partial<DeskProps> = {}) {
   const w = await world()
   const guard = withGuard ? new Guard(w) : undefined
   const walk = new Walk(w, Date.UTC(2026, 10, 9, 1, 0, 0))
@@ -181,7 +182,7 @@ async function touchRun(kind: TouchKind, onFrame: (w: Awaited<ReturnType<typeof 
   const live = new DeskLive(w.nodes)
   const touches = new DeskTouches()
   const dt = 1 / 60
-  const desk = base({ lamp: true })
+  const desk = base({ lamp: true, ...deskOver })
   for (let k = 0; k < 360; k++) walk.step(dt)
   const t0 = walk.t
   touches.begin(kind, t0)
@@ -373,5 +374,66 @@ describe('the swatch fan (#370 B2, grips.md 색견본 부채)', () => {
     expect(leftFar, 'the left hand on the stand').toBeLessThan(0.01)
     expect(far, 'the index on the chip').toBeLessThan(0.01)
     expect(into, 'not into it').toBeLessThanOrEqual(0.002)
+  }, 120_000)
+})
+
+describe('the top sheet of the IN pile read (#370 B3, grips.md 서류 한 장 집기)', () => {
+  it('pinched at its corner (thumb on it, index under it), lifted before the chest, the left palm under it, laid back squared; the pile keeps its count', async () => {
+    let lift = 0
+    let worst = 0
+    let under = Infinity
+    let over = -Infinity
+    let restY = 0
+    let moved = 0
+    const restP = new Vector3()
+    const w = await touchRun(
+      'paper',
+      (w, u) => {
+        const rig = w.rigs.agent_0
+        const top = w.scene.getObjectByName('desk_0_in_top')!
+        const c = top.getWorldPosition(new Vector3())
+        if (u < 0.3) {
+          restY = c.y
+          restP.copy(c)
+        }
+        lift = Math.max(lift, c.y - restY)
+        moved = Math.max(moved, c.distanceTo(restP))
+        if (u > 1.4 && u < 3.2) {
+          for (const [f, name] of [[0, 'index'], ['thumb', 'thumb']] as const) {
+            const cn = w.scene.getObjectByName(`desk_0_in_top_contact_${name}`)!
+            worst = Math.max(worst, tipWorld(rig, f).distanceTo(cn.getWorldPosition(new Vector3())))
+          }
+          // the left hand's vertices under the sheet (within 8 cm of its middle along it): how far under its plane
+          const n = new Vector3(0, 1, 0).transformDirection(top.matrixWorld)
+          const v = new Vector3()
+          rig.parts.hands.l.node.updateMatrixWorld(true)
+          rig.parts.hands.l.node.traverseVisible((m) => {
+            const g = (m as Mesh).geometry?.getAttribute('position')
+            if (!(m as Mesh).isMesh || !g) return
+            for (let k = 0; k < g.count; k++) {
+              v.fromBufferAttribute(g, k).applyMatrix4(m.matrixWorld)
+              const d = v.clone().sub(c)
+              const h = d.dot(n)
+              if (d.addScaledVector(n, -h).length() > 0.08) continue
+              under = Math.min(under, -h)
+              over = Math.max(over, h)
+            }
+          })
+        }
+      },
+      true,
+      { inbox: 3 },
+    )
+    const pile = TrayPile.of(w.scene.getObjectByName('desk_0_in'))!
+    const end = new Vector3().setFromMatrixPosition(w.scene.getObjectByName('desk_0_in_top')!.matrixWorld)
+    const squared = new Vector3().setFromMatrixPosition(pile.topRest(true))
+    if (LOG) appendFileSync(LOG, `paper: lifted ${(lift * 100).toFixed(1)} cm (moved ${(moved * 100).toFixed(1)} cm), thumb / index ${(worst * 1000).toFixed(1)} mm off their contacts, the left palm ${(under * 1000).toFixed(1)} mm under the sheet (nearest), back ${(end.distanceTo(squared) * 1000).toFixed(2)} mm from its squared rest
+`)
+    expect(lift, 'lifted off the pile').toBeGreaterThan(0.08)
+    expect(moved, 'brought to the reader').toBeGreaterThan(0.15)
+    expect(worst, 'thumb and index on the corner').toBeLessThan(0.005)
+    expect(over, 'the left hand not through the sheet').toBeLessThanOrEqual(0)
+    expect(under, 'the left palm just under it').toBeLessThan(0.02)
+    expect(end.distanceTo(squared), 'laid back squared').toBeLessThan(0.001)
   }, 120_000)
 })

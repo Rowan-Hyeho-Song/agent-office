@@ -4,7 +4,7 @@
 // sheet lies a little askew like a paper just dropped on the pile; past five a small amber '+' tab sticks out of
 // the top so "more than this" still reads.
 
-import { BufferAttribute, CanvasTexture, DoubleSide, Mesh, MeshStandardMaterial, PlaneGeometry, SRGBColorSpace, type BufferGeometry, type Object3D } from 'three'
+import { BufferAttribute, CanvasTexture, DoubleSide, Matrix4, Mesh, MeshStandardMaterial, Object3D, PlaneGeometry, Quaternion, SRGBColorSpace, Vector3, type BufferGeometry } from 'three'
 
 /** drawn thickness of one sheet, m (#59: about 0.8 cm) */
 export const SHEET_H = 0.008
@@ -80,6 +80,10 @@ export class TrayPile {
   private sheets: number
   private sheetH: number
   private rest: number
+  /** #370 B3 the top sheet taken in a hand (its world pose while lifted), and laid back squared (until the pile's count changes) */
+  private lifted = false
+  private squared = false
+  private count = -1
 
   /** one per node (React StrictMode builds the desk twice; the geometry must be sorted once) */
   static of(node: Object3D | undefined) {
@@ -111,6 +115,23 @@ export class TrayPile {
     this.top.position.set(TOP_NUDGE.x, 0, TOP_NUDGE.z)
     node.add(this.top)
 
+    // #370 B3 (grips.md 서류 한 장 집기): the top sheet's front-right corner pinched, the thumb on its face and the index under it, the hand beside the
+    // corner (its grip frame: the palm toward the sheet, the fingers along -z into it, the thumb up). Contacts' own z is out of the surface.
+    node.geometry.computeBoundingBox()
+    const bb = node.geometry.boundingBox!
+    const corner = { x: bb.max.x - 0.015, z: bb.max.z - 0.015 }
+    const empty = (suffix: string, p: [number, number, number], q: Quaternion) => {
+      const o = new Object3D()
+      o.name = `${node.name}_top_${suffix}`
+      o.position.set(...p)
+      o.quaternion.copy(q)
+      this.top.add(o)
+    }
+    const X = new Vector3(1, 0, 0)
+    empty('contact_thumb', [corner.x, this.sheetH, corner.z], new Quaternion().setFromAxisAngle(X, -Math.PI / 2))
+    empty('contact_index', [corner.x, 0, corner.z], new Quaternion().setFromAxisAngle(X, Math.PI / 2))
+    empty('grip_r', [corner.x + 0.02, this.sheetH / 2, corner.z + 0.05], new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), -Math.PI / 2))
+
     // the '+' tab lives next to the pile, not under it, so the pile's y scale doesn't stretch it
     // lit like the pile, plus a weak glow of its own so it still shows as a dot from the default camera (designer:
     // amber, about 0.6, tone mapped; no brighter). The texture is also the glow map, so the '+' stays dark.
@@ -122,8 +143,7 @@ export class TrayPile {
     this.tab.name = `${node.name}_more`
     this.tab.visible = false
     node.parent?.add(this.tab)
-    node.geometry.computeBoundingBox()
-    const box = node.geometry.boundingBox!
+    const box = bb
     // on the top sheet, just in from the front edge (+z: toward the seat and the room) near the right corner, its
     // local up pointing up and forward (the '+' is symmetric, so whichever face shows is fine)
     this.tab.rotation.set(Math.PI / 2 - TAB_UP, 0, 0)
@@ -149,7 +169,61 @@ export class TrayPile {
     return t
   }
 
+  /** #370 B3 the top sheet (its grip and contacts are its children: desk_0_in_top_grip_r, _contact_thumb, _contact_index) */
+  get topNode(): Object3D {
+    return this.top
+  }
+
+  /** the top sheet's world pose as it lies on the pile, without the pile's sheet stretch (`squared`: laid straight, not askew) */
+  topRest(squared = this.squared): Matrix4 {
+    this.node.updateWorldMatrix(true, false)
+    const local = new Matrix4().compose(
+      new Vector3(squared ? 0 : TOP_NUDGE.x, this.top.position.y, squared ? 0 : TOP_NUDGE.z),
+      new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), squared ? 0 : TOP_TURN),
+      new Vector3(1, 1, 1),
+    )
+    const m = new Matrix4().multiplyMatrices(this.node.matrixWorld, local)
+    // drop the pile's sheet stretch (y) from the pose
+    const p = new Vector3()
+    const q = new Quaternion()
+    const sc = new Vector3()
+    m.decompose(p, q, sc)
+    return new Matrix4().compose(p, q, new Vector3(1, 1, 1))
+  }
+
+  /**
+   * #370 B3 the top sheet held at `world` (its pose without the stretch: drawn a sheet thin, 1 mm), or back on the pile (null): laid `squared` there
+   * (straight on the pile's edges) until the count changes.
+   */
+  lift(world: Matrix4 | null, squared = false) {
+    const top = this.top
+    if (world) {
+      this.lifted = true
+      this.node.updateWorldMatrix(true, false)
+      const thin = new Matrix4().makeScale(1, 0.001 / this.sheetH, 1)
+      top.matrixAutoUpdate = false
+      top.matrix.copy(this.node.matrixWorld).invert().multiply(world).multiply(thin)
+      top.updateMatrixWorld(true)
+      return
+    }
+    if (this.lifted || squared) {
+      this.lifted = false
+      if (squared) this.squared = true
+      top.matrixAutoUpdate = true
+      top.rotation.set(0, this.squared ? 0 : TOP_TURN, 0)
+      top.position.x = this.squared ? 0 : TOP_NUDGE.x
+      top.position.z = this.squared ? 0 : TOP_NUDGE.z
+      top.updateMatrixWorld(true)
+    }
+  }
+
   set(n: number, more: boolean) {
+    // a new count: the top sheet lies askew again (as dropped on the pile)
+    if (n !== this.count && this.count >= 0 && this.squared && !this.lifted) {
+      this.squared = false
+      this.lift(null)
+    }
+    this.count = n
     const l = pileLayout(n, this.sheets, more)
     const node = this.node
     node.visible = l.visible
