@@ -43,6 +43,8 @@ import {
 
 const UP = new Vector3(0, 1, 0)
 const DEG = Math.PI / 180
+/** #535 (typing.md 4 'background'): waiting on background work, the hands this far up off the keys and this far apart */
+export const WAIT_HANDS = { up: 0.04, apart: 0.2 } as const
 /** the fingertips rest this high over the home row; over a key they are about to press */
 const HOVER_HOME = 0.01
 const HOVER_KEY = 0.006
@@ -691,6 +693,14 @@ export class Typist {
     this.shift.set(0, 0, 0)
     if (live && !reduced) this.handShift(s, a, side, t, d)
     this.v1.copy(hs.pos).add(this.shift)
+    // #535 (typing.md 4 'background'): waiting on background work the hands come off the keys: up WAIT_HANDS.up and out to WAIT_HANDS.apart between them
+    if (chunk.mode === 'wait') {
+      const other = s.hands[side === 'l' ? 'r' : 'l'].pos
+      this.v2.copy(hs.pos).sub(other).setY(0)
+      const gap = this.v2.length()
+      if (gap > 1e-6) this.v1.addScaledVector(this.v2.normalize(), (WAIT_HANDS.apart - gap) / 2)
+      this.v1.y += WAIT_HANDS.up
+    }
     dv.target!.compose(this.v1, hs.quat, this.ones)
     // each finger
     for (let f = 0; f < 5; f++) {

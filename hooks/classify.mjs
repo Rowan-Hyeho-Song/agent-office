@@ -108,6 +108,56 @@ export function classifyTool(tool, input, rules) {
   return Object.hasOwn(TOOLS, tool) ? TOOLS[tool] : 'other'
 }
 
+/** #535: a background task Claude Code reports finished (its status words are not all documented: these mean it is over) */
+const FINISHED = new Set(['completed', 'complete', 'done', 'finished', 'failed', 'error', 'errored', 'killed', 'stopped', 'cancelled', 'canceled', 'exited', 'timed_out', 'timeout'])
+/** a background shell that serves or watches (a dev server, a preview, a watcher) waits for nothing to finish: it is not work going on */
+const SERVES = [
+  new RegExp(`^${PM}\\s+(run\\s+)?(dev|start|preview|serve)\\b`),
+  /^(npx\s+|pnpm\s+(exec|dlx)\s+)?vite(\s+(dev|serve|preview))?(\s+-|\s*$)/,
+  /^(npx\s+)?(http-server|live-server|serve)\b/,
+  /\s--watch\b/,
+]
+
+/**
+ * #535: what a turn that ends with background work still running is waiting for, from the Stop hook's `background_tasks` (Claude Code: id, type
+ * shell / subagent / monitor / workflow / …, status, command for a shell). The command is only classified here and never kept or sent. Shell
+ * tests → bg_test, builds → bg_build, background subagents → bg_delegate, anything else or a mix → background; a server or a watcher, a monitor and
+ * a finished task do not count. null: nothing is left running.
+ * @param {{ background_tasks?: unknown }} input
+ * @param {[Activity, RegExp[]][]} [rules]
+ * @returns {'background' | 'bg_test' | 'bg_build' | 'bg_delegate' | null}
+ */
+export function backgroundFor(input, rules) {
+  const tasks = Array.isArray(input?.background_tasks) ? input.background_tasks : []
+  const kinds = new Set()
+  for (const t of tasks) {
+    if (!t || typeof t !== 'object') continue
+    if (FINISHED.has(String(t.status ?? '').toLowerCase())) continue
+    if (t.type === 'monitor') continue
+    if (t.type === 'subagent') kinds.add('bg_delegate')
+    else if (t.type === 'shell') {
+      const parts = String(t.command ?? '').split(/\r?\n|&&|\|\||;|\|/).map(core).filter(Boolean)
+      if (parts.some((p) => SERVES.some((re) => re.test(p)))) continue
+      const kind = classifyCommand(String(t.command ?? ''), rules)
+      kinds.add(kind === 'test' ? 'bg_test' : kind === 'build' ? 'bg_build' : 'background')
+    } else kinds.add('background')
+  }
+  if (!kinds.size) return null
+  return kinds.size === 1 ? [...kinds][0] : 'background'
+}
+
+/** #535: the background activities (a Stop that still waits); the hook ends them after `backgroundMinutes` (hook.json, default 20) */
+export const BACKGROUND = ['background', 'bg_test', 'bg_build', 'bg_delegate']
+export const BACKGROUND_MINUTES = 20
+
+/**
+ * #535: whether the background activity sent at `at` should now be ended with a stop: the session's last sent signal is still that one (nothing
+ * newer came: the session never woke), and the time is up
+ * @param {{ kind?: string, activity?: string, sentAt?: number } | null} saved
+ */
+export const backgroundOver = (saved, at, now, minutes = BACKGROUND_MINUTES) =>
+  !!saved && saved.kind === 'activity' && BACKGROUND.includes(saved.activity ?? '') && saved.sentAt === at && now - at >= minutes * 60000
+
 /**
  * Default title → seat (#26: 0 기획 메모, 1 3D 메시, 2 디자인 휴, 3 코더 루프; #193: 4 사운드 에코). Role words and
  * agent names only; common English words like design / planning are left out (#34). "3D" counts only as a whole
@@ -173,6 +223,8 @@ export function seatFor(title, seats) {
  */
 export function resultFor(input, rules) {
   if (input.tool_name !== 'Bash' && input.tool_name !== 'PowerShell') return null
+  // #535: a command started in the background reports at its launch, not its end: that is no outcome (the light stays yellow)
+  if (input.tool_input && typeof input.tool_input === 'object' && /** @type {{run_in_background?: boolean}} */ (input.tool_input).run_in_background === true) return null
   const activity = classifyTool(input.tool_name, input.tool_input, rules)
   if (activity !== 'test' && activity !== 'build') return null
   return { kind: 'result', activity, ok: input.hook_event_name === 'PostToolUse' }
@@ -212,8 +264,11 @@ export function signalFor(input, rules, seats) {
     case 'PostToolUse':
     case 'PostToolUseFailure':
       return resultFor(input, rules)
-    case 'Stop':
-      return { kind: 'stop' }
+    case 'Stop': {
+      // #535: background work still running when the turn ends: the session still works, so say what it waits for
+      const bg = backgroundFor(input, rules)
+      return bg ? { kind: 'activity', activity: bg } : { kind: 'stop' }
+    }
     case 'SessionEnd':
       return { kind: 'end' }
     default:

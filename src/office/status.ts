@@ -119,6 +119,11 @@ export const ACTIVITY_LABELS: Record<string, string> = {
   think: '생각 중',
   // a session outside the office's projects, with "outside": "private" in hook.json (#34)
   private: '비공개 작업 중',
+  // #535: the turn ended with background work still running (office-ui.md 3)
+  background: '백그라운드 작업 중',
+  bg_test: '테스트 결과 기다리는 중',
+  bg_build: '빌드 기다리는 중',
+  bg_delegate: '맡긴 일 기다리는 중',
 }
 
 export const activityLabel = (activity?: string) => (activity && ACTIVITY_LABELS[activity]) || '작업 중'
