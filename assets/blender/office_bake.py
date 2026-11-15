@@ -128,7 +128,7 @@ Node contract (the app reads glTF extras):
                                    desk_4_knob_0 extras turn_axis y, turn_deg 45 + _contact_thumb|index (a pinch);
                                    desk_1_ringlight_knob_grip_r (on its axis, 2 cm past the end face: a pinch);
                                    desk_0_hourglass: four posts (was three); _contact_thumb (-x post) | _index (+x post)
-                                   on its x axis, _grip_r 5 cm in front (turned over between the fingers about x);
+                                   on its x axis, _grip_r 5 cm in front, all its children (turned over about x);
                                    prop_headphones_cup (live bot, out of the bake: the -x cup + cushion + cable; extras
                                    cup_of prop_headphones, swivel_axis y, swivel_deg [0, 90]; pivot = the yoke line);
                                    prop_headphones_grip_r + _contact_palm on the band's middle (the cup-back palm gone)
@@ -3927,14 +3927,14 @@ def build_hands():
     top = h + 0.075 + 0.003 + 5 * 0.003  # MEMO's IN stack, 5 sheets: the top sheet's right front corner
     contact("desk_0_in", "thumb", (tx + 0.095, top, tz + 0.012 + 0.12), (0, 1, 0), M=Fd[0])
     contact("desk_0_in", "index", (tx + 0.095, top - 0.003, tz + 0.012 + 0.12), (0, -1, 0), M=Fd[0])
-    Hg = Fd[0] @ Mx((-0.50, h + HG_COASTER + 0.055, -0.22))  # the hourglass: palm over the top plate, thumb on a post
-    # #370 C (grips.md, PR #555/#556): pinched at mid height on the two side posts and turned over between the
+    # the hourglass: its grip and contacts are its children (#370 C: they lift and turn with it; its frame = the desk's axes)
+    # #370 C (grips.md, PR #557): pinched at mid height on the two side posts and turned over between the
     # fingers about its own x axis: thumb on the -x post, index on the +x post (the bead's outer face, r 2.7 + 0.36
     # cm), both on the axis so they stay put while it turns; the right hand from the front, palm down
-    grip_at("desk_0_hourglass", R, (0, 0, 0.05), (0, 0, -1), (0, -1, 0), M=Hg)
-    contact("desk_0_hourglass", "palm", (0, 0.055, 0), (0, 1, 0), M=Hg)  # the old cover grip's palm (unused)
-    contact("desk_0_hourglass", "thumb", (-0.0306, 0.0, 0.0), (-1, 0, 0), M=Hg)
-    contact("desk_0_hourglass", "index", (0.0306, 0.0, 0.0), (1, 0, 0), M=Hg)
+    grip_at(O["desk_0_hourglass"], R, (0, 0, 0.05), (0, 0, -1), (0, -1, 0))
+    contact(O["desk_0_hourglass"], "palm", (0, 0.055, 0), (0, 1, 0))  # the old cover grip's palm (unused)
+    contact(O["desk_0_hourglass"], "thumb", (-0.0306, 0.0, 0.0), (-1, 0, 0))
+    contact(O["desk_0_hourglass"], "index", (0.0306, 0.0, 0.0), (1, 0, 0))
     ttx, ttz = -0.43, -0.18  # MESH's turntable: the button, the platter's rim
     contact("desk_1_turntable", "index", (ttx, h + 0.0105, ttz + 0.103), (0, 0, 1), M=Fd[1])
     contact("desk_1_turntable_rim", "index", (ttx, h + 0.018 + 0.01, ttz + 0.075), (0, 1, 0), M=Fd[1])
