@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { leftArea } from './sidePanel/model'
-import { BUBBLE, cardRect, firstSentence, holdMs, maskText, pairSide, placeBubbles, statusTag, typeMs, typedCount, type PlaceInput } from './bubbles'
+import { BUBBLE, cardRect, firstSentence, holdMs, maskText, pairSide, placeBubbles, replayTag, statusTag, typeMs, typedCount, zMotion, type PlaceInput } from './bubbles'
 
 describe('firstSentence', () => {
   it('takes the first sentence of a cell, plain', () => {
@@ -162,6 +162,28 @@ describe('night tags (#110)', () => {
     expect(statusTag({ state: 'off', since: 0, night: 'sleep' })).toEqual({ icon: 'sleep', label: '조는 중', private: false })
     expect(statusTag({ state: 'idle', since: 0, night: 'duty' })).toEqual({ icon: 'coffee', label: '야간 당번', private: false })
     expect(statusTag({ state: 'off', since: 0 })).toBeNull()
+  })
+})
+
+describe('the timelapse chip (#599)', () => {
+  it('shows the night chips from the replay status, and no working chip', () => {
+    expect(replayTag({ state: 'off', since: 0, night: 'sleep' })).toEqual({ icon: 'sleep', label: '조는 중', private: false })
+    expect(replayTag({ state: 'idle', since: 0, night: 'duty' })).toEqual({ icon: 'coffee', label: '야간 당번', private: false })
+    expect(replayTag({ state: 'working', activity: 'edit', since: 0 })).toBeNull()
+    expect(replayTag({ state: 'idle', since: 0 })).toBeNull()
+    expect(replayTag(undefined)).toBeNull()
+  })
+  it('a body lying on the sofa dozes too; the night chip wins', () => {
+    expect(replayTag({ state: 'idle', since: 0 }, true)).toEqual({ icon: 'sleep', label: '조는 중', private: false })
+    expect(replayTag({ state: 'idle', since: 0, night: 'duty' }, true)?.label).toBe('야간 당번')
+  })
+  it('the z rises, is held still at x16 or with reduced motion, and the live office with reduced motion has none', () => {
+    expect(zMotion(true, 1, false)).toBe('rise')
+    expect(zMotion(true, 4, false)).toBe('rise')
+    expect(zMotion(true, 16, false)).toBe('still')
+    expect(zMotion(true, 1, true)).toBe('still')
+    expect(zMotion(false, 1, false)).toBe('rise')
+    expect(zMotion(false, 1, true)).toBe('off')
   })
 })
 

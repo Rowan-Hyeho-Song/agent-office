@@ -1,7 +1,7 @@
 import { Html } from '@react-three/drei'
 import { setDoorMessage } from '../room/doorMessage'
 import { BubbleLayer, type Anchor, type TagItem } from './bubbleLayer'
-import { BUBBLE, statusTag, type BubbleItem } from './bubbles'
+import { BUBBLE, replayTag, statusTag, zMotion, type BubbleItem } from './bubbles'
 import { openDocs } from './docs/panel'
 import { seatName } from './meeting'
 import { captionOf } from './minutes'
@@ -627,8 +627,10 @@ export function Agents({ world }: { world: OfficeWorld }) {
     const area = sideArea()
     const anchors: Record<string, Anchor> = {}
     const tags: TagItem[] = []
-    // the replay shows the past: no live night / duty state (sleepers' z, status tags) reaches the bubble layer
+    // the replay shows the past: no live night / duty state reaches the bubble layer; its own (sleepers' z, the night chips, #599) does
     const status = replaying ? (replay.scene()?.status ?? {}) : world.source.getSnapshot()
+    /** lying on the sofa (its goal's pose, arrived): asleep (faceMind baseExpression) */
+    const napping = (id: string) => world.goals[id]?.pose === 'sofa' && rigs[id].arrived === world.goals[id]?.spot
     const omok = getOmokVisit()
     for (const id in rigs) {
       const rig = rigs[id]
@@ -656,15 +658,17 @@ export function Agents({ world }: { world: OfficeWorld }) {
         }
       }
       if (anchors[id].x > area.w || anchors[id].y > area.h) anchors[id].visible = false
-      const tag = replaying ? null : statusTag(world.director.shown[id]?.status ?? status[id], world.director.shown[id]?.detail)
+      const tag = replaying ? replayTag(status[id], napping(id)) : statusTag(world.director.shown[id]?.status ?? status[id], world.director.shown[id]?.detail)
       if (tag) tags.push({ id, seat: Number(id.split('_')[1]), ...tag })
     }
     l.update([...byId.values()], tags, anchors, { w: area.w, h: area.h, narrow: narrow.matches })
+    // the sleepers' z: dozing at the desk at night; in the timelapse also lying on the sofa (#599 timelapse.md 13.1, the asleep face of 12.4)
+    const dozing = (id: string) => status[id]?.night === 'sleep' && rigs[id].arrived === world.goals[id]?.spot && world.goals[id]?.pose === 'doze'
     l.updateZ(
-      Object.keys(rigs).filter((id) => status[id]?.night === 'sleep' && rigs[id].arrived === world.goals[id]?.spot && world.goals[id]?.pose === 'doze').map((id) => ({ id, seat: Number(id.split('_')[1]) })),
+      Object.keys(rigs).filter((id) => dozing(id) || (replaying && napping(id))).map((id) => ({ id, seat: Number(id.split('_')[1]) })),
       anchors,
       state.clock.elapsedTime,
-      reduced,
+      zMotion(replaying, replay.getSnapshot().speed, reduced),
     )
   }
 

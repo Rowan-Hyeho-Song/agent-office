@@ -3,7 +3,7 @@
 // bubbles.ts (BubbleItem, statusTag, placeBubbles); this file only makes elements and writes styles. The look is
 // src/styles/bubbles.css (the design mock's classes: .ob, .ot).
 
-import { pairSide, placeBubbles, type BubbleItem, type PlaceInput } from './bubbles'
+import { pairSide, placeBubbles, type BubbleItem, type PlaceInput, type ZMotion } from './bubbles'
 import { iconSvg } from './bubbleIcons'
 
 const TAB = ['MEMO', 'MESH', 'HUE', 'LOOP', 'ECHO']
@@ -66,7 +66,7 @@ export class BubbleLayer {
   private tags = new Map<string, { el: HTMLElement; label: string; style: string }>()
   private logged = new Set<string>()
   /** the floating "z" of each dozing agent (#110): a holder at the head with the live z elements inside */
-  private zs = new Map<string, { el: HTMLElement; next: number }>()
+  private zs = new Map<string, { el: HTMLElement; next: number; still: boolean }>()
 
   constructor(private onOpen: (t: OpenTarget) => void) {
     this.root = document.createElement('div')
@@ -92,10 +92,11 @@ export class BubbleLayer {
 
   /**
    * A "z" floats up from each dozing agent every DOZE.z.everyS, at most DOZE.z.max alive (#110). `t` is seconds.
-   * Reduced motion: none at all (the tag's icon says it).
+   * `still`: one "z z" held over the head (the timelapse at x16 or with reduced motion, #599); `off`: none at all (the tag's icon says it).
    */
-  updateZ(sleepers: { id: string; seat: number }[], anchors: Record<string, Anchor>, t: number, reduced: boolean) {
-    const want = new Set(reduced ? [] : sleepers.map((s) => s.id))
+  updateZ(sleepers: { id: string; seat: number }[], anchors: Record<string, Anchor>, t: number, motion: ZMotion) {
+    const want = new Set(motion === 'off' ? [] : sleepers.map((s) => s.id))
+    const still = motion === 'still'
     for (const [id, z] of this.zs) {
       if (!want.has(id)) {
         z.el.remove()
@@ -112,8 +113,21 @@ export class BubbleLayer {
         el.setAttribute('aria-hidden', 'true')
         this.root.append(el)
         // staggered by seat so four sleepers don't puff in unison
-        z = { el, next: t + (s.seat * DOZE.z.everyS) / 4 }
+        z = { el, next: t + (s.seat * DOZE.z.everyS) / 4, still: false }
         this.zs.set(s.id, z)
+      }
+      if (z.still !== still) {
+        // rising ↔ held: the risen ones go, a held "z z" stands in their place (and goes when they rise again)
+        z.still = still
+        z.el.replaceChildren()
+        z.next = t
+        if (still) {
+          const p = document.createElement('span')
+          p.className = 'oz-z oz-still'
+          p.textContent = 'z z'
+          p.style.setProperty('--alpha', `${DOZE.z.alpha * 100}%`)
+          z.el.append(p)
+        }
       }
       const a = anchors[s.id]
       z.el.style.display = a?.visible ? '' : 'none'
@@ -121,7 +135,7 @@ export class BubbleLayer {
         z.el.style.setProperty('--x', `${Math.round(a.x)}px`)
         z.el.style.setProperty('--y', `${Math.round(a.y)}px`)
       }
-      if (t >= z.next && a?.visible) {
+      if (!still && t >= z.next && a?.visible) {
         z.next = t + DOZE.z.everyS
         if (z.el.childElementCount < DOZE.z.max) {
           const p = document.createElement('span')
