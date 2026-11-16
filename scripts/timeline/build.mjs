@@ -1,10 +1,10 @@
 // GitHub data → timelapse points (#81, plan.md 6.7). Pure: no network, no clock; shared by the backfill
 // (backfill.mjs) and the push Action (event.mjs). The same input always gives the same output.
 //
-//   issue opened (form era)            → plan      agent 0 (the planner opens issues)
+//   issue opened                        → plan      agent 0 (the planner opens issues; null before roles)
 //   commit that landed on dev           → work      agent = its PR's session line, else where its files are, else the issue's seat (#634)
-//   commit that reached main only       → deploy    agent null (the whole office, not one seat)
-//   comment "### 🗂 협의 기록"           → minutes   agent = who speaks first in the table
+//   commit that reached main only       → deploy    agent 0 (the planner releases; null before roles, #634)
+//   comment "### 🗂 협의 기록"           → minutes   agent = its '작성 세션' line, else who speaks first in the table, else 0
 //     its **결정** part                  → decision  agent 0
 //   decision table row in docs          → decision  agent 0
 //   comment "### 🖊 결재 요청" / "✅ 결재" → approval  agent = the requester
@@ -248,7 +248,7 @@ export function collect(data) {
   // plan: a trusted issue; the planner opened it once roles existed for it
   for (const i of real) {
     if (!trusted(i)) continue
-    out.push(point({ key: i.html_url, at: i.created_at, kind: 'plan', agent: issueSeat(i).known ? 0 : null, title: i.title ?? '', issue: i.number, author: own(i) }))
+    out.push(point({ key: i.html_url, at: i.created_at, kind: 'plan', agent: issueSeat(i).known || String(i.created_at ?? '') >= ROLES_FROM ? 0 : null, title: i.title ?? '', issue: i.number, author: own(i) }))
   }
 
   // minutes (+ their decision lines) and approvals
@@ -264,7 +264,7 @@ export function collect(data) {
     const kind = commentKind(c.body)
     if (kind === 'minutes' && trusted(c)) {
       const base = { at: c.created_at, issue: issue.number, author: own(c) }
-      out.push(point({ ...base, key: c.html_url, kind: 'minutes', agent: minutesSeat(c.body), title: `회의록: ${issue.title}` }))
+      out.push(point({ ...base, key: c.html_url, kind: 'minutes', agent: sessionSeat(c.body) ?? minutesSeat(c.body) ?? (String(c.created_at ?? '') >= ROLES_FROM ? 0 : null), title: `회의록: ${issue.title}` }))
       minutesDecisions(c.body).forEach((text, n) =>
         out.push(point({ ...base, key: `${c.html_url}#decision${n ? `-${n + 1}` : ''}`, kind: 'decision', agent: 0, title: gist(text) })),
       )
@@ -324,7 +324,8 @@ export function collect(data) {
       key: c.html_url,
       at: c.commit?.committer?.date ?? c.commit?.author?.date,
       kind,
-      agent: kind === 'work' ? workSeat(c, pr, issue) : null,
+      // #634 a deploy is the planner's (it releases), from the time roles existed
+      agent: kind === 'work' ? workSeat(c, pr, issue) : String(c.commit?.committer?.date ?? '') >= ROLES_FROM ? 0 : null,
       title,
       additions: c.stats?.additions ?? null,
       deletions: c.stats?.deletions ?? null,
