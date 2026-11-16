@@ -6,7 +6,7 @@
 import { useSyncExternalStore } from 'react'
 import { N } from '../../play/omok'
 import {
-  canUndo, DEFAULT_RULE, endGame, forbidPressed, restart, setRule, setStrength, startVisitorGame, stepVisitorGame, touchGame, undo, visitorForbid, visitorMove,
+  canUndo, chooseColor, DEFAULT_RULE, endGame, forbidPressed, restart, setRule, setStrength, startVisitorGame, stepVisitorGame, touchGame, undo, visitorForbid, visitorMove,
   visitorTurn, type OmokEvent, type Strength, type VisitorGame,
 } from '../../play/visitorOmok'
 import { RULES, type Forbid, type RuleId } from '../../play/omokRules'
@@ -171,6 +171,8 @@ export function setOmokBoardBox(b: OmokVisitState['boardBox']) {
   if (c && b && Math.abs(c.right - b.right) < 0.5 && Math.abs(c.middle - b.middle) < 0.5) return
   set({ ...state, boardBox: b })
 }
+/** #603 swap: the visitor's colour after the agent's three (the HUD's buttons) */
+export const chooseColorOmok = (color: 1 | 2, now: number) => !!state.game && state.phase === 'open' && take(chooseColor(state.game, color, now))
 /** #603 the forbidden reason at a point for the visitor now (the ✕, the cell's words), or null */
 export const omokForbidAt = (cell: number | null): Forbid | null => (cell === null || !state.game ? null : visitorForbid(state.game, cell))
 /** the clock: the agent's stone lands, a quiet visitor is let go (play.md 2.5) */

@@ -5,7 +5,7 @@ import { FORBID_NAME, RULES, RULE_BY_ID } from '../../play/omokRules'
 import { AGENT_INFO, officeNow, type OfficeWorld } from '../world'
 import { tagOnScreen } from './pose'
 import {
-  chooseRule, closeOmok, closeRulePicker, getOmokVisit, moveCursor, omokCanUndo, omokForbidAt, openOmok, openRulePicker, placeOmok, restartOmok, selectRule,
+  chooseColorOmok, chooseRule, closeOmok, closeRulePicker, getOmokVisit, moveCursor, omokCanUndo, omokForbidAt, openOmok, openRulePicker, placeOmok, restartOmok, selectRule,
   setCursor, strengthOmok, touchOmok, undoOmok, useOmokVisit, viewName, visitorMayPlace,
 } from './store'
 
@@ -234,6 +234,17 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
             >
               여기에 두기
             </button>
+          )}
+          {/* #603 swap: after the agent's three, the visitor takes a colour (play.md 11.3; Tab · Enter) */}
+          {g.swap?.by === 'agent' && g.swap.stage === 'choosing' && (
+            <>
+              <button type="button" className="omok-here" onClick={() => chooseColorOmok(1, officeNow(world))}>
+                흑으로 두기
+              </button>
+              <button type="button" className="omok-here" onClick={() => chooseColorOmok(2, officeNow(world))}>
+                백으로 두기
+              </button>
+            </>
           )}
           <button type="button" disabled={!omokCanUndo()} onClick={() => undoOmok(officeNow(world))}>
             무르기

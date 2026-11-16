@@ -7,7 +7,7 @@ import type { PlayStage } from '../playStage'
 import { isTouring, tour } from '../tourStore'
 import { officeNow, prefersReducedMotion, type OfficeWorld } from '../world'
 import { replay } from '../../replay/store'
-import type { Face } from '../../play/visitorOmok'
+import { visitorStone, visitorWon, type Face } from '../../play/visitorOmok'
 import { isBoardOpen } from '../boardView/store'
 import { isPingpongActive } from '../pingpongVisit/store'
 import {
@@ -261,7 +261,8 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
       if (key && wonKey.current !== key) {
         wonKey.current = key
         const r = world.rigs[v.agent]
-        const at = res !== 'white' ? (seat ? { x: seat.x, y: 0.9, z: seat.z } : undefined) : r ? { x: r.x, y: 1, z: r.z } : undefined
+        // #603 the visitor may hold white after a swap: who won, not which colour
+        const at = gw && visitorWon(gw) ? (seat ? { x: seat.x, y: 0.9, z: seat.z } : undefined) : r ? { x: r.x, y: 1, z: r.z } : undefined
         cue('match.win', { pos: at })
       }
       if (!gw?.end) wonKey.current = null
@@ -305,6 +306,8 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
     // #603 the ✕ instead of the preview stone where the visitor may not stand (the pointer's point, a first tap, else the keyboard's cursor)
     const xAt = hover !== null && omokForbidAt(hover) ? hover : v.preview === null && omokForbidAt(v.cursor) ? v.cursor : null
     put(marks.preview, hover !== null && empty(hover) && visitorMayPlace() && hover !== xAt ? hover : null, 0.003)
+    // #603 the preview stone in the colour the visitor places now (swap: their opening alternates, or white after the choice)
+    if (game) (marks.preview.material as MeshBasicMaterial).color.set(visitorStone(game) === 1 ? '#111318' : '#f3f0e8')
     marks.forbid.visible = show && xAt !== null
     if (marks.forbid.visible && g) {
       st!.omokPoint(xAt!, marks.forbid.position)
