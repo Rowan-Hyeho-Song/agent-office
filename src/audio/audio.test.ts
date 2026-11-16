@@ -184,6 +184,18 @@ describe('cues', () => {
     expect(speedRule('ui', 16, 0.9)).toBe(1)
     expect(speedRule('event', 16, 0.9)).toBeLessThan(1)
   })
+  it('#604 · #605 the chess and alkkagi cues: room events at the board; a capture holds the scatter, the check its three jitters', () => {
+    for (const n of ['chess.place', 'chess.capture', 'chess.check', 'alkkagi.flick', 'alkkagi.hit', 'alkkagi.drop'] as const) {
+      expect(CUES[n].kind).toBe('event')
+      expect(CUES[n].bus).toBe('sfx')
+      expect(CUES[n].spatial).toBe(true)
+    }
+    expect(CUES['chess.capture'].length).toBeGreaterThanOrEqual(0.3)
+    expect(CUES['alkkagi.drop'].length).toBeGreaterThanOrEqual(0.3)
+    expect(CUES['chess.check'].length).toBeGreaterThanOrEqual(0.3)
+    // a run of hits may come 50 ms apart (hologram.md 12.2), never closer
+    expect(CUES['alkkagi.hit'].gap).toBe(50)
+  })
   it("#603 omok.forbid: a forbidden press is the visitor's own (ui) sound at the board, lower than a stone and not repeatable faster than 0.3 s", () => {
     expect(CUES['omok.forbid'].kind).toBe('ui')
     expect(CUES['omok.forbid'].bus).toBe('sfx')
