@@ -8,6 +8,8 @@ import { AgentRig, buildRig } from './rig'
 import { EchoDesk } from './deskLive'
 import { AGENTS, AGENT_COLORS, AGENT_INFO } from './world'
 import { loadOffice, stubCanvas } from './glbLoad'
+import { GRAPH } from './navSpots.fixture'
+import type { Goal } from './director'
 
 /** what speaker.ts says now (the real one needs the audio graph; its shape is what the desk and the rig read) */
 const sound = { now: { on: false, audible: false, level: 0, faders: [0, 0, 0, 0] as [number, number, number, number] } }
@@ -112,6 +114,35 @@ describe('echo in the model', async () => {
     sound.now = { on: true, audible: true, level: 1, faders: [1, 1, 1, 1] }
     step(1)
     expect(bright() / base).toBeCloseTo(0.9)
+  })
+
+  it('the timelapse (#598): the live speaker moves neither the fork, nor the glow, nor the mouth', () => {
+    sound.now = { on: true, audible: true, level: 1, faders: [1, 1, 1, 1] }
+    const rig = new AgentRig('agent_4', 4, rigs[4], '#f2ffc4')
+    rig.replayFace = true
+    const fork = rigs[4].fork!
+    let max = 0
+    for (let k = 0; k < 120; k++) {
+      role(rig).updateRole(1 / 60, k / 60, undefined, false)
+      max = Math.max(max, Math.abs(fork.rotation.x))
+    }
+    expect(max).toBe(0)
+    let mesh: Mesh | undefined
+    rigs[4].grille!.traverse((o) => {
+      if (!mesh && (o as Mesh).isMesh) mesh = o as Mesh
+    })
+    role(rig).updateRole(1 / 60, 1, undefined, false)
+    expect((mesh!.material as MeshBasicMaterial).color.g / role(rig).glowBase.get(mesh!)!.g).toBeCloseTo(0.6)
+    const spot = GRAPH.spots.work_4
+    rig.x = spot.x
+    rig.z = spot.z
+    rig.setGoal({ spot: 'work_4', pose: 'idle' } as Goal, GRAPH)
+    rig.update(1 / 60, 2, GRAPH, { agent_4: rig }, false)
+    expect((rig as unknown as { faceIn: { voice: number } }).faceIn.voice).toBe(0)
+    // the live office again: the mouth follows the speaker
+    rig.replayFace = false
+    rig.update(1 / 60, 2 + 1 / 60, GRAPH, { agent_4: rig }, false)
+    expect((rig as unknown as { faceIn: { voice: number } }).faceIn.voice).toBe(1)
   })
 
   describe('the desk: cones, faders, knobs, LED, level meter', () => {

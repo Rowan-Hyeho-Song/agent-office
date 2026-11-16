@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { HAND_MS, N, PLACE_AT } from './omok'
-import {
-  OMOK_LINES, VISITOR_OMOK, canUndo, cellName, endGame, idleLeft, restart, setStrength, startVisitorGame, statusLine, stepVisitorGame, undo,
-  viewOf, visitorMove, visitorTurn, type OmokEvent, type VisitorGame,
-} from './visitorOmok'
+import { OMOK_LINES, VISITOR_OMOK, canUndo, cellName, endGame, idleLeft, restart, setStrength, startVisitorGame, statusLine, stepVisitorGame, undo, viewOf, visitorMove, visitorTurn, type OmokEvent, type VisitorGame, SWAP_LINES, SWAP_THINK_MS, chooseColor, undoOpeningBlocked, visitorStone, visitorWon } from './visitorOmok'
 
 // #137 ② (play.md 2 · 5): a visitor plays black against the agent placing a record alone, in their own tab.
 const at = (x: number, y: number) => y * N + x
@@ -227,10 +224,10 @@ describe('a visitor game', () => {
     expect(cellName(at(0, 14))).toBe('A1')
     expect(cellName(at(14, 0))).toBe('O15')
     const g = startVisitorGame('agent_0', 1, 0)
-    expect(statusLine(g, '메모', 0)).toBe('● 오목 · 메모와 대국 · 당신(흑) 차례 · 1수')
+    expect(statusLine(g, '메모', 0)).toBe('● 오목 · 렌주 · 메모와 대국 · 당신(흑) 차례 · 1수')
     const r = visitorMove(g, at(7, 7), 0)!
-    expect(statusLine(r.g, '메모', 0)).toBe('● 오목 · 메모와 대국 · 메모가 생각 중.')
-    expect(statusLine(r.g, '메모', 900)).toBe('● 오목 · 메모와 대국 · 메모가 생각 중...')
+    expect(statusLine(r.g, '메모', 0)).toBe('● 오목 · 렌주 · 메모와 대국 · 메모가 생각 중.')
+    expect(statusLine(r.g, '메모', 900)).toBe('● 오목 · 렌주 · 메모와 대국 · 메모가 생각 중...')
   })
 
   it('#536: the thinking line never throws, even with a clock from before the move began (it read repeat(-1) and took the page down)', () => {
@@ -238,5 +235,109 @@ describe('a visitor game', () => {
     expect(r.g.pending).not.toBeNull()
     for (const now of [r.g.pending!.at - 5000, r.g.pending!.at - 1, r.g.pending!.at, r.g.pending!.at + 900]) expect(() => statusLine(r.g, '메모', now)).not.toThrow()
     expect(statusLine(r.g, '메모', r.g.pending!.at - 5000)).toMatch(/생각 중\.$/)
+  })
+})
+
+// #603 (play.md 11.3) swap: the opener places three, the other side takes a colour; the opener changes every game
+describe('swap', () => {
+  const finishHand = (g: VisitorGame, at: number) => {
+    let x = g
+    let t = at
+    for (let k = 0; k < 40 && x.pending; k++) {
+      t += 1500
+      x = stepVisitorGame(x, t).g
+    }
+    return { g: x, t }
+  }
+  it('the visitor opens the first game: three stones, black white black; the agent thinks 1.2 s and takes a colour, says which; white moves fourth', () => {
+    let g = startVisitorGame('agent_0', 7, 0, 'normal', 0, 'swap')
+    expect(g.swap).toEqual({ by: 'visitor', stage: 'opening' })
+    expect(statusLine(g, '메모', 0)).toBe('● 오목 · 스왑 · 첫 세 수 놓기 · 1/3')
+    for (const [k, cell] of [7 * N + 7, 7 * N + 8, 8 * N + 7].entries()) {
+      expect(visitorStone(g)).toBe(k % 2 === 0 ? 1 : 2)
+      g = visitorMove(g, cell, 100 * (k + 1))!.g
+      expect(g.pending).toBeNull() // the agent does not answer the opening
+    }
+    expect(g.swap?.stage).toBe('choosing')
+    expect(visitorTurn(g)).toBe(false)
+    expect(stepVisitorGame(g, 300 + SWAP_THINK_MS - 1).g).toBe(g)
+    const r = stepVisitorGame(g, 300 + SWAP_THINK_MS)
+    const agentColor = r.g.color === 1 ? 2 : 1
+    expect(r.events).toContainEqual({ kind: 'say', text: SWAP_LINES[agentColor] })
+    expect(r.g.swap?.stage).toBe('done')
+    // white to move: the agent's stone if it took white, else the visitor's turn as white
+    if (agentColor === 2) expect(r.g.pending).not.toBeNull()
+    else {
+      expect(visitorTurn(r.g)).toBe(true)
+      expect(statusLine(r.g, '메모', 0)).toContain('당신(백) 차례')
+      expect(statusLine(r.g, '메모', 0).startsWith('○ 오목 · 스왑')).toBe(true)
+    }
+  })
+  it('the next game the agent opens: it places three in its own colours; the visitor picks a colour with the buttons', () => {
+    let g = restart(startVisitorGame('agent_0', 7, 0, 'normal', 0, 'swap'), 0)
+    expect(g.swap).toEqual({ by: 'agent', stage: 'opening' })
+    expect(g.pending).not.toBeNull()
+    // its first stone is black in its hand (the view's black is the agent while it places it)
+    expect(viewOf(g, 0).black).toBe(0)
+    const done = finishHand(g, 0)
+    g = done.g
+    expect(g.moves).toHaveLength(3)
+    expect(g.swap?.stage).toBe('choosing')
+    expect(visitorTurn(g)).toBe(false)
+    // the visitor takes white: white moves fourth, the visitor's turn
+    const w = chooseColor(g, 2, done.t)!.g
+    expect(w.color).toBe(2)
+    expect(visitorTurn(w)).toBe(true)
+    // or black: the agent (white) moves fourth
+    const b = chooseColor(g, 1, done.t)!.g
+    expect(b.pending).not.toBeNull()
+    expect(viewOf(b, done.t).black).toBe(1)
+  })
+  it('#623 undo from the fourth stone on: never in the opening or before the colour is chosen, never back into the first three', () => {
+    // the visitor's own opening: held while placing the three and while the agent chooses
+    let o = startVisitorGame('agent_0', 7, 0, 'normal', 0, 'swap')
+    expect(undoOpeningBlocked(o)).toBe(true)
+    o = visitorMove(o, 7 * N + 7, 1)!.g
+    expect(canUndo(o)).toBe(false)
+    expect(undo(o, 2)).toBeNull()
+    // the agent opens the next game; the visitor takes white and moves fourth: that stone can be taken back, the opening stays
+    const opened = finishHand(restart(startVisitorGame('agent_0', 7, 0, 'normal', 0, 'swap'), 0), 0)
+    expect(canUndo(opened.g)).toBe(false)
+    const w = chooseColor(opened.g, 2, opened.t)!.g
+    expect(canUndo(w)).toBe(false)
+    const free = [0, 1, 2, 3, 4, 5].map((k) => 14 * N + k)
+    const w4 = visitorMove(w, free[0], opened.t + 10)!.g
+    expect(canUndo(w4)).toBe(true)
+    const back = undo(w4, opened.t + 20)!
+    expect(back.removed).toEqual([free[0]])
+    expect(back.g.moves).toEqual(opened.g.moves)
+    expect(back.g.color).toBe(2)
+    expect(visitorTurn(back.g)).toBe(true)
+    // the agent's answer landed too: both go, the opening stays
+    const w5 = finishHand(w4, opened.t + 10)
+    expect(w5.g.moves).toHaveLength(5)
+    expect(undo(w5.g, w5.t + 1)!.g.moves).toEqual(opened.g.moves)
+    // the visitor takes black: the agent's fourth (white) and then the visitor's turn are still held; the fifth can go
+    const b = chooseColor(opened.g, 1, opened.t)!.g
+    expect(canUndo(b)).toBe(false)
+    const b4 = finishHand(b, opened.t)
+    expect(b4.g.moves).toHaveLength(4)
+    expect(visitorTurn(b4.g)).toBe(true)
+    expect(canUndo(b4.g)).toBe(false)
+    const empty = free.find((c) => b4.g.s.board[c] === 0)!
+    const b5 = visitorMove(b4.g, empty, b4.t + 10)!.g
+    expect(canUndo(b5)).toBe(true)
+    expect(undo(b5, b4.t + 20)!.g.moves).toEqual(b4.g.moves)
+  })
+  it('a win of the visitor in white counts as theirs', () => {
+    const g = startVisitorGame('agent_0', 7, 0, 'normal', 0, 'swap')
+    // the visitor in white, four whites in a row, white to move: the fifth wins for the visitor
+    const board = new Uint8Array(N * N)
+    for (const c of [0, 1, 2, 3]) board[2 * N + c] = 2
+    for (const c of [5 * N, 6 * N, 7 * N + 9, 9 * N + 9]) board[c] = 1
+    const v: VisitorGame = { ...g, color: 2, swap: { by: 'visitor', stage: 'done' }, s: { ...g.s, board, toMove: 2, moveIndex: 8 }, moves: [1, 2, 3, 4, 5, 6, 7, 8] }
+    const r = visitorMove(v, 2 * N + 4, 10)!
+    expect(r.g.end?.result).toBe('white')
+    expect(visitorWon(r.g)).toBe(true)
   })
 })

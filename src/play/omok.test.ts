@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { N, PERSONALITIES, aiMove, gameAt, legalMoves, newGame, play, winner, type OmokState } from './omok'
+import { N, PERSONALITIES, aiMove, gameAt, legalMoves, newGame, play, winner, type OmokState, agentRule } from './omok'
+import { forbiddenAt, type RuleId } from './omokRules'
 
 const at = (x: number, y: number) => y * N + x
 function seq(cells: number[]): OmokState {
@@ -220,5 +221,49 @@ describe('gameAt', () => {
       expect(v.moveIndex).toBeLessThanOrEqual(10)
       expect(v.phase).toBe('thinking')
     }
+  })
+})
+
+// #603 (play.md 11.5): the rules in the engine: black never on a forbidden point (the AI included), the same seed the same game, a win as the rule says
+describe('the rules in play', () => {
+  const selfPlay = (rule: RuleId, seed: number) => {
+    let s = newGame(rule)
+    const moves: number[] = []
+    const black = PERSONALITIES.agent_1
+    const white = PERSONALITIES.agent_3
+    while (s.result === 'playing' && moves.length < 120) {
+      const mv = aiMove(s, s.toMove === 1 ? black : white, seed)
+      if (mv < 0) break
+      if (s.toMove === 1) expect(forbiddenAt(s.board, mv, rule), `${rule} seed ${seed} move ${moves.length}`).toBeNull()
+      moves.push(mv)
+      s = play(s, mv)!
+    }
+    return { s, moves }
+  }
+  it('the AI as black never stands on a forbidden point (renju, domestic, swap)', () => {
+    for (const rule of ['renju', 'domestic', 'swap'] as const) for (let seed = 1; seed <= 12; seed++) selfPlay(rule, seed)
+  })
+  it('the same seed, the same game', () => {
+    for (const rule of ['renju', 'exact'] as const) expect(selfPlay(rule, 7).moves).toEqual(selfPlay(rule, 7).moves)
+  })
+  it('a forbidden point cannot be played; a white stone there can', () => {
+    let s = newGame('renju')
+    // black 3-3 at H8 after G8 F8 (across) and H7 H6 (down), white far away
+    for (const m of [at(5, 7), at(0, 0), at(6, 7), at(0, 2), at(7, 6), at(0, 4), at(7, 5), at(0, 6)]) s = play(s, m)!
+    expect(s.toMove).toBe(1)
+    expect(forbiddenAt(s.board, at(7, 7), 'renju')).toBe('33')
+    expect(play(s, at(7, 7))).toBeNull()
+    expect(play({ ...s, rule: 'free' }, at(7, 7))).not.toBeNull()
+  })
+  it('the winning line is as the rule says: renju black exactly five', () => {
+    for (let seed = 1; seed <= 12; seed++) {
+      const { s } = selfPlay('renju', seed)
+      if (s.result === 'black') expect(s.line).toHaveLength(5)
+    }
+  })
+  it('the agents\' own games take their rule from the seed, all five in use', () => {
+    const seen = new Set<RuleId>()
+    for (let seed = 0; seed < 60; seed++) seen.add(agentRule(seed))
+    expect([...seen].sort()).toEqual(['domestic', 'exact', 'free', 'renju', 'swap'])
   })
 })

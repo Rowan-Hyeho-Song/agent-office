@@ -1,12 +1,39 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { N } from '../../play/omok'
-import { STRENGTHS, STRENGTH_NAME, idleLeft, statusLine, type Strength } from '../../play/visitorOmok'
+import { STRENGTHS, STRENGTH_NAME, UNDO_OPENING_LINE, idleLeft, statusLine, type Strength } from '../../play/visitorOmok'
+import { FORBID_NAME, RULES, RULE_BY_ID } from '../../play/omokRules'
 import { AGENT_INFO, officeNow, type OfficeWorld } from '../world'
+import { chipText, hudBit, momentSaid } from '../../play/workHold'
+import { WorkChip } from '../WorkChip'
 import { tagOnScreen } from './pose'
+import { cue, PROP_CLICK_DB } from '../../audio/cues'
 import {
-  closeOmok, getOmokVisit, moveCursor, omokCanUndo, openOmok, placeOmok, restartOmok, setCursor, strengthOmok, touchOmok, undoOmok, useOmokVisit, viewName,
-  visitorMayPlace,
+  chooseColorOmok, chooseRule, closeOmok, closeRulePicker, getOmokVisit, moveCursor, omokCanUndo, omokForbidAt, omokUndoOpening, openOmok, openRulePicker, placeOmok, restartOmok, selectRule,
+  setCursor, strengthOmok, touchOmok, undoOmok, useOmokVisit, viewName, visitorMayPlace,
 } from './store'
+
+/** 은/는 after a point's name, by how its number reads (H8은 팔, H9는 구, H10은 십) */
+export const eunNeun = (name: string) => {
+  const n = Number(name.replace(/^\D+/, ''))
+  return `${name}${n % 10 === 0 || [1, 3, 6, 7, 8].includes(n % 10) ? '은' : '는'}`
+}
+
+/** #603 (designer, #617) a wide screen: the chooser beside the board (its left 32 px past the board's right edge, its middle at the board's), when it
+ * fits with 16 px to spare; else over the HUD (styles.css). A phone keeps the sheet over the HUD (an empty board may be covered) */
+const SHEET_W = 340
+export function besideBoard(b: { right: number; middle: number } | null, screenW = window.innerWidth): Record<string, string | number> | undefined {
+  if (!b || screenW <= 640) return undefined
+  const left = b.right + 32
+  if (screenW - left < SHEET_W + 16) return undefined
+  return { left, top: b.middle, bottom: 'auto', translate: '0 -50%' }
+}
+
+/** #603 how long the forbidden point's guidance stays (play.md 11.4) */
+const FORBID_SHOW_MS = 2000
+/** #623 the undo words keep this far inside the screen's edges (px) */
+const UNDO_WHY_EDGE = 16
+/** #603 choosing a rule or a colour: the office click, quieter (sound.md, like a prop press) */
+const choiceClick = () => cue('ui.click', { db: PROP_CLICK_DB })
 
 // The page side of the visitor's omok (#137 ②, play.md 2.1 · 2.2 · 2.3 · 4 · 5): the "같이 두기" tag over the empty chair, the HUD at the bottom (status,
 // the cursor's name, strength, undo, again, leave), the board as a keyboard grid (arrows, Enter / Space) with its words for a screen reader, and Esc. While
@@ -26,6 +53,8 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
   const grid = useRef<HTMLDivElement>(null)
   const tagEl = useRef<HTMLButtonElement>(null)
   const [said, setSaid] = useState('')
+  /** #623 the dimmed [무르기]'s words: shown on hover, focus, a tap or a long press (a tap's for 2 s) */
+  const [undoWhy, setUndoWhy] = useState<{ hover: boolean; focus: boolean; tapAt: number | null }>({ hover: false, focus: false, tapAt: null })
   const lastMoves = useRef(0)
   const open = v.phase !== 'closed'
   const name = v.agent ? shortName(v.agent) : ''
@@ -72,6 +101,31 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
     const key = (e: KeyboardEvent) => {
       const now = officeNow(world)
       touchOmok(now)
+      // #603 the rule chooser first: ↑↓ choose, Enter starts, the first Esc closes it (the rule stays), the next one leaves (play.md 11.2)
+      if (getOmokVisit().picker) {
+        const v0 = getOmokVisit()
+        const i = RULES.findIndex((r) => r.id === v0.pickerRule)
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          e.stopPropagation()
+          closeRulePicker()
+          return
+        }
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault()
+          const r = RULES[(i + (e.key === 'ArrowDown' ? 1 : RULES.length - 1)) % RULES.length].id
+          selectRule(r)
+          choiceClick()
+          document.getElementById(`omok-rule-${r}`)?.focus()
+          return
+        }
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          choiceClick()
+          chooseRule(v0.pickerRule, now)
+          return
+        }
+      }
       if (e.key === 'Escape') {
         e.preventDefault()
         e.stopPropagation()
@@ -101,14 +155,42 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
   const g = v.game
   const now = officeNow(world)
   const left = g ? idleLeft(g, now) : null
-  const status = g ? statusLine(g, name, now) : ''
+  // #601 called to work: the HUD's word and the chip's (play.md 10.2)
+  const work = v.work && g && !g.end ? v.work : null
+  const status = g ? statusLine(g, name, now, work ? hudBit('omok', work, now) : undefined) : ''
   const cellWord = (cell: number) => {
     const c = g?.s.board[cell]
-    return `${viewName(cell)}, ${c === 1 ? '흑' : c === 2 ? '백' : '빈칸'}`
+    // #603 an empty point black may not take says so (play.md 11.4)
+    const why = c ? null : omokForbidAt(cell)
+    return `${viewName(cell)}, ${c === 1 ? '흑' : c === 2 ? '백' : '빈칸'}${why ? `, 흑 금수 ${FORBID_NAME[why]}` : ''}`
   }
+  // #603 the forbidden point just pressed: the guidance over the HUD for 2 s, read once
+  const forbidNow = v.forbid && now - v.forbid.at < FORBID_SHOW_MS ? v.forbid : null
+  const armedForbid = v.armed !== null && !!omokForbidAt(v.armed)
+  // #623 a swap game holds [무르기] through its opening: dimmed but still focusable, its words over the HUD
+  const undoHeld = open && omokUndoOpening()
+  const undoWhyShown = undoHeld && (undoWhy.hover || undoWhy.focus || (undoWhy.tapAt !== null && Date.now() - undoWhy.tapAt < FORBID_SHOW_MS))
+  const undoBtn = useRef<HTMLButtonElement>(null)
+  const undoNote = useRef<HTMLParagraphElement>(null)
+  // the words over the button they explain (the forbid guidance is the board's, in the middle): its centre across, 16 px inside the screen
+  useLayoutEffect(() => {
+    const b = undoBtn.current
+    const n = undoNote.current
+    if (!b || !n || n.hidden) return
+    const r = b.getBoundingClientRect()
+    const w = n.offsetWidth
+    n.style.left = `${Math.max(UNDO_WHY_EDGE, Math.min(innerWidth - UNDO_WHY_EDGE - w, r.left + r.width / 2 - w / 2))}px`
+    n.style.translate = '0 0'
+  })
+  // the chooser: the selected row takes the focus as it opens
+  const pickerEl = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (v.picker) document.getElementById(`omok-rule-${getOmokVisit().pickerRule}`)?.focus()
+  }, [v.picker])
 
   return (
     <>
+      {work && v.chip && v.agent && <WorkChip agent={v.agent} at={v.chip} anchor="start" text={chipText('omok', work, now)} />}
       {v.tag && !open && (
         <button
           type="button"
@@ -121,8 +203,55 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
           <span aria-hidden="true">●</span> 같이 두기
         </button>
       )}
+      {open && g && v.picker && (
+        <div className="omok-rules" role="dialog" aria-label="오목 규칙 고르기" ref={pickerEl} style={besideBoard(v.boardBox)}>
+          <h2>규칙 고르기</h2>
+          <div role="radiogroup" aria-label="오목 규칙">
+            {RULES.map((r) => (
+              <button
+                key={r.id}
+                id={`omok-rule-${r.id}`}
+                type="button"
+                role="radio"
+                aria-checked={v.pickerRule === r.id}
+                tabIndex={v.pickerRule === r.id ? 0 : -1}
+                aria-label={`${r.name}, ${r.hint}`}
+                onClick={() => {
+                  choiceClick()
+                  selectRule(r.id)
+                }}
+              >
+                <b>{v.pickerRule === r.id ? '● ' : ''}{r.name}</b>
+                <small>{r.hint}</small>
+              </button>
+            ))}
+          </div>
+          <button type="button" className="omok-rules-go" onClick={() => {
+              choiceClick()
+              chooseRule(getOmokVisit().pickerRule, officeNow(world))
+            }}>
+            이 규칙으로 시작 <kbd>Enter</kbd>
+          </button>
+        </div>
+      )}
+      {open && g && forbidNow && (
+        <p className="omok-forbid" role="status">
+          <span aria-hidden="true">✕</span> 금수예요 · {FORBID_NAME[forbidNow.why]}
+        </p>
+      )}
+      {open && g && undoHeld && (
+        <p ref={undoNote} id="omok-undo-why" role="tooltip" className="omok-forbid" hidden={!undoWhyShown || !!forbidNow}>
+          {UNDO_OPENING_LINE}
+        </p>
+      )}
       {open && g && (
         <section className="omok-hud" aria-label="오목 대국">
+          {/* #603 the rule: a chip that reopens the chooser until the first stone, then its name alone (play.md 11.2) */}
+          {!g.moves.length && !g.end ? (
+            <button type="button" className="omok-rule-chip" aria-label={`규칙 ${RULE_BY_ID[g.rule].name}, 바꾸기`} onClick={() => openRulePicker()}>
+              {RULE_BY_ID[g.rule].name} ▾
+            </button>
+          ) : null}
           <p className="omok-status" aria-live="polite">
             {status}
             {left !== null && <span className="omok-idle"> · {Math.ceil(left / 1000)}초 뒤 끝남</span>}
@@ -136,20 +265,65 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
             ))}
           </div>
           {v.armed !== null && visitorMayPlace() && (
-            <button type="button" className="omok-here" onClick={() => placeOmok(v.armed!, officeNow(world))}>
+            <button
+              type="button"
+              className="omok-here"
+              aria-disabled={armedForbid}
+              data-forbid={armedForbid ? '' : undefined}
+              onClick={() => placeOmok(v.armed!, officeNow(world))}
+            >
               여기에 두기
             </button>
           )}
-          <button type="button" disabled={!omokCanUndo()} onClick={() => undoOmok(officeNow(world))}>
+          {/* #603 swap: after the agent's three, the visitor takes a colour (play.md 11.3; Tab · Enter) */}
+          {g.swap?.by === 'agent' && g.swap.stage === 'choosing' && (
+            <>
+              <button type="button" className="omok-here" onClick={() => {
+                choiceClick()
+                chooseColorOmok(1, officeNow(world))
+              }}>
+                흑으로 두기
+              </button>
+              <button type="button" className="omok-here" onClick={() => {
+                choiceClick()
+                chooseColorOmok(2, officeNow(world))
+              }}>
+                백으로 두기
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            disabled={!undoHeld && !omokCanUndo()}
+            ref={undoBtn}
+            aria-disabled={undoHeld || undefined}
+            aria-describedby={undoHeld ? 'omok-undo-why' : undefined}
+            onClick={() => (undoHeld ? setUndoWhy((w) => ({ ...w, tapAt: Date.now() })) : undoOmok(officeNow(world)))}
+            onContextMenu={(e) => {
+              if (!undoHeld) return
+              e.preventDefault()
+              setUndoWhy((w) => ({ ...w, tapAt: Date.now() }))
+            }}
+            onPointerEnter={(e) => e.pointerType === 'mouse' && setUndoWhy((w) => ({ ...w, hover: true }))}
+            onPointerLeave={() => setUndoWhy((w) => ({ ...w, hover: false }))}
+            // the keyboard's focus only: a tap focuses too, and its words go after 2 s
+            onFocus={(e) => e.currentTarget.matches(':focus-visible') && setUndoWhy((w) => ({ ...w, focus: true }))}
+            onBlur={() => setUndoWhy((w) => ({ ...w, focus: false }))}
+          >
             무르기
           </button>
-          <button type="button" onClick={() => restartOmok(officeNow(world))}>
-            다시 두기
-          </button>
+          {/* #601 the agent goes after this game: no new one */}
+          {!v.work && (
+            <button type="button" onClick={() => restartOmok(officeNow(world))}>
+              다시 두기
+            </button>
+          )}
           <button type="button" onClick={() => closeOmok(officeNow(world))}>
             그만두기 <kbd>Esc</kbd>
           </button>
           <p className="sr-only" aria-live="polite">{said}</p>
+          <p className="sr-only" aria-live="polite">{forbidNow ? `${eunNeun(viewName(forbidNow.cell))} 금수예요, ${FORBID_NAME[forbidNow.why]}` : ''}</p>
+          <p className="sr-only" aria-live="polite">{v.work && v.agent ? momentSaid(name) : ''}</p>
           <div
             ref={grid}
             className="omok-grid"

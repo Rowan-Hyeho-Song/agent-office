@@ -202,6 +202,84 @@ export const CUES = {
     length: 0.05,
     play: (o, v) => knock(o, 1800 * v.pitch, 0.04, 0.045, 12, 0.5),
   },
+  // #538 (가) the pixel hologram board (hologram.md): the office's screen light, so a soft triangle "chip" voice, never a
+  // thud. Only the board's own blip keeps the square wave. An agent game sounds them as events; a visitor's own move
+  // passes `visitor: true` and sounds as 'ui' (sound.md 4.6)
+  'holo.pick': {
+    label: '홀로그램 말 집기',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 120,
+    length: 0.12,
+    // the pinch closes and the piece brightens a step: two rising notes, E5 → A5
+    play: (o, v) => {
+      tone(o, midi(76) * v.pitch, 0.045, { level: 0.012, attack: 0.002 })
+      tone(o, midi(81) * v.pitch, 0.07, { level: 0.012, at: 0.045, attack: 0.002 })
+    },
+  },
+  'holo.place': {
+    label: '홀로그램 말 놓기',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 120,
+    length: 0.1,
+    // the piece meets its cell and the light ripple starts: a low triangle "bip" that drops a little, and a tiny tick
+    play: (o, v) => {
+      tone(o, midi(64) * v.pitch, 0.08, { level: 0.029, slide: 0.88, attack: 0.001 })
+      noise(o, 0.008, { freq: 3500, q: 2, level: 0.015, attack: 0.001 })
+    },
+  },
+  'holo.board.on': {
+    label: '홀로그램 판 켜짐',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 500,
+    length: 0.4,
+    // hologram.md 2: the projector wakes. The first frame's light line is a screen's tick; the board unfolds up and down
+    // for 0.24 s (a soft rise) and the square blip is the frame it is whole (then it settles for 0.06 s). `dur` = the
+    // board's draw-in time (0.3 s; reduced motion fades in over 0.15 s without unfolding: the tick, and the blip at its end)
+    play: (o, v) => {
+      const d = v.dur ?? HOLO_BOARD_S
+      const whole = d >= HOLO_BOARD_S ? d - HOLO_SETTLE_S : d
+      noise(o, 0.01, { freq: 4500, q: 2, level: 0.011, attack: 0.001 })
+      if (d >= HOLO_BOARD_S) tone(o, 220, whole - 0.01, { level: 0.0054, slide: 4, at: 0.01, attack: 0.02 })
+      tone(o, midi(81), 0.06, { type: 'square', level: 0.0022, at: whole, attack: 0.002 })
+    },
+  },
+  'holo.board.off': {
+    label: '홀로그램 판 꺼짐',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 500,
+    length: 0.4,
+    // the same backwards, from the frame the board starts to fold (after its stones are gone, hologram.md 2): the blip,
+    // the light falls as it folds to a line (0.2 s), the tick as the line's dot goes out (0.3 s). `dur` as for holo.board.on
+    play: (o, v) => {
+      const d = v.dur ?? HOLO_BOARD_S
+      tone(o, midi(81), 0.05, { type: 'square', level: 0.0022, attack: 0.002 })
+      if (d >= HOLO_BOARD_S) tone(o, 880, d - HOLO_DOT_S - 0.02, { level: 0.0054, slide: 0.25, at: 0.02, attack: 0.01 })
+      noise(o, 0.01, { freq: 4500, q: 2, level: 0.011, at: d, attack: 0.001 })
+    },
+  },
+  'omok.forbid': {
+    // #603 a visitor presses a forbidden point (black's 3-3 · 4-4 · overline): a dull low tap of a fingertip on the wood, no buzzer.
+    // Lower and duller than omok.place so it never reads as a stone; sounds on the frame the ✕ starts to shake. The visitor's own
+    // press, so 'ui' like match.win (not thinned by speed)
+    label: '오목 금수 톡',
+    kind: 'ui',
+    bus: 'sfx',
+    spatial: true,
+    gap: 300,
+    length: 0.08,
+    play: (o) => {
+      knock(o, 420, 0.07, 0.015, 3, 0.6)
+      noise(o, 0.03, { kind: 'pink', filter: 'lowpass', freq: 700, level: 0.015, attack: 0.002 })
+    },
+  },
   'pingpong.hit': {
     label: '탁구 라켓 톡',
     kind: 'event',
@@ -812,10 +890,18 @@ export type CueOpts = {
   keyKind?: KeyKind
   /** #586 quieter for this call only (dB, 0 or below; a positive value is cut to 0): on top of the replay-speed rule */
   db?: number
+  /** #538 the visitor's own move with a cue the agents also make (holo.*): sounds as 'ui' for this call (sound.md 4.6) */
+  visitor?: boolean
 }
 
 /** #370 D (desk-props.md 7.3): a visitor's press on a prop in the office sounds `ui.click` this much under the HUD's */
 export const PROP_CLICK_DB = -6
+/** #538 the hologram board draws in and out in this long (hologram.md); pass a shorter `dur` for reduced motion */
+export const HOLO_BOARD_S = 0.3
+/** the on board's last part: whole at 0.24 s, then its brightness settles (no sound) */
+const HOLO_SETTLE_S = 0.06
+/** the off board's last part: the folded line shrinks to a dot and goes out */
+const HOLO_DOT_S = 0.1
 /** the per-cue trim: the replay-speed factor `k` and the call's own `db` (never louder than the cue itself) */
 export const trimGain = (k: number, db = 0) => k * Math.pow(10, Math.min(0, Number.isFinite(db) ? db : 0) / 20)
 
@@ -890,12 +976,13 @@ export function cue(name: CueName, opts: CueOpts = {}): boolean {
   const when = (g.ctx.currentTime + (opts.at ?? 0)) * 1000
   if (Math.abs(when - (lastAt.get(gapKey(name, opts.agent)) ?? -1e9)) < def.gap) return false
   // the "every other one" at ×4 is decided by the event's key when there is one, so a replayed scene sounds the same
-  const k = speedRule(def.kind, speed, opts.key !== undefined ? keyRoll(opts.key) : Math.random())
+  const kind: Kind = opts.visitor ? 'ui' : def.kind
+  const k = speedRule(kind, speed, opts.key !== undefined ? keyRoll(opts.key) : Math.random())
   if (k === 0) return false
 
   const t = g.ctx.currentTime + (opts.at ?? 0)
   active = active.filter(([, e]) => e > g.ctx.currentTime)
-  if (def.bus === 'sfx' && def.kind !== 'ui' && overlapping(active, t, def.length) >= MAX_SFX) return false
+  if (def.bus === 'sfx' && kind !== 'ui' && overlapping(active, t, def.length) >= MAX_SFX) return false
   activeKeys = activeKeys.filter(([, e]) => e > g.ctx.currentTime)
   if (def.bus === 'keys' && overlapping(activeKeys, t, def.length) >= MAX_KEYS) return false
   lastAt.set(gapKey(name, opts.agent), when)

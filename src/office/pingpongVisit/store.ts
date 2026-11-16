@@ -8,6 +8,7 @@ import {
   followPaddle, serveVisitorPP, setEasy, setSpeed, spaceVisitorPP, startVisitorPP, stepVisitorPP, type Paddle, type PPEvent, type Speed, type VisitorPP,
 } from '../../play/visitorPingpong'
 import type { Dims } from '../../play/pingpong'
+import { holdPhase, WORK_HOLD, type WorkHold } from '../../play/workHold'
 
 export type VisitPhase = 'closed' | 'flying' | 'open' | 'leaving'
 
@@ -26,10 +27,18 @@ export interface PingpongVisitState {
   helped: boolean
   /** the agent stands at the far end: the match may go on (the serve waits for it) */
   ready: boolean
+  /** #601 the agent was called to work during the match: it plays it out (this tab only), up to the cap (play.md 10) */
+  work: WorkHold | null
+  /** #601 the cap wound the match up: the agent put its paddle down and went (the HUD's 중단 line) */
+  stopped: boolean
+  /** #601 where the work chip stands on the screen (over the agent's head; the rig, every frame) */
+  chip: { x: number; y: number } | null
+  /** #601 when the match ended for the agent (office ms; workSignalPingpong notes it): its line there, then away */
+  doneAt: number | null
 }
 
 const REST: Paddle = { y: 0.2, z: 0, vz: 0 }
-export const CLOSED: PingpongVisitState = { phase: 'closed', agent: null, watcher: null, match: null, paddle: REST, tag: null, helped: false, ready: false }
+export const CLOSED: PingpongVisitState = { phase: 'closed', agent: null, watcher: null, match: null, paddle: REST, tag: null, helped: false, ready: false, work: null, stopped: false, chip: null, doneAt: null }
 
 let state: PingpongVisitState = CLOSED
 let pending: PPEvent[] = []
@@ -83,16 +92,53 @@ export function setPaddle(p: Paddle) {
 /** the frame: the match on by `dtS` real seconds (only while open) */
 export function stepPingpong(dtS: number) {
   const m = state.match
-  if (!m || state.phase !== 'open') return
+  if (!m || state.phase !== 'open' || state.stopped) return
   const p = m.easy ? followPaddle(m, state.paddle) : state.paddle
   const r = stepVisitorPP(m, dtS, p)
   pending.push(...r.events)
   set({ ...state, match: r.g, paddle: p })
 }
+/**
+ * #601 the agent's status this frame (Agents.tsx): a call to work during the match is held (the match goes on), and past its cap the match is
+ * wound up (stopped: the HUD's 중단 line, the agent goes); back to rest before the end, the hold is dropped. True the frame the hold begins.
+ */
+export function workSignalPingpong(busy: boolean, now: number): boolean {
+  if (state.match && state.doneAt === null && (state.match.phase === 'over' || state.stopped)) set({ ...state, doneAt: now })
+  const m = state.match
+  if (!m || m.phase === 'over' || state.stopped || state.phase === 'closed' || state.phase === 'leaving') return false
+  const w = state.work
+  if (!busy) {
+    if (w) set({ ...state, work: null })
+    return false
+  }
+  if (!w) {
+    set({ ...state, work: { since: now, told: false } })
+    return true
+  }
+  if (holdPhase(w, now).phase === 'over') set({ ...state, stopped: true, doneAt: now })
+  return false
+}
+/** the moment's look and line were shown */
+export const pingpongWorkTold = (now: number) => state.work && !state.work.told && set({ ...state, work: { ...state.work, told: true, toldAt: now } })
+/** the chip's place (the rig) */
+export function setPingpongChip(chip: PingpongVisitState['chip']) {
+  const c = state.chip
+  if (c === chip || (c && chip && Math.abs(c.x - chip.x) < 0.5 && Math.abs(c.y - chip.y) < 0.5)) return
+  set({ ...state, chip })
+}
+/** the match is over for the agent (won, lost, wound up): it may go */
+export const pingpongDone = () => !!state.match && (state.match.phase === 'over' || state.stopped)
+/** #601 the visitor's match holds the agent at the far end: until the visitor leaves; over with a call to work held (or wound up), it goes at once */
+export const pingpongHoldsAgent = (now: number) =>
+  state.phase !== 'closed' &&
+  state.phase !== 'leaving' &&
+  !!state.match &&
+  !((!!state.work || state.stopped) && pingpongDone() && now - (state.doneAt ?? now) >= WORK_HOLD.leaveMs)
+
 /** a click or a tap on the table (the visitor's serve) */
-export const servePingpong = () => !!state.match && state.phase === 'open' && state.ready && take(serveVisitorPP(state.match, state.paddle))
+export const servePingpong = () => !!state.match && state.phase === 'open' && state.ready && !state.stopped && take(serveVisitorPP(state.match, state.paddle))
 /** Space: the serve, or (easy mode) the hit */
-export const spacePingpong = () => !!state.match && state.phase === 'open' && state.ready && take(spaceVisitorPP(state.match, state.paddle))
+export const spacePingpong = () => !!state.match && state.phase === 'open' && state.ready && !state.stopped && take(spaceVisitorPP(state.match, state.paddle))
 /** the rig: whether the agent stands at the far end now */
 export const setPingpongReady = (ready: boolean) => state.ready !== ready && set({ ...state, ready })
 export const speedPingpong = (s: Speed) => state.match && set({ ...state, match: setSpeed(state.match, s) })
@@ -102,7 +148,7 @@ export function restartPingpong(seed: number) {
   const m = state.match
   if (!m || state.phase !== 'open') return
   pending = []
-  set({ ...state, match: startVisitorPP(m.agent, seed, m.speed, m.easy, m.st.dims), paddle: REST })
+  set({ ...state, match: startVisitorPP(m.agent, seed, m.speed, m.easy, m.st.dims), paddle: REST, doneAt: null })
 }
 /** where the tag stands on the screen (the rig, every frame) */
 export function setPingpongTag(tag: PingpongVisitState['tag']) {
