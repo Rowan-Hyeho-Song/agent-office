@@ -6,7 +6,7 @@
 import { useSyncExternalStore } from 'react'
 import { N } from '../../play/omok'
 import {
-  canUndo, chooseColor, DEFAULT_RULE, endGame, forbidPressed, restart, setRule, setStrength, startVisitorGame, stepVisitorGame, touchGame, undo, visitorForbid, visitorMove,
+  canUndo, chooseColor, DEFAULT_RULE, undoOpeningBlocked, endGame, forbidPressed, restart, setRule, setStrength, startVisitorGame, stepVisitorGame, touchGame, undo, visitorForbid, visitorMove,
   visitorTurn, type OmokEvent, type Strength, type VisitorGame,
 } from '../../play/visitorOmok'
 import { RULES, type Forbid, type RuleId } from '../../play/omokRules'
@@ -194,6 +194,8 @@ export function touchOmok(now: number) {
 }
 export const undoOmok = (now: number) => !!state.game && take(undo(state.game, now))
 export const omokCanUndo = () => !!state.game && canUndo(state.game)
+/** #623 the swap opening holds [무르기] now (dimmed, with its words), the game still on */
+export const omokUndoOpening = () => !!state.game && !state.game.end && !state.game.conceded && undoOpeningBlocked(state.game)
 export function restartOmok(now: number) {
   const g = state.game
   if (!g || state.phase !== 'open') return

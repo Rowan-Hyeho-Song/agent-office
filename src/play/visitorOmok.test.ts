@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { HAND_MS, N, PLACE_AT } from './omok'
-import { OMOK_LINES, VISITOR_OMOK, canUndo, cellName, endGame, idleLeft, restart, setStrength, startVisitorGame, statusLine, stepVisitorGame, undo, viewOf, visitorMove, visitorTurn, type OmokEvent, type VisitorGame, SWAP_LINES, SWAP_THINK_MS, chooseColor, visitorStone, visitorWon } from './visitorOmok'
+import { OMOK_LINES, VISITOR_OMOK, canUndo, cellName, endGame, idleLeft, restart, setStrength, startVisitorGame, statusLine, stepVisitorGame, undo, viewOf, visitorMove, visitorTurn, type OmokEvent, type VisitorGame, SWAP_LINES, SWAP_THINK_MS, chooseColor, undoOpeningBlocked, visitorStone, visitorWon } from './visitorOmok'
 
 // #137 ② (play.md 2 · 5): a visitor plays black against the agent placing a record alone, in their own tab.
 const at = (x: number, y: number) => y * N + x
@@ -293,10 +293,44 @@ describe('swap', () => {
     expect(b.pending).not.toBeNull()
     expect(viewOf(b, done.t).black).toBe(1)
   })
-  it('no undo in a swap game; a win of the visitor in white counts as theirs', () => {
-    let g = startVisitorGame('agent_0', 7, 0, 'normal', 0, 'swap')
-    g = visitorMove(g, 7 * N + 7, 1)!.g
-    expect(canUndo(g)).toBe(false)
+  it('#623 undo from the fourth stone on: never in the opening or before the colour is chosen, never back into the first three', () => {
+    // the visitor's own opening: held while placing the three and while the agent chooses
+    let o = startVisitorGame('agent_0', 7, 0, 'normal', 0, 'swap')
+    expect(undoOpeningBlocked(o)).toBe(true)
+    o = visitorMove(o, 7 * N + 7, 1)!.g
+    expect(canUndo(o)).toBe(false)
+    expect(undo(o, 2)).toBeNull()
+    // the agent opens the next game; the visitor takes white and moves fourth: that stone can be taken back, the opening stays
+    const opened = finishHand(restart(startVisitorGame('agent_0', 7, 0, 'normal', 0, 'swap'), 0), 0)
+    expect(canUndo(opened.g)).toBe(false)
+    const w = chooseColor(opened.g, 2, opened.t)!.g
+    expect(canUndo(w)).toBe(false)
+    const free = [0, 1, 2, 3, 4, 5].map((k) => 14 * N + k)
+    const w4 = visitorMove(w, free[0], opened.t + 10)!.g
+    expect(canUndo(w4)).toBe(true)
+    const back = undo(w4, opened.t + 20)!
+    expect(back.removed).toEqual([free[0]])
+    expect(back.g.moves).toEqual(opened.g.moves)
+    expect(back.g.color).toBe(2)
+    expect(visitorTurn(back.g)).toBe(true)
+    // the agent's answer landed too: both go, the opening stays
+    const w5 = finishHand(w4, opened.t + 10)
+    expect(w5.g.moves).toHaveLength(5)
+    expect(undo(w5.g, w5.t + 1)!.g.moves).toEqual(opened.g.moves)
+    // the visitor takes black: the agent's fourth (white) and then the visitor's turn are still held; the fifth can go
+    const b = chooseColor(opened.g, 1, opened.t)!.g
+    expect(canUndo(b)).toBe(false)
+    const b4 = finishHand(b, opened.t)
+    expect(b4.g.moves).toHaveLength(4)
+    expect(visitorTurn(b4.g)).toBe(true)
+    expect(canUndo(b4.g)).toBe(false)
+    const empty = free.find((c) => b4.g.s.board[c] === 0)!
+    const b5 = visitorMove(b4.g, empty, b4.t + 10)!.g
+    expect(canUndo(b5)).toBe(true)
+    expect(undo(b5, b4.t + 20)!.g.moves).toEqual(b4.g.moves)
+  })
+  it('a win of the visitor in white counts as theirs', () => {
+    const g = startVisitorGame('agent_0', 7, 0, 'normal', 0, 'swap')
     // the visitor in white, four whites in a row, white to move: the fifth wins for the visitor
     const board = new Uint8Array(N * N)
     for (const c of [0, 1, 2, 3]) board[2 * N + c] = 2

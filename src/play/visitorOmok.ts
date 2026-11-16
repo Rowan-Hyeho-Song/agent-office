@@ -293,14 +293,20 @@ export function idleLeft(g: VisitorGame, now: number): number | null {
 }
 
 // #603 not in a swap game (taking back across the opening and the colour choice would tangle who plays which colour)
-export const canUndo = (g: VisitorGame) => !g.end && !g.conceded && !g.swap && g.undos < VISITOR_OMOK.undoMax && g.moves.length > 0
+/** #623 the stones an undo takes back: the visitor's last alone (the agent is still thinking on it), else with the agent's answer after it */
+const undoTake = (g: VisitorGame) => (g.pending || (g.moves.length - 1) % 2 === (g.color === 1 ? 0 : 1) ? 1 : 2)
+/** #623 (play.md 11.3) a swap game: no undo before the colour is chosen, nor back into the opening three */
+export const undoOpeningBlocked = (g: VisitorGame) => !!g.swap && (g.swap.stage !== 'done' || g.moves.length - undoTake(g) < 3)
+/** #623 the dimmed [무르기]'s words while the swap opening holds it */
+export const UNDO_OPENING_LINE = '여는 수는 무를 수 없어요'
+export const canUndo = (g: VisitorGame) => !g.end && !g.conceded && !undoOpeningBlocked(g) && g.undos < VISITOR_OMOK.undoMax && g.moves.length > 0
 
 /** take back the visitor's last move and the agent's answer (or the answer it is still thinking about); null when not allowed */
 export function undo(g0: VisitorGame, now: number): { g: VisitorGame; events: OmokEvent[]; removed: number[] } | null {
   if (!canUndo(g0)) return null
   const ev: OmokEvent[] = []
   // whose move is last: the visitor's (the agent is thinking, cancel it) or the agent's (take both)
-  const take = g0.pending || g0.moves.length % 2 === 1 ? 1 : 2
+  const take = undoTake(g0)
   const moves = g0.moves.slice(0, g0.moves.length - take)
   const removed = g0.moves.slice(g0.moves.length - take)
   const g: VisitorGame = { ...g0, s: replay(moves, g0.rule), moves, pending: null, landed: null, undos: g0.undos + 1, lastInput: now, said: [...g0.said] }

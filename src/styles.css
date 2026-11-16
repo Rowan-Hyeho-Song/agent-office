@@ -1027,8 +1027,8 @@ html[data-motion='reduce'] .badge-sheet { animation: sound-sheet-fade 120ms line
 .omok-idle { color: var(--color-text-muted); }
 .omok-cell { flex: none; min-width: 3ch; color: var(--color-text-muted); }
 .omok-hud button { flex: none; height: 32px; padding: 0 10px; border: 0; background: none; color: var(--color-text); font: inherit; cursor: pointer; box-shadow: inset 0 0 0 1px var(--color-line); }
-.omok-hud button:hover:not(:disabled) { color: var(--color-cyan); }
-.omok-hud button:disabled { color: var(--color-text-muted); opacity: 0.5; cursor: default; }
+.omok-hud button:hover:not(:disabled):not([aria-disabled='true']) { color: var(--color-cyan); }
+.omok-hud button:disabled, .omok-hud button[aria-disabled='true'] { color: var(--color-text-muted); opacity: 0.5; cursor: default; }
 .omok-hud button:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: -2px; }
 .omok-hud kbd { font: inherit; color: var(--color-text-muted); }
 .omok-strength { flex: none; display: flex; }
