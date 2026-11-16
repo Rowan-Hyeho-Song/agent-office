@@ -270,10 +270,11 @@ export class BubbleLayer {
       l.el.dataset.dir = p.dir
       l.el.style.display = p.visible && anchors[i.id]?.visible ? '' : 'none'
       const y = p.y ?? i.y
-      const style = `${Math.round(i.x)}|${Math.round(y)}|${p.stack}|${p.shift}`
+      const x = p.x ?? i.x
+      const style = `${Math.round(x)}|${Math.round(y)}|${p.stack}|${p.shift}`
       if (style !== l.style) {
         l.style = style
-        l.el.style.setProperty('--x', `${Math.round(i.x)}px`)
+        l.el.style.setProperty('--x', `${Math.round(x)}px`)
         l.el.style.setProperty('--y', `${Math.round(y)}px`)
         l.el.style.setProperty('--stack', `${p.stack}px`)
         l.el.style.setProperty('--shift', `${p.shift}px`)

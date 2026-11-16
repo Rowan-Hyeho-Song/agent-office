@@ -193,6 +193,8 @@ export class Director {
   private lastGoal: Record<string, { spot: string; key: string }> = {}
   /** what each agent shows right now (the name tags, head chips, monitors read this, not the raw status): decided in goals(), nowhere else (#186) */
   shown: Record<string, Shown> = {}
+  /** #601 (designer, #615) agents a visitor's game holds in this tab while they are called to work: not "자리로 가는 중" (they are not on their way) */
+  heldByVisitor: ReadonlySet<string> = new Set()
   /** what goals() decided before the meeting's words (#354) */
   private baseShown: Record<string, Shown> = {}
   /** who is at the meeting and the words of the stage it is in (set by the runner after goals(); the next frame's goals() holds their wrap-ups) */
@@ -830,7 +832,7 @@ export class Director {
       }
       if (s.state === 'working') {
         out[a] = { spot: `work_${desk}`, pose: 'type', label: activityLabel(s.activity) }
-        shown[a] = { status: s, kind: 'work', ...(atDesk ? {} : { detail: WALKING_TO_DESK }) }
+        shown[a] = { status: s, kind: 'work', ...(atDesk || this.heldByVisitor.has(a) ? {} : { detail: WALKING_TO_DESK }) }
         continue
       }
       const run = this.runs[a]
