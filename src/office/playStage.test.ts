@@ -11,7 +11,7 @@ import { PlayStage, VISITOR_RING, type StageIn } from './playStage'
 import { STONE_DISC_R } from './grip'
 import { AgentRig, PropBank, buildRig } from './rig'
 import type { Goal } from './director'
-import { startVisitorGame, stepVisitorGame, viewOf, visitorMove, VISITOR_OMOK } from '../play/visitorOmok'
+import { startVisitorGame, viewOf } from '../play/visitorOmok'
 
 stubCanvas()
 const IDS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
@@ -170,30 +170,6 @@ describe('PlayStage', () => {
     }
     expect(worst).toBeGreaterThan(0.5) // it does step
     expect(worst).toBeLessThanOrEqual(1.2 + 1e-6)
-  })
-
-  it('reduced motion: the white bowl fades out at home (0.12 s) and in at the corner (0.12 s), never sliding over (#456)', async () => {
-    const w = await world()
-    const goals = Object.fromEntries(IDS.map((id) => [id, { spot: 'work_0', pose: 'idle', label: '' } as Goal]))
-    const bowl = w.scene.getObjectByName('prop_omok_bowl_w')!
-    const homeX = bowl.position.x
-    const frame = (t: number, rest: 'home' | 'corner') => {
-      w.stage.update(inp(w, goals, 0, t, { reduced: true, dt: 0.02, bowlRest: rest }))
-      w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
-      w.props.update(0.02)
-      return { o: (w.stage as unknown as { bowlOpacity: number }).bowlOpacity, x: bowl.position.x }
-    }
-    for (let t = 0; t < 0.2; t += 0.02) expect(frame(t, 'home').x).toBeCloseTo(homeX, 4)
-    const seen: { t: number; o: number; x: number }[] = []
-    for (let t = 0.2; t < 0.6; t += 0.02) seen.push({ t, ...frame(t, 'corner') })
-    const cornerX = seen.at(-1)!.x
-    expect(cornerX).toBeLessThan(homeX - 0.3)
-    // out at home first, then in at the corner: every frame is at one of the two places (nothing slides between them)
-    expect(seen.every((f) => Math.abs(f.x - homeX) < 0.005 || Math.abs(f.x - cornerX) < 0.005)).toBe(true)
-    expect(seen.filter((f) => Math.abs(f.x - homeX) < 0.005).every((f) => f.o <= 1)).toBe(true)
-    expect(Math.min(...seen.map((f) => f.o))).toBeLessThan(0.2)
-    expect(seen.find((f) => f.t > 0.2 + 0.12 && f.t < 0.2 + 0.24 && Math.abs(f.x - cornerX) < 0.005 && f.o > 0 && f.o < 1), 'fading in at the corner').toBeTruthy()
-    expect(seen.at(-1)!.o).toBe(1)
   })
 
   it('omok: the same office time gives the same stones; the stone sits between the index and middle fingertips at their contacts', async () => {
@@ -360,46 +336,6 @@ describe('PlayStage', () => {
     expect(w.stage.omokCellAt(w.stage.omokPoint(0)!.add(new Vector3(-g.cell, 0, 0)))).toBeNull() // off the board
   })
 
-  it('#137 ②: the visitor game is drawn at game_a; its white bowl fades over to the agent corner and back, never sliding', async () => {
-    const w = await world()
-    const goals = Object.fromEntries(IDS.map((id) => [id, { spot: 'work_0', pose: 'idle', label: '' } as Goal]))
-    const r = w.rigs.agent_0
-    r.at = 'game_a'
-    r.x = -2.2
-    r.z = 2.2
-    r.heading = -Math.PI / 2
-    r.parts.root.position.set(r.x, 0, r.z)
-    r.parts.root.rotation.set(0, r.heading, 0)
-    r.parts.root.updateMatrixWorld(true)
-    goals.agent_0 = { spot: 'game_a', pose: 'boardgame', label: '' }
-    expect(r.arrived).toBe('game_a')
-    let g = visitorMove(startVisitorGame('agent_0', 7, 0), 112, 0)!.g
-    g = stepVisitorGame(g, VISITOR_OMOK.thinkCapMs + 100).g
-    const bowl = w.scene.getObjectByName('prop_omok_bowl_w')!
-    const homeX = bowl.position.x
-    const frame = (t: number, visit: boolean) => {
-      const now = 10_000 + t * 1000
-      w.stage.update(inp(w, goals, now, t, { dt: 0.02, bowlRest: visit ? 'corner' : 'home', visitorOmok: visit ? { agent: 'agent_0', view: viewOf(g, now) } : null }))
-      w.props.hold(new Map(Object.values(w.rigs).map((x) => [x, x.want])))
-      w.props.update(0.02)
-      const st = (w.stage as unknown as { stones: { b: { count: number }; w: { count: number } } }).stones
-      return { o: (w.stage as unknown as { bowlOpacity: number }).bowlOpacity, x: bowl.position.x, b: st.b.count, wc: st.w.count }
-    }
-    for (let t = 0; t < 0.2; t += 0.02) frame(t, false)
-    const seen: { o: number; x: number; b: number; wc: number }[] = []
-    for (let t = 0.2; t < 0.8; t += 0.02) seen.push(frame(t, true))
-    const cornerX = seen.at(-1)!.x
-    expect(cornerX).toBeLessThan(homeX - 0.3)
-    expect(seen.every((f) => Math.abs(f.x - homeX) < 0.005 || Math.abs(f.x - cornerX) < 0.005)).toBe(true)
-    expect(Math.min(...seen.map((f) => f.o))).toBeLessThan(0.2)
-    expect(seen.at(-1)).toMatchObject({ o: 1, b: 1, wc: 1 }) // the visitor's black and the agent's white, nothing else
-    const back: { o: number; x: number }[] = []
-    for (let t = 0.8; t < 1.4; t += 0.02) back.push(frame(t, false))
-    expect(back.every((f) => Math.abs(f.x - homeX) < 0.005 || Math.abs(f.x - cornerX) < 0.005)).toBe(true)
-    expect(Math.min(...back.map((f) => f.o))).toBeLessThan(0.2)
-    expect(back.at(-1)!.x).toBeCloseTo(homeX, 4)
-    expect(back.at(-1)!.o).toBe(1)
-  })
   it('#137 ② (play.md 2.5): a visitor win rings the five in ivory; an agent win rings them in the agent colour', async () => {
     const w = await world()
     const goals = Object.fromEntries(IDS.map((id) => [id, { spot: 'work_0', pose: 'idle', label: '' } as Goal]))

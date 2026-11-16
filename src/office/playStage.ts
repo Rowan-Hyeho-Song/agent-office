@@ -71,7 +71,6 @@ import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, pageTau, rowOf } from
 import { cue, cue as treatCue } from '../audio/cues'
 import { type Place, SEQ, ease, habitOf, placeSequence } from '../play/choreo'
 import { STEP, stepAt, strokeAt } from '../play/stroke'
-import { BOWL_CORNER, BOWL_S, SOLO_LEAD_MS } from './bowlRun'
 import { VISITOR, sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
 import { Typist } from './typist'
@@ -112,8 +111,6 @@ const LEAN_MAX_M = 0.08
 const WEIGHT_DIP_M = 0.03
 const WRIST_SAG = (5 * Math.PI) / 180 / ((30 * Math.PI) / 180)
 const LEAN_IN_M = 0.05
-/** the white bowl in the carrying hold: in front of the chest, its bottom this high, this far forward of the body */
-const BOWL_CARRY = { y: 0.82, fwd: 0.3 }
 /** the paddle hand's shoulder, from the body's spot: height above the floor and sideways toward the right hand (rig.ts's throw: 1.0 m, 0.12–0.15 m) */
 const SHOULDER_Y = 1.0
 const SHOULDER_SIDE = 0.15
@@ -152,8 +149,6 @@ export interface StageIn {
   visitorPingpong?: { agent: string; rally: Rally; tMs: number } | null
   /** #455 the treats taken in a hand: which, and when it landed (office ms) */
   treats?: Record<string, { kind: SnackKind; at: number }>
-  /** #137 ① where the white bowl rests when no hand has it (Director.bowlRest): its home by game_b, or the corner by game_a */
-  bowlRest?: 'home' | 'corner'
   gripDemo?: GripDemo | null
 }
 
@@ -219,20 +214,6 @@ export class PlayStage {
 
   // omok
   private grid: { o: Vector3; n: number; cell: number } | null = null
-  private bowl: Record<'b' | 'w', { mouth: Vector3; contact: Vector3 } | undefined> = { b: undefined, w: undefined }
-  /** the bowls' dip points as nodes: the white one rides with prop_omok_bowl_w (#137 ①), so its points are read every frame */
-  private bowlNodes: Partial<Record<'b' | 'w', { mouth: Object3D; contact: Object3D }>> = {}
-  /** #137 ① the white bowl's home (its bottom centre) and the stone sample's offset from it, for resting both at the corner */
-  private bowlHome: Vector3 | null = null
-  private pieceOnBowl: Vector3 | null = null
-  /** where the white bowl is drawn now, and (reduced motion) its swap from one rest to the other: out at the old, in at the new, 0.12 s each */
-  private bowlShown: 'home' | 'corner' = 'home'
-  private bowlSwap: { from: 'home' | 'corner'; to: 'home' | 'corner'; t0: number } | null = null
-  /** #137 ② whether the last frame drew a visitor's game (its bowl's rest changes by a fade, not a walk) */
-  private visitorBowl = false
-  private bowlMats: Material[] | null = null
-  /** tests: the white bowl's opacity now */
-  bowlOpacity = 1
   private stones: { b: InstancedMesh; w: InstancedMesh } | null = null
   private shadows: InstancedMesh | null = null
   private rings: Mesh[] = []
@@ -321,20 +302,6 @@ export class PlayStage {
     if (g) {
       const ud = g.userData as { n?: number; cell?: number }
       this.grid = { o: g.getWorldPosition(new Vector3()), n: ud.n ?? N, cell: ud.cell ?? 0.0257 }
-    }
-    for (const c of ['b', 'w'] as const) {
-      const bowl = scene.getObjectByName(`omok_bowl_${c}`)
-      const contact = scene.getObjectByName(`omok_bowl_${c}_contact_index`)
-      if (bowl && contact) {
-        this.bowl[c] = { mouth: bowl.getWorldPosition(new Vector3()), contact: contact.getWorldPosition(new Vector3()) }
-        this.bowlNodes[c] = { mouth: bowl, contact }
-      }
-    }
-    const bw = scene.getObjectByName('prop_omok_bowl_w')
-    const pw = scene.getObjectByName('prop_piece_b')
-    if (bw && pw) {
-      this.bowlHome = bw.getWorldPosition(new Vector3())
-      this.pieceOnBowl = pw.getWorldPosition(new Vector3()).sub(this.bowlHome)
     }
     // the stones on the board: the two samples are hidden and instanced
     const sb = nodes.omok_stone_b
@@ -574,7 +541,6 @@ export class PlayStage {
   // ------------------------------------------------------------------------------------------------------------- frame
 
   update(inp: StageIn) {
-    this.restBowl(this.bowlSwapStep(inp.bowlRest ?? 'home', inp))
     for (const node of this.forced) this.props.force(node, null)
     this.forced.clear()
     this.typed.clear()
@@ -789,91 +755,6 @@ export class PlayStage {
     return f
   }
 
-  /**
-   * #137 ① the white bowl rests at the corner by game_a while a record is placed alone (and the stone sample with it, at the same offset);
-   * the bowls' dip points are read from their nodes, so a stone is taken from wherever the bowl is now
-   */
-  /**
-   * Reduced motion (#456): a change of the bowl's rest is not walked over; it fades out where it was (0.12 s) and in where it goes (0.12 s),
-   * the bowl and the stone sample snapped there in between. Otherwise the rest changes while the hands hold it (bowlErrand). Returns the
-   * rest to draw this frame.
-   */
-  private bowlSwapStep(want: 'home' | 'corner', inp: StageIn): 'home' | 'corner' {
-    // #137 ② a visitor sitting down or leaving moves the bowl with no hand to carry it: it fades over as with reduced motion
-    const visitor = !!inp.visitorOmok
-    const byVisitor = visitor !== this.visitorBowl
-    this.visitorBowl = visitor
-    if (!this.bowlSwap && want !== this.bowlShown) {
-      if (!inp.reduced && !byVisitor) this.bowlShown = want
-      else this.bowlSwap = { from: this.bowlShown, to: want, t0: inp.t }
-    }
-    const sw = this.bowlSwap
-    if (!sw) return this.bowlShown
-    const u = (inp.t - sw.t0) / (CAN_FADE_MS / 1000)
-    if (u < 1) {
-      this.setBowlOpacity(1 - u)
-      return sw.from
-    }
-    if (this.bowlShown !== sw.to) {
-      // snap: set the new rest and put both there before they fade in (nothing slides)
-      this.restBowl(sw.to)
-      for (const name of ['prop_omok_bowl_w', 'prop_piece_b']) {
-        const n = this.sceneRef.getObjectByName(name)
-        if (n) n.position.setFromMatrixPosition(this.props.homeWorld(n))
-      }
-      this.bowlShown = sw.to
-    }
-    if (u < 2) {
-      this.setBowlOpacity(u - 1)
-      return sw.to
-    }
-    this.setBowlOpacity(1)
-    this.bowlSwap = null
-    return sw.to
-  }
-  private setBowlOpacity(o: number) {
-    const k = Math.max(0, Math.min(1, o))
-    if (k === this.bowlOpacity) return
-    const nodes = ['prop_omok_bowl_w', 'prop_piece_b'].map((n) => this.sceneRef.getObjectByName(n)).filter(Boolean) as Object3D[]
-    if (!this.bowlMats) {
-      this.bowlMats = []
-      for (const node of nodes)
-        for (const m of meshesOf(node)) {
-          m.material = (m.material as Material).clone()
-          this.bowlMats.push(m.material as Material)
-        }
-    }
-    this.bowlOpacity = k
-    for (const mat of this.bowlMats) {
-      mat.transparent = k < 1
-      mat.opacity = k
-      mat.depthWrite = k >= 1
-    }
-  }
-
-  private restBowl(rest: 'home' | 'corner') {
-    if (this.bowlHome && this.pieceOnBowl) {
-      if (rest === 'corner') {
-        const at = new Vector3(BOWL_CORNER.x, this.bowlHome.y, BOWL_CORNER.z)
-        this.props.setRest('prop_omok_bowl_w', new Matrix4().makeTranslation(at.x, at.y, at.z))
-        const p = at.clone().add(this.pieceOnBowl)
-        this.props.setRest('prop_piece_b', new Matrix4().makeTranslation(p.x, p.y, p.z))
-      } else {
-        this.props.setRest('prop_omok_bowl_w', null)
-        this.props.setRest('prop_piece_b', null)
-      }
-    }
-    for (const c of ['b', 'w'] as const) {
-      const n = this.bowlNodes[c]
-      const b = this.bowl[c]
-      if (!n || !b) continue
-      n.mouth.updateWorldMatrix(true, false)
-      n.mouth.getWorldPosition(b.mouth)
-      n.contact.updateWorldMatrix(true, false)
-      n.contact.getWorldPosition(b.contact)
-    }
-  }
-
   private omok(s: PlaySession | null, inp: StageIn) {
     const st = this.stones
     if (!st || !this.grid) return
@@ -884,9 +765,7 @@ export class PlayStage {
       this.sweep(inp)
       return
     }
-    // a record placed alone starts once the white bowl has been brought over (#137 ①)
-    // (reduced motion: no fetching, so no delay, #456)
-    const tMs = s.visitor ? 0 : sessionTime(s, inp.now) - (s.solo && !inp.reduced ? SOLO_LEAD_MS : 0)
+    const tMs = s.visitor ? 0 : sessionTime(s, inp.now)
     if (tMs < 0) {
       this.sweep(inp)
       return
@@ -905,16 +784,11 @@ export class PlayStage {
       if (!c) continue
       this.cellPos(cell, pos)
       let k = cell === view.lastMove ? recent : 1
-      let from: Vector3 | null = null
       if (view.phase === 'reset') {
-        const bowl = this.bowl[c === 1 ? 'b' : 'w']
         const rank = ((cell * 37) % 61) / 61
         const e = ease(view.resetT01 * 1.5 - rank * 0.5)
-        if (bowl) from = bowl.mouth
-        if (from) pos.lerp(from, e)
-        k = 1 - 0.6 * e
+        k = 1 - e
         if (e >= 1) continue
-        pos.y += Math.sin(e * Math.PI) * 0.05
       }
       mat.compose(pos, new Quaternion(), new Vector3(k, k, k))
       if (c === 1) st.b.setMatrixAt(nb++, mat)
@@ -1034,11 +908,8 @@ export class PlayStage {
       const rank = ((cell * 37) % 61) / 61
       const e = ease(k * 1.6 - rank * 0.6)
       if (e >= 1) continue
-      const bowl = this.bowl[c === 1 ? 'b' : 'w']
       this.cellPos(cell, pos)
-      if (bowl) pos.lerp(bowl.mouth, e)
-      pos.y += Math.sin(e * Math.PI) * 0.05
-      const sc = 1 - 0.6 * e
+      const sc = 1 - e
       mat.compose(pos, new Quaternion(), new Vector3(sc, sc, sc))
       if (c === 1) st.b.setMatrixAt(nb++, mat)
       else st.w.setMatrixAt(nw++, mat)
@@ -1081,13 +952,18 @@ export class PlayStage {
     }
   }
 
+  /** #538 the stone fount of a player (hologram.md 4.2), where the pinch takes a stone: TODO with the hologram board */
+  private fount(_rig: AgentRig, _color: 1 | 2): { contact: Vector3 } | null {
+    return null
+  }
+
   private omokHands(s: PlaySession, view: OmokView, inp: StageIn) {
     const mv = view.move
     if (!mv || (view.phase !== 'thinking' && view.phase !== 'pick' && view.phase !== 'place')) return
     const id = s.players[mv.mover]
     const rig = inp.rigs[id]
     const wantColor = view.black === mv.mover ? 1 : 2
-    const bowl = this.bowl[wantColor === 1 ? 'b' : 'w']
+    const bowl = this.fount(rig, wantColor)
     if (!bowl || !this.grid) return
     const habit = habitOf(id)
     const p = placeSequence(mv.sinceMs, mv.thinkMs, habit)
@@ -1262,8 +1138,6 @@ export class PlayStage {
     if (this.lounge.drink(rig, goal, inp)) return
     // the watering errand: first, so nothing else (the stamp) takes the right hand while it carries the can
     if (goal.pose === 'water') return this.errand(rig, goal, inp)
-    // #137 ① the white bowl in both hands
-    if (goal.pose === 'bowl' && goal.bowl) return this.bowlErrand(rig, goal.bowl, inp)
     // the lounge acts (fridge, dispenser, turntable), the pillow on the sofa, the door lever (loungeActs.ts)
     if (this.lounge.solo(rig, goal, inp)) return
     // #490 B (play.md 9.2): at the ping-pong table before the partner is there, the ball bounces on the paddle (a pair without its rally, as in the
@@ -1481,41 +1355,6 @@ export class PlayStage {
     const hu = w.stage === 'pour' && lv.body ? habitU(plant.name, w.habit, w.u) : null
     if (hu !== null && w.habit) this.habit(rig, plant, w.habit, hu, habitEnv(hu, habitS), inp)
     this.pouring = attached && w.stage === 'pour' ? { rig, held, plant, flow, u: w.u, shakes: lv.shakes } : null
-  }
-
-  /**
-   * #137 ① the white bowl's errand (bowlRun.ts): both hands take it by the bulge where it rests (lift), carry it in front of the chest while
-   * walking, and lower it to where it goes (put: its rest is already there, Director.bowlRest), the hands letting go. Nothing else holds
-   * the hands meanwhile; the bowl is never moved but by the right hand's grip with the left hand following it.
-   */
-  private bowlErrand(rig: AgentRig, b: NonNullable<Goal['bowl']>, inp: StageIn) {
-    if (b.stage === 'fetch') return
-    const bowl = this.props.info(rig, 'bowl')
-    if (!bowl) return
-    const root = rig.parts.root
-    const body = new Quaternion().setFromAxisAngle(UP, rig.heading)
-    const fwd = new Vector3(0, 0, -1).applyQuaternion(body)
-    const carry = new Matrix4().compose(new Vector3(root.position.x, BOWL_CARRY.y, root.position.z).addScaledVector(fwd, BOWL_CARRY.fwd), body, new Vector3(1, 1, 1))
-    const rest = this.props.homeWorld(bowl.node)
-    let want = true
-    let held = carry
-    if (b.stage === 'lift') {
-      // it takes the weight: the body dips 2 cm as the hands close and comes up with it
-      rig.bodyDip = 0.02 * Math.sin(Math.PI * Math.min(1, b.u / BOWL_S.lift))
-      rig.headExtra.pitch = -0.2
-    } else if (b.stage === 'put') {
-      const dur = Math.max(0.6, rig.gestureMin)
-      rig.headExtra.pitch = -0.2
-      if (b.u < dur + 0.06) held = blend(carry, rest, ease(Math.min(1, b.u / dur)))
-      else {
-        // let go: both hands come away on the grip clock (#600: the left one used to drop its drive at once and jump 0.4 m in a frame)
-        held = rest
-        want = false
-      }
-    }
-    this.grip(rig, 'r', 'bowl', bowl.node.name, want, held, inp)
-    const tl = this.target(bowl.node.name, 'bowl', 'l')
-    if (tl) this.partner(rig, 'bowl', 'l', tl, this.lastObjPose, 'r')
   }
 
   /** the can swings a little with each step while it is carried (watering.md 2: ±3° per step); how much follows how fast the body moves */
