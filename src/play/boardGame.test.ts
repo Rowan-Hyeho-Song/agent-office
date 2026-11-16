@@ -1,7 +1,8 @@
-// #538 (stage 2) the game frame's contract, the same for every game behind it (omok, chess; alkkagi #605 joins here): a game by the AI
+// #538 (stage 2) the game frame's contract, the same for every game behind it (omok, chess, alkkagi): a game by the AI
 // alone ends, the same seed plays the same game, a move reads back from its own words, and a saved game loads and plays on the same.
 import { describe, expect, it } from 'vitest'
 import { replayMoves, type BoardGame, type Level } from './boardGame'
+import { alkkagi } from './alkkagi'
 import { chess } from './chess'
 import { omokGame } from './omokGame'
 
@@ -15,7 +16,8 @@ function selfPlay<S, M>(g: BoardGame<S, M>, seed: number, levels: [Level, Level]
     words.push(g.moveText(m))
     // the move reads back from its own words, and the rules agree it is one of theirs
     expect(g.parseMove(s, g.moveText(m))).toEqual(m)
-    if (ply % 7 === 0) expect(g.moves(s)).toContainEqual(m)
+    // a continuous game (alkkagi) offers a sample: its AI may play off it
+    if (ply % 7 === 0 && !g.continuous) expect(g.moves(s)).toContainEqual(m)
     s = g.play(s, m)!
     expect(s).not.toBeNull()
     if (ply % 10 === 0) saves.push(g.save(s))
@@ -27,6 +29,7 @@ const GAMES: [string, BoardGame<unknown, unknown>, number][] = [
   ['chess', chess as BoardGame<unknown, unknown>, 300],
   ['omok (renju)', omokGame('renju', 'agent_1') as BoardGame<unknown, unknown>, 225],
   ['omok (free)', omokGame('free', 'agent_3') as BoardGame<unknown, unknown>, 225],
+  ['alkkagi', alkkagi as BoardGame<unknown, unknown>, 100],
 ]
 
 describe.each(GAMES)('%s behind the frame', (_name, g, cap) => {

@@ -28,7 +28,9 @@ export interface BoardGame<S, M> {
   readonly sides: readonly [string, string]
   start(): S
   toMove(s: S): Side
-  /** every move the rules allow now (none once the game is over) */
+  /** the moves are continuous (alkkagi's flick: aim and power), so `moves` is a sample to choose from; any valid move plays */
+  readonly continuous?: boolean
+  /** every move the rules allow now (none once the game is over); a sample for a continuous game */
   moves(s: S): M[]
   /** the state after the move, or null when the rules do not allow it */
   play(s: S, m: M): S | null
