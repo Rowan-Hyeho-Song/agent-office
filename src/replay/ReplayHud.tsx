@@ -171,6 +171,13 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
     if (key !== lastDay.current && (s.day !== null || s.playing)) setAnnounce(s.day !== null ? announceText({ id: s.day, count: s.count }) : day)
     lastDay.current = key
   }, [day, s.day, s.count, s.playing])
+  // #599 (timelapse.md 13.2) once as the empty night starts passing at x16; not when it comes back (the step's point is read soon)
+  const passing = s.night === 'fast' && s.playing
+  const wasPassing = useRef(passing)
+  useEffect(() => {
+    if (passing && !wasPassing.current) setAnnounce(NIGHT_FAST_LINE)
+    wasPassing.current = passing
+  }, [passing])
 
   const grain = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -195,7 +202,9 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
   const d = describe(p)
   const lane = laneOf(p)
   const when = whenText(atMs(p))
-  const left = remainingMs(points, s.i, s.speed, (k, first) => pointWaitMs(points, k, (p) => stepMs(p, 1), boardDistance, first) + (points[k].kind === 'minutes' ? minutesExtraMs(points[k], s.speed) : 0), s.ended) / 1000
+  // an empty night step counts at x16 (#599 timelapse.md 13.2)
+  const rateAt = (k: number) => replay.rateAt(k)
+  const left = remainingMs(points, s.i, rateAt, (k, first) => pointWaitMs(points, k, (p) => stepMs(p, 1), boardDistance, first) + (points[k].kind === 'minutes' ? minutesExtraMs(points[k], rateAt(k)) : 0), s.ended) / 1000
   const hp = hover >= 0 ? points[hover] : null
   const share = () => {
     const url = replay.shareUrl()
@@ -377,7 +386,7 @@ function DayPicker({ compact, when, flip }: { compact: boolean; when: string; fl
         <span className="day-time" aria-hidden="true">{time}</span>
       </div>
       {nav(1, next)}
-      {!compact && <span className="replay-rec">▶ 기록 재생 중</span>}
+      <NightChip compact={compact} />
       {open && s.day && (
         <DayCalendar
           days={replay.days}
@@ -395,13 +404,51 @@ function DayPicker({ compact, when, flip }: { compact: boolean; when: string; fl
   )
 }
 
+export const NIGHT_FAST_LINE = '밤, 누가 일을 시작할 때까지 빨리 넘깁니다'
+
+/** the last non-null value for `ms` more after it went null (a fade out), at once with reduced motion */
+function useLinger<T>(v: T | null, ms: number): { value: T | null; out: boolean } {
+  const [kept, setKept] = useState<T | null>(v)
+  if (v !== null && kept !== v) setKept(v)
+  useEffect(() => {
+    if (v !== null) return
+    const id = setTimeout(() => setKept(null), replay.reduced() ? 0 : ms)
+    return () => clearTimeout(id)
+  }, [v, ms])
+  return v !== null ? { value: v, out: false } : { value: kept, out: kept !== null }
+}
+
+/**
+ * #599 (timelapse.md 13.2) the night chip, in the place of "▶ 기록 재생 중" under the date: an empty night passing at x16; pressed, this night at the
+ * chosen speed (the chip then says so until the night is over). In and out over 0.2 s
+ */
+function NightChip({ compact }: { compact: boolean }) {
+  const s = useReplay()
+  const { value, out } = useLinger(s.night, NIGHT_FADE_MS)
+  if (!value) return compact ? null : <span className="replay-rec">▶ 기록 재생 중</span>
+  const fast = value === 'fast'
+  return (
+    <button
+      type="button"
+      className="replay-night"
+      data-out={out || undefined}
+      aria-disabled={!fast || undefined}
+      aria-label={fast ? '밤 빨리 넘기기 끄기, 이 밤만' : `밤, ×${s.speed}로 보는 중`}
+      onClick={() => replay.slowNight()}
+    >
+      <span aria-hidden="true">🌙</span> 밤 · {fast ? '빨리 넘기는 중' : `×${s.speed}로 보는 중`}
+    </button>
+  )
+}
+const NIGHT_FADE_MS = 200
+
 /** an issue's span instead of the day picker (timelapse.md 10.6): `#67 · 11.07 – 11.08 · 점 9개 [×]` */
 function IssueChip({ n, points }: { n: number; points: readonly Point[] }) {
   const a = points.length ? dayLabel(atMs(points[0])).slice(0, 5) : ''
   const b = points.length ? dayLabel(atMs(points[points.length - 1])).slice(0, 5) : ''
   return (
     <div className="replay-day">
-      <span className="replay-rec">▶ 기록 재생 중</span>
+      <NightChip compact={false} />
       <span className="issue-chip">
         #{n} · {a === b ? a : `${a} – ${b}`} · 점 {points.length}개
         <button type="button" aria-label="이슈만 보기 끝내기" onClick={() => replay.endIssue()}>×</button>
