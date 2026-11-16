@@ -1,17 +1,19 @@
 /// <reference types="node" />
 // Facing and hands at the play spots (#333): every agent, at both omok seats and both ping-pong ends, stands square to the board / table while it
 // plays (≤ 5° between its body's forward and the direction along the x axis to the other seat: the seats' designed facing is towards the board
-// / table centre), and its playing hand is on the grip target: the go stone between the index and middle fingertips at their contacts, the
+// / table centre), and its playing hand is on the grip target: the light stone (#538) pinched by the thumb and index tips on its rim, the
 // paddle's index and thumb fingertips on its contacts. Headless on the baked model, driven by the real Director + TrafficPlanner as Agents.tsx
 // runs them. Numbers go to FIT_LOG when set.
 import { appendFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
-import { sessionsAt, type PlaySession } from '../play/session'
+import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
+import { gameAt } from '../play/omok'
+import { pinchSequence } from '../play/holoPinch'
+import { STONE_H, STONE_Y, type HoloBoard } from './holoBoard'
 import { stubCanvas } from './glbLoad'
 import { IDS, Walk, world } from './errandWorld.fixture'
-import { contactNormal } from './gripTargets'
-import { STONE_DISC_R } from './grip'
+import { HOLO_PINCH_R } from './gripTargets'
 import type { AgentRig } from './rig'
 
 stubCanvas()
@@ -37,17 +39,31 @@ const tipWorld = (rig: AgentRig, f: number | 'thumb') => {
   j.updateWorldMatrix(true, false)
   return tip.clone().applyMatrix4(j.matrixWorld)
 }
-const toDisc = (tip: Vector3, c: Vector3, n: Vector3) => {
-  const d = tip.clone().sub(c)
-  const h = d.dot(n)
-  return Math.hypot(h, Math.max(0, d.addScaledVector(n, -h).length() - STONE_DISC_R))
+
+/** the held light stone of the agent's move at the office time (as PlayStage.omokHands places it) and the rim points the thumb and index meet */
+function heldStone(stage: { holo: HoloBoard }, s: PlaySession, rig: AgentRig, agent: string, now: number) {
+  const mv = gameAt(s.seed, s.players, sessionTime(s, now), false).move
+  if (!mv || s.players[mv.mover] !== agent) return null
+  const p = pinchSequence(mv.sinceMs, mv.thinkMs)
+  if (!p.held) return null
+  const holo = stage.holo
+  const at = rig.parts.root.position
+  const fount = holo.fountPos(at)
+  const target = holo.cellPos(mv.cell)
+  const lift = STONE_Y + STONE_H / 2
+  const centre = new Vector3(fount.x, target.y + lift, fount.z).lerp(new Vector3(target.x, target.y + lift, target.z), p.u)
+  centre.y += p.h
+  const mid = holo.cellPos(112)
+  const fwd = new Vector3(mid.x - at.x, 0, mid.z - at.z).normalize()
+  const side = new Vector3().crossVectors(new Vector3(0, 1, 0), fwd)
+  return { thumb: centre.clone().addScaledVector(side, -HOLO_PINCH_R), index: centre.clone().addScaledVector(side, HOLO_PINCH_R) }
 }
 
 describe('facing and hands at the play spots', () => {
   for (const kind of ['boardgame', 'pingpong'] as const) {
     for (const agent of IDS) {
       for (const side of [0, 1] as const) {
-        it(`${kind} ${agent} side ${side}: square to the ${kind === 'pingpong' ? 'table' : 'board'}, fingertips on the grip`, async () => {
+        it(`${kind} ${agent} side ${side}: square to the ${kind === 'pingpong' ? 'table' : 'board'}, fingertips on the grip (the light stone's rim for omok)`, async () => {
           const s = findSession(kind, agent, side)
           const w = await world()
           const walk = new Walk(w, s.startMs + 1000)
@@ -64,18 +80,18 @@ describe('facing and hands at the play spots', () => {
               facing = Math.max(facing, fwd.angleTo(new Vector3(side === 0 ? 1 : -1, 0, 0)) * DEG)
               n++
             }
+            if (kind === 'boardgame') {
+              const now = walk.t0 + (walk.t - 0.02) * 1000
+              const hs = heldStone(w.stage as unknown as { holo: HoloBoard }, s, rig, agent, now)
+              const d = rig.drive.r
+              if (!hs || !w.stage.lastPlace[agent]?.held || !d || d.w < 0.999) continue
+              tipWorst = Math.max(tipWorst, tipWorld(rig, 'thumb').distanceTo(hs.thumb), tipWorld(rig, 0).distanceTo(hs.index))
+              grips++
+              continue
+            }
             const want = rig.want
             if (!want?.attached) continue
-            if (kind === 'boardgame' && want.kind === 'piece') {
-              const d = rig.drive.r
-              if (!d || d.w < 0.999 || d.wc < 0.999 || (w.stage.lastPlace[agent]?.regrip ?? 0) < 1) continue
-              const col = want.prefer!.endsWith('a') ? 'a' : 'b'
-              for (const [f, finger] of [[0, 'index'], [1, 'middle']] as const) {
-                const c = w.scene.getObjectByName(`prop_piece_${col}_contact_${finger}`)!
-                tipWorst = Math.max(tipWorst, toDisc(tipWorld(rig, f), c.getWorldPosition(new Vector3()), contactNormal(w.scene, c)))
-              }
-              grips++
-            } else if (kind === 'pingpong' && want.kind === 'paddle' && k % 5 === 0) {
+            if (kind === 'pingpong' && want.kind === 'paddle' && k % 5 === 0) {
               const pad = want.prefer?.endsWith('b') ? 'b' : 'a'
               for (const f of ['index', 'thumb'] as const) {
                 const c = w.scene.getObjectByName(`prop_paddle_${pad}_contact_${f}`)
@@ -85,7 +101,7 @@ describe('facing and hands at the play spots', () => {
               grips++
             }
           }
-          if (LOG) appendFileSync(LOG, `facing ${kind} ${agent} side ${side}: ${n} samples, worst facing ${facing.toFixed(2)} deg, ${grips} grip frames, worst fingertip-to-contact ${(tipWorst * 1000).toFixed(2)} mm, stone mode ${(w.stage as unknown as { stoneModes: Map<string, string> }).stoneModes.get(agent) ?? '-'}\n`)
+          if (LOG) appendFileSync(LOG, `facing ${kind} ${agent} side ${side}: ${n} samples, worst facing ${facing.toFixed(2)} deg, ${grips} grip frames, worst fingertip-to-contact ${(tipWorst * 1000).toFixed(2)} mm\n`)
           expect(n, 'sampled while playing').toBeGreaterThan(5)
           expect(grips, 'the hand held the stone / paddle').toBeGreaterThan(3)
           expect(facing, 'body forward vs the seat facing (deg)').toBeLessThanOrEqual(MAX_DEG)

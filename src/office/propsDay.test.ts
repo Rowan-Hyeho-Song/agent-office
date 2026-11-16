@@ -84,6 +84,7 @@ function solo(w: World, agent: string, kind: 'coffee' | 'books' /* books: the ol
 }
 
 function pair(w: World, s: PlaySession, guard: Guard) {
+  let held = 0 // frames a hand held a light stone (#538: omok has no prop)
   const spots = s.kind === 'pingpong' ? ['pingpong_a', 'pingpong_b'] : ['game_a', 'game_b']
   // a record placed alone (#137 ①): one agent at game_a, the white bowl already at the corner, the game 20 s later
   const lead = 0
@@ -102,7 +103,9 @@ function pair(w: World, s: PlaySession, guard: Guard) {
     w.props.update(dt)
     w.scene.updateMatrixWorld(true)
     guard.frame(t)
+    for (const id of s.players) if (w.stage.lastPlace[id]?.held) held++
   }
+  return held
 }
 
 describe('a day of the schedule: no prop moves on its own, whatever the schedule hands out', () => {
@@ -165,8 +168,14 @@ describe('a day of the schedule: no prop moves on its own, whatever the schedule
       for (const s of day.pairs.values()) {
         if (s.kind !== kind) continue
         const guard = new Guard(w)
-        pair(w, s, guard)
-        expectClean(`${s.kind} ${s.players.join('/')}`, guard.stats, kind === 'pingpong' ? 'paddle' : 'piece')
+        const held = pair(w, s, guard)
+        if (kind === 'pingpong') expectClean(`${s.kind} ${s.players.join('/')}`, guard.stats, 'paddle')
+        else {
+          // #538 the board is light: a hand pinches a light stone and no prop is taken or moved
+          expect(held, `omok ${s.players.join('/')}: a hand held a light stone`).toBeGreaterThan(0)
+          expect(guard.stats.grasps, `omok ${s.players.join('/')}: no prop taken`).toBe(0)
+          expect(guard.stats.loose, `omok ${s.players.join('/')}: no prop away from home`).toBe(0)
+        }
         worst = Math.max(worst, guard.stats.heldReach)
         n++
       }
@@ -239,6 +248,7 @@ describe('omok through a whole game: the stone is always within an arm of the bo
     })
     const dt = 0.05
     let lean = 0
+    let held = 0
     for (let k = 0; k < seconds / dt; k++) {
       const t = k * dt
       const goals = Object.fromEntries(IDS.map((id) => [id, session.players.includes(id) ? { spot: spots[session.players.indexOf(id)], pose: 'boardgame', label: '' } : IDLE(id)])) as Record<string, Goal>
@@ -248,9 +258,10 @@ describe('omok through a whole game: the stone is always within an arm of the bo
       w.props.update(dt)
       w.scene.updateMatrixWorld(true)
       guard.frame(t)
+      for (const id of session.players) if (w.stage.lastPlace[id]?.held) held++
       for (const id of session.players) lean = Math.max(lean, Math.hypot(w.rigs[id].parts.root.position.x - w.rigs[id].x, w.rigs[id].parts.root.position.z - w.rigs[id].z))
     }
-    return lean
+    return { lean, held }
   }
 
   it('the exact pair of the one-can stretch (agent_1 at game_a, agent_3 at game_b) for 120 s of its game, and every omok pair of the day', async () => {
@@ -261,8 +272,11 @@ describe('omok through a whole game: the stone is always within an arm of the bo
     for (const s of [exact, ...[...day.pairs.values()].filter((p) => p.kind === 'boardgame' && p !== exact)]) {
       const w = await world()
       const guard = new Guard(w)
-      worstLean = Math.max(worstLean, whole(w, s, guard, 120))
-      expectClean(`omok ${s.players.join('/')} whole game`, guard.stats, 'piece')
+      const r = whole(w, s, guard, 120)
+      worstLean = Math.max(worstLean, r.lean)
+      expect(r.held, `omok ${s.players.join('/')} whole game: a hand held a light stone`).toBeGreaterThan(0)
+      expect(guard.stats.grasps, `omok ${s.players.join('/')} whole game: no prop taken`).toBe(0)
+      expect(guard.stats.loose, `omok ${s.players.join('/')} whole game: no prop away from home`).toBe(0)
     }
     // the lean is a few cm at most, and it did happen (else this checks nothing)
     expect(worstLean).toBeLessThanOrEqual(0.08 + 1e-6)
