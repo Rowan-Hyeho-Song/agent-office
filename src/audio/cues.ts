@@ -11,7 +11,7 @@ import { knock, midi, noise, tone, type Out } from './synth'
 /** repeat = background busywork (dropped when fast or off-camera), event = something happened, ui = the visitor did it */
 type Kind = 'repeat' | 'event' | 'ui'
 
-type CueVars = { agent?: string; dur?: number; pitch: number; keyKind?: KeyKind }
+type CueVars = { agent?: string; dur?: number; pitch: number; keyKind?: KeyKind; power?: number }
 
 /** most keys sounding at once across all typists (#194 thock: five typists must not pile up) */
 export const MAX_KEYS = 4
@@ -201,6 +201,142 @@ export const CUES = {
     gap: 120,
     length: 0.05,
     play: (o, v) => knock(o, 1800 * v.pitch, 0.04, 0.045, 12, 0.5),
+  },
+  // #538 (가) the pixel hologram board (hologram.md): the office's screen light, so a soft triangle "chip" voice, never a
+  // thud. Only the board's own blip keeps the square wave. An agent game sounds them as events; a visitor's own move
+  // passes `visitor: true` and sounds as 'ui' (sound.md 4.6)
+  'holo.pick': {
+    label: '홀로그램 말 집기',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 120,
+    length: 0.12,
+    // the pinch closes and the piece brightens a step: two rising notes, E5 → A5
+    play: (o, v) => {
+      tone(o, midi(76) * v.pitch, 0.045, { level: 0.012, attack: 0.002 })
+      tone(o, midi(81) * v.pitch, 0.07, { level: 0.012, at: 0.045, attack: 0.002 })
+    },
+  },
+  'holo.place': {
+    label: '홀로그램 말 놓기',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 120,
+    length: 0.1,
+    // the piece meets its cell and the light ripple starts: a low triangle "bip" that drops a little, and a tiny tick
+    play: (o, v) => {
+      tone(o, midi(64) * v.pitch, 0.08, { level: 0.029, slide: 0.88, attack: 0.001 })
+      noise(o, 0.008, { freq: 3500, q: 2, level: 0.015, attack: 0.001 })
+    },
+  },
+  'holo.board.on': {
+    label: '홀로그램 판 켜짐',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 500,
+    length: 0.4,
+    // hologram.md 2: the projector wakes. The first frame's light line is a screen's tick; the board unfolds up and down
+    // for 0.24 s (a soft rise) and the square blip is the frame it is whole (then it settles for 0.06 s). `dur` = the
+    // board's draw-in time (0.3 s; reduced motion fades in over 0.15 s without unfolding: the tick, and the blip at its end)
+    play: (o, v) => {
+      const d = v.dur ?? HOLO_BOARD_S
+      const whole = d >= HOLO_BOARD_S ? d - HOLO_SETTLE_S : d
+      noise(o, 0.01, { freq: 4500, q: 2, level: 0.011, attack: 0.001 })
+      if (d >= HOLO_BOARD_S) tone(o, 220, whole - 0.01, { level: 0.0054, slide: 4, at: 0.01, attack: 0.02 })
+      tone(o, midi(81), 0.06, { type: 'square', level: 0.0022, at: whole, attack: 0.002 })
+    },
+  },
+  'holo.board.off': {
+    label: '홀로그램 판 꺼짐',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 500,
+    length: 0.4,
+    // the same backwards, from the frame the board starts to fold (after its stones are gone, hologram.md 2): the blip,
+    // the light falls as it folds to a line (0.2 s), the tick as the line's dot goes out (0.3 s). `dur` as for holo.board.on
+    play: (o, v) => {
+      const d = v.dur ?? HOLO_BOARD_S
+      tone(o, midi(81), 0.05, { type: 'square', level: 0.0022, attack: 0.002 })
+      if (d >= HOLO_BOARD_S) tone(o, 880, d - HOLO_DOT_S - 0.02, { level: 0.0054, slide: 0.25, at: 0.02, attack: 0.01 })
+      noise(o, 0.01, { freq: 4500, q: 2, level: 0.011, at: d, attack: 0.001 })
+    },
+  },
+  // #604 chess on the pixel hologram board (hologram.md 11 · 13): the same soft triangle voice as holo.place, a step lower
+  'chess.place': {
+    label: '체스 말 놓기',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 120,
+    length: 0.15,
+    // the glyph meets its square's floor and the ripple starts: A3, longer than the stone's E4, and a duller tick
+    play: (o, v) => chessPlace(o, v.pitch),
+  },
+  'chess.capture': {
+    label: '체스 잡기',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 120,
+    length: 0.35,
+    // the place, and the taken glyph's 0.3 s stepped scatter as three falling steps (the same scatter as alkkagi.drop)
+    play: (o, v) => {
+      chessPlace(o, v.pitch)
+      holoScatter(o, 0.04, 0.012)
+    },
+  },
+  'chess.check': {
+    label: '체스 체크',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 500,
+    length: 0.3,
+    // the king's three 0.1 s jitters: A5 · G5 · A5, small (not the pick's rising pair)
+    play: (o) => [81, 79, 81].forEach((n, i) => tone(o, midi(n), 0.07, { level: 0.0107, at: i * 0.1, attack: 0.002 })),
+  },
+  // #605 alkkagi on the pixel hologram board (hologram.md 12 · 13). The flick is the one real touch (a fingernail), the rest is light
+  'alkkagi.flick': {
+    label: '알까기 튕기기',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 100,
+    length: 0.03,
+    play: (o) => {
+      noise(o, 0.008, { freq: 3500, q: 3, level: 0.135, attack: 0.001 })
+      tone(o, 1760, 0.02, { level: 0.016, attack: 0.001 })
+    },
+  },
+  'alkkagi.hit': {
+    label: '알까기 부딪힘',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 50,
+    length: 0.06,
+    // two light stones meet: a short triangle blip and a tick. `power` (0..1, the closing speed over a full flick's) takes
+    // it from −56 to −44 LUFS (12 dB) and up from E5 to A5, the tick brighter with it. No power: the middle
+    play: (o, v) => {
+      const p = Math.min(1, Math.max(0, v.power ?? 0.5))
+      const g = Math.pow(10, (-12 * (1 - p)) / 20)
+      tone(o, midi(76 + 5 * p) * v.pitch, 0.05, { level: 0.057 * g, slide: 0.92, attack: 0.001 })
+      noise(o, 0.006, { freq: 2500 + 3000 * p, q: 2, level: 0.057 * g, attack: 0.001 })
+    },
+  },
+  'alkkagi.drop': {
+    label: '알까기 판 밖으로',
+    kind: 'event',
+    bus: 'sfx',
+    spatial: true,
+    gap: 120,
+    length: 0.32,
+    // the stone's centre passes the edge and it scatters in steps for 0.3 s (no fall in a hologram): the scatter alone
+    play: (o) => holoScatter(o, 0, 0.0165),
   },
   'omok.forbid': {
     // #603 a visitor presses a forbidden point (black's 3-3 · 4-4 · overline): a dull low tap of a fingertip on the wood, no buzzer.
@@ -827,10 +963,32 @@ export type CueOpts = {
   keyKind?: KeyKind
   /** #586 quieter for this call only (dB, 0 or below; a positive value is cut to 0): on top of the replay-speed rule */
   db?: number
+  /** #605 how hard (0..1): alkkagi.hit's loudness and brightness. The table passes the closing speed over ALK.maxSpeed */
+  power?: number
+  /** #538 the visitor's own move with a cue the agents also make (holo.*): sounds as 'ui' for this call (sound.md 4.6) */
+  visitor?: boolean
 }
 
 /** #370 D (desk-props.md 7.3): a visitor's press on a prop in the office sounds `ui.click` this much under the HUD's */
 export const PROP_CLICK_DB = -6
+/** #538 the hologram board draws in and out in this long (hologram.md); pass a shorter `dur` for reduced motion */
+export const HOLO_BOARD_S = 0.3
+/** #604 a chess glyph set down: A3 triangle (a step under holo.place's E4, longer) and a dull tick */
+function chessPlace(o: Out, pitch: number) {
+  tone(o, midi(57) * pitch, 0.13, { level: 0.021, slide: 0.9, attack: 0.001 })
+  noise(o, 0.01, { freq: 2500, q: 2, level: 0.008, attack: 0.001 })
+}
+/** #604 · #605 a hologram piece scattering away in steps (hologram.md: 0.3 s, line by line): E5 · C5 · A4 falling, a tick on each */
+function holoScatter(o: Out, at: number, level: number) {
+  ;[76, 72, 69].forEach((n, i) => {
+    tone(o, midi(n), 0.06, { level, at: at + i * 0.09, attack: 0.002 })
+    noise(o, 0.005, { freq: 5000, q: 3, level: level * 0.8, at: at + i * 0.09, attack: 0.001 })
+  })
+}
+/** the on board's last part: whole at 0.24 s, then its brightness settles (no sound) */
+const HOLO_SETTLE_S = 0.06
+/** the off board's last part: the folded line shrinks to a dot and goes out */
+const HOLO_DOT_S = 0.1
 /** the per-cue trim: the replay-speed factor `k` and the call's own `db` (never louder than the cue itself) */
 export const trimGain = (k: number, db = 0) => k * Math.pow(10, Math.min(0, Number.isFinite(db) ? db : 0) / 20)
 
@@ -905,12 +1063,13 @@ export function cue(name: CueName, opts: CueOpts = {}): boolean {
   const when = (g.ctx.currentTime + (opts.at ?? 0)) * 1000
   if (Math.abs(when - (lastAt.get(gapKey(name, opts.agent)) ?? -1e9)) < def.gap) return false
   // the "every other one" at ×4 is decided by the event's key when there is one, so a replayed scene sounds the same
-  const k = speedRule(def.kind, speed, opts.key !== undefined ? keyRoll(opts.key) : Math.random())
+  const kind: Kind = opts.visitor ? 'ui' : def.kind
+  const k = speedRule(kind, speed, opts.key !== undefined ? keyRoll(opts.key) : Math.random())
   if (k === 0) return false
 
   const t = g.ctx.currentTime + (opts.at ?? 0)
   active = active.filter(([, e]) => e > g.ctx.currentTime)
-  if (def.bus === 'sfx' && def.kind !== 'ui' && overlapping(active, t, def.length) >= MAX_SFX) return false
+  if (def.bus === 'sfx' && kind !== 'ui' && overlapping(active, t, def.length) >= MAX_SFX) return false
   activeKeys = activeKeys.filter(([, e]) => e > g.ctx.currentTime)
   if (def.bus === 'keys' && overlapping(activeKeys, t, def.length) >= MAX_KEYS) return false
   lastAt.set(gapKey(name, opts.agent), when)
@@ -926,7 +1085,7 @@ export function cue(name: CueName, opts: CueOpts = {}): boolean {
   trim.connect(dest)
   dest = trim
   if (def.spatial && opts.pos) dest = panner(g.ctx, opts.pos, trim)
-  def.play({ c: g.ctx, dest, echo: g.echo, t }, { agent: opts.agent, dur: opts.dur, pitch: base * wobble, keyKind: opts.keyKind })
+  def.play({ c: g.ctx, dest, echo: g.echo, t }, { agent: opts.agent, dur: opts.dur, pitch: base * wobble, keyKind: opts.keyKind, power: opts.power })
   if (def.bus === 'keys') activeKeys.push([t, t + def.length])
   else active.push([t, t + def.length])
   cueCounts.set(name, (cueCounts.get(name) ?? 0) + 1)
