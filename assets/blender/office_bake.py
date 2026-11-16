@@ -2665,7 +2665,7 @@ VEIN_DENSITY = 4.0
 HOLO_NODES = []  # #538: the projector (holo_projector), its own baked node in the lounge atlas
 # hologram.md 3: two stepped 16-gons, graphite body, darker bezel, a 0.19 m 16 x 16 pixel panel, two turn lights
 HOLO = dict(r0=0.17, h0=0.020, r1=0.155, h1=0.012, bezel=0.205, panel=0.19, lift=0.02, size=0.40, field=0.44,
-            body="#3a3d44", bezel_c="#24262b", glow_color="#4df3ff", glow=0.8, turn_b="#4df3ff", turn_w="#f2efe8", turn_glow=2.4)
+            body="#32353b", side="#26282d", bezel_c="#24262b", glow_color="#4df3ff", glow=0.8, turn_b="#4df3ff", turn_w="#f2efe8", turn_glow=2.4)
 HOLO_LIVE = []  # (node, kind): holo_panel, holo_turn_b|w
 HOLO_DENSITY = 3.0  # like the omok board it replaces (#135)
 
@@ -2701,11 +2701,20 @@ def build_holo(gx, gz, G):
     turn lights on the steps facing the two stools (holo_turn_b|w, live neon), surface_holo at the panel's centre"""
     H = HOLO
     table = 0.74
-    body = plastic(H["body"], 0.6, 0, 0.15, "holo_body")
-    parts = [cyl("holo_low", H["r0"], H["h0"], (gx, table + H["h0"] / 2, gz), body, G, 16, bev=0.0015),
-             cyl("holo_up", H["r1"], H["h1"], (gx, table + H["h0"] + H["h1"] / 2, gz), body, G, 16, bev=0.0015)]
+    # designer (#643): one step darker (#3a3d44 -> #32353b) and rougher: up close it lifted to about #7a888e
+    body = plastic(H["body"], 0.78, 0, 0.15, "holo_body")
+    side = plastic(H["side"], 0.78, 0, 0.15, "holo_side")
+    parts = [cyl("holo_low", H["r0"], H["h0"], (gx, table + H["h0"] / 2, gz), body, G, 16),
+             cyl("holo_up", H["r1"], H["h1"], (gx, table + H["h0"] + H["h1"] / 2, gz), body, G, 16)]
     for o in parts:  # a flat side (not a corner) faces each stool and the room
         o.rotation_euler.z = math.pi / 16
+        # flat-shaded, no bevel (#643: a 1 to 1.5 mm bevel strip gets too few texels and bakes a jagged edge); the sides
+        # one step darker than the tops so the steps part by tone up close (designer: the top lighter)
+        o.data.materials.append(side)
+        for f in o.data.polygons:
+            f.use_smooth = False
+            if abs(f.normal.z) < 0.5:
+                f.material_index = 1
     top = table + H["h0"] + H["h1"]
     parts.append(box("holo_bezel", (H["bezel"], 0.002, H["bezel"]), (gx, top + 0.001, gz),
                      plastic(H["bezel_c"], 0.5, 0, 0.1, "holo_bezel"), G, bev=0.0008, seg=1))
