@@ -3,14 +3,16 @@ import { useEffect, useMemo, useRef } from 'react'
 import { Matrix4, Mesh, MeshBasicMaterial, RingGeometry, Vector3, type Material, type Object3D, type PerspectiveCamera } from 'three'
 import { cue } from '../../audio/cues'
 import { landing, paddlePoint, VISITOR_PP, type Paddle } from '../../play/visitorPingpong'
+import { chipShown, WORK_HOLD, WORK_LINES } from '../../play/workHold'
 import { replay } from '../../replay/store'
 import { isBoardOpen } from '../boardView/store'
 import { isOmokActive } from '../omokVisit/store'
 import type { PlayStage } from '../playStage'
 import { isTouring, tour } from '../tourStore'
-import { prefersReducedMotion, type OfficeWorld } from '../world'
+import { officeNow, prefersReducedMotion, type OfficeWorld } from '../world'
 import {
-  drainPingpongEvents, getPingpongVisit, pingpongArrived, pingpongLeft, servePingpong, setPaddle, setPingpongReady, setPingpongTag, stepPingpong,
+  drainPingpongEvents, getPingpongVisit, pingpongArrived, pingpongDone, pingpongLeft, pingpongWorkTold, servePingpong, setPaddle, setPingpongChip, setPingpongReady,
+  setPingpongTag, stepPingpong,
 } from './store'
 
 // The 3D side of the visitor's paddle (#137 ③, play.md 3 · 5.4 · 8): the "🏓 라켓 잡기" tag over the near end while agents play there, the camera
@@ -222,6 +224,8 @@ export function PingpongVisitRig({ world }: { world: OfficeWorld }) {
   }, [gl])
 
   const tmpM = useMemo(() => new Matrix4(), [])
+  /** #601 the cap's line said for this wound-up match */
+  const stopSaid = useRef(false)
   useFrame((state, dt) => {
     const st = stage()
     const table = st?.pingpongTable
@@ -308,11 +312,42 @@ export function PingpongVisitRig({ world }: { world: OfficeWorld }) {
           // match.win once, at the winner's side: the visitor's paddle, or the agent (sound.md, #593); no sound for each point
           const pp = paddlePoint(v.paddle, dims)
           cue('match.win', { pos: ev.winner === 0 ? { x: o.x + pp[0], y: o.y + pp[1], z: o.z + pp[2] } : { x: agent.x, y: 1, z: agent.z } })
-          world.bubbles.say(v.agent!, { kind: 'react', text: ev.winner === 1 ? '좋은 경기였어요!' : '한 번 더 할래요?', ms: 3500, whole: true }, Date.now())
+          // #601 called to work during the match: the line says it goes to work, no asking for another (play.md 10.3)
+          const work = !!getPingpongVisit().work
+          const text = ev.winner === 1 ? (work ? WORK_LINES.agentWon.pingpong : '좋은 경기였어요!') : work ? WORK_LINES.visitorWon : '한 번 더 할래요?'
+          world.bubbles.say(v.agent!, { kind: 'react', text, ms: 3500, whole: true }, Date.now())
         }
       }
     }
     if (v.phase === 'leaving' || v.phase === 'closed') drainPingpongEvents()
+
+    // #601 called to work during the match (play.md 10.2 · 10.3): the moment once the ball is dead (between points, a serve waiting), the chip
+    // over the agent's head, and the cap's line when it winds the match up
+    const wv = getPingpongVisit()
+    const mm = wv.match
+    if (agent && v.agent && mm && v.phase === 'open') {
+      const dead = mm.decided !== null || mm.phase === 'serve' || mm.phase === 'toss' || mm.phase === 'over'
+      if (wv.work && !wv.work.told && dead) {
+        const desk = world.graph?.spots[`work_${v.agent.split('_')[1]}`]
+        if (!prefersReducedMotion() && desk) agent.propLook = { at: new Vector3(desk.x, 1, desk.z), nod: true, t0: null, s: WORK_HOLD.lookS, maxYaw: (WORK_HOLD.lookDeg * Math.PI) / 180 }
+        agent.faceEvent('surprised', state.clock.elapsedTime)
+        world.bubbles.say(v.agent, { kind: 'react', text: WORK_LINES.moment.pingpong, ms: WORK_HOLD.momentMs, whole: true }, Date.now())
+        pingpongWorkTold(officeNow(world))
+      }
+      if (wv.stopped && !stopSaid.current) {
+        stopSaid.current = true
+        world.bubbles.say(v.agent, { kind: 'react', text: WORK_LINES.cap, ms: WORK_HOLD.capLineMs, whole: true }, Date.now())
+      }
+    }
+    if (!wv.stopped) stopSaid.current = false
+    let chip: { x: number; y: number } | null = null
+    if (agent && chipShown(wv.work, officeNow(world)) && v.phase === 'open' && !pingpongDone()) {
+      const head = agent.parts.head.getWorldPosition(new Vector3())
+      head.y += 0.35
+      head.project(camera)
+      if (head.z < 1) chip = { x: ((head.x + 1) / 2) * live.current.size.width, y: ((1 - head.y) / 2) * live.current.size.height }
+    }
+    setPingpongChip(chip)
 
     // the paddle and the ring
     const pd = marks.paddle

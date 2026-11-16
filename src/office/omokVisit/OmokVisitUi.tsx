@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { N } from '../../play/omok'
 import { STRENGTHS, STRENGTH_NAME, idleLeft, statusLine, type Strength } from '../../play/visitorOmok'
 import { AGENT_INFO, officeNow, type OfficeWorld } from '../world'
+import { chipText, hudBit, momentSaid } from '../../play/workHold'
+import { WorkChip } from '../WorkChip'
 import { tagOnScreen } from './pose'
 import {
   closeOmok, getOmokVisit, moveCursor, omokCanUndo, openOmok, placeOmok, restartOmok, setCursor, strengthOmok, touchOmok, undoOmok, useOmokVisit, viewName,
@@ -101,7 +103,9 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
   const g = v.game
   const now = officeNow(world)
   const left = g ? idleLeft(g, now) : null
-  const status = g ? statusLine(g, name, now) : ''
+  // #601 called to work: the HUD's word and the chip's (play.md 10.2)
+  const work = v.work && g && !g.end ? v.work : null
+  const status = g ? statusLine(g, name, now, work ? hudBit('omok', work, now) : undefined) : ''
   const cellWord = (cell: number) => {
     const c = g?.s.board[cell]
     return `${viewName(cell)}, ${c === 1 ? '흑' : c === 2 ? '백' : '빈칸'}`
@@ -109,6 +113,7 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
 
   return (
     <>
+      {work && v.chip && v.agent && <WorkChip agent={v.agent} at={v.chip} anchor="start" text={chipText('omok', work, now)} />}
       {v.tag && !open && (
         <button
           type="button"
@@ -143,13 +148,17 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
           <button type="button" disabled={!omokCanUndo()} onClick={() => undoOmok(officeNow(world))}>
             무르기
           </button>
-          <button type="button" onClick={() => restartOmok(officeNow(world))}>
-            다시 두기
-          </button>
+          {/* #601 the agent goes after this game: no new one */}
+          {!v.work && (
+            <button type="button" onClick={() => restartOmok(officeNow(world))}>
+              다시 두기
+            </button>
+          )}
           <button type="button" onClick={() => closeOmok(officeNow(world))}>
             그만두기 <kbd>Esc</kbd>
           </button>
           <p className="sr-only" aria-live="polite">{said}</p>
+          <p className="sr-only" aria-live="polite">{v.work && v.agent ? momentSaid(name) : ''}</p>
           <div
             ref={grid}
             className="omok-grid"

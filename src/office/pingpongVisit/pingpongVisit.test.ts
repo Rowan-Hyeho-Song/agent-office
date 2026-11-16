@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_DIMS } from '../../play/pingpong'
 import { startVisitorPP } from '../../play/visitorPingpong'
 import { opponentAt, ppView, PP_VIEW } from './PingpongVisitRig'
+import { WORK_HOLD } from '../../play/workHold'
 import { ppStatus } from './PingpongVisitUi'
 import {
-  closePingpong, getPingpongVisit, openPingpong, pingpongArrived, pingpongLeft, resetPingpong, servePingpong, setPingpongReady, spacePingpong,
+  closePingpong, getPingpongVisit, openPingpong, pingpongArrived, pingpongHoldsAgent, pingpongLeft, resetPingpong, servePingpong, setPingpongReady, spacePingpong,
+  workSignalPingpong,
 } from './store'
 
 const O = { x: 1.6, y: 0.76, z: 0.7 }
@@ -74,6 +76,50 @@ describe('the store', () => {
     expect(getPingpongVisit().phase).toBe('closed')
     expect(openPingpong('agent_3', null, 9)).toBe(true)
     expect(getPingpongVisit().match).toMatchObject({ speed: 'normal', easy: false })
+    resetPingpong()
+  })
+})
+
+// #601 (play.md 10): called to work during the match, the agent plays it out, then goes; past 4 min the match is wound up
+describe('a call to work waits for the match', () => {
+  const open = () => {
+    resetPingpong()
+    openPingpong('agent_3', null, 9, false, DEFAULT_DIMS)
+    pingpongArrived()
+    setPingpongReady(true)
+  }
+  it('held: the match goes on and holds the agent; over, it goes at once', () => {
+    open()
+    expect(workSignalPingpong(true, 1000)).toBe(true)
+    expect(workSignalPingpong(true, 2000)).toBe(false)
+    expect(pingpongHoldsAgent(2000)).toBe(true)
+    expect(servePingpong()).toBe(true) // the match goes on
+    const m = getPingpongVisit().match!
+    // the last point is decided: the match is over
+    ;(getPingpongVisit() as { match: typeof m }).match = { ...m, phase: 'over', score: [3, 1] }
+    workSignalPingpong(true, 5000) // the frame notes when it ended
+    expect(pingpongHoldsAgent(5000 + WORK_HOLD.leaveMs - 1)).toBe(true) // its line there
+    expect(pingpongHoldsAgent(5000 + WORK_HOLD.leaveMs)).toBe(false)
+    resetPingpong()
+  })
+  it('past the cap: wound up (no serve any more), the HUD says who went, the agent goes', () => {
+    open()
+    workSignalPingpong(true, 0)
+    workSignalPingpong(true, WORK_HOLD.capMs)
+    expect(getPingpongVisit().stopped).toBe(true)
+    expect(servePingpong()).toBe(false)
+    expect(pingpongHoldsAgent(WORK_HOLD.capMs + 100)).toBe(true) // the cap's line there
+    expect(pingpongHoldsAgent(WORK_HOLD.capMs + WORK_HOLD.leaveMs)).toBe(false)
+    expect(ppStatus(getPingpongVisit().match!, '루프', false, true, undefined, true)).toBe('중단 · 루프가 일하러 감')
+    resetPingpong()
+  })
+  it('back to rest: the hold is dropped; the HUD word while held', () => {
+    open()
+    workSignalPingpong(true, 0)
+    expect(ppStatus(getPingpongVisit().match!, '루프', false, true, '이 경기까지')).toBe('당신 서브 · 클릭 · Space · 이 경기까지')
+    workSignalPingpong(false, 1000)
+    expect(getPingpongVisit().work).toBeNull()
+    expect(pingpongHoldsAgent(1000)).toBe(true)
     resetPingpong()
   })
 })
