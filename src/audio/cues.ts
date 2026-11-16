@@ -238,14 +238,15 @@ export const CUES = {
     spatial: true,
     gap: 500,
     length: 0.4,
-    // hologram.md: the projector wakes. The first frame's light line is a screen's tick; the board unfolds up and down
-    // from 0.06 s (a soft rise) and the square blip is the moment it is whole. `dur` = the board's draw-in time (0.3 s;
-    // reduced motion 0.15 s fades in without unfolding, so only the tick and the blip)
+    // hologram.md 2: the projector wakes. The first frame's light line is a screen's tick; the board unfolds up and down
+    // for 0.24 s (a soft rise) and the square blip is the frame it is whole (then it settles for 0.06 s). `dur` = the
+    // board's draw-in time (0.3 s; reduced motion fades in over 0.15 s without unfolding: the tick, and the blip at its end)
     play: (o, v) => {
       const d = v.dur ?? HOLO_BOARD_S
+      const whole = d >= HOLO_BOARD_S ? d - HOLO_SETTLE_S : d
       noise(o, 0.01, { freq: 4500, q: 2, level: 0.011, attack: 0.001 })
-      if (d >= HOLO_BOARD_S) tone(o, 220, d - 0.06, { level: 0.0054, slide: 4, at: 0.06, attack: 0.02 })
-      tone(o, midi(81), 0.06, { type: 'square', level: 0.0022, at: d, attack: 0.002 })
+      if (d >= HOLO_BOARD_S) tone(o, 220, whole - 0.01, { level: 0.0054, slide: 4, at: 0.01, attack: 0.02 })
+      tone(o, midi(81), 0.06, { type: 'square', level: 0.0022, at: whole, attack: 0.002 })
     },
   },
   'holo.board.off': {
@@ -255,12 +256,12 @@ export const CUES = {
     spatial: true,
     gap: 500,
     length: 0.4,
-    // the same backwards: the blip as the board starts to fold, the light falls as it folds to a line, the tick as the
-    // dot goes out. `dur` as for holo.board.on
+    // the same backwards, from the frame the board starts to fold (after its stones are gone, hologram.md 2): the blip,
+    // the light falls as it folds to a line (0.2 s), the tick as the line's dot goes out (0.3 s). `dur` as for holo.board.on
     play: (o, v) => {
       const d = v.dur ?? HOLO_BOARD_S
       tone(o, midi(81), 0.05, { type: 'square', level: 0.0022, attack: 0.002 })
-      if (d >= HOLO_BOARD_S) tone(o, 880, d - 0.06, { level: 0.0054, slide: 0.25, at: 0.02, attack: 0.01 })
+      if (d >= HOLO_BOARD_S) tone(o, 880, d - HOLO_DOT_S - 0.02, { level: 0.0054, slide: 0.25, at: 0.02, attack: 0.01 })
       noise(o, 0.01, { freq: 4500, q: 2, level: 0.011, at: d, attack: 0.001 })
     },
   },
@@ -897,6 +898,10 @@ export type CueOpts = {
 export const PROP_CLICK_DB = -6
 /** #538 the hologram board draws in and out in this long (hologram.md); pass a shorter `dur` for reduced motion */
 export const HOLO_BOARD_S = 0.3
+/** the on board's last part: whole at 0.24 s, then its brightness settles (no sound) */
+const HOLO_SETTLE_S = 0.06
+/** the off board's last part: the folded line shrinks to a dot and goes out */
+const HOLO_DOT_S = 0.1
 /** the per-cue trim: the replay-speed factor `k` and the call's own `db` (never louder than the cue itself) */
 export const trimGain = (k: number, db = 0) => k * Math.pow(10, Math.min(0, Number.isFinite(db) ? db : 0) / 20)
 
