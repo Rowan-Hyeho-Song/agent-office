@@ -35,7 +35,7 @@ import { FakePropsFeed, LivePropsFeed, type PropsFeed } from './propsFeed'
 import { FakeStatusSource, type StatusSource } from './status'
 import type { ScreenForce } from './screenLive'
 import type { ScreenState } from './screens'
-import { supabase } from './supabase'
+import { roomAfterAuth, supabase } from './supabase'
 import type { SnackKind } from './treatHold'
 import type { TouchKind } from './deskTouch'
 
@@ -178,7 +178,7 @@ export function createWorld(debug: boolean, query = new URLSearchParams()): Offi
   const fakeProps = live ? null : new FakePropsFeed()
   // the fake only under ?debug=1 (and not &live): the shipped page never gets it
   const fakeApprovals = debug && !(live && supabase) ? new FakeApprovalSource() : null
-  const approvals = fakeApprovals ?? (supabase ? supabaseSource(supabase) : null)
+  const approvals = fakeApprovals ?? (supabase ? supabaseSource(supabase, roomAfterAuth) : null)
   const signal = approvals ? createSignalHub(fakeApprovals || !supabase ? null : supabaseSignalWire(supabase), { skipFirstJoinCatchUp: ['docs'] }) : null
   if (fakeApprovals) {
     fakeApprovals.openPanel = openApprovalBox

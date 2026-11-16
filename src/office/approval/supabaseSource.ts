@@ -3,9 +3,34 @@ import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import type { ApprovalSource, Cover, DecidedCover, DecideResult, Role } from '../../approvals/source'
 import type { StoredApproval } from '../../approvals/types'
 import { oldestFirst } from '../../approvals/view'
+import { signInPlan, type Win } from './signInFlow'
+
+/** what the sign-in needs of the page (a test gives its own) */
+export interface AuthPage {
+  win(): Win
+  /** open an address in the top window (a frame's sign-in) */
+  goTop(url: string): void
+  /** leave for an address, not kept in the history */
+  replace(url: string): void
+  /** a sign-in from the room's frame came back here: the room to go back to once the session is taken (supabase.ts roomAfterAuth) */
+  returnTo: string | null
+}
+
+const browserPage = (returnTo: string | null): AuthPage => ({
+  win: () => ({ top: window.top === window.self, href: location.href }),
+  goTop(url) {
+    try {
+      window.top!.location.assign(url)
+    } catch {
+      window.open(url, '_blank', 'noopener')
+    }
+  },
+  replace: (url) => location.replace(url),
+  returnTo,
+})
 
 /** the real source: visitors read the two views, the owner reads the table and decides through /api/approve */
-export function supabaseSource(supabase: SupabaseClient): ApprovalSource {
+export function supabaseSource(supabase: SupabaseClient, returnTo: string | null = null, page: AuthPage = browserPage(returnTo)): ApprovalSource {
   let session: Session | null = null
   let role: Role = 'visitor'
   const listeners = new Set<() => void>()
@@ -21,6 +46,8 @@ export function supabaseSource(supabase: SupabaseClient): ApprovalSource {
   }
   void supabase.auth.getSession().then(({ data }) => {
     session = data.session
+    // #597 back from GitHub in the top window for the room's frame: the session is kept (the room's frame shares it), back to the room
+    if (page.returnTo) return page.replace(page.returnTo)
     void refresh()
   })
   supabase.auth.onAuthStateChange((_e, s) => {
@@ -34,7 +61,14 @@ export function supabaseSource(supabase: SupabaseClient): ApprovalSource {
       listeners.add(cb)
       return () => void listeners.delete(cb)
     },
-    signIn: () => void supabase.auth.signInWithOAuth({ provider: 'github', options: { redirectTo: location.href } }),
+    // #597 inside a frame (the desk room) GitHub will not show: the sign-in goes in the top window and comes back to this address
+    signIn: () => {
+      const plan = signInPlan(page.win())
+      if (plan.where === 'here') return void supabase.auth.signInWithOAuth({ provider: 'github', options: { redirectTo: plan.redirectTo } })
+      void supabase.auth.signInWithOAuth({ provider: 'github', options: { redirectTo: plan.redirectTo, skipBrowserRedirect: true } }).then(({ data }) => {
+        if (data?.url) page.goTop(data.url)
+      })
+    },
     signOut: () => void supabase.auth.signOut(),
     async count() {
       const { data } = await supabase.from('approvals_pending').select('pending').single()
