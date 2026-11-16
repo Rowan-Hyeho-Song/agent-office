@@ -2,7 +2,7 @@
 // (backfill.mjs) and the push Action (event.mjs). The same input always gives the same output.
 //
 //   issue opened (form era)            → plan      agent 0 (the planner opens issues)
-//   commit that landed on dev           → work      agent = the issue's "누가 하나" seat
+//   commit that landed on dev           → work      agent = its PR's session line, else where its files are, else the issue's seat (#634)
 //   commit that reached main only       → deploy    agent null (the whole office, not one seat)
 //   comment "### 🗂 협의 기록"           → minutes   agent = who speaks first in the table
 //     its **결정** part                  → decision  agent 0
@@ -120,6 +120,38 @@ export function mergePoints(...lists) {
 // ---- collecting ----------------------------------------------------------------------------------------------------
 
 const firstLine = (s) => String(s ?? '').split('\n')[0].trim()
+
+// ---- #634 who did a PR's work ----------------------------------------------------------------------------------------
+// One issue is shared by several sessions (#599: the designer's spec PRs and the coder's), and the issues are no longer opened with the form,
+// so the work is put on the PR's seat, not the issue's: the session line its body carries, else where its files changed.
+
+/** the session line every PR body carries from 2026-11-17 (docs/workflow.md): '작성 세션: 기획 | 코더 | 디자이너 | 3D | 사운드' */
+const SESSION_LINE = /^[ \t>*_-]*작성 세션\s*[:：]\s*(기획|코더|디자이너|3D|사운드)(?![가-힣A-Za-z0-9])/m
+const SESSION_SEAT = { 기획: 0, '3D': 1, 디자이너: 2, 코더: 3, 사운드: 4 }
+/** the seat a PR body names in its session line, or null */
+export function sessionSeat(body) {
+  const m = SESSION_LINE.exec(norm(body))
+  return m ? SESSION_SEAT[m[1]] : null
+}
+
+/** the first squash commit with a seat (PR #14): before it there were no roles, and a commit there stays '역할 분담 이전' */
+export const ROLES_FROM = '2026-11-07T15:30:00Z'
+
+/**
+ * The seat by where a PR's files changed (#634), for the PRs before the session line. The paths are only read here, never kept in a point.
+ * Sound: only src/audio and sound.md. 3D: any model or Blender file. Designer: only docs/design. Planner: only other docs or the version bump.
+ * Coder: any other code. Else null.
+ */
+export function filesSeat(paths) {
+  if (!paths.length) return null
+  const all = (re) => paths.every((p) => re.test(p))
+  if (all(/^(src\/audio\/|docs\/design\/sound\.md$)/)) return 4
+  if (paths.some((p) => /^(public\/models\/|assets\/blender\/)/.test(p))) return 1
+  if (all(/^docs\/design\//)) return 2
+  if (all(/^(docs\/|package\.json$|README|CHANGELOG)/)) return 0
+  if (paths.some((p) => /^(src|scripts|public|\.github)\//.test(p))) return 3
+  return null
+}
 const issueNumber = (c) => Number(String(c.issue_url).split('/').pop())
 const CLOSES = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|refs?|related(?: to)?|part of)\s*:?\s*#(\d+)/i
 const MERGE_PR = /^Merge pull request #(\d+)\b/
@@ -267,6 +299,12 @@ export function collect(data) {
 
   // commits: landed on dev = work; reached main without being on dev (merge commits) = deploy
   const devShas = new Set(devCommits.map((c) => c.sha))
+  /** #634 a work commit's seat: its PR's session line, else its files (a PR from the time roles existed), else the issue's seat */
+  const workSeat = (c, pr, issue) => {
+    const at = String(c.commit?.committer?.date ?? c.commit?.author?.date ?? '')
+    const byPr = pr && at >= ROLES_FROM ? (sessionSeat(pr.body) ?? filesSeat((c.files ?? []).map((f) => String(f?.filename ?? '')))) : null
+    return byPr ?? (issue !== null ? issueSeat(issueBy.get(issue)).seat : null)
+  }
   const commitPoint = (c, kind) => {
     const first = firstLine(c.commit?.message)
     const refs = [...first.matchAll(/\(#(\d+)\)/g)].map((m) => Number(m[1]))
@@ -286,7 +324,7 @@ export function collect(data) {
       key: c.html_url,
       at: c.commit?.committer?.date ?? c.commit?.author?.date,
       kind,
-      agent: kind === 'work' && issue !== null ? issueSeat(issueBy.get(issue)).seat : null,
+      agent: kind === 'work' ? workSeat(c, pr, issue) : null,
       title,
       additions: c.stats?.additions ?? null,
       deletions: c.stats?.deletions ?? null,
