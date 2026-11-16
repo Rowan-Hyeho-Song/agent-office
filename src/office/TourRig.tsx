@@ -103,7 +103,7 @@ export function TourRig({ world, limits }: { world: OfficeWorld; limits: boolean
     // why the last tour ended (#440), for ?debug's tour.state()
     let lastStop: { reason: TourStop; at: number; cut: string | null } | null = null
 
-    const speed = () => (replay.getSnapshot().mode === 'office' ? replay.getSnapshot().speed : 1)
+    const speed = () => (replay.getSnapshot().mode === 'office' ? replay.getSnapshot().rate : 1)
     const views = () => buildViews(observe(world, replay.getSnapshot().mode === 'office'), Date.now())
     // the line of sight also keeps out of the leafy plants' crowns (#397); measured once, the plants do not move
     let leaves: ClearBox[] | null = null

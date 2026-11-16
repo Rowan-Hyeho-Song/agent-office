@@ -65,7 +65,7 @@ export function SoundRoot({ world }: { world: OfficeWorld }) {
     // the timelapse: busywork thins at ×4 and stops at ×16 (sound.md 6)
     const onReplay = () => {
       const r = replay.getSnapshot()
-      setCueSpeed(r.mode !== 'off' && r.playing ? r.speed : 1)
+      setCueSpeed(r.mode !== 'off' && r.playing ? r.rate : 1)
     }
     onReplay()
     const offReplay = replay.subscribe(onReplay)

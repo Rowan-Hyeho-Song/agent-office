@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { rng } from '../office/play'
 import { replayMoves } from './boardGame'
 import {
-  aiFlick, ALK, alkkagi, flickText, onBoard, outcome, parseFlick, play, simulate, startPosition, validFlick, type AlkkagiState, type Flick, type Stone,
+  aiFlick, ALK, ALK_AI, alkkagi, flickText, onBoard, outcome, parseFlick, play, simulate, startPosition, validFlick, type AlkkagiState, type Flick, type Stone,
 } from './alkkagi'
 
 /** a board with just these stones, side 0 to move */
@@ -130,16 +130,13 @@ describe('the AI', () => {
     expect(onBoard(after, 1)).toBe(1)
     expect(onBoard(after, 0)).toBe(2)
   })
-  it('stronger levels take more stones off over a few games, every game ends, and one flick is quick', () => {
+  it('stronger levels take more stones off over a few games, every game ends, and one flick is bounded work', () => {
     const takes = { easy: 0, strong: 0 }
-    let worst = 0
     for (const lv of ['easy', 'strong'] as const)
       for (let g = 0; g < 3; g++) {
         let s = startPosition()
         while (outcome(s).kind === 'playing') {
-          const t0 = performance.now()
           const f = aiFlick(s, s.toMove === 0 ? lv : 'normal', 100 * g + s.turn)
-          worst = Math.max(worst, performance.now() - t0)
           const before = onBoard(s, (1 - s.toMove) as 0 | 1)
           const mover = s.toMove
           s = play(s, f)!
@@ -148,7 +145,9 @@ describe('the AI', () => {
         expect(s.turn).toBeLessThanOrEqual(ALK.maxTurns)
       }
     expect(takes.strong).toBeGreaterThan(takes.easy)
-    expect(worst).toBeLessThan(300)
+    // counted, not timed (a clock fails on a busy machine, #604): a flick simulates each of its candidates (own stone × their stone × tries) for at
+    // most ALK.maxSteps steps
+    for (const lv of ['easy', 'normal', 'strong'] as const) expect(ALK.perSide * ALK.perSide * ALK_AI[lv].tries.length * ALK.maxSteps, lv).toBeLessThanOrEqual(500_000)
   }, 60_000)
 })
 

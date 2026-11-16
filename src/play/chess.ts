@@ -418,8 +418,11 @@ function quiet(s: ChessState, alpha: number, beta: number, plies: number, budget
 /** the seed's sway on one root move, in [-j, j] */
 const jitterOf = (seed: number, m: ChessMove, j: number) => (j ? (hash(`${seed}|${m}`) % (2 * j + 1)) - j : 0)
 
-/** the AI's move for the side to move (there is one): the same position, level and seed give the same move */
-export function aiMove(s: ChessState, level: Level, seed: number): ChessMove {
+/**
+ * the AI's move for the side to move (there is one): the same position, level and seed give the same move. `stats.nodes`: the nodes it searched
+ * (never more than the level's budget and the one that ran it out): the work of a move, counted instead of timed
+ */
+export function aiMove(s: ChessState, level: Level, seed: number, stats?: { nodes: number }): ChessMove {
   const cfg = CHESS_AI[level]
   const roots = ordered(s, legalMoves(s))
   if (roots.length === 0) throw new Error('no move: the game is over')
@@ -446,6 +449,7 @@ export function aiMove(s: ChessState, level: Level, seed: number): ChessMove {
       throw e
     }
   }
+  if (stats) stats.nodes = cfg.nodes - budget.left
   return best
 }
 
