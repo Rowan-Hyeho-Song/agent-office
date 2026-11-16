@@ -425,6 +425,28 @@ export class HoloBoard {
     return c < 0 || c >= N || r < 0 || r >= N ? -1 : r * N + c
   }
 
+  /**
+   * The stone fount of a player seated at `seat` (hologram.md 4.2), in the surface frame: 2.5 cm outside its board edge, 0.12 m toward its right
+   * hand; `alongX` / `sign` say which film edge is its side
+   */
+  private fountLocal(seat: Vector3, out: Vector3) {
+    const s = this.v.copy(seat).applyMatrix4(this.inv)
+    const alongX = Math.abs(s.x) >= Math.abs(s.z)
+    const sign = (alongX ? s.x : s.z) >= 0 ? 1 : -1
+    // the player faces -u; its right is (-fz, 0, fx)
+    const fx = alongX ? -sign : 0
+    const fz = alongX ? 0 : -sign
+    out.set((alongX ? sign * FOUNT_OUT : 0) - fz * FOUNT_SIDE, this.lift + GLOW_Y + 0.0003, (alongX ? 0 : sign * FOUNT_OUT) + fx * FOUNT_SIDE)
+    return { alongX, sign }
+  }
+
+  /** the world point of the stone fount of a player seated at `seat` (the pinch takes its stone there) */
+  fountPos(seat: Vector3, out = new Vector3()): Vector3 {
+    this.sync()
+    this.fountLocal(seat, out)
+    return out.applyMatrix4(this.frame)
+  }
+
   private local(cell: number, out: Vector3): Vector3 {
     const c = cell % N
     return out.set((c - 7) * CELL, this.lift, ((cell - c) / N - 7) * CELL)
@@ -715,10 +737,8 @@ export class HoloBoard {
       // turn light line and founts
       const ps = inp.players
       const info = ps.map((pl) => {
-        const s = this.v.copy(pl.seat).applyMatrix4(this.inv)
-        const alongX = Math.abs(s.x) >= Math.abs(s.z)
-        const sign = (alongX ? s.x : s.z) >= 0 ? 1 : -1
-        return { alongX, sign, color: pl.color }
+        const at = new Vector3()
+        return { ...this.fountLocal(pl.seat, at), at, color: pl.color }
       })
       if (inp.turn) {
         const q = info.find((i) => i.color === inp.turn)
@@ -731,15 +751,10 @@ export class HoloBoard {
       }
       for (let i = 0; i < Math.min(info.length, 4); i++) {
         const q = info[i]
-        // right hand: facing = -u, right = (-fz, 0, fx)
-        const fx = q.alongX ? -q.sign : 0
-        const fz = q.alongX ? 0 : -q.sign
-        const x = (q.alongX ? q.sign * FOUNT_OUT : 0) + -fz * FOUNT_SIDE
-        const z = (q.alongX ? 0 : q.sign * FOUNT_OUT) + fx * FOUNT_SIDE
         if (inp.pick === i) this.flashUntil[i] = t + 0.05
         const c = sideColor(q.color)
         const j = nFount++
-        this.put(this.founts, j, 'iPos', x, this.lift + GLOW_Y + 0.0003, z)
+        this.put(this.founts, j, 'iPos', q.at.x, q.at.y, q.at.z)
         this.put(this.founts, j, 'iSt', 1, t <= this.flashUntil[i] ? 1 : 0.35, 1)
         this.put(this.founts, j, 'iCol', c.r, c.g, c.b)
       }
