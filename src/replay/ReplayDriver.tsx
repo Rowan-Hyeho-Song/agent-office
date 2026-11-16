@@ -95,7 +95,7 @@ export function ReplayDriver({ world }: { world: OfficeWorld }) {
         // reduced motion: the rows are bubbles at the seats, nobody gathers or passes (timelapse.md 11.4)
         const reduced = prefersReducedMotion()
         if (meta) noteMinutes(p, scriptFor(p, meta, convs, false))
-        startMinutes(world.meeting, p, meta, convs, at, replay.scene()!.status, replay.getSnapshot().speed, reduced)
+        startMinutes(world.meeting, p, meta, convs, at, replay.scene()!.status, replay.getSnapshot().rate, reduced)
       })()
     }
 

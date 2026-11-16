@@ -1,7 +1,7 @@
 import { Html } from '@react-three/drei'
 import { setDoorMessage } from '../room/doorMessage'
 import { BubbleLayer, type Anchor, type TagItem } from './bubbleLayer'
-import { BUBBLE, replayTag, statusTag, zMotion, type BubbleItem } from './bubbles'
+import { BUBBLE, replayTag, statusTag, zRises, type BubbleItem } from './bubbles'
 import { openDocs } from './docs/panel'
 import { seatName } from './meeting'
 import { captionOf } from './minutes'
@@ -448,7 +448,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
           touches.reset() // and nothing on a desk is touched for what was jumped over
         }
       }
-      const speed = replay.getSnapshot().speed
+      const speed = replay.getSnapshot().rate
       const tauTotal = steps.reduce((a, s) => a + s.dt, 0)
       const realDt = Math.min(dt, 0.1)
       for (const step of steps)
@@ -523,7 +523,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
       dt: Math.min(dt, 0.1),
       reduced,
       replaying: !!st,
-      speed: st ? replay.getSnapshot().speed : 1,
+      speed: st ? replay.getSnapshot().rate : 1,
       rigs,
       goals,
       status,
@@ -577,7 +577,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
       const lines = meet.script.lines
       const line = lines[k]
       if (line) {
-        mode = lineMode(reduced ? 1 : replay.getSnapshot().speed, (lines[k + 1]?.startMs ?? meet.script.linesMs) - line.startMs)
+        mode = lineMode(reduced ? 1 : replay.getSnapshot().rate, (lines[k + 1]?.startMs ?? meet.script.linesMs) - line.startMs)
         // the caption reads `메시 → 휴 — 내용`: instead of a bubble, and while the receiver of a 1:1 pass reads (timelapse.md 11.2)
         if (mode === 'subtitle' || (line.pass && meet.t - line.startMs >= (line.readAt ?? 0))) sub = captionOf(line)
       }
@@ -668,7 +668,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
       Object.keys(rigs).filter((id) => dozing(id) || (replaying && napping(id))).map((id) => ({ id, seat: Number(id.split('_')[1]) })),
       anchors,
       state.clock.elapsedTime,
-      zMotion(replaying, replay.getSnapshot().speed, reduced),
+      !zRises(replaying, replay.getSnapshot().rate, reduced),
     )
   }
 

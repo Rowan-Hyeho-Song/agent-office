@@ -10,7 +10,7 @@
 import { useSyncExternalStore } from 'react'
 import type { Point } from '../timeline/types'
 import { adjacentDay, dayId, daysOf, openingDay, pickDay, type DayInfo } from './days'
-import { ALL, daybreakMs, flipText, indexAt, isDaybreak, prepare, projectFrom, sceneAt, shortName, stepMs, atMs, whenText, type Scene, type Speed } from './engine'
+import { ALL, daybreakMs, emptyNights, flipText, indexAt, isDaybreak, openingIndex, prepare, projectFrom, sceneAt, shortName, stepMs, atMs, whenText, type Scene, type Speed } from './engine'
 import { supabase } from '../office/supabase'
 import { loadPoints } from './livePoints'
 
@@ -25,7 +25,12 @@ export interface ReplayState {
   i: number
   count: number
   playing: boolean
+  /** the speed the viewer chose (the ×1 · ×4 · ×16 buttons) */
   speed: Speed
+  /** the speed the replay clock runs at: `speed`, or x16 over an empty night step (#599 timelapse.md 13.2). Everything that plays reads this */
+  rate: Speed
+  /** #599 the night chip: 'fast' = passing an empty night at x16, 'slow' = the viewer turned that off for this night, null = no chip */
+  night: 'fast' | 'slow' | null
   /** a day flip is running: the date text while it flips */
   flip: string | null
   /** the last point has played; the replay returns to live a moment later */
@@ -41,7 +46,7 @@ export interface ReplayState {
 
 export interface OpenOptions {
   project?: string
-  /** ms since the epoch: start at the last point at or before it, paused */
+  /** ms since the epoch: start at the last point at or before it, paused (else the day opens past its empty night, #599) */
   t?: number
   issue?: { repo: string; n: number; lo: number; hi: number }
   /** open on this day (`YYYY-MM-DD`; the nearest earlier day with points when it has none) */
@@ -57,9 +62,11 @@ export const HOLD_CAP_MS = 45_000
 /** a minutes point plays all its table rows: it may hold the next point this long (timelapse.md 11.4; src/office/minutes.ts plans the rows to fit) */
 export const MINUTES_HOLD_CAP_MS = 60_000
 
-const INITIAL: ReplayState = { mode: 'off', project: ALL, projects: [], i: 0, count: 0, playing: false, speed: 1, flip: null, ended: false, loaded: false, issue: null, day: null, fade: false }
+const INITIAL: ReplayState = { mode: 'off', project: ALL, projects: [], i: 0, count: 0, playing: false, speed: 1, rate: 1, night: null, flip: null, ended: false, loaded: false, issue: null, day: null, fade: false }
 
 export type PointVia = 'play' | 'seek'
+/** where the playhead stands in a day: a time, an index, or where the day opens (past its empty night, #599) */
+type At = { t: number } | { i: number } | 'open'
 
 export class ReplayStore {
   private state: ReplayState = INITIAL
@@ -72,6 +79,12 @@ export class ReplayStore {
   private lo = 0
   private win: Point[] = []
   private cache: Scene | null = null
+  /** #599 which steps of the window are empty night steps */
+  private nights: boolean[] = []
+  /** #599 the viewer turned the fast night off: until the playhead reaches a step that is not an empty night (or jumps) */
+  private nightOff = false
+  /** #599 the step a day opened at (13.3): it plays at the chosen speed, with no chip, even when it is an empty night step; -1 = none */
+  private openedAt = -1
   private phase: 'step' | 'daybreak' = 'step'
   private elapsed = 0
   private held = 0
@@ -163,6 +176,7 @@ export class ReplayStore {
     this.dayList = daysOf(this.base)
     this.lo = issue.lo
     this.win = this.base.slice(issue.lo, issue.hi + 1)
+    this.nights = emptyNights(this.base, this.lo, this.win.length)
     this.cache = null
   }
 
@@ -183,14 +197,15 @@ export class ReplayStore {
   }
 
   /** the window of one day of a project, and where the playhead stands in it; nothing is changed */
-  private resolve(project: string, want: string, at: { t: number } | { i: number }) {
+  private resolve(project: string, want: string, at: At) {
     const base = prepare(this.all ?? [], project)
     const days = daysOf(base)
     const day = pickDay(days, want)
     if (!day) return null
     const win = base.slice(day.lo, day.hi + 1)
-    const i = 'i' in at ? Math.max(0, Math.min(win.length - 1, at.i)) : Math.max(0, indexAt(win, at.t))
-    return { project, base, days, day, win, i }
+    const nights = emptyNights(base, day.lo, win.length)
+    const i = at === 'open' ? openingIndex(nights) : 'i' in at ? Math.max(0, Math.min(win.length - 1, at.i)) : Math.max(0, indexAt(win, at.t))
+    return { project, base, days, day, win, nights, i, opened: at === 'open' }
   }
   /** put a resolved day in place: the window, the playhead, the day (everyone is placed by the `seek` landing) */
   private commit(r: NonNullable<ReturnType<ReplayStore['resolve']>>, patch: Partial<ReplayState> = {}) {
@@ -200,6 +215,9 @@ export class ReplayStore {
     this.dayList = r.days
     this.lo = r.day.lo
     this.win = r.win
+    this.nights = r.nights
+    this.nightOff = false
+    this.openedAt = r.opened ? r.i : -1
     this.cache = null
     this.phase = 'step'
     this.elapsed = 0
@@ -207,6 +225,7 @@ export class ReplayStore {
     this.held = 0
     this.landedClock = this.clock
     this.set({ project: r.project, day: r.day.id, issue: null, i: r.i, count: r.win.length, flip: null, ended: false, fade: false, ...patch })
+    this.nightCheck()
   }
   private clearTimers() {
     this.timers.forEach(clearTimeout)
@@ -224,7 +243,7 @@ export class ReplayStore {
    * the board, the clock and every body's place change (a `seek` landing: bodies are put there, nobody walks). `play`
    * sets whether it plays afterwards (default: as it was).
    */
-  private moveTo(project: string, want: string, at: { t: number } | { i: number }, opts: { fade: boolean; play?: boolean }): boolean {
+  private moveTo(project: string, want: string, at: At, opts: { fade: boolean; play?: boolean }): boolean {
     const r = this.resolve(project, want, at)
     if (!r) return false
     const apply = () => {
@@ -249,12 +268,12 @@ export class ReplayStore {
   /** the previous / next day that has points: its first point, with the fade; false at the first / last day */
   goDay(dir: 1 | -1, opts: { play?: boolean } = {}): boolean {
     const to = this.adjacent(dir)
-    return !!to && this.moveTo(this.state.project, to.id, { i: 0 }, { fade: true, play: opts.play })
+    return !!to && this.moveTo(this.state.project, to.id, 'open', { fade: true, play: opts.play })
   }
   /** a day picked in the calendar: its first point */
   selectDay(id: string): boolean {
     if (id === this.currentDay) return false
-    return this.moveTo(this.state.project, id, { i: 0 }, { fade: true })
+    return this.moveTo(this.state.project, id, 'open', { fade: true })
   }
   /** "▶ 이 날 보기" in the list (a day), or "사무실에서 보기" (null: the latest day): the office opens there and plays */
   async showDay(project: string, id: string | null) {
@@ -263,7 +282,7 @@ export class ReplayStore {
     const days = daysOf(prepare(this.all ?? [], proj))
     const day = id === null ? openingDay(days) : pickDay(days, id)
     if (!day) return
-    const r = this.resolve(proj, day.id, { i: 0 })!
+    const r = this.resolve(proj, day.id, 'open')!
     this.commit(r, { mode: 'office', playing: true })
     this.dimIn()
     this.land('seek')
@@ -295,17 +314,21 @@ export class ReplayStore {
       this.prog = 0
       this.held = 0
       this.landedClock = this.clock
+      this.nightOff = false
+      this.openedAt = -1
       this.set({ mode, project, i: opts.t === undefined ? 0 : Math.max(0, indexAt(this.win, opts.t)), count: this.win.length, playing: opts.t === undefined && !!this.win.length, flip: null, ended: false, issue: { repo: opts.issue.repo, n: opts.issue.n }, day: null, fade: false })
+      this.nightCheck()
     } else {
       // the day: the one asked for, the one that holds `t`, else the latest day with points (timelapse.md 10.5)
       const days = daysOf(prepare(this.all ?? [], project))
       const want = opts.day ?? (opts.t !== undefined ? dayId(opts.t) : openingDay(days)?.id)
-      const r = want === undefined ? null : this.resolve(project, want, opts.t === undefined || opts.day !== undefined ? { i: 0 } : { t: opts.t })
+      const r = want === undefined ? null : this.resolve(project, want, opts.t === undefined || opts.day !== undefined ? 'open' : { t: opts.t })
       if (r) this.commit(r, { mode, playing: opts.t === undefined && r.win.length > 0 })
       else {
         this.base = []
         this.dayList = []
         this.win = []
+        this.nights = []
         this.cache = null
         this.set({ mode, project, i: 0, count: 0, playing: false, flip: null, ended: false, issue: null, day: null, fade: false })
       }
@@ -352,7 +375,9 @@ export class ReplayStore {
     this.elapsed = 0
     this.prog = 0
     this.held = 0
+    this.nightOff = false
     this.set({ i: next, flip: null, ended: false })
+    this.nightCheck()
     this.land('seek')
   }
   step(dir: 1 | -1) {
@@ -391,6 +416,33 @@ export class ReplayStore {
   }
   setSpeed(speed: Speed) {
     this.set({ speed })
+    this.nightCheck()
+  }
+
+  // ---- the empty night (#599 timelapse.md 13.2) --------------------------------------------------------------------------
+
+  /** the speed step `k` of the window plays at (the time left counts it so) */
+  rateAt(k: number): Speed {
+    const { speed, i } = this.state
+    if (speed >= 16 || !this.nights[k] || k === this.openedAt) return speed
+    // turned off for this night: the run of empty night steps the playhead is in
+    if (this.nightOff && k >= i && this.nights.slice(i, k + 1).every(Boolean)) return speed
+    return 16
+  }
+  /** the chip pressed: this night at the chosen speed */
+  slowNight() {
+    if (this.state.night !== 'fast') return
+    this.nightOff = true
+    this.nightCheck()
+  }
+  /** the chip and the clock's rate for the step the playhead is on */
+  private nightCheck() {
+    const { i, speed } = this.state
+    const empty = !!this.nights[i]
+    if (!empty) this.nightOff = false
+    if (this.openedAt !== i) this.openedAt = -1
+    const night = !empty || speed >= 16 || this.openedAt === i ? null : this.nightOff ? 'slow' : 'fast'
+    this.set({ night, rate: night === 'fast' ? 16 : speed })
   }
 
   async setProject(value: string) {
@@ -466,6 +518,7 @@ export class ReplayStore {
       this.prog = 0
       this.held = 0
       this.set({ i: this.state.i + 1, flip: null })
+      this.nightCheck()
       this.land('play')
     }
   }

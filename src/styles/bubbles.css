@@ -110,8 +110,6 @@
   color: color-mix(in srgb, var(--agent-ink) var(--alpha), transparent);
   animation: oz-rise var(--life) linear both;
 }
-/* #599 타임랩스 ×16 · 움직임 줄이기: 떠오르지 않고 머리 위에 멈춘 'z z' */
-.oz .oz-z.oz-still { bottom: 12px; animation: none; white-space: nowrap; }
 @keyframes oz-rise { from { opacity: 1; translate: 0 0; } to { opacity: 0; translate: 0 calc(var(--rise) * -1); } }
 @media (max-width: 640px) {
   .ot-chip { padding: 0 var(--space-1); }

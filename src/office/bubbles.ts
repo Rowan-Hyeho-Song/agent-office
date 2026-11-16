@@ -287,12 +287,10 @@ export function replayTag(status: AgentStatus | undefined, napping = false): Tag
 }
 
 /**
- * How the sleepers' z shows (#110, #599 timelapse.md 13.1): rising; held still over the head (the timelapse at x16, whose calm repeated motions are
- * off, or with reduced motion); or none (the live office with reduced motion: its chip's icon says it)
+ * The sleepers' z rises (#110) except with reduced motion and in the timelapse at x16 (#599 timelapse.md 13.1: its calm repeated motions are off).
+ * Then the chip's own icon, a still z z, says it (a still z beside it ran into the chip's words)
  */
-export type ZMotion = 'rise' | 'still' | 'off'
-export const zMotion = (replaying: boolean, speed: number, reduced: boolean): ZMotion =>
-  replaying ? (reduced || speed >= 16 ? 'still' : 'rise') : reduced ? 'off' : 'rise'
+export const zRises = (replaying: boolean, speed: number, reduced: boolean) => !reduced && !(replaying && speed >= 16)
 
 // ---- what the layer draws --------------------------------------------------------------------------------------------
 
