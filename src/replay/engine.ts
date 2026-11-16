@@ -242,16 +242,46 @@ export const NIGHT_HOURS = { from: 23, to: 9 }
 const nightHour = (h: number) => h >= NIGHT_HOURS.from || h < NIGHT_HOURS.to
 
 /**
- * #599 (timelapse.md 13.2) an empty night step: its point is at night (KST 23–09) and nobody works in the replay status at it (12.1: all asleep,
- * on duty or resting). Plays at x16 when x1 / x4 is chosen. A meeting (minutes) or a deploy is an event of the whole office and is never one.
+ * #599 (timelapse.md 13.2) a step of the night: 'empty' = its point is at night (KST 23–09) and nobody works in the replay status at it (12.1: all
+ * asleep, on duty or resting); 'event' = the same but a meeting (minutes) or a deploy, an event of the whole office that is never passed fast;
+ * 'day' = someone works, or it is past 09:00 (it ends a night run)
  */
-export function emptyNightAt(points: readonly Point[], i: number): boolean {
+export type NightKind = 'empty' | 'event' | 'day'
+export function nightKindAt(points: readonly Point[], i: number): NightKind {
   const p = points[i]
-  if (!p || p.kind === 'minutes' || p.kind === 'deploy' || !nightHour(kst(atMs(p)).h)) return false
-  return !Object.values(lifeStatusAt(points, i)).some((s) => s.state === 'working')
+  if (!p || !nightHour(kst(atMs(p)).h) || Object.values(lifeStatusAt(points, i)).some((s) => s.state === 'working')) return 'day'
+  return p.kind === 'minutes' || p.kind === 'deploy' ? 'event' : 'empty'
 }
-/** the empty night steps of the window `lo` … `lo + n - 1` of `points` (its statuses read the points before the window too) */
-export const emptyNights = (points: readonly Point[], lo: number, n: number): boolean[] => Array.from({ length: n }, (_, k) => emptyNightAt(points, lo + k))
+export const emptyNightAt = (points: readonly Point[], i: number) => nightKindAt(points, i) === 'empty'
+/** the night kinds of the window `lo` … `lo + n - 1` of `points` (its statuses read the points before the window too) */
+export const nightKinds = (points: readonly Point[], lo: number, n: number): NightKind[] => Array.from({ length: n }, (_, k) => nightKindAt(points, lo + k))
+export const emptyNights = (points: readonly Point[], lo: number, n: number): boolean[] => nightKinds(points, lo, n).map((k) => k === 'empty')
+
+/** a night run passes fast only with at least this many empty steps (fewer is under 12 s at x1: nothing to skip, and the chip would only blink) */
+export const NIGHT_RUN_MIN = 4
+/**
+ * #599 (#641) the night runs: from an empty step up to the first 'day' step; the meetings and deploys inside do not break one. Each step gets its run's
+ * number, or -1 when it is in none (or in a run with under NIGHT_RUN_MIN empty steps). The chip and "이 밤만 끄기" hold for a whole run
+ */
+export function nightRuns(kinds: readonly NightKind[]): number[] {
+  const run = kinds.map(() => -1)
+  let id = 0
+  for (let k = 0; k < kinds.length; ) {
+    if (kinds[k] !== 'empty') {
+      k++
+      continue
+    }
+    let e = k
+    let empties = 0
+    for (; e < kinds.length && kinds[e] !== 'day'; e++) if (kinds[e] === 'empty') empties++
+    if (empties >= NIGHT_RUN_MIN) {
+      for (let j = k; j < e; j++) run[j] = id
+      id++
+    }
+    k = e
+  }
+  return run
+}
 /**
  * #599 (timelapse.md 13.3) where a day opens: past its leading empty night steps, at the step just before the first one that is not (everyone still
  * asleep, and someone goes to work next). 0 when the day starts with no empty night step, or is all one
