@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { N } from '../../play/omok'
-import { STRENGTHS, STRENGTH_NAME, idleLeft, statusLine, type Strength } from '../../play/visitorOmok'
+import { STRENGTHS, STRENGTH_NAME, UNDO_OPENING_LINE, idleLeft, statusLine, type Strength } from '../../play/visitorOmok'
 import { FORBID_NAME, RULES, RULE_BY_ID } from '../../play/omokRules'
 import { AGENT_INFO, officeNow, type OfficeWorld } from '../world'
 import { chipText, hudBit, momentSaid } from '../../play/workHold'
@@ -8,7 +8,7 @@ import { WorkChip } from '../WorkChip'
 import { tagOnScreen } from './pose'
 import { cue, PROP_CLICK_DB } from '../../audio/cues'
 import {
-  chooseColorOmok, chooseRule, closeOmok, closeRulePicker, getOmokVisit, moveCursor, omokCanUndo, omokForbidAt, openOmok, openRulePicker, placeOmok, restartOmok, selectRule,
+  chooseColorOmok, chooseRule, closeOmok, closeRulePicker, getOmokVisit, moveCursor, omokCanUndo, omokForbidAt, omokUndoOpening, openOmok, openRulePicker, placeOmok, restartOmok, selectRule,
   setCursor, strengthOmok, touchOmok, undoOmok, useOmokVisit, viewName, visitorMayPlace,
 } from './store'
 
@@ -30,6 +30,8 @@ export function besideBoard(b: { right: number; middle: number } | null, screenW
 
 /** #603 how long the forbidden point's guidance stays (play.md 11.4) */
 const FORBID_SHOW_MS = 2000
+/** #623 the undo words keep this far inside the screen's edges (px) */
+const UNDO_WHY_EDGE = 16
 /** #603 choosing a rule or a colour: the office click, quieter (sound.md, like a prop press) */
 const choiceClick = () => cue('ui.click', { db: PROP_CLICK_DB })
 
@@ -51,6 +53,8 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
   const grid = useRef<HTMLDivElement>(null)
   const tagEl = useRef<HTMLButtonElement>(null)
   const [said, setSaid] = useState('')
+  /** #623 the dimmed [무르기]'s words: shown on hover, focus, a tap or a long press (a tap's for 2 s) */
+  const [undoWhy, setUndoWhy] = useState<{ hover: boolean; focus: boolean; tapAt: number | null }>({ hover: false, focus: false, tapAt: null })
   const lastMoves = useRef(0)
   const open = v.phase !== 'closed'
   const name = v.agent ? shortName(v.agent) : ''
@@ -163,6 +167,21 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
   // #603 the forbidden point just pressed: the guidance over the HUD for 2 s, read once
   const forbidNow = v.forbid && now - v.forbid.at < FORBID_SHOW_MS ? v.forbid : null
   const armedForbid = v.armed !== null && !!omokForbidAt(v.armed)
+  // #623 a swap game holds [무르기] through its opening: dimmed but still focusable, its words over the HUD
+  const undoHeld = open && omokUndoOpening()
+  const undoWhyShown = undoHeld && (undoWhy.hover || undoWhy.focus || (undoWhy.tapAt !== null && Date.now() - undoWhy.tapAt < FORBID_SHOW_MS))
+  const undoBtn = useRef<HTMLButtonElement>(null)
+  const undoNote = useRef<HTMLParagraphElement>(null)
+  // the words over the button they explain (the forbid guidance is the board's, in the middle): its centre across, 16 px inside the screen
+  useLayoutEffect(() => {
+    const b = undoBtn.current
+    const n = undoNote.current
+    if (!b || !n || n.hidden) return
+    const r = b.getBoundingClientRect()
+    const w = n.offsetWidth
+    n.style.left = `${Math.max(UNDO_WHY_EDGE, Math.min(innerWidth - UNDO_WHY_EDGE - w, r.left + r.width / 2 - w / 2))}px`
+    n.style.translate = '0 0'
+  })
   // the chooser: the selected row takes the focus as it opens
   const pickerEl = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -220,6 +239,11 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
           <span aria-hidden="true">✕</span> 금수예요 · {FORBID_NAME[forbidNow.why]}
         </p>
       )}
+      {open && g && undoHeld && (
+        <p ref={undoNote} id="omok-undo-why" role="tooltip" className="omok-forbid" hidden={!undoWhyShown || !!forbidNow}>
+          {UNDO_OPENING_LINE}
+        </p>
+      )}
       {open && g && (
         <section className="omok-hud" aria-label="오목 대국">
           {/* #603 the rule: a chip that reopens the chooser until the first stone, then its name alone (play.md 11.2) */}
@@ -268,7 +292,24 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
               </button>
             </>
           )}
-          <button type="button" disabled={!omokCanUndo()} onClick={() => undoOmok(officeNow(world))}>
+          <button
+            type="button"
+            disabled={!undoHeld && !omokCanUndo()}
+            ref={undoBtn}
+            aria-disabled={undoHeld || undefined}
+            aria-describedby={undoHeld ? 'omok-undo-why' : undefined}
+            onClick={() => (undoHeld ? setUndoWhy((w) => ({ ...w, tapAt: Date.now() })) : undoOmok(officeNow(world)))}
+            onContextMenu={(e) => {
+              if (!undoHeld) return
+              e.preventDefault()
+              setUndoWhy((w) => ({ ...w, tapAt: Date.now() }))
+            }}
+            onPointerEnter={(e) => e.pointerType === 'mouse' && setUndoWhy((w) => ({ ...w, hover: true }))}
+            onPointerLeave={() => setUndoWhy((w) => ({ ...w, hover: false }))}
+            // the keyboard's focus only: a tap focuses too, and its words go after 2 s
+            onFocus={(e) => e.currentTarget.matches(':focus-visible') && setUndoWhy((w) => ({ ...w, focus: true }))}
+            onBlur={() => setUndoWhy((w) => ({ ...w, focus: false }))}
+          >
             무르기
           </button>
           {/* #601 the agent goes after this game: no new one */}
