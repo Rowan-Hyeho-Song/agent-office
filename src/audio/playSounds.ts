@@ -95,6 +95,25 @@ export class PlaySounds {
     cue('omok.place', { pos: { x: at.x, y: at.y, z: at.z }, key: `omok:${seed}:${game}:${moves}` })
   }
 
+  /**
+   * #538 (sound.md 4.6) the hologram board: a new stone touching its intersection (the ripple's frame) is holo.place, once per move. The visitor's own
+   * stone sounds as 'ui' (visitor). Key: omok:<board seed>:<move number>
+   */
+  holoStone(seed: number, game: number, moves: number, at: Vec | null, visitor: boolean) {
+    const prev = this.omok
+    this.omok = { seed, game, moves }
+    if (!prev || prev.seed !== seed || prev.game !== game || moves !== prev.moves + 1 || !at) return
+    cue('holo.place', { pos: { x: at.x, y: at.y, z: at.z }, key: `omok:${seed}:${game}:${moves}`, ...(visitor ? { visitor: true } : {}) })
+  }
+  /** #538 the pinch closing on the fount: the stone made between the fingers (once per move, keyed as its place) */
+  holoPick(seed: number, game: number, moves: number, at: Vec) {
+    cue('holo.pick', { pos: { x: at.x, y: at.y, z: at.z }, key: `omok:${seed}:${game}:${moves}:pick` })
+  }
+  /** #538 the board coming on (its first frame) / folding (after its stones are gone); reduced motion: the short fade (0.15 s) */
+  holoBoard(on: boolean, at: Vec, reduced: boolean) {
+    cue(on ? 'holo.board.on' : 'holo.board.off', { pos: { x: at.x, y: at.y, z: at.z }, ...(reduced ? { dur: 0.15 } : {}) })
+  }
+
   /** the planner's stamp: one thud per press while stamping (null when not stamping) */
   stamp(t: number | null, at: Vec | null) {
     const prev = this.stampT
