@@ -675,16 +675,19 @@ export class Director {
     // the one taking it home is away from the schedule. While the bowl is not home there is no pair game at the board, and while it is taken
     // home no new record either, so nobody sits where it is set down or taken from. A re-plan may hand those out again: re-plan until it does not
     if (this.bowl?.way === 'home') away.push(this.bowl.agent)
-    const blocked = (k: PlayAssignment['kind'] | undefined) => (k === 'boardgame' && (this.bowlAtCorner || !!this.bowl)) || (k === 'boardgame_solo' && this.bowl?.way === 'home')
+    // #600: while the bowl is carried either way, the board is nobody else's: no record placed alone but the runner's own (going out), none while it goes
+    // home (another agent sat at game_a and placed a record alone while the bowl was still being carried to it)
+    const blocked = (k: PlayAssignment['kind'] | undefined, x: string) =>
+      (k === 'boardgame' && (this.bowlAtCorner || !!this.bowl)) || (k === 'boardgame_solo' && !!this.bowl && (this.bowl.way === 'home' || this.bowl.agent !== x))
     // #517: the ones kept from the board by the bowl wait near it (a gap by turns), not at their desks; the one carrying it is on its errand
     const bowlWait: Record<string, PlayAssignment> = {}
-    for (const x of this.agents) if (blocked(play[x]?.kind) && !away.includes(x)) {
+    for (const x of this.agents) if (blocked(play[x]?.kind, x) && !away.includes(x)) {
       away.push(x)
       if (this.bowl?.agent !== x) bowlWait[x] = play[x]!
     }
     for (let k = 0; k < 4 && away.length; k++) {
       play = playAt(now, this.agents, new Set([...busy, ...away]), alone)
-      const more = this.agents.filter((x) => blocked(play[x]?.kind) && !away.includes(x))
+      const more = this.agents.filter((x) => blocked(play[x]?.kind, x) && !away.includes(x))
       if (!more.length) break
       for (const x of more) if (this.bowl?.agent !== x) bowlWait[x] = play[x]!
       away.push(...more)
