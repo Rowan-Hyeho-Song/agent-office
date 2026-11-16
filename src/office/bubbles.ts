@@ -97,7 +97,7 @@ export interface PlaceInput {
    * when it would come within faceEdge of the screen top or of an `avoid` box (the HUD, '← 책상으로') does it hang below the face
    * (`below`: the face's lower edge) instead.
    */
-  face?: { below: number; avoid: readonly Rect[]; beside?: boolean }
+  face?: { below: number; avoid: readonly Rect[]; beside?: boolean; aside?: { x: number; y: number } }
 }
 
 export interface Placed {
@@ -111,6 +111,8 @@ export interface Placed {
   visible: boolean
   /** the anchor's y when it is not the input's (a face bubble hanging below the face) */
   y?: number
+  /** #601 the anchor's x when it is not the input's (a face bubble moved beside the face) */
+  x?: number
 }
 
 export interface PlaceView {
@@ -152,6 +154,17 @@ function placeOverFace(i: PlaceInput, f: NonNullable<PlaceInput['face']>, p: Pla
   else if (r.right > view.w - e) p.shift -= r.right - (view.w - e)
   r = cardRect(i, p)
   if (r.top < e || f.avoid.some((a) => near(r, a, e))) {
+    // #601 no room over the face: beside it from its lower right corner when one is given (the ping-pong view: down would cover the face), else below
+    if (f.aside) {
+      p.side = 'right'
+      p.dir = 'up'
+      p.shift = 0
+      p.x = f.aside.x
+      p.y = f.aside.y
+      const b = cardRect({ ...i, x: p.x, y: p.y }, p)
+      if (b.right > view.w - e) p.shift = view.w - e - b.right
+      return
+    }
     p.dir = 'down'
     p.y = f.below - BUBBLE.anchorDown
   }

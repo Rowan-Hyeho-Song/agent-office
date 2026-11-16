@@ -7,11 +7,14 @@ import type { PlayStage } from '../playStage'
 import { isTouring, tour } from '../tourStore'
 import { officeNow, prefersReducedMotion, type OfficeWorld } from '../world'
 import { replay } from '../../replay/store'
-import { visitorStone, visitorWon, type Face } from '../../play/visitorOmok'
+import { OMOK_LINES, visitorStone, visitorWon, type Face } from '../../play/visitorOmok'
+import { chipShown, WORK_HOLD, WORK_LINES } from '../../play/workHold'
+import { faceScreenRect } from './bubbleAnchor'
 import { isBoardOpen } from '../boardView/store'
 import { isPingpongActive } from '../pingpongVisit/store'
 import {
-  armOmok, closeOmok, drainOmokEvents, omokForbidAt, setOmokBoardBox, getOmokVisit, omokArrived, omokLeft, placeOmok, setOmokPreview, setOmokTag, stepOmok, visitorMayPlace,
+  armOmok, closeOmok, drainOmokEvents, getOmokVisit, omokArrived, omokForbidAt, omokLeft, omokWorkTold, placeOmok, setOmokBoardBox, setOmokChip, setOmokPreview, setOmokTag,
+  stepOmok, visitorMayPlace,
 } from './store'
 import { OMOK_VIEW, fitView, v3, visitPose, type V3 } from './pose'
 
@@ -250,10 +253,31 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
     // the game's clock; what the agent says and shows (play.md 2.4 · 2.5)
     if (v.phase !== 'closed' && v.agent) {
       stepOmok(now)
+      // #601 called to work during the game: the result's line also says it goes to work (play.md 10.3)
+      const held = !!getOmokVisit().work
       for (const ev of drainOmokEvents()) {
-        if (ev.kind === 'say') world.bubbles.say(v.agent, { kind: 'react', text: ev.text, ms: 3500, whole: true }, now)
-        else world.rigs[v.agent]?.faceEvent(FACE[ev.face], state.clock.elapsedTime)
+        if (ev.kind === 'say') {
+          const text = held && ev.text === OMOK_LINES.visitorWon ? WORK_LINES.visitorWon : held && ev.text === OMOK_LINES.agentWon ? WORK_LINES.agentWon.omok : ev.text
+          world.bubbles.say(v.agent, { kind: 'react', text, ms: ev.text === OMOK_LINES.work ? WORK_HOLD.capLineMs : 3500, whole: true }, now)
+        } else world.rigs[v.agent]?.faceEvent(FACE[ev.face], state.clock.elapsedTime)
       }
+      // #601 the moment the call came (once, once a stone in the hand is down): a look 25° toward the desk for 0.6 s, surprised then a nod, the line
+      const wv = getOmokVisit()
+      const gm = wv.game
+      const rigA = world.rigs[v.agent]
+      const midMove = !!gm && (!!gm.pending || (!!gm.landed && now < gm.landed.at + gm.landed.thinkMs + 1000))
+      if (wv.work && !wv.work.told && !gm?.end && !midMove && rigA) {
+        const desk = world.graph?.spots[`work_${v.agent.split('_')[1]}`]
+        const t = state.clock.elapsedTime
+        if (!prefersReducedMotion() && desk) rigA.propLook = { at: new Vector3(desk.x, 1, desk.z), nod: true, t0: null, s: WORK_HOLD.lookS, maxYaw: (WORK_HOLD.lookDeg * Math.PI) / 180 }
+        rigA.faceEvent('surprised', t)
+        world.bubbles.say(v.agent, { kind: 'react', text: WORK_LINES.moment.omok, ms: WORK_HOLD.momentMs, whole: true }, now)
+        omokWorkTold(now)
+      }
+      // the work chip beside the face screen, its top aligned, 8 px off (play.md 10.2: the face screen has 12 px over it in this view)
+      const face = scene.getObjectByName(`${v.agent}_face`) as Mesh | undefined
+      const fr = chipShown(wv.work, now) && !gm?.end && v.phase === 'open' && face ? faceScreenRect(face, camera, { left: 0, top: 0, width: live.current.size.width, height: live.current.size.height }) : null
+      setOmokChip(fr ? { x: fr.right + 8, y: fr.top } : null)
       // the game won (a five, or the agent resigned and the visitor played on): match.win once, at the winner's side (sound.md, #593)
       const gw = getOmokVisit().game
       const res = gw?.end?.result
@@ -266,9 +290,9 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
         cue('match.win', { pos: at })
       }
       if (!gw?.end) wonKey.current = null
-      // a game it let go (quiet) or left for work closes by itself after the agent's word
+      // a game it let go (quiet) closes by itself after the agent's word; #601 one wound up for work stays until the visitor leaves (play.md 10.3)
       const game = getOmokVisit().game
-      const over = game?.end && (game.end.result === 'idle' || game.end.result === 'work')
+      const over = game?.end && game.end.result === 'idle'
       if (over && endAt.current === null) endAt.current = now
       if (!over) endAt.current = null
       if (over && endAt.current !== null && now - endAt.current >= END_CLOSE_MS && getOmokVisit().phase === 'open') closeOmok(now)

@@ -39,9 +39,9 @@ import { STAMP_MS } from './props'
 import { ANXIOUS_AFTER_MS } from './faceMind'
 import { greetsOwner, questionFaceFor } from './liveFace'
 import { isLateHour } from './duty'
-import { getOmokVisit, workOmok } from './omokVisit/store'
+import { getOmokVisit, omokHoldsAgent, workSignalOmok } from './omokVisit/store'
 import { faceScreenRect } from './omokVisit/bubbleAnchor'
-import { closePingpong, getPingpongVisit } from './pingpongVisit/store'
+import { getPingpongVisit, pingpongHoldsAgent, workSignalPingpong } from './pingpongVisit/store'
 import { rallyOf } from '../play/visitorPingpong'
 import { WATCH } from './play'
 import { viewOf } from '../play/visitorOmok'
@@ -340,26 +340,33 @@ export function Agents({ world }: { world: OfficeWorld }) {
     // ?debug=1: window.__office.forceSpots = { agent_0: 'whiteboard', ... } sends agents to spots (head-on tests, screenshots)
     if (world.debug && world.forceSpots) for (const id in world.forceSpots) if (goals[id]) goals[id] = { ...goals[id], spot: world.forceSpots[id], pose: 'idle', label: 'debug' }
     if (world.debug && world.forceGoal) for (const id in world.forceGoal) if (goals[id]) goals[id] = { ...goals[id], ...world.forceGoal[id], label: 'debug' }
-    // #137 ② a visitor plays omok with the agent at the board (this tab only): it stays in its chair for the game; called to work, it ends it (중단)
+    // #601 (designer, #615) held at the visitor's game while called to work: this tab's tag and list show the real activity (파일 편집 중, no
+    // "자리로 가는 중": it is not on its way); the other tabs keep the director's words, the body there does go to its desk. Read by the director's
+    // next frame
+    const held = new Set<string>()
+    const heldShown = (a: string) => void held.add(a)
+    // #137 ② a visitor plays omok with the agent at the board (this tab only): it stays in its chair for the game. #601 (play.md 10) called to work,
+    // it plays the game out (up to the cap) and then goes straight to its desk; the list and its tag show the real status all along
     const visit = st ? null : getOmokVisit()
     if (visit && visit.phase !== 'closed' && visit.agent && goals[visit.agent]) {
       const s = status[visit.agent]
-      if (s && (s.state !== 'idle' || s.night === 'duty')) workOmok(now)
-      const g = getOmokVisit().game
-      if (g && !(g.end && (g.end.result === 'work' || visit.phase === 'leaving'))) goals[visit.agent] = { spot: 'game_a', pose: 'boardgame', label: '오목 · 방문자와 대국' }
+      workSignalOmok(!!s && (s.state !== 'idle' || s.night === 'duty'), now)
+      if (omokHoldsAgent(now)) {
+        goals[visit.agent] = { spot: 'game_a', pose: 'boardgame', label: '오목 · 방문자와 대국' }
+        heldShown(visit.agent)
+      }
     }
     // #137 ③ the visitor holds the near paddle: the agent plays from the far end; the one who played at the near end watches by the table (play.md 3.1).
-    // Called to work, the agent says so and the match ends
+    // #601 called to work, it plays the match out (up to the cap) and then goes to its desk
     const ppVisit = st ? null : getPingpongVisit()
     if (ppVisit && ppVisit.phase !== 'closed' && ppVisit.agent && goals[ppVisit.agent]) {
       const s = status[ppVisit.agent]
-      if (ppVisit.phase !== 'leaving' && s && (s.state !== 'idle' || s.night === 'duty')) {
-        world.bubbles.say(ppVisit.agent, { kind: 'react', text: '일하러 가야 해요!', ms: 3000, whole: true }, now)
-        closePingpong()
-      } else if (ppVisit.phase !== 'leaving') {
+      if (ppVisit.phase !== 'leaving') workSignalPingpong(!!s && (s.state !== 'idle' || s.night === 'duty'), now)
+      if (pingpongHoldsAgent(now)) {
         // already at the far end: its goal as it is (its departure), only the words, and at the spot itself (no other play's standing place); else sent there
         const g0 = goals[ppVisit.agent]
         goals[ppVisit.agent] = g0.spot === 'pingpong_b' && g0.pose === 'pingpong' ? { ...g0, slot: undefined, label: '탁구 · 방문자와 경기' } : { spot: 'pingpong_b', pose: 'pingpong', label: '탁구 · 방문자와 경기' }
+        heldShown(ppVisit.agent)
         // anyone else the director sends to the table (the near end's player, one coming to join) watches from beside it, by the net: out of the
         // visitor's view down the table (play.md 3.1)
         for (const w of Object.keys(goals))
@@ -367,6 +374,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
             goals[w] = { spot: WATCH.pingpong.spot, pose: 'idle', ...standSlot({ stand: PP_WATCH_STAND, face: WATCH.pingpong.face }), watching: 'pingpong', label: WATCH.pingpong.label }
       }
     }
+    if (held.size || world.director.heldByVisitor.size) world.director.heldByVisitor = held
     if (!st) {
       // forget the departures no goal holds any more (a held one keeps its planner time: recomputed each frame it would drift and replan every frame,
       // #228). After the debug overrides: a forced spot keys the departure it is requested with; judged on the director's own spot, the forced one's
@@ -634,6 +642,17 @@ export function Agents({ world }: { world: OfficeWorld }) {
           const avoid = [...document.querySelectorAll('.omok-hud, .desk-link, .door-btn')].map((el) => el.getBoundingClientRect())
           const beside = !narrow.matches
           anchors[id] = { x: beside ? f.right : (f.left + f.right) / 2, y: beside ? f.bottom : f.top, visible: !rig.hidden, face: { below: f.bottom, avoid, beside } }
+        }
+      }
+      // #601 (designer, #615) the visitor's ping-pong: the agent is small far down the table and a bubble beside its head covered its face; its
+      // lines stand just over its head (the work chip, higher, comes after them), centred, kept inside the screen and clear of the score
+      const pv = getPingpongVisit()
+      if (!replaying && pv.phase === 'open' && pv.agent === id && rig.parts.face) {
+        // over the face screen's top edge, centred; no room under the score: beside the face from its lower right corner, never over it
+        const f = faceScreenRect(rig.parts.face, state.camera, rect)
+        if (f) {
+          const avoid = [...document.querySelectorAll('.pp-hud, .pp-score, .desk-link, .door-btn')].map((el) => el.getBoundingClientRect())
+          anchors[id] = { x: (f.left + f.right) / 2, y: f.top, visible: !rig.hidden, face: { below: f.bottom, avoid, aside: { x: f.right, y: f.bottom } } }
         }
       }
       if (anchors[id].x > area.w || anchors[id].y > area.h) anchors[id].visible = false
