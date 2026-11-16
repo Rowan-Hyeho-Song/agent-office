@@ -3,10 +3,11 @@ import { N } from '../../play/omok'
 import { VISITOR_OMOK } from '../../play/visitorOmok'
 import {
   CENTER, closeOmok, drainOmokEvents, getOmokVisit, isOmokActive, moveCursor, omokArrived, omokLeft, openOmok, placeOmok, resetOmok, setOmokTag,
-  stepOmok, viewName, visitorMayPlace, workOmok, type Orient,
+  omokHoldsAgent, omokWorkTold, seedOmok, stepOmok, viewName, visitorMayPlace, workOmok, workSignalOmok, type Orient,
 } from './store'
-import { chooseRule, closeRulePicker, forgetRuleChoice, lastRule, openRulePicker, seedOmok, selectRule } from './store'
+import { chooseRule, closeRulePicker, forgetRuleChoice, lastRule, openRulePicker, selectRule } from './store'
 import { FORBID_LINE, RULE_LINES } from '../../play/visitorOmok'
+import { WORK_HOLD, WORK_LINES } from '../../play/workHold'
 
 const T = 1_000_000
 const sitDown = (orient?: Orient) => {
@@ -156,5 +157,64 @@ describe('the rules at the visitor board', () => {
   })
   it('the last rule is kept in this browser (renju without storage)', () => {
     expect(lastRule()).toBe('renju')
+  })
+})
+
+// #601 (play.md 10): called to work during the visitor's game, the agent plays it out, then goes; up to 4 min; back to rest, the hold is dropped
+describe('a call to work waits for the game', () => {
+  const play = (cell: number, at: number) => {
+    expect(placeOmok(cell, at)).toBe(true)
+    stepOmok(at + 10_000) // the agent answers
+  }
+  it('held: the game goes on and holds the agent; the moment is shown once; the game over, the agent goes at once', () => {
+    sitDown()
+    expect(workSignalOmok(true, T + 100)).toBe(true) // the hold begins (the moment follows)
+    expect(workSignalOmok(true, T + 200)).toBe(false)
+    expect(getOmokVisit().work).toEqual({ since: T + 100, told: false })
+    omokWorkTold(T + 150)
+    expect(getOmokVisit().work).toMatchObject({ told: true, toldAt: T + 150 })
+    expect(getOmokVisit().game?.end).toBeNull()
+    expect(omokHoldsAgent(T + 300)).toBe(true)
+    play(CENTER, T + 1000)
+    expect(omokHoldsAgent(T + 12_000)).toBe(true) // still playing
+    closeOmok(T + 15_000) // the visitor leaves
+    expect(omokHoldsAgent(T + 15_000)).toBe(false)
+  })
+  it('the game ends with the hold on: the agent goes at once (no staying for the visitor)', () => {
+    sitDown()
+    workSignalOmok(true, T)
+    const g = getOmokVisit().game!
+    // a five for the visitor in a row of the board, put as it stands
+    const row = 7 * N
+    const board = g.s.board.slice()
+    for (let k = 0; k < 4; k++) board[row + k] = 1
+    seedOmok({ ...g, s: { ...g.s, board } })
+    expect(placeOmok(row + 4, T + 1000)).toBe(true)
+    expect(getOmokVisit().game?.end?.result).toBe('black')
+    // its line at the board, then away
+    expect(omokHoldsAgent(T + 1000 + WORK_HOLD.leaveMs - 1)).toBe(true)
+    expect(omokHoldsAgent(T + 1000 + WORK_HOLD.leaveMs)).toBe(false)
+  })
+  it('past the cap the game is wound up with the cap line; the camera stays (the visitor leaves when they like)', () => {
+    sitDown()
+    workSignalOmok(true, T)
+    drainOmokEvents()
+    workSignalOmok(true, T + WORK_HOLD.capMs - 1)
+    expect(getOmokVisit().game?.end).toBeNull()
+    workSignalOmok(true, T + WORK_HOLD.capMs)
+    expect(getOmokVisit().game?.end?.result).toBe('work')
+    expect(drainOmokEvents()).toContainEqual({ kind: 'say', text: WORK_LINES.cap })
+    expect(getOmokVisit().phase).toBe('open')
+    expect(omokHoldsAgent(T + WORK_HOLD.capMs + 100)).toBe(true) // the cap's line at the board
+    expect(omokHoldsAgent(T + WORK_HOLD.capMs + WORK_HOLD.leaveMs)).toBe(false)
+  })
+  it('back to rest before the end: the hold is dropped and the game goes on as before', () => {
+    sitDown()
+    workSignalOmok(true, T)
+    workSignalOmok(false, T + 1000)
+    expect(getOmokVisit().work).toBeNull()
+    expect(omokHoldsAgent(T + 2000)).toBe(true)
+    workSignalOmok(true, T + WORK_HOLD.capMs + 5000) // a new call: a new hold from now, not wound up
+    expect(getOmokVisit().game?.end).toBeNull()
   })
 })

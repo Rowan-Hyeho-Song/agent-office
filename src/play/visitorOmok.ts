@@ -3,6 +3,7 @@
 // every step takes `now` (ms) and returns the new game and what the agent shows (lines, faces); the stage draws it through the same
 // OmokView as the agents' own games, so the agent's hand picks and places its stone the same way.
 
+import { capResult, WORK_LINES } from './workHold'
 import { hash, rng } from '../office/play'
 import { HAND_MS, N, PLACE_AT, aiMove, axesAt, fiveCells, newGame, personalityOf, play, type OmokState, type OmokView } from './omok'
 import { forbiddenAt, RULE_BY_ID, type Forbid, type RuleId } from './omokRules'
@@ -33,7 +34,8 @@ export const OMOK_LINES = {
   resign: '제가 졌어요 · 마저 두세요',
   firstUndo: '괜찮아요, 다시 두세요',
   idle: '다음에 또 둬요',
-  work: '일하러 가야 해요!',
+  // #601 the call to work waits for the game; past its cap (play.md 10.3) the game is wound up with this
+  work: WORK_LINES.cap,
   easy: '천천히 둘게요',
   strong: '진지하게 둘게요',
 } as const
@@ -253,11 +255,13 @@ export const cellName = (cell: number) => `${String.fromCharCode(65 + (cell % N)
 const RESULT_WORD: Record<EndResult, string> = { black: '흑 승', white: '백 승', draw: '무승부', resign: '흑 승 · 던짐', idle: '중단', work: '중단', quit: '중단' }
 
 /** the HUD's status line (play.md 2.2 · 2.5 · 5.2 · 5.3); the thinking dots grow one every 0.4 s (a clock before the move began counts as its start: #536, repeat(-1) threw) */
-export function statusLine(g: VisitorGame, agentName: string, now: number): string {
+export function statusLine(g: VisitorGame, agentName: string, now: number, work?: string): string {
   const n = g.moves.length
+  // #601 wound up past the call to work's cap: who went (play.md 10.3)
+  if (g.end?.result === 'work') return capResult(agentName)
   if (g.end) return `${RESULT_WORD[g.end.result]} · ${n}수${g.undos && (g.end.result === 'black' || g.end.result === 'resign') ? ` · 무르기 ${g.undos}` : ''}`
-  // #603 the rule's name first (play.md 11.1)
-  const head = `● 오목 · ${RULE_BY_ID[g.rule].name} · ${agentName}와 대국`
+  // #603 the rule's name first (play.md 11.1); #601 called to work: one more word after the game's name (play.md 10.2)
+  const head = `● 오목 · ${RULE_BY_ID[g.rule].name} · ${agentName}와 대국${work ? ` · ${work}` : ''}`
   if (g.pending) return `${head} · ${agentName}가 생각 중${'.'.repeat(1 + (Math.max(0, Math.floor((now - g.pending.at) / 400)) % 3))}`
   return `${head} · 당신(흑) 차례 · ${n + 1}수`
 }
