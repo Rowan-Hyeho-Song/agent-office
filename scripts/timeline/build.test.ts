@@ -298,7 +298,9 @@ describe("#634 a work point is on its PR's seat", () => {
     expect(filesSeat(['src/audio/SoundRoot.tsx', 'src/office/Agents.tsx', 'docs/design/timelapse.md'])).toBe(3)
     expect(filesSeat(['scripts/timeline/build.mjs'])).toBe(3)
     expect(filesSeat([])).toBeNull()
-    expect(filesSeat(['LICENSE'])).toBeNull()
+    expect(filesSeat(['hooks/office-hook.mjs', 'hooks/hooks.test.ts'])).toBe(3)
+    expect(filesSeat(['.env.example', 'docs/plan.md', 'vercel.json'])).toBe(3)
+    expect(filesSeat(['README.md'])).toBe(0)
     // the issue says 코더 (FORM), the PR's files say designer
     expect(work({ devCommits: [withFiles(commit('c1', 'docs: 하나 (#1) (#4)'), 'docs/design/play.md')] }).agent).toBe(2)
   })

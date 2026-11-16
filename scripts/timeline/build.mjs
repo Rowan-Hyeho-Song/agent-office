@@ -140,7 +140,7 @@ export const ROLES_FROM = '2026-11-07T15:30:00Z'
 /**
  * The seat by where a PR's files changed (#634), for the PRs before the session line. The paths are only read here, never kept in a point.
  * Sound: only src/audio and sound.md. 3D: any model or Blender file. Designer: only docs/design. Planner: only other docs or the version bump.
- * Coder: any other code. Else null.
+ * Coder: any other file that is not a document (src, scripts, hooks, vercel.json, .env.example …). Else null.
  */
 export function filesSeat(paths) {
   if (!paths.length) return null
@@ -149,7 +149,7 @@ export function filesSeat(paths) {
   if (paths.some((p) => /^(public\/models\/|assets\/blender\/)/.test(p))) return 1
   if (all(/^docs\/design\//)) return 2
   if (all(/^(docs\/|package\.json$|README|CHANGELOG)/)) return 0
-  if (paths.some((p) => /^(src|scripts|public|\.github)\//.test(p))) return 3
+  if (paths.some((p) => !/^docs\//.test(p) && !/\.md$/.test(p))) return 3
   return null
 }
 const issueNumber = (c) => Number(String(c.issue_url).split('/').pop())

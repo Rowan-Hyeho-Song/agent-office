@@ -49,7 +49,7 @@
    | `public/models/**` · `assets/blender/**`가 하나라도 | 1 3D |
    | `docs/design/**`만 | 2 디자이너 |
    | 그 밖의 문서 · `package.json`(버전 올림)만 | 0 기획 |
-   | 그 밖의 `src` · `scripts` · `public` · `.github` | 3 코더 |
+   | 문서가 아닌 파일이 하나라도(`src` · `scripts` · `hooks` · `vercel.json` …) | 3 코더 |
 
 3. 그래도 모르면 아래 **이슈의 자리**
 
