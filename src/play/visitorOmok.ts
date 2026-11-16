@@ -341,7 +341,7 @@ export function statusLine(g: VisitorGame, agentName: string, now: number, work?
   if (g.end?.result === 'work') return capResult(agentName)
   if (g.end) return `${RESULT_WORD[g.end.result]} · ${n}수${g.undos && visitorWon(g) ? ` · 무르기 ${g.undos}` : ''}`
   // #603 the rule's name first (play.md 11.1); #601 called to work: one more word after the game's name (play.md 10.2)
-  const head = `● 오목 · ${RULE_BY_ID[g.rule].name} · ${agentName}와 대국${work ? ` · ${work}` : ''}`
+  const head = `${g.color === 2 ? '○' : '●'} 오목 · ${RULE_BY_ID[g.rule].name} · ${agentName}와 대국${work ? ` · ${work}` : ''}`
   const dots = (at: number) => '.'.repeat(1 + (Math.max(0, Math.floor((now - at) / 400)) % 3))
   // #603 swap's opening (play.md 11.3)
   if (g.swap && g.swap.stage !== 'done') {

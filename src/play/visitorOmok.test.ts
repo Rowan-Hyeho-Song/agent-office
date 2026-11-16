@@ -270,6 +270,7 @@ describe('swap', () => {
     else {
       expect(visitorTurn(r.g)).toBe(true)
       expect(statusLine(r.g, '메모', 0)).toContain('당신(백) 차례')
+      expect(statusLine(r.g, '메모', 0).startsWith('○ 오목 · 스왑')).toBe(true)
     }
   })
   it('the next game the agent opens: it places three in its own colours; the visitor picks a colour with the buttons', () => {
