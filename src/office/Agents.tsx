@@ -507,7 +507,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
       awake: (seat) => !!status[`agent_${seat}`] && status[`agent_${seat}`].state !== 'off',
       working: (seat) => status[`agent_${seat}`]?.state === 'working',
       // #370 C4 the speaker playing (에코's mixer), the tidy-up starting (its snap)
-      speaker: speakerOn(),
+      speaker: !st && speakerOn(),
       tidying: (seat) => (st ? undefined : goals[`agent_${seat}`])?.pose === 'tidy',
     })
     // the desk things first: a hand on one follows it where it is this frame (#370 A)

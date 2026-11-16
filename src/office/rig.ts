@@ -2213,14 +2213,16 @@ export class AgentRig {
    * grille's light ring breathes 0.35..0.6 over 4 s, and musicGlow() (0..0.3, speaker.ts) is added while the music plays. Reduced motion: no ringing, steady light.
    */
   private updateEcho(dt: number, t: number, reduced: boolean, tint: (node: Object3D | undefined, color: (base: Color) => Color) => void) {
-    const level = speakerOn() ? speakerCone() : 0
+    // the timelapse (#598): the speaker heard now is not the replayed time's, so the fork and the glow keep still there
+    const live = !this.replayFace
+    const level = live && speakerOn() ? speakerCone() : 0
     const fork = this.parts.fork
     if (fork) {
       this.forkAmp = level > 0.05 ? Math.max(this.forkAmp, Math.min(1, level * 1.6)) : Math.max(0, this.forkAmp - dt / 0.4)
       fork.rotation.x = reduced ? 0 : this.forkAmp * 0.6 * MathUtils.DEG2RAD * Math.sin(t * Math.PI * 2 * 24)
     }
     const breath = reduced ? 0.475 : 0.475 + 0.125 * Math.sin((t / 4) * Math.PI * 2)
-    const k = Math.min(1, breath + musicGlow())
+    const k = Math.min(1, breath + (live ? musicGlow() : 0))
     tint(this.parts.grille, (base) => this.tmpColor.copy(base).multiplyScalar(k))
   }
 
@@ -2320,7 +2322,7 @@ export class AgentRig {
     i.talk = this.faceTalk.listening ? 'nodding' : null
     i.speaking = this.faceTalk.speaking
     i.anxious = this.anxious
-    i.voice = this.id === 'agent_4' && speakerOn() ? speakerCone() : 0
+    i.voice = this.id === 'agent_4' && !rp && speakerOn() ? speakerCone() : 0
     // looking at the plane / the one it throws to (#224): the eyes go first, the mood narrows to aim and widens to catch
     const aim = this.aim
     i.aim = aim?.mood === 'focus' ? 'focused' : aim?.mood === 'wide' ? 'surprised' : null
