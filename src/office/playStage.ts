@@ -88,6 +88,8 @@ const ONE = new Vector3(1, 1, 1)
 const dimsOf = (size: number[], netH: number): Dims => ({ L: size[0], W: size[1], netH, ballR: 0.02, reach: 0.25, floorY: -0.76 })
 /** the blade's centre above the paddle node's origin, along its y */
 const BLADE_Y = 0.175
+/** #600 a stone hand no longer driven lets go over this long (s) */
+const STONE_LET_GO_S = 0.4
 /** ball centre to the paddle face at contact: the ball radius and half the blade */
 const FACE_GAP = 0.023
 /** #490 B waiting for a partner (play.md 9.2): the blade's centre in front of the body (the root's frame: right, up, − forward), m; the paddle's own rise and fall with each bounce, m */
@@ -249,6 +251,8 @@ export class PlayStage {
   private stoneFrames = new Map<string, StoneGrip[]>()
   /** per agent, decided once from the fits: the go grip, or (when its tips cannot land on the stone's discs within STONE_FALLBACK_M at some pitch) the tripod pinch */
   private stoneModes = new Map<string, 'go' | 'pinch'>()
+  /** #600 the stone hand's last drive per agent; a frame without it (the record over mid-move, an errand taking over) lets go over STONE_LET_GO_S */
+  private stoneLetGo = new Map<string, { side: 'l' | 'r'; drive: NonNullable<AgentRig['drive']['l']>; seen: boolean; from: number | null }>()
 
   // water and the book
   private drops: InstancedMesh | null = null
@@ -610,6 +614,7 @@ export class PlayStage {
     const vp = inp.visitorPingpong
     if (vp) pp = inp.rigs[vp.agent]?.arrived === 'pingpong_b' ? { kind: 'pingpong', spot: 'pingpong_a', players: [VISITOR, vp.agent], seed: hash(`visitor|pp|${vp.agent}`), startMs: 0 } : null
     this.pingpong(pp, inp)
+    for (const e of this.stoneLetGo.values()) e.seen = false
     this.omok(og, inp)
     for (const e of this.carry.values()) e.seen = false
     // #481 writing the wrap-up cards: the card on the desk, the pen hand on the pen; nothing else takes the hands meanwhile
@@ -617,6 +622,7 @@ export class PlayStage {
     for (const id of ids) if (inp.gripDemo?.agent !== id && !writing.has(id)) this.solo(inp.rigs[id], inp.goals[id], inp, pp, og)
     this.demo(inp)
     this.putBack(inp)
+    this.stoneLetGoStep(inp)
     for (const id of ids) if (!this.typed.has(id)) this.typist.fade(inp.rigs[id], inp.dt)
     // #455 a treat in a free hand: over whatever that hand was doing
     this.treatHands(inp)
@@ -1051,6 +1057,30 @@ export class PlayStage {
     return 1 - present / 3
   }
 
+  /**
+   * #600 the stone hand drives the rig directly (no grip clock): when the record ends mid-move or an errand takes the agent (the white bowl's
+   * run home began the frame the record ended, with a stone in the hand), it used to drop to rest in one frame (0.35 m). It lets go from where it
+   * was over STONE_LET_GO_S instead; a hand another action takes meanwhile is that action's.
+   */
+  private stoneLetGoStep(inp: StageIn) {
+    for (const [id, e] of this.stoneLetGo) {
+      if (e.seen) continue
+      const rig = inp.rigs[id]
+      if (!rig || rig.drive[e.side]) {
+        this.stoneLetGo.delete(id)
+        continue
+      }
+      e.from ??= inp.t
+      const k = inp.reduced ? 1 : (inp.t - e.from) / STONE_LET_GO_S
+      if (k >= 1) {
+        this.stoneLetGo.delete(id)
+        continue
+      }
+      const w = 1 - ease(k)
+      rig.drive[e.side] = { ...e.drive, w: e.drive.w * w, wc: e.drive.wc * w }
+    }
+  }
+
   private omokHands(s: PlaySession, view: OmokView, inp: StageIn) {
     const mv = view.move
     if (!mv || (view.phase !== 'thinking' && view.phase !== 'pick' && view.phase !== 'place')) return
@@ -1156,6 +1186,7 @@ export class PlayStage {
       })
     }
     rig.drive[side] = { target: hand, w: p.w, curl: null, angles, abdLimits: pinch ? null : [STONE_ABD.index, STONE_ABD.middle, undefined, undefined], wc: p.w, spread: null }
+    this.stoneLetGo.set(rig.id, { side, drive: rig.drive[side]!, seen: true, from: null })
     // the stone: the prop piece, in the hand until it lands; the board's own instance shows from the landing
     if (stone) {
       rig.want = { kind: 'piece', side, prefer: `prop_piece_${wantColor === 1 ? 'a' : 'b'}`, attached: p.attached }
@@ -1468,7 +1499,6 @@ export class PlayStage {
     const rest = this.props.homeWorld(bowl.node)
     let want = true
     let held = carry
-    let hands = 1
     if (b.stage === 'lift') {
       // it takes the weight: the body dips 2 cm as the hands close and comes up with it
       rig.bodyDip = 0.02 * Math.sin(Math.PI * Math.min(1, b.u / BOWL_S.lift))
@@ -1478,13 +1508,14 @@ export class PlayStage {
       rig.headExtra.pitch = -0.2
       if (b.u < dur + 0.06) held = blend(carry, rest, ease(Math.min(1, b.u / dur)))
       else {
+        // let go: both hands come away on the grip clock (#600: the left one used to drop its drive at once and jump 0.4 m in a frame)
+        held = rest
         want = false
-        hands = 0
       }
     }
     this.grip(rig, 'r', 'bowl', bowl.node.name, want, held, inp)
     const tl = this.target(bowl.node.name, 'bowl', 'l')
-    if (tl && hands > 0) this.partner(rig, 'bowl', 'l', tl, this.lastObjPose, 'r', hands)
+    if (tl) this.partner(rig, 'bowl', 'l', tl, this.lastObjPose, 'r')
   }
 
   /** the can swings a little with each step while it is carried (watering.md 2: ±3° per step); how much follows how fast the body moves */
