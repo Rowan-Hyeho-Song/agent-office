@@ -383,6 +383,21 @@ describe('PlayStage', () => {
     expect(h.stones[2].count).toBe(3)
   })
 
+  it("#538 the visitor sitting down turns the board on, while its agent is still on its way (hologram.md 2: the first one, the visitor too)", async () => {
+    const w = await world()
+    const goals = visitorSeat(w)
+    // the agent not at its chair yet: nowhere near the board
+    const r = w.rigs.agent_0
+    r.at = 'work_0'
+    r.parts.root.position.set(4, 0, -3)
+    r.parts.root.updateMatrixWorld(true)
+    const h = holoOf(w)
+    const view = viewOf(startVisitorGame('agent_0', 7, 0), 9_000)
+    w.stage.update(inp(w, goals, 10_000, 1, { dt: 0.02, visitorOmok: { agent: 'agent_0', view } }))
+    w.stage.update(inp(w, goals, 10_000, 1.4, { dt: 0.02, visitorOmok: { agent: 'agent_0', view } }))
+    expect(h.state).toBe('on')
+  })
+
   it('#137 ② the board takes a world point to its cell and back (the visitor pointer)', async () => {
     const w = await world()
     const g = w.stage.omokGrid!

@@ -252,6 +252,8 @@ export class PlayStage {
   /** #538 the projector's live neons (hologram.md 1.5) */
   private holoPanel: (k: number) => void = () => {}
   private holoTurn: Record<1 | 2, (k: number) => void> = { 1: () => {}, 2: () => {} }
+  /** #538 the visitor's chair (the nav spot game_b), for its stone fount and turn line */
+  private visitorChair: Vector3 | null = null
   /** the picks already sounded and flashed (seed:game:cell:pick) */
   private picked = new Set<string>()
   private reactedGame = new Map<string, number>()
@@ -337,6 +339,7 @@ export class PlayStage {
       this.holo = new HoloBoard(scene, surface)
       this.grid = { o: this.holo.cellPos(0), n: HOLO_N, cell: HOLO_CELL }
     }
+    this.visitorChair = scene.getObjectByName('nav_game_b')?.getWorldPosition(new Vector3()) ?? null
     this.holoPanel = holoNeon(scene.getObjectByName('holo_panel'))
     this.holoTurn = { 1: holoNeon(scene.getObjectByName('holo_turn_b')), 2: holoNeon(scene.getObjectByName('holo_turn_w')) }
     // water for the can, and the book's two halves
@@ -576,9 +579,11 @@ export class PlayStage {
       if (s.kind === 'pingpong') pp = s
       else og = s
     }
-    // #137 ② the visitor sat down opposite: their game on the board (the agent at game_a, the visitor at the empty chair, no hand of theirs)
+    // #137 ② the visitor sat down opposite: their game on the board (the agent at game_a, the visitor at the empty chair, no hand of theirs).
+    // #538 from the moment the visitor sits (hologram.md 2: the visitor turns the board on too), not only once the agent reached its chair: the
+    // visitor's moves before that were neither drawn nor heard (sound, #648). The agent's hand waits for its chair (omokHands)
     const vo = inp.visitorOmok
-    if (vo) og = inp.rigs[vo.agent]?.arrived === 'game_a' ? { kind: 'boardgame', spot: 'game_a', players: [vo.agent, VISITOR], seed: hash(`visitor|${vo.agent}`), startMs: 0, visitor: vo.view } : null
+    if (vo) og = { kind: 'boardgame', spot: 'game_a', players: [vo.agent, VISITOR], seed: hash(`visitor|${vo.agent}`), startMs: 0, visitor: vo.view }
     // #137 ③ the visitor holds the near paddle: their match, the agent at the far end (no hand at the near one)
     const vp = inp.visitorPingpong
     if (vp) pp = inp.rigs[vp.agent]?.arrived === 'pingpong_b' ? { kind: 'pingpong', spot: 'pingpong_a', players: [VISITOR, vp.agent], seed: hash(`visitor|pp|${vp.agent}`), startMs: 0 } : null
@@ -771,7 +776,12 @@ export class PlayStage {
         const rig = inp.rigs[id]
         if (rig && (rig.arrived === 'game_a' || rig.arrived === 'game_b')) seats.push({ seat: rig.parts.root.position.clone(), color: s.solo ? (view?.toMove ?? 1) : view && view.black === i ? 1 : 2, id })
       })
-      if (s.visitor && seats.length) seats.push({ seat: centre.clone().multiplyScalar(2).sub(seats[0].seat), color: view && view.black === 1 ? 1 : 2, id: VISITOR })
+      // the visitor is seated from the start of its game (hologram.md 2: the first one to sit, the visitor too, turns the board on), in the empty
+      // chair at game_b (OmokVisitRig's seat), whether or not the agent has reached its own yet (sound: the board came on only with the agent, 4–6 s late)
+      if (s.visitor) {
+        const chair = this.visitorChair ?? (seats[0] ? centre.clone().multiplyScalar(2).sub(seats[0].seat) : null)
+        if (chair) seats.push({ seat: chair.clone(), color: view && view.black === 1 ? 1 : 2, id: VISITOR })
+      }
     }
     const on = !!s && seats.length > 0
     const phase = view?.phase ?? null
@@ -878,6 +888,8 @@ export class PlayStage {
     const id = s.players[mv.mover]
     const rig = inp.rigs[id]
     if (!rig || id === VISITOR) return null
+    // a hand only from the chair (an agent still walking to the visitor's game: its stone appears on the board without a hand)
+    if (rig.arrived !== 'game_a' && rig.arrived !== 'game_b') return null
     const color: 1 | 2 = view.black === mv.mover ? 1 : 2
     const p = pinchSequence(mv.sinceMs, mv.thinkMs)
     this.lastPlace[id] = p
