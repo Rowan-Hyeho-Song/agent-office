@@ -53,6 +53,8 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
   const endAt = useRef<number | null>(null)
   /** the won game the match.win cue was played for (once per game) */
   const wonKey = useRef<string | null>(null)
+  /** the forbidden press the omok.forbid cue was played for (once per press) */
+  const forbidAt = useRef<number | null>(null)
   // the stage lives on the office model's scene (Agents.tsx), under the root: found once
   const found = useRef<PlayStage | null>(null)
   const stage = (): PlayStage | undefined => {
@@ -341,6 +343,12 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
       const f = v.forbid
       const k = f && f.cell === xAt && !prefersReducedMotion() ? (now - f.at) / 250 : 1
       if (k >= 0 && k < 1) marks.forbid.position.x += Math.sin(k * Math.PI * 4) * g.cell * 0.08
+      // #603 the dull tap on the wood, on the frame the shake starts (sound.md: omok.forbid), once per press
+      if (f && f.cell === xAt && forbidAt.current !== f.at) {
+        forbidAt.current = f.at
+        const p = marks.forbid.position
+        cue('omok.forbid', { pos: { x: p.x, y: p.y, z: p.z } })
+      }
     }
     put(marks.cursor, v.preview === null ? v.cursor : null, 0.0012)
     put(marks.last, game && game.s.lastMove >= 0 ? game.s.lastMove : null, 0.0062)
