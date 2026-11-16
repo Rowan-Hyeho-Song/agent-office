@@ -202,6 +202,21 @@ export const CUES = {
     length: 0.05,
     play: (o, v) => knock(o, 1800 * v.pitch, 0.04, 0.045, 12, 0.5),
   },
+  'omok.forbid': {
+    // #603 a visitor presses a forbidden point (black's 3-3 · 4-4 · overline): a dull low tap of a fingertip on the wood, no buzzer.
+    // Lower and duller than omok.place so it never reads as a stone; sounds on the frame the ✕ starts to shake. The visitor's own
+    // press, so 'ui' like match.win (not thinned by speed)
+    label: '오목 금수 톡',
+    kind: 'ui',
+    bus: 'sfx',
+    spatial: true,
+    gap: 300,
+    length: 0.08,
+    play: (o) => {
+      knock(o, 420, 0.07, 0.015, 3, 0.6)
+      noise(o, 0.03, { kind: 'pink', filter: 'lowpass', freq: 700, level: 0.015, attack: 0.002 })
+    },
+  },
   'pingpong.hit': {
     label: '탁구 라켓 톡',
     kind: 'event',

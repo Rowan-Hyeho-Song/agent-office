@@ -167,6 +167,13 @@ describe('cues', () => {
     expect(trimGain(1, 6)).toBe(1)
     expect(trimGain(1, Number.NaN)).toBe(1)
   })
+  it("#603 omok.forbid: a forbidden press is the visitor's own (ui) sound at the board, lower than a stone and not repeatable faster than 0.3 s", () => {
+    expect(CUES['omok.forbid'].kind).toBe('ui')
+    expect(CUES['omok.forbid'].bus).toBe('sfx')
+    expect(CUES['omok.forbid'].spatial).toBe(true)
+    expect(CUES['omok.forbid'].gap).toBeGreaterThanOrEqual(300)
+    expect(CUES['omok.forbid'].length).toBeLessThan(0.15)
+  })
   it('only room sounds are spatial', () => {
     expect(CUES.approve.spatial).toBe(false)
     expect(CUES['omok.place'].spatial).toBe(true)
