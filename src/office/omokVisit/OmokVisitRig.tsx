@@ -1,6 +1,6 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
-import { CircleGeometry, Matrix4, CylinderGeometry, Mesh, MeshBasicMaterial, Plane, Raycaster, RingGeometry, Vector2, Vector3, type PerspectiveCamera } from 'three'
+import { CircleGeometry, Group, Matrix4, CylinderGeometry, Mesh, MeshBasicMaterial, Plane, PlaneGeometry, Raycaster, RingGeometry, Vector2, Vector3, type PerspectiveCamera } from 'three'
 import { cue } from '../../audio/cues'
 import type { Expression } from '../faceModel'
 import type { PlayStage } from '../playStage'
@@ -13,7 +13,8 @@ import { faceScreenRect } from './bubbleAnchor'
 import { isBoardOpen } from '../boardView/store'
 import { isPingpongActive } from '../pingpongVisit/store'
 import {
-  armOmok, closeOmok, drainOmokEvents, getOmokVisit, omokArrived, omokLeft, omokWorkTold, placeOmok, setOmokChip, setOmokPreview, setOmokTag, stepOmok, visitorMayPlace,
+  armOmok, closeOmok, drainOmokEvents, getOmokVisit, omokArrived, omokForbidAt, omokLeft, omokWorkTold, placeOmok, setOmokBoardBox, setOmokChip, setOmokPreview, setOmokTag,
+  stepOmok, visitorMayPlace,
 } from './store'
 import { OMOK_VIEW, fitView, v3, visitPose, type V3 } from './pose'
 
@@ -68,12 +69,26 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
       m.visible = false
       m.renderOrder = 5
     }
-    return { preview, cursor, last }
+    // #603 (play.md 11.4) a forbidden point: ✕ on the board's plane in a unit cell (scaled by the grid step): two strokes at 45°, 0.6 long, 0.10
+    // thick, square ends, red over an ink outline (60%, 0.02) so it reads on the wood; painted as it is (no tone mapping: it went dark brown, #617)
+    const forbid = new Group()
+    // both strokes in the transparent pass, the red after the ink (an opaque red was drawn first and the ink outline went over it)
+    const stroke = (len: number, wid: number, color: string, opacity: number, ry: number, y: number, order: number) => {
+      const m = new Mesh(new PlaneGeometry(len, wid).rotateX(-Math.PI / 2), new MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, toneMapped: false }))
+      m.rotation.y = ry
+      m.position.y = y
+      m.renderOrder = order
+      return m
+    }
+    for (const ry of [Math.PI / 4, -Math.PI / 4]) forbid.add(stroke(0.6 + 0.04, 0.1 + 0.04, '#111318', 0.6, ry, 0, 6))
+    for (const ry of [Math.PI / 4, -Math.PI / 4]) forbid.add(stroke(0.6, 0.1, '#ff5a5f', 1, ry, 0.0005, 7))
+    forbid.visible = false
+    return { preview, cursor, last, forbid }
   }, [])
   useEffect(() => {
-    scene.add(marks.preview, marks.cursor, marks.last)
+    scene.add(marks.preview, marks.cursor, marks.last, marks.forbid)
     return () => {
-      scene.remove(marks.preview, marks.cursor, marks.last)
+      scene.remove(marks.preview, marks.cursor, marks.last, marks.forbid)
     }
   }, [scene, marks])
 
@@ -282,6 +297,23 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
       if (over && endAt.current !== null && now - endAt.current >= END_CLOSE_MS && getOmokVisit().phase === 'open') closeOmok(now)
     }
 
+    // #603 (designer, #617) the board's right edge and middle on the screen: the chooser stands beside it on a wide screen
+    if (g && v.picker) {
+      const r = gl.domElement.getBoundingClientRect()
+      const sx = (p: Vector3) => r.left + ((p.x + 1) / 2) * r.width
+      const sy = (p: Vector3) => r.top + ((1 - p.y) / 2) * r.height
+      let right = -Infinity
+      let top = Infinity
+      let bottom = -Infinity
+      for (const [i, j] of [[-1, -1], [g.n, -1], [-1, g.n], [g.n, g.n]]) {
+        const p = new Vector3(g.o.x + i * g.cell, g.o.y, g.o.z + j * g.cell).project(camera)
+        right = Math.max(right, sx(p))
+        top = Math.min(top, sy(p))
+        bottom = Math.max(bottom, sy(p))
+      }
+      setOmokBoardBox({ right, middle: (top + bottom) / 2 })
+    }
+
     // the marks
     const show = v.phase === 'open' && !!g && !!st
     const put = (m: Mesh, cell: number | null, lift: number) => {
@@ -294,7 +326,19 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
     const game = v.game
     const empty = (cell: number) => !!game && game.s.board[cell] === 0
     const hover = v.preview ?? v.armed
-    put(marks.preview, hover !== null && empty(hover) && visitorMayPlace() ? hover : null, 0.003)
+    // #603 the ✕ instead of the preview stone where the visitor may not stand (the pointer's point, a first tap, else the keyboard's cursor)
+    const xAt = hover !== null && omokForbidAt(hover) ? hover : v.preview === null && omokForbidAt(v.cursor) ? v.cursor : null
+    put(marks.preview, hover !== null && empty(hover) && visitorMayPlace() && hover !== xAt ? hover : null, 0.003)
+    marks.forbid.visible = show && xAt !== null
+    if (marks.forbid.visible && g) {
+      st!.omokPoint(xAt!, marks.forbid.position)
+      marks.forbid.position.y += 0.0014
+      marks.forbid.scale.setScalar(g.cell)
+      // pressed: two shakes side to side, ±2 px, 0.25 s (not with reduced motion)
+      const f = v.forbid
+      const k = f && f.cell === xAt && !prefersReducedMotion() ? (now - f.at) / 250 : 1
+      if (k >= 0 && k < 1) marks.forbid.position.x += Math.sin(k * Math.PI * 4) * g.cell * 0.08
+    }
     put(marks.cursor, v.preview === null ? v.cursor : null, 0.0012)
     put(marks.last, game && game.s.lastMove >= 0 ? game.s.lastMove : null, 0.0062)
   })

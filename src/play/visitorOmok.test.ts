@@ -227,10 +227,10 @@ describe('a visitor game', () => {
     expect(cellName(at(0, 14))).toBe('A1')
     expect(cellName(at(14, 0))).toBe('O15')
     const g = startVisitorGame('agent_0', 1, 0)
-    expect(statusLine(g, '메모', 0)).toBe('● 오목 · 메모와 대국 · 당신(흑) 차례 · 1수')
+    expect(statusLine(g, '메모', 0)).toBe('● 오목 · 렌주 · 메모와 대국 · 당신(흑) 차례 · 1수')
     const r = visitorMove(g, at(7, 7), 0)!
-    expect(statusLine(r.g, '메모', 0)).toBe('● 오목 · 메모와 대국 · 메모가 생각 중.')
-    expect(statusLine(r.g, '메모', 900)).toBe('● 오목 · 메모와 대국 · 메모가 생각 중...')
+    expect(statusLine(r.g, '메모', 0)).toBe('● 오목 · 렌주 · 메모와 대국 · 메모가 생각 중.')
+    expect(statusLine(r.g, '메모', 900)).toBe('● 오목 · 렌주 · 메모와 대국 · 메모가 생각 중...')
   })
 
   it('#536: the thinking line never throws, even with a clock from before the move began (it read repeat(-1) and took the page down)', () => {
