@@ -9,6 +9,7 @@ import {
   canUndo, endGame, restart, setStrength, startVisitorGame, stepVisitorGame, touchGame, undo, visitorMove, visitorTurn,
   type OmokEvent, type Strength, type VisitorGame,
 } from '../../play/visitorOmok'
+import { holdPhase, WORK_HOLD, type WorkHold } from '../../play/workHold'
 
 export type VisitPhase = 'closed' | 'flying' | 'open' | 'leaving'
 
@@ -27,6 +28,10 @@ export interface OmokVisitState {
   tag: { x: number; y: number; agent: string; orient: Orient } | null
   /** the board as the visitor sees it: the grid step (columns, rows) for one point to the right and one point up (away) on the screen */
   orient: Orient
+  /** #601 the agent was called to work during the game: it stays to the game's end (this tab only), up to the cap (play.md 10) */
+  work: WorkHold | null
+  /** #601 where the work chip stands on the screen (the rig, every frame): beside the face screen, its top aligned; null: not shown */
+  chip: { x: number; y: number } | null
 }
 
 export interface Orient {
@@ -46,7 +51,7 @@ export const viewName = (cell: number, o: Orient = state.orient) => `${String.fr
 
 /** the board's middle, H8 */
 export const CENTER = ((N / 2) | 0) * N + ((N / 2) | 0)
-export const CLOSED: OmokVisitState = { phase: 'closed', agent: null, game: null, cursor: CENTER, preview: null, armed: null, tag: null, orient: ORIENT }
+export const CLOSED: OmokVisitState = { phase: 'closed', agent: null, game: null, cursor: CENTER, preview: null, armed: null, tag: null, orient: ORIENT, work: null, chip: null }
 
 let state: OmokVisitState = CLOSED
 /** the agent's lines and faces from the game, for the scene to show (drained each frame) */
@@ -122,8 +127,49 @@ export function restartOmok(now: number) {
   set({ ...state, game: restart(g, now), preview: null, armed: null, cursor: CENTER })
 }
 export const strengthOmok = (s: Strength, now: number) => !!state.game && take(setStrength(state.game, s, now))
-/** the agent is called to work: "일하러 가야 해요!" and the game ends (중단) */
+/** past the call to work's cap (play.md 10.3): "미안해요, 일하러 가야 해요 · 다음에 또 둬요!" and the game ends (중단) */
 export const workOmok = (now: number) => !!state.game && !state.game.end && take(endGame(state.game, 'work', now))
+
+/**
+ * #601 the agent's status this frame (Agents.tsx): a call to work during an open game is held (the game goes on), and wound up past its cap;
+ * back to rest before the game ends, the hold is dropped. Returns true the frame the hold begins (the moment's look and line follow once).
+ */
+export function workSignalOmok(busy: boolean, now: number): boolean {
+  const g = state.game
+  if (!g || g.end || state.phase === 'closed' || state.phase === 'leaving') return false
+  const w = state.work
+  if (!busy) {
+    if (w) set({ ...state, work: null })
+    return false
+  }
+  if (!w) {
+    set({ ...state, work: { since: now, told: false } })
+    return true
+  }
+  if (holdPhase(w, now).phase === 'over') workOmok(now)
+  return false
+}
+/**
+ * #601 the visitor's game holds the agent in its chair: until the game ends (or the visitor leaves); a game over with a call to work held (or wound
+ * up by its cap) lets it go to its desk at once
+ */
+export function omokHoldsAgent(now: number): boolean {
+  const g = state.game
+  if (!g || state.phase === 'closed') return false
+  if (!g.end) return state.phase !== 'leaving'
+  if (state.phase === 'leaving') return false
+  // over with the call held: its line at the board, then away
+  if (g.end.result === 'work' || state.work) return now - g.end.at < WORK_HOLD.leaveMs
+  return true
+}
+/** the moment's look and line were shown */
+export const omokWorkTold = (now: number) => state.work && !state.work.told && set({ ...state, work: { ...state.work, told: true, toldAt: now } })
+/** the chip's place (the rig) */
+export function setOmokChip(chip: OmokVisitState['chip']) {
+  const c = state.chip
+  if (c === chip || (c && chip && Math.abs(c.x - chip.x) < 0.5 && Math.abs(c.y - chip.y) < 0.5)) return
+  set({ ...state, chip })
+}
 /** the debug probe and tests: a game in progress put on the board as it is (only while seated), e.g. a position near its end for the end scenes */
 export function seedOmok(g: VisitorGame) {
   if (state.phase === 'closed' || state.phase === 'leaving') return false

@@ -901,7 +901,7 @@ export class AgentRig {
    * #370 D a visitor pressed one of this agent's desk things (desk-props.md 7.4): the head turns to it for PROP_LOOK.s and (resting)
    * nods once on the way; the hands go on as they were. Set by PropPress; started (t0) and ended by update().
    */
-  propLook: { at: Vector3; nod: boolean; t0: number | null } | null = null
+  propLook: { at: Vector3; nod: boolean; t0: number | null; s?: number; maxYaw?: number } | null = null
   /** a short reaction on top of the hand pose: the winner's fist, the loser's three claps (play.md 2.5) */
   reaction: { kind: 'fist' | 'clap'; t0: number; dur: number } | null = null
   /** the left hand at the chin, its fingers drumming (the omok thinker 메시) */
@@ -1358,18 +1358,21 @@ export class AgentRig {
     if (!pl) return null
     if (pl.t0 === null) pl.t0 = t
     const u = t - pl.t0
-    if (u >= PROP_LOOK.s || pose === 'move') {
+    // #601 a call to work during the visitor's game: a shorter look, only part of the way (play.md 10.2: 25° for 0.6 s)
+    const dur = pl.s ?? PROP_LOOK.s
+    if (u >= dur || pose === 'move') {
       this.propLook = null
       return null
     }
-    if (pl.nod && u >= PROP_LOOK.nodAt) {
+    if (pl.nod && u >= Math.min(PROP_LOOK.nodAt, dur * 0.5)) {
       pl.nod = false
       this.nod = { t0: t, hand: false }
     }
     const dx = pl.at.x - this.x
     const dz = pl.at.z - this.z
-    const yaw = MathUtils.clamp(wrap(Math.atan2(-dx, -dz) - this.heading), -1.2, 1.2)
-    const pitch = MathUtils.clamp(Math.atan2(pl.at.y - (this.parts.headRestY + this.seat), Math.hypot(dx, dz)), -0.6, 0.3)
+    const lim = pl.maxYaw ?? 1.2
+    const yaw = MathUtils.clamp(wrap(Math.atan2(-dx, -dz) - this.heading), -lim, lim) * (pl.maxYaw !== undefined ? Math.sin((Math.PI * u) / dur) : 1)
+    const pitch = pl.maxYaw !== undefined ? 0 : MathUtils.clamp(Math.atan2(pl.at.y - (this.parts.headRestY + this.seat), Math.hypot(dx, dz)), -0.6, 0.3)
     return { pitch, yaw, roll: 0 }
   }
 

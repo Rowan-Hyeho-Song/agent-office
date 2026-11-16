@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { SPEEDS, SPEED_NAME, type Speed, type VisitorPP } from '../../play/visitorPingpong'
 import { tagOnScreen } from '../omokVisit/pose'
-import { AGENT_INFO, prefersReducedMotion, type OfficeWorld } from '../world'
+import { AGENT_INFO, officeNow, prefersReducedMotion, type OfficeWorld } from '../world'
+import { capResult, chipText, hudBit, momentSaid } from '../../play/workHold'
+import { WorkChip } from '../WorkChip'
 import {
   closePingpong, easyPingpong, getPingpongVisit, openPingpong, pingpongHelped, restartPingpong, spacePingpong, speedPingpong, usePingpongVisit,
 } from './store'
@@ -20,7 +22,14 @@ const wa = (w: string) => `${w}${final(w) ? '과' : '와'}`
 const HELP_MS = 4000
 
 /** what the HUD says now (play.md 3.2 · 3.3) */
-export function ppStatus(m: VisitorPP, name: string, touch: boolean, ready = true): string {
+export function ppStatus(m: VisitorPP, name: string, touch: boolean, ready = true, work?: string, stopped = false): string {
+  // #601 wound up past the call to work's cap; called to work, one more word (play.md 10.2 · 10.3)
+  if (stopped) return capResult(name)
+  const line = ppLine(m, name, touch, ready)
+  return work && m.phase !== 'over' ? `${line} · ${work}` : line
+}
+
+function ppLine(m: VisitorPP, name: string, touch: boolean, ready: boolean): string {
   if (!ready && m.phase !== 'over') return `${name}${final(name) ? '이' : '가'} 자리로 가는 중…`
   if (m.phase === 'over') return m.score[0] > m.score[1] ? `당신 승 · ${m.score[0]} : ${m.score[1]}` : `${name} 승 · ${m.score[0]} : ${m.score[1]}`
   if (m.decided !== null) return m.decided === 0 ? '당신 득점' : `${name} 득점`
@@ -29,7 +38,7 @@ export function ppStatus(m: VisitorPP, name: string, touch: boolean, ready = tru
   return m.easy ? '공이 오면 Space' : '받아치세요'
 }
 
-export function PingpongVisitUi(_: { world: OfficeWorld }) {
+export function PingpongVisitUi({ world }: { world: OfficeWorld }) {
   const v = usePingpongVisit()
   const tagEl = useRef<HTMLButtonElement>(null)
   const [help, setHelp] = useState(false)
@@ -83,6 +92,7 @@ export function PingpongVisitUi(_: { world: OfficeWorld }) {
   const m = v.match
   return (
     <>
+      {v.work && !v.stopped && v.chip && v.agent && m?.phase !== 'over' && <WorkChip agent={v.agent} at={v.chip} anchor="over" text={chipText('pingpong', v.work, officeNow(world))} />}
       {v.tag && !open && (
         <button
           type="button"
@@ -107,9 +117,10 @@ export function PingpongVisitUi(_: { world: OfficeWorld }) {
           )}
           <section className="omok-hud pp-hud" aria-label="탁구 경기">
             <p className="omok-status" aria-live="polite">
-              {ppStatus(m, name, touch, v.ready)}
+              {ppStatus(m, name, touch, v.ready, v.work && !v.stopped ? hudBit('pingpong', v.work, officeNow(world)) : undefined, v.stopped)}
               <span className="sr-only"> · 당신 {m.score[0]} : {m.score[1]} {name}</span>
             </p>
+            <p className="sr-only" aria-live="polite">{v.work ? momentSaid(name) : ''}</p>
             <div className="omok-strength" role="radiogroup" aria-label="공 속도">
               {SPEEDS.map((s: Speed) => (
                 <button key={s} type="button" role="radio" aria-checked={m.speed === s} onClick={() => speedPingpong(s)}>
@@ -120,7 +131,7 @@ export function PingpongVisitUi(_: { world: OfficeWorld }) {
             <button type="button" aria-pressed={m.easy} className={m.easy ? 'omok-here' : undefined} onClick={() => easyPingpong(!m.easy)}>
               자동 따라가기
             </button>
-            {m.phase === 'over' && (
+            {m.phase === 'over' && !v.work && (
               <button type="button" onClick={() => restartPingpong(Date.now() % 1_000_000)}>
                 다시 하기
               </button>

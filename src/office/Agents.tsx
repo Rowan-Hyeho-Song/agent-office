@@ -39,9 +39,9 @@ import { STAMP_MS } from './props'
 import { ANXIOUS_AFTER_MS } from './faceMind'
 import { greetsOwner, questionFaceFor } from './liveFace'
 import { isLateHour } from './duty'
-import { getOmokVisit, workOmok } from './omokVisit/store'
+import { getOmokVisit, omokHoldsAgent, workSignalOmok } from './omokVisit/store'
 import { faceScreenRect } from './omokVisit/bubbleAnchor'
-import { closePingpong, getPingpongVisit } from './pingpongVisit/store'
+import { getPingpongVisit, pingpongHoldsAgent, workSignalPingpong } from './pingpongVisit/store'
 import { rallyOf } from '../play/visitorPingpong'
 import { WATCH } from './play'
 import { viewOf } from '../play/visitorOmok'
@@ -340,23 +340,21 @@ export function Agents({ world }: { world: OfficeWorld }) {
     // ?debug=1: window.__office.forceSpots = { agent_0: 'whiteboard', ... } sends agents to spots (head-on tests, screenshots)
     if (world.debug && world.forceSpots) for (const id in world.forceSpots) if (goals[id]) goals[id] = { ...goals[id], spot: world.forceSpots[id], pose: 'idle', label: 'debug' }
     if (world.debug && world.forceGoal) for (const id in world.forceGoal) if (goals[id]) goals[id] = { ...goals[id], ...world.forceGoal[id], label: 'debug' }
-    // #137 ② a visitor plays omok with the agent at the board (this tab only): it stays in its chair for the game; called to work, it ends it (중단)
+    // #137 ② a visitor plays omok with the agent at the board (this tab only): it stays in its chair for the game. #601 (play.md 10) called to work,
+    // it plays the game out (up to the cap) and then goes straight to its desk; the list and its tag show the real status all along
     const visit = st ? null : getOmokVisit()
     if (visit && visit.phase !== 'closed' && visit.agent && goals[visit.agent]) {
       const s = status[visit.agent]
-      if (s && (s.state !== 'idle' || s.night === 'duty')) workOmok(now)
-      const g = getOmokVisit().game
-      if (g && !(g.end && (g.end.result === 'work' || visit.phase === 'leaving'))) goals[visit.agent] = { spot: 'game_a', pose: 'boardgame', label: '오목 · 방문자와 대국' }
+      workSignalOmok(!!s && (s.state !== 'idle' || s.night === 'duty'), now)
+      if (omokHoldsAgent(now)) goals[visit.agent] = { spot: 'game_a', pose: 'boardgame', label: '오목 · 방문자와 대국' }
     }
     // #137 ③ the visitor holds the near paddle: the agent plays from the far end; the one who played at the near end watches by the table (play.md 3.1).
-    // Called to work, the agent says so and the match ends
+    // #601 called to work, it plays the match out (up to the cap) and then goes to its desk
     const ppVisit = st ? null : getPingpongVisit()
     if (ppVisit && ppVisit.phase !== 'closed' && ppVisit.agent && goals[ppVisit.agent]) {
       const s = status[ppVisit.agent]
-      if (ppVisit.phase !== 'leaving' && s && (s.state !== 'idle' || s.night === 'duty')) {
-        world.bubbles.say(ppVisit.agent, { kind: 'react', text: '일하러 가야 해요!', ms: 3000, whole: true }, now)
-        closePingpong()
-      } else if (ppVisit.phase !== 'leaving') {
+      if (ppVisit.phase !== 'leaving') workSignalPingpong(!!s && (s.state !== 'idle' || s.night === 'duty'), now)
+      if (pingpongHoldsAgent(now)) {
         // already at the far end: its goal as it is (its departure), only the words, and at the spot itself (no other play's standing place); else sent there
         const g0 = goals[ppVisit.agent]
         goals[ppVisit.agent] = g0.spot === 'pingpong_b' && g0.pose === 'pingpong' ? { ...g0, slot: undefined, label: '탁구 · 방문자와 경기' } : { spot: 'pingpong_b', pose: 'pingpong', label: '탁구 · 방문자와 경기' }
