@@ -11,7 +11,7 @@ import type { Face } from '../../play/visitorOmok'
 import { isBoardOpen } from '../boardView/store'
 import { isPingpongActive } from '../pingpongVisit/store'
 import {
-  armOmok, closeOmok, drainOmokEvents, omokForbidAt, getOmokVisit, omokArrived, omokLeft, placeOmok, setOmokPreview, setOmokTag, stepOmok, visitorMayPlace,
+  armOmok, closeOmok, drainOmokEvents, omokForbidAt, setOmokBoardBox, getOmokVisit, omokArrived, omokLeft, placeOmok, setOmokPreview, setOmokTag, stepOmok, visitorMayPlace,
 } from './store'
 import { OMOK_VIEW, fitView, v3, visitPose, type V3 } from './pose'
 
@@ -66,18 +66,19 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
       m.visible = false
       m.renderOrder = 5
     }
-    // #603 (play.md 11.4) a forbidden point: ✕ on the board's plane in a unit cell (scaled by the grid step): two strokes at 45°, 0.6 long, 0.08
-    // thick, square ends, red over an ink outline (60%, 0.03) so it reads on the wood
+    // #603 (play.md 11.4) a forbidden point: ✕ on the board's plane in a unit cell (scaled by the grid step): two strokes at 45°, 0.6 long, 0.10
+    // thick, square ends, red over an ink outline (60%, 0.02) so it reads on the wood; painted as it is (no tone mapping: it went dark brown, #617)
     const forbid = new Group()
-    const stroke = (len: number, wid: number, color: string, opacity: number, ry: number, y: number) => {
-      const m = new Mesh(new PlaneGeometry(len, wid).rotateX(-Math.PI / 2), new MeshBasicMaterial({ color, transparent: opacity < 1, opacity, depthWrite: false }))
+    // both strokes in the transparent pass, the red after the ink (an opaque red was drawn first and the ink outline went over it)
+    const stroke = (len: number, wid: number, color: string, opacity: number, ry: number, y: number, order: number) => {
+      const m = new Mesh(new PlaneGeometry(len, wid).rotateX(-Math.PI / 2), new MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, toneMapped: false }))
       m.rotation.y = ry
       m.position.y = y
-      m.renderOrder = 6
+      m.renderOrder = order
       return m
     }
-    for (const ry of [Math.PI / 4, -Math.PI / 4]) forbid.add(stroke(0.6 + 0.06, 0.08 + 0.06, '#111318', 0.6, ry, 0))
-    for (const ry of [Math.PI / 4, -Math.PI / 4]) forbid.add(stroke(0.6, 0.08, '#e05a4f', 1, ry, 0.0005))
+    for (const ry of [Math.PI / 4, -Math.PI / 4]) forbid.add(stroke(0.6 + 0.04, 0.1 + 0.04, '#111318', 0.6, ry, 0, 6))
+    for (const ry of [Math.PI / 4, -Math.PI / 4]) forbid.add(stroke(0.6, 0.1, '#ff5a5f', 1, ry, 0.0005, 7))
     forbid.visible = false
     return { preview, cursor, last, forbid }
   }, [])
@@ -270,6 +271,23 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
       if (over && endAt.current === null) endAt.current = now
       if (!over) endAt.current = null
       if (over && endAt.current !== null && now - endAt.current >= END_CLOSE_MS && getOmokVisit().phase === 'open') closeOmok(now)
+    }
+
+    // #603 (designer, #617) the board's right edge and middle on the screen: the chooser stands beside it on a wide screen
+    if (g && v.picker) {
+      const r = gl.domElement.getBoundingClientRect()
+      const sx = (p: Vector3) => r.left + ((p.x + 1) / 2) * r.width
+      const sy = (p: Vector3) => r.top + ((1 - p.y) / 2) * r.height
+      let right = -Infinity
+      let top = Infinity
+      let bottom = -Infinity
+      for (const [i, j] of [[-1, -1], [g.n, -1], [-1, g.n], [g.n, g.n]]) {
+        const p = new Vector3(g.o.x + i * g.cell, g.o.y, g.o.z + j * g.cell).project(camera)
+        right = Math.max(right, sx(p))
+        top = Math.min(top, sy(p))
+        bottom = Math.max(bottom, sy(p))
+      }
+      setOmokBoardBox({ right, middle: (top + bottom) / 2 })
     }
 
     // the marks

@@ -15,6 +15,16 @@ export const eunNeun = (name: string) => {
   return `${name}${n % 10 === 0 || [1, 3, 6, 7, 8].includes(n % 10) ? '은' : '는'}`
 }
 
+/** #603 (designer, #617) a wide screen: the chooser beside the board (its left 32 px past the board's right edge, its middle at the board's), when it
+ * fits with 16 px to spare; else over the HUD (styles.css). A phone keeps the sheet over the HUD (an empty board may be covered) */
+const SHEET_W = 340
+export function besideBoard(b: { right: number; middle: number } | null, screenW = window.innerWidth): Record<string, string | number> | undefined {
+  if (!b || screenW <= 640) return undefined
+  const left = b.right + 32
+  if (screenW - left < SHEET_W + 16) return undefined
+  return { left, top: b.middle, bottom: 'auto', translate: '0 -50%' }
+}
+
 /** #603 how long the forbidden point's guidance stays (play.md 11.4) */
 const FORBID_SHOW_MS = 2000
 
@@ -165,7 +175,7 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
         </button>
       )}
       {open && g && v.picker && (
-        <div className="omok-rules" role="dialog" aria-label="오목 규칙 고르기" ref={pickerEl}>
+        <div className="omok-rules" role="dialog" aria-label="오목 규칙 고르기" ref={pickerEl} style={besideBoard(v.boardBox)}>
           <h2>규칙 고르기</h2>
           <div role="radiogroup" aria-label="오목 규칙">
             {RULES.map((r) => (

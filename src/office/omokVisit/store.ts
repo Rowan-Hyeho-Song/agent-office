@@ -33,6 +33,8 @@ export interface OmokVisitState {
   pickerRule: RuleId
   /** #603 a forbidden point pressed: where, why and when (the ✕ shakes, the guidance shows 2 s) */
   forbid: { cell: number; why: Forbid; at: number } | null
+  /** #603 the board's right edge and vertical middle on the screen while the chooser is open (the rig): it stands beside the board */
+  boardBox: { right: number; middle: number } | null
 }
 
 export interface Orient {
@@ -52,7 +54,7 @@ export const viewName = (cell: number, o: Orient = state.orient) => `${String.fr
 
 /** the board's middle, H8 */
 export const CENTER = ((N / 2) | 0) * N + ((N / 2) | 0)
-export const CLOSED: OmokVisitState = { phase: 'closed', agent: null, game: null, cursor: CENTER, preview: null, armed: null, tag: null, orient: ORIENT, picker: false, pickerRule: DEFAULT_RULE, forbid: null }
+export const CLOSED: OmokVisitState = { phase: 'closed', agent: null, game: null, cursor: CENTER, preview: null, armed: null, tag: null, orient: ORIENT, picker: false, pickerRule: DEFAULT_RULE, forbid: null, boardBox: null }
 
 // #603 (play.md 11.2) the last rule chosen, kept in this browser (none, or storage blocked: renju); the chooser opens by itself for this tab's first game
 const RULE_KEY = 'agent-office.omok.rule'
@@ -162,6 +164,12 @@ export function placeOmok(cell: number, now: number): boolean {
   const ok = take(visitorMove(state.game!, cell, now))
   if (ok) set({ ...state, cursor: cell, preview: null, armed: null, picker: false, forbid: null })
   return ok
+}
+/** the board's box on the screen (the rig, while the chooser is open) */
+export function setOmokBoardBox(b: OmokVisitState['boardBox']) {
+  const c = state.boardBox
+  if (c && b && Math.abs(c.right - b.right) < 0.5 && Math.abs(c.middle - b.middle) < 0.5) return
+  set({ ...state, boardBox: b })
 }
 /** #603 the forbidden reason at a point for the visitor now (the ✕, the cell's words), or null */
 export const omokForbidAt = (cell: number | null): Forbid | null => (cell === null || !state.game ? null : visitorForbid(state.game, cell))
