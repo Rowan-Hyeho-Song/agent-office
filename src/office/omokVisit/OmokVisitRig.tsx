@@ -7,7 +7,7 @@ import type { PlayStage } from '../playStage'
 import { isTouring, tour } from '../tourStore'
 import { officeNow, prefersReducedMotion, type OfficeWorld } from '../world'
 import { replay } from '../../replay/store'
-import { OMOK_LINES, type Face } from '../../play/visitorOmok'
+import { OMOK_LINES, visitorStone, visitorWon, type Face } from '../../play/visitorOmok'
 import { chipShown, WORK_HOLD, WORK_LINES } from '../../play/workHold'
 import { faceScreenRect } from './bubbleAnchor'
 import { isBoardOpen } from '../boardView/store'
@@ -53,6 +53,8 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
   const endAt = useRef<number | null>(null)
   /** the won game the match.win cue was played for (once per game) */
   const wonKey = useRef<string | null>(null)
+  /** the forbidden press the omok.forbid cue was played for (once per press) */
+  const forbidAt = useRef<number | null>(null)
   // the stage lives on the office model's scene (Agents.tsx), under the root: found once
   const found = useRef<PlayStage | null>(null)
   const stage = (): PlayStage | undefined => {
@@ -285,7 +287,8 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
       if (key && wonKey.current !== key) {
         wonKey.current = key
         const r = world.rigs[v.agent]
-        const at = res !== 'white' ? (seat ? { x: seat.x, y: 0.9, z: seat.z } : undefined) : r ? { x: r.x, y: 1, z: r.z } : undefined
+        // #603 the visitor may hold white after a swap: who won, not which colour
+        const at = gw && visitorWon(gw) ? (seat ? { x: seat.x, y: 0.9, z: seat.z } : undefined) : r ? { x: r.x, y: 1, z: r.z } : undefined
         cue('match.win', { pos: at })
       }
       if (!gw?.end) wonKey.current = null
@@ -329,6 +332,8 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
     // #603 the ✕ instead of the preview stone where the visitor may not stand (the pointer's point, a first tap, else the keyboard's cursor)
     const xAt = hover !== null && omokForbidAt(hover) ? hover : v.preview === null && omokForbidAt(v.cursor) ? v.cursor : null
     put(marks.preview, hover !== null && empty(hover) && visitorMayPlace() && hover !== xAt ? hover : null, 0.003)
+    // #603 the preview stone in the colour the visitor places now (swap: their opening alternates, or white after the choice)
+    if (game) (marks.preview.material as MeshBasicMaterial).color.set(visitorStone(game) === 1 ? '#111318' : '#f3f0e8')
     marks.forbid.visible = show && xAt !== null
     if (marks.forbid.visible && g) {
       st!.omokPoint(xAt!, marks.forbid.position)
@@ -338,6 +343,12 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
       const f = v.forbid
       const k = f && f.cell === xAt && !prefersReducedMotion() ? (now - f.at) / 250 : 1
       if (k >= 0 && k < 1) marks.forbid.position.x += Math.sin(k * Math.PI * 4) * g.cell * 0.08
+      // #603 the dull tap on the wood, on the frame the shake starts (sound.md: omok.forbid), once per press
+      if (f && f.cell === xAt && forbidAt.current !== f.at) {
+        forbidAt.current = f.at
+        const p = marks.forbid.position
+        cue('omok.forbid', { pos: { x: p.x, y: p.y, z: p.z } })
+      }
     }
     put(marks.cursor, v.preview === null ? v.cursor : null, 0.0012)
     put(marks.last, game && game.s.lastMove >= 0 ? game.s.lastMove : null, 0.0062)

@@ -6,8 +6,9 @@ import { AGENT_INFO, officeNow, type OfficeWorld } from '../world'
 import { chipText, hudBit, momentSaid } from '../../play/workHold'
 import { WorkChip } from '../WorkChip'
 import { tagOnScreen } from './pose'
+import { cue, PROP_CLICK_DB } from '../../audio/cues'
 import {
-  chooseRule, closeOmok, closeRulePicker, getOmokVisit, moveCursor, omokCanUndo, omokForbidAt, openOmok, openRulePicker, placeOmok, restartOmok, selectRule,
+  chooseColorOmok, chooseRule, closeOmok, closeRulePicker, getOmokVisit, moveCursor, omokCanUndo, omokForbidAt, openOmok, openRulePicker, placeOmok, restartOmok, selectRule,
   setCursor, strengthOmok, touchOmok, undoOmok, useOmokVisit, viewName, visitorMayPlace,
 } from './store'
 
@@ -29,6 +30,8 @@ export function besideBoard(b: { right: number; middle: number } | null, screenW
 
 /** #603 how long the forbidden point's guidance stays (play.md 11.4) */
 const FORBID_SHOW_MS = 2000
+/** #603 choosing a rule or a colour: the office click, quieter (sound.md, like a prop press) */
+const choiceClick = () => cue('ui.click', { db: PROP_CLICK_DB })
 
 // The page side of the visitor's omok (#137 ②, play.md 2.1 · 2.2 · 2.3 · 4 · 5): the "같이 두기" tag over the empty chair, the HUD at the bottom (status,
 // the cursor's name, strength, undo, again, leave), the board as a keyboard grid (arrows, Enter / Space) with its words for a screen reader, and Esc. While
@@ -108,11 +111,13 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
           e.preventDefault()
           const r = RULES[(i + (e.key === 'ArrowDown' ? 1 : RULES.length - 1)) % RULES.length].id
           selectRule(r)
+          choiceClick()
           document.getElementById(`omok-rule-${r}`)?.focus()
           return
         }
         if (e.key === 'Enter') {
           e.preventDefault()
+          choiceClick()
           chooseRule(v0.pickerRule, now)
           return
         }
@@ -192,14 +197,20 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
                 aria-checked={v.pickerRule === r.id}
                 tabIndex={v.pickerRule === r.id ? 0 : -1}
                 aria-label={`${r.name}, ${r.hint}`}
-                onClick={() => selectRule(r.id)}
+                onClick={() => {
+                  choiceClick()
+                  selectRule(r.id)
+                }}
               >
                 <b>{v.pickerRule === r.id ? '● ' : ''}{r.name}</b>
                 <small>{r.hint}</small>
               </button>
             ))}
           </div>
-          <button type="button" className="omok-rules-go" onClick={() => chooseRule(getOmokVisit().pickerRule, officeNow(world))}>
+          <button type="button" className="omok-rules-go" onClick={() => {
+              choiceClick()
+              chooseRule(getOmokVisit().pickerRule, officeNow(world))
+            }}>
             이 규칙으로 시작 <kbd>Enter</kbd>
           </button>
         </div>
@@ -239,6 +250,23 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
             >
               여기에 두기
             </button>
+          )}
+          {/* #603 swap: after the agent's three, the visitor takes a colour (play.md 11.3; Tab · Enter) */}
+          {g.swap?.by === 'agent' && g.swap.stage === 'choosing' && (
+            <>
+              <button type="button" className="omok-here" onClick={() => {
+                choiceClick()
+                chooseColorOmok(1, officeNow(world))
+              }}>
+                흑으로 두기
+              </button>
+              <button type="button" className="omok-here" onClick={() => {
+                choiceClick()
+                chooseColorOmok(2, officeNow(world))
+              }}>
+                백으로 두기
+              </button>
+            </>
           )}
           <button type="button" disabled={!omokCanUndo()} onClick={() => undoOmok(officeNow(world))}>
             무르기
