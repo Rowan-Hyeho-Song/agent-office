@@ -1,9 +1,10 @@
-// Omok (gomoku) engine (#135): 15x15, black first, FREESTYLE rules (five or more in a row wins, no renju bans),
-// draw when the board fills. Pure: a heuristic AI per agent personality, and `gameAt(seed, players, t)` that plays a whole
+// Omok (gomoku) engine (#135): 15x15, black first, draw when the board fills. #603: under one of five rules (omokRules.ts: renju, domestic,
+// free, exactly five, swap): what wins, and black's forbidden points (never played, by anyone, the AI included). Pure: a heuristic AI per agent personality, and `gameAt(seed, players, t)` that plays a whole
 // game from the seed with think times and hand animation timing, reproducible at any t (#137 reuses play / aiMove).
 // Board cells are y * 15 + x; 0 empty, 1 black, 2 white.
 
 import { hash, rng } from '../office/play'
+import { forbiddenAt, winLineAt, winningLength, type RuleId } from './omokRules'
 
 export const N = 15
 export type Color = 1 | 2
@@ -19,31 +20,14 @@ export interface OmokState {
   result: 'playing' | 'black' | 'white' | 'draw'
   /** the winning five (or more) cells */
   line: number[] | null
+  /** #603 the rule the game is played under */
+  rule: RuleId
 }
 
-export const newGame = (): OmokState => ({ board: new Uint8Array(N * N), toMove: 1, moveIndex: 0, lastMove: -1, result: 'playing', line: null })
+export const newGame = (rule: RuleId = 'free'): OmokState => ({ board: new Uint8Array(N * N), toMove: 1, moveIndex: 0, lastMove: -1, result: 'playing', line: null, rule })
 
 const DIRS: [number, number][] = [[1, 0], [0, 1], [1, 1], [1, -1]]
 
-/** the winning run through `cell` for `color` (>= 5 in a row), or null */
-function runThrough(board: Uint8Array, cell: number, color: Color): number[] | null {
-  const cx = cell % N
-  const cy = (cell / N) | 0
-  for (const [dx, dy] of DIRS) {
-    const line = [cell]
-    for (const sg of [1, -1]) {
-      let x = cx + dx * sg
-      let y = cy + dy * sg
-      while (x >= 0 && x < N && y >= 0 && y < N && board[y * N + x] === color) {
-        line.push(y * N + x)
-        x += dx * sg
-        y += dy * sg
-      }
-    }
-    if (line.length >= 5) return line
-  }
-  return null
-}
 
 export function legalMoves(s: OmokState): number[] {
   if (s.result !== 'playing') return []
@@ -52,15 +36,16 @@ export function legalMoves(s: OmokState): number[] {
   return out
 }
 
-/** place a stone for the side to move; null when the move is illegal (occupied, off board, game over) */
+/** place a stone for the side to move; null when the move is illegal (occupied, off board, game over, #603 black's forbidden point) */
 export function play(s: OmokState, move: number): OmokState | null {
   if (s.result !== 'playing' || !Number.isInteger(move) || move < 0 || move >= N * N || s.board[move] !== EMPTY) return null
+  if (forbiddenAt(s.board, move, s.rule, s.toMove)) return null
   const board = s.board.slice()
   board[move] = s.toMove
-  const line = runThrough(board, move, s.toMove)
+  const line = winLineAt(board, move, s.toMove, s.rule)
   const moveIndex = s.moveIndex + 1
   const result = line ? (s.toMove === 1 ? 'black' : 'white') : moveIndex === N * N ? 'draw' : 'playing'
-  return { board, toMove: s.toMove === 1 ? 2 : 1, moveIndex, lastMove: move, result, line }
+  return { board, toMove: s.toMove === 1 ? 2 : 1, moveIndex, lastMove: move, result, line, rule: s.rule }
 }
 
 export function winner(s: OmokState): { winner: Color; line: number[] } | { winner: 0; draw: boolean } {
@@ -97,7 +82,7 @@ export const DEFAULT_PERSONALITY = PERSONALITIES.agent_0
 export const personalityOf = (agent: string) => PERSONALITIES[agent] ?? DEFAULT_PERSONALITY
 
 /** pattern value of placing `color` at `cell`: contiguous runs by length and open ends, summed over the 4 axes */
-function patternScore(board: Uint8Array, cell: number, color: Color): number {
+function patternScore(board: Uint8Array, cell: number, color: Color, rule: RuleId = 'free'): number {
   const cx = cell % N
   const cy = (cell / N) | 0
   let total = 0
@@ -114,7 +99,8 @@ function patternScore(board: Uint8Array, cell: number, color: Color): number {
       }
       if (x >= 0 && x < N && y >= 0 && y < N && board[y * N + x] === EMPTY) open++
     }
-    if (count >= 5) total += 100000
+    // #603 a run that does not win under the rule (an overline for renju's black, or anyone's under exactly five) is worth nothing
+    if (count >= 5) total += winningLength(rule, color, count) ? 100000 : 0
     else if (count === 4) total += open === 2 ? 10000 : open === 1 ? 1500 : 0
     else if (count === 3) total += open === 2 ? 1200 : open === 1 ? 200 : 0
     else if (count === 2) total += open === 2 ? 100 : open === 1 ? 20 : 0
@@ -144,10 +130,10 @@ export function axesAt(board: Uint8Array, cell: number, color: Color): { count: 
   })
 }
 
-/** the empty cells where `color` would make five or more (two or more: the other side cannot stop it) */
-export function fiveCells(board: Uint8Array, color: Color): number[] {
+/** the empty cells where `color` would win under the rule (two or more: the other side cannot stop it) */
+export function fiveCells(board: Uint8Array, color: Color, rule: RuleId = 'free'): number[] {
   const out: number[] = []
-  for (let c = 0; c < N * N; c++) if (board[c] === EMPTY && runThrough(board, c, color)) out.push(c)
+  for (let c = 0; c < N * N; c++) if (board[c] === EMPTY && winLineAt(board, c, color, rule)) out.push(c)
   return out
 }
 
@@ -168,23 +154,32 @@ export function aiMove(s: OmokState, p: Personality, seed: number): number {
   const me = s.toMove
   const you: Color = me === 1 ? 2 : 1
   if (s.moveIndex === 0) return 7 * N + 7
-  // games get bolder as they drag on, so they end
-  const push = 1 + Math.max(0, s.moveIndex - 16) * 0.06
+  if (s.result === 'playing' && s.moveIndex >= N * N) return -1
+  // games get bolder as they drag on, so they end (#603: 0.06 → 0.12 a move past 16, the rules' games ran longer: renju black and exactly five do not win with six)
+  const push = 1 + Math.max(0, s.moveIndex - 16) * 0.12
   const cands: { cell: number; score: number }[] = []
   let win = -1
   let block = -1
   for (let c = 0; c < N * N; c++) {
     if (s.board[c] !== EMPTY || !near(s.board, c)) continue
-    const att = patternScore(s.board, c, me)
-    const def = patternScore(s.board, c, you)
-    if (att >= 100000) win = win < 0 ? c : win
-    if (def >= 100000) block = block < 0 ? c : block
+    // #603 black never stands on a forbidden point (the AI as black: none, ever)
+    if (forbiddenAt(s.board, c, s.rule, me)) continue
+    const att = patternScore(s.board, c, me, s.rule)
+    const def = patternScore(s.board, c, you, s.rule)
+    if (winLineAt(s.board, c, me, s.rule)) win = win < 0 ? c : win
+    // a point the other side wins on; one black may not play is no threat to block
+    if (winLineAt(s.board, c, you, s.rule) && !forbiddenAt(s.board, c, s.rule, you)) block = block < 0 ? c : block
     const centre = 3 - (Math.abs((c % N) - 7) + Math.abs(((c / N) | 0) - 7)) * 0.1
     const jitter = 1 + p.noise * (((hash(`${seed}|${s.moveIndex}|${c}`) / 4294967296) * 2) - 1)
     cands.push({ cell: c, score: (att * p.aggr * push + def * p.defn * 0.7 + centre) * jitter })
   }
   if (win >= 0) return win
   if (block >= 0) return block
+  // nothing near is playable (black hemmed in by its bans): any open point it may take
+  if (!cands.length) {
+    for (let c = 0; c < N * N; c++) if (s.board[c] === EMPTY && !forbiddenAt(s.board, c, s.rule, me)) return c
+    return -1
+  }
   cands.sort((a, b) => b.score - a.score || a.cell - b.cell)
   const rand = rng(hash(`${seed}|slip|${s.moveIndex}`))
   if (rand() < p.slip && cands.length > 1) return cands[1 + Math.floor(rand() * Math.min(3, cands.length - 1))].cell
@@ -220,9 +215,13 @@ interface Game {
 interface Run { games: Game[] }
 const cache = new Map<string, Run>()
 
+/** #603 (play.md 11): the agents' own games are played under a rule the schedule's seed chooses (swap's opening is not played between agents) */
+export const agentRule = (seed: number): RuleId => (['renju', 'domestic', 'free', 'exact', 'swap'] as const)[hash(`${seed}|rule`) % 5]
+
 function buildGame(seed: number, players: [string, string], black: 0 | 1, at: number, first: boolean): Game {
   const roles: [string, string] = black === 0 ? players : [players[1], players[0]] // [black, white]
-  let s = newGame()
+  const rule = agentRule(seed)
+  let s = newGame(rule)
   const moves: number[] = []
   // seeded opening of the block's first game: 6-10 stones by AI self-play (with the personalities), shown from the start, never already won
   const openN = first ? 6 + (hash(`${seed}|open`) % 5) : 0 // later games in the block start from an empty board
@@ -233,7 +232,7 @@ function buildGame(seed: number, players: [string, string], black: 0 | 1, at: nu
   }
   if (s.result !== 'playing') {
     moves.pop() // an opening must not be decided
-    s = newGame()
+    s = newGame(rule)
     for (const m of moves) s = play(s, m)!
   }
   const opened = moves.length
@@ -243,6 +242,11 @@ function buildGame(seed: number, players: [string, string], black: 0 | 1, at: nu
   while (s.result === 'playing') {
     const who = personalityOf(roles[s.toMove === 1 ? 0 : 1])
     const mv = aiMove(s, who, seed)
+    // #603 black hemmed in by its bans with nowhere to stand: the game is a draw
+    if (mv < 0) {
+      s = { ...s, result: 'draw' }
+      break
+    }
     const rand = rng(hash(`${seed}|think|${s.moveIndex}`))
     const th = who.think[0] + rand() * (who.think[1] - who.think[0])
     starts.push(t)
