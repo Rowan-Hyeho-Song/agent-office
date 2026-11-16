@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { N } from '../../play/omok'
 import { STRENGTHS, STRENGTH_NAME, UNDO_OPENING_LINE, idleLeft, statusLine, type Strength } from '../../play/visitorOmok'
 import { FORBID_NAME, RULES, RULE_BY_ID } from '../../play/omokRules'
@@ -30,6 +30,8 @@ export function besideBoard(b: { right: number; middle: number } | null, screenW
 
 /** #603 how long the forbidden point's guidance stays (play.md 11.4) */
 const FORBID_SHOW_MS = 2000
+/** #623 the undo words keep this far inside the screen's edges (px) */
+const UNDO_WHY_EDGE = 16
 /** #603 choosing a rule or a colour: the office click, quieter (sound.md, like a prop press) */
 const choiceClick = () => cue('ui.click', { db: PROP_CLICK_DB })
 
@@ -168,6 +170,18 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
   // #623 a swap game holds [무르기] through its opening: dimmed but still focusable, its words over the HUD
   const undoHeld = open && omokUndoOpening()
   const undoWhyShown = undoHeld && (undoWhy.hover || undoWhy.focus || (undoWhy.tapAt !== null && Date.now() - undoWhy.tapAt < FORBID_SHOW_MS))
+  const undoBtn = useRef<HTMLButtonElement>(null)
+  const undoNote = useRef<HTMLParagraphElement>(null)
+  // the words over the button they explain (the forbid guidance is the board's, in the middle): its centre across, 16 px inside the screen
+  useLayoutEffect(() => {
+    const b = undoBtn.current
+    const n = undoNote.current
+    if (!b || !n || n.hidden) return
+    const r = b.getBoundingClientRect()
+    const w = n.offsetWidth
+    n.style.left = `${Math.max(UNDO_WHY_EDGE, Math.min(innerWidth - UNDO_WHY_EDGE - w, r.left + r.width / 2 - w / 2))}px`
+    n.style.translate = '0 0'
+  })
   // the chooser: the selected row takes the focus as it opens
   const pickerEl = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -226,7 +240,7 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
         </p>
       )}
       {open && g && undoHeld && (
-        <p id="omok-undo-why" role="tooltip" className="omok-forbid" hidden={!undoWhyShown || !!forbidNow}>
+        <p ref={undoNote} id="omok-undo-why" role="tooltip" className="omok-forbid" hidden={!undoWhyShown || !!forbidNow}>
           {UNDO_OPENING_LINE}
         </p>
       )}
@@ -281,6 +295,7 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
           <button
             type="button"
             disabled={!undoHeld && !omokCanUndo()}
+            ref={undoBtn}
             aria-disabled={undoHeld || undefined}
             aria-describedby={undoHeld ? 'omok-undo-why' : undefined}
             onClick={() => (undoHeld ? setUndoWhy((w) => ({ ...w, tapAt: Date.now() })) : undoOmok(officeNow(world)))}
