@@ -167,6 +167,23 @@ describe('cues', () => {
     expect(trimGain(1, 6)).toBe(1)
     expect(trimGain(1, Number.NaN)).toBe(1)
   })
+  it('#538 the pixel hologram cues: room events at the board, the pick and the board under the stone', async () => {
+    for (const n of ['holo.pick', 'holo.place', 'holo.board.on', 'holo.board.off'] as const) {
+      expect(CUES[n].kind).toBe('event')
+      expect(CUES[n].bus).toBe('sfx')
+      expect(CUES[n].spatial).toBe(true)
+    }
+    expect(CUES['holo.place'].gap).toBe(CUES['omok.place'].gap)
+    // the board draws in over HOLO_BOARD_S (hologram.md) and the blip / tick at its end still fits in the cue's length
+    const { HOLO_BOARD_S } = await import('./cues')
+    expect(HOLO_BOARD_S).toBe(0.3)
+    expect(CUES['holo.board.on'].length).toBeGreaterThan(HOLO_BOARD_S)
+    expect(CUES['holo.board.off'].length).toBeGreaterThan(HOLO_BOARD_S)
+  })
+  it("#538 a visitor's own move with an agents' cue sounds as 'ui': never thinned by the replay speed", () => {
+    expect(speedRule('ui', 16, 0.9)).toBe(1)
+    expect(speedRule('event', 16, 0.9)).toBeLessThan(1)
+  })
   it("#603 omok.forbid: a forbidden press is the visitor's own (ui) sound at the board, lower than a stone and not repeatable faster than 0.3 s", () => {
     expect(CUES['omok.forbid'].kind).toBe('ui')
     expect(CUES['omok.forbid'].bus).toBe('sfx')
