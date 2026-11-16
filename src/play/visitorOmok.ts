@@ -5,6 +5,7 @@
 
 import { hash, rng } from '../office/play'
 import { HAND_MS, N, PLACE_AT, aiMove, axesAt, fiveCells, newGame, personalityOf, play, type OmokState, type OmokView } from './omok'
+import { forbiddenAt, RULE_BY_ID, type Forbid, type RuleId } from './omokRules'
 
 export type Strength = 'easy' | 'normal' | 'strong'
 export const STRENGTHS: readonly Strength[] = ['easy', 'normal', 'strong']
@@ -36,6 +37,12 @@ export const OMOK_LINES = {
   easy: '천천히 둘게요',
   strong: '진지하게 둘게요',
 } as const
+/** #603 (play.md 11.2 · 11.4) the agent's word as the game starts under a rule, and the first forbidden point the visitor tries */
+export const RULE_LINES: Record<RuleId, string> = { renju: '렌주로 둬요', swap: '렌주로 둬요', domestic: '3-3만 조심하세요', free: '금수 없이 가요', exact: '딱 다섯이에요' }
+export const FORBID_LINE = '거긴 흑 금수예요'
+/** the rule a visitor's game starts with, before any is chosen (play.md 11.1) */
+export const DEFAULT_RULE: RuleId = 'renju'
+
 /** its own open four, by personality (play.md 2.4) */
 export const FOUR_LINES: Record<string, string> = { agent_0: '음… 여기네요', agent_1: '여기에 하나', agent_2: '모양이 예쁘죠?', agent_3: '끝낼게요', agent_4: '한 박자 남았어요' }
 const fourLine = (agent: string) => FOUR_LINES[agent] ?? FOUR_LINES.agent_1
@@ -68,19 +75,30 @@ export interface VisitorGame {
   /** the agent has laid its stone down (nothing left to stop): it is the visitor's move to finish (play.md 5.2, #491) */
   conceded: boolean
   end: { result: EndResult; at: number; line: number[] | null } | null
+  /** #603 the rule this game is played under (s.rule too); chosen before the first stone */
+  rule: RuleId
 }
 
-export function startVisitorGame(agent: string, seed: number, now: number, strength: Strength = 'normal', game = 0): VisitorGame {
-  return { agent, seed, game, strength, s: newGame(), moves: [], pending: null, landed: null, visitorAt: -Infinity, undos: 0, said: [], lastInput: now, conceded: false, end: null }
+export function startVisitorGame(agent: string, seed: number, now: number, strength: Strength = 'normal', game = 0, rule: RuleId = DEFAULT_RULE): VisitorGame {
+  return { agent, seed, game, strength, s: newGame(rule), moves: [], pending: null, landed: null, visitorAt: -Infinity, undos: 0, said: [], lastInput: now, conceded: false, end: null, rule }
 }
 
-/** the next game in the same sitting: same agent and strength */
-export const restart = (g: VisitorGame, now: number) => startVisitorGame(g.agent, g.seed, now, g.strength, g.game + 1)
+/** the next game in the same sitting: same agent, strength and rule */
+export const restart = (g: VisitorGame, now: number) => startVisitorGame(g.agent, g.seed, now, g.strength, g.game + 1, g.rule)
 
-const replay = (moves: number[]): OmokState => moves.reduce<OmokState>((s, m) => play(s, m)!, newGame())
+/** #603 the same game under another rule (only before its first stone): the agent's word for the rule */
+export function setRule(g: VisitorGame, rule: RuleId, now: number): { g: VisitorGame; events: OmokEvent[] } | null {
+  if (g.moves.length || g.end) return null
+  return { g: { ...startVisitorGame(g.agent, g.seed, now, g.strength, g.game, rule), said: [...g.said] }, events: [{ kind: 'say', text: RULE_LINES[rule] }] }
+}
+
+const replay = (moves: number[], rule: RuleId): OmokState => moves.reduce<OmokState>((s, m) => play(s, m)!, newGame(rule))
 
 /** the visitor may place a stone: their turn, nothing in the agent's hand, the game on */
 export const visitorTurn = (g: VisitorGame) => !g.end && !g.pending && g.s.toMove === 1 && g.s.result === 'playing'
+
+/** #603 why the visitor (black) may not stand at `cell` now under the game's rule, or null (not their turn, taken, or allowed) */
+export const visitorForbid = (g: VisitorGame, cell: number): Forbid | null => (visitorTurn(g) && g.s.board[cell] === 0 ? forbiddenAt(g.s.board, cell, g.rule, 1) : null)
 
 function agentPick(g: VisitorGame): number {
   const p = personalityOf(g.agent)
@@ -104,7 +122,15 @@ const say = (g: VisitorGame, text: string, ev: OmokEvent[], once = false) => {
   ev.push({ kind: 'say', text })
 }
 
-/** the visitor places black at `cell`; null when they may not (not their turn, taken, off the board) */
+/** #603 the visitor pressed a forbidden point: nothing is placed; the agent says so once a game */
+export function forbidPressed(g0: VisitorGame, now: number): { g: VisitorGame; events: OmokEvent[] } {
+  const g: VisitorGame = { ...g0, lastInput: now, said: [...g0.said] }
+  const ev: OmokEvent[] = []
+  say(g, FORBID_LINE, ev, true)
+  return { g, events: ev }
+}
+
+/** the visitor places black at `cell`; null when they may not (not their turn, taken, off the board, #603 forbidden) */
 export function visitorMove(g0: VisitorGame, cell: number, now: number): { g: VisitorGame; events: OmokEvent[] } | null {
   if (!visitorTurn(g0)) return null
   const s = play(g0.s, cell)
@@ -133,7 +159,7 @@ export function visitorMove(g0: VisitorGame, cell: number, now: number): { g: Vi
   }
   // nothing left to stop (two ways to five): the agent lays its stone down and leaves the winning move to the visitor (play.md 5.2, #491).
   // It does not play: black moves again.
-  if (fiveCells(s.board, 1).length >= 2) {
+  if (fiveCells(s.board, 1, g.rule).length >= 2) {
     g.conceded = true
     g.s = { ...s, toMove: 1 }
     say(g, OMOK_LINES.resign, ev)
@@ -156,7 +182,7 @@ export function stepVisitorGame(g0: VisitorGame, now: number): { g: VisitorGame;
     // the visitor's turn again: the idle clock counts from here
     const g: VisitorGame = { ...g0, s, moves: [...g0.moves, p.cell], pending: null, landed: p, lastInput: now, said: [...g0.said] }
     // a four it can stop (one way to five, play.md 2.4 · #491)
-    const fives = fiveCells(before, 1)
+    const fives = fiveCells(before, 1, g0.rule)
     if (fives.length === 1 && fives[0] === p.cell) say(g, OMOK_LINES.block, ev, true)
     if (s.result === 'white') {
       g.end = { result: 'white', at: now, line: s.line }
@@ -195,7 +221,7 @@ export function undo(g0: VisitorGame, now: number): { g: VisitorGame; events: Om
   const take = g0.pending || g0.moves.length % 2 === 1 ? 1 : 2
   const moves = g0.moves.slice(0, g0.moves.length - take)
   const removed = g0.moves.slice(g0.moves.length - take)
-  const g: VisitorGame = { ...g0, s: replay(moves), moves, pending: null, landed: null, undos: g0.undos + 1, lastInput: now, said: [...g0.said] }
+  const g: VisitorGame = { ...g0, s: replay(moves, g0.rule), moves, pending: null, landed: null, undos: g0.undos + 1, lastInput: now, said: [...g0.said] }
   if (g0.undos === 0) {
     say(g, OMOK_LINES.firstUndo, ev)
     ev.push({ kind: 'face', face: 'nod' })
@@ -230,8 +256,10 @@ const RESULT_WORD: Record<EndResult, string> = { black: '흑 승', white: '백 �
 export function statusLine(g: VisitorGame, agentName: string, now: number): string {
   const n = g.moves.length
   if (g.end) return `${RESULT_WORD[g.end.result]} · ${n}수${g.undos && (g.end.result === 'black' || g.end.result === 'resign') ? ` · 무르기 ${g.undos}` : ''}`
-  if (g.pending) return `● 오목 · ${agentName}와 대국 · ${agentName}가 생각 중${'.'.repeat(1 + (Math.max(0, Math.floor((now - g.pending.at) / 400)) % 3))}`
-  return `● 오목 · ${agentName}와 대국 · 당신(흑) 차례 · ${n + 1}수`
+  // #603 the rule's name first (play.md 11.1)
+  const head = `● 오목 · ${RULE_BY_ID[g.rule].name} · ${agentName}와 대국`
+  if (g.pending) return `${head} · ${agentName}가 생각 중${'.'.repeat(1 + (Math.max(0, Math.floor((now - g.pending.at) / 400)) % 3))}`
+  return `${head} · 당신(흑) 차례 · ${n + 1}수`
 }
 
 /**

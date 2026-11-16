@@ -6,9 +6,10 @@
 import { useSyncExternalStore } from 'react'
 import { N } from '../../play/omok'
 import {
-  canUndo, endGame, restart, setStrength, startVisitorGame, stepVisitorGame, touchGame, undo, visitorMove, visitorTurn,
-  type OmokEvent, type Strength, type VisitorGame,
+  canUndo, DEFAULT_RULE, endGame, forbidPressed, restart, setRule, setStrength, startVisitorGame, stepVisitorGame, touchGame, undo, visitorForbid, visitorMove,
+  visitorTurn, type OmokEvent, type Strength, type VisitorGame,
 } from '../../play/visitorOmok'
+import { RULES, type Forbid, type RuleId } from '../../play/omokRules'
 
 export type VisitPhase = 'closed' | 'flying' | 'open' | 'leaving'
 
@@ -27,6 +28,11 @@ export interface OmokVisitState {
   tag: { x: number; y: number; agent: string; orient: Orient } | null
   /** the board as the visitor sees it: the grid step (columns, rows) for one point to the right and one point up (away) on the screen */
   orient: Orient
+  /** #603 the rule chooser is open (play.md 11.2), and the row selected in it (not yet started) */
+  picker: boolean
+  pickerRule: RuleId
+  /** #603 a forbidden point pressed: where, why and when (the ✕ shakes, the guidance shows 2 s) */
+  forbid: { cell: number; why: Forbid; at: number } | null
 }
 
 export interface Orient {
@@ -46,7 +52,28 @@ export const viewName = (cell: number, o: Orient = state.orient) => `${String.fr
 
 /** the board's middle, H8 */
 export const CENTER = ((N / 2) | 0) * N + ((N / 2) | 0)
-export const CLOSED: OmokVisitState = { phase: 'closed', agent: null, game: null, cursor: CENTER, preview: null, armed: null, tag: null, orient: ORIENT }
+export const CLOSED: OmokVisitState = { phase: 'closed', agent: null, game: null, cursor: CENTER, preview: null, armed: null, tag: null, orient: ORIENT, picker: false, pickerRule: DEFAULT_RULE, forbid: null }
+
+// #603 (play.md 11.2) the last rule chosen, kept in this browser (none, or storage blocked: renju); the chooser opens by itself for this tab's first game
+const RULE_KEY = 'agent-office.omok.rule'
+export function lastRule(): RuleId {
+  try {
+    const r = globalThis.localStorage?.getItem(RULE_KEY)
+    return RULES.some((x) => x.id === r) ? (r as RuleId) : DEFAULT_RULE
+  } catch {
+    return DEFAULT_RULE
+  }
+}
+function keepRule(rule: RuleId) {
+  try {
+    globalThis.localStorage?.setItem(RULE_KEY, rule)
+  } catch {
+    /* a private window: the rule is not kept */
+  }
+}
+let chosenInTab = false
+/** tests: this tab has chosen no rule yet */
+export const forgetRuleChoice = () => void (chosenInTab = false)
 
 let state: OmokVisitState = CLOSED
 /** the agent's lines and faces from the game, for the scene to show (drained each frame) */
@@ -78,10 +105,29 @@ export const drainOmokEvents = (): OmokEvent[] => {
 export function openOmok(agent: string, now: number, seed: number, orient: Orient = ORIENT): boolean {
   if (state.phase !== 'closed') return false
   pending = []
-  set({ ...CLOSED, tag: state.tag, phase: 'flying', agent, game: startVisitorGame(agent, seed, now), orient })
+  set({ ...CLOSED, tag: state.tag, phase: 'flying', agent, game: startVisitorGame(agent, seed, now, 'normal', 0, lastRule()), orient })
   return true
 }
-export const omokArrived = () => state.phase === 'flying' && set({ ...state, phase: 'open' })
+/** at the board: the chooser opens by itself for this tab's first game (the camera has stopped) */
+export const omokArrived = () => state.phase === 'flying' && set({ ...state, phase: 'open', picker: !chosenInTab, pickerRule: state.game?.rule ?? DEFAULT_RULE })
+/** #603 the chooser: open it (only before the first stone), close it (Esc: the rule stays) */
+export const openRulePicker = () =>
+  !!state.game && !state.game.moves.length && !state.game.end && state.phase === 'open' && (set({ ...state, picker: true, pickerRule: state.game.rule }), true)
+/** a row selected in the chooser (↑↓, a click on the row); started with Enter, the button, or the first stone */
+export const selectRule = (rule: RuleId) => state.picker && state.pickerRule !== rule && set({ ...state, pickerRule: rule })
+export const closeRulePicker = () => state.picker && set({ ...state, picker: false })
+/** #603 a rule chosen in the chooser (before the first stone): the game under it, kept for this browser; the agent's word for it */
+export function chooseRule(rule: RuleId, now: number): boolean {
+  const g = state.game
+  if (!g || state.phase !== 'open') return false
+  const r = setRule(g, rule, now)
+  if (!r) return false
+  keepRule(rule)
+  chosenInTab = true
+  pending.push(...r.events)
+  set({ ...state, game: r.g, picker: false })
+  return true
+}
 /** leave (그만두기, Esc, the game over by itself): the game ends as quit unless it already ended; the camera flies back */
 export function closeOmok(now: number) {
   if (state.phase === 'closed' || state.phase === 'leaving') return
@@ -97,10 +143,28 @@ export const resetOmok = () => set({ ...CLOSED })
 export function placeOmok(cell: number, now: number): boolean {
   const g = state.game
   if (state.phase !== 'open' || !g) return false
-  const ok = take(visitorMove(g, cell, now))
-  if (ok) set({ ...state, cursor: cell, preview: null, armed: null })
+  // #603 a forbidden point: nothing placed; the ✕ shakes, the guidance shows, the agent says so once a game (play.md 11.4)
+  const why = visitorForbid(g, cell)
+  if (why) {
+    take(forbidPressed(g, now))
+    set({ ...state, cursor: cell, forbid: { cell, why, at: now } })
+    return false
+  }
+  // the first stone with the chooser open starts the game under the rule selected there (play.md 11.2: 빨리 시작)
+  if (state.picker && state.pickerRule !== g.rule) {
+    chooseRule(state.pickerRule, now)
+    return placeOmok(cell, now)
+  }
+  if (state.picker) {
+    chosenInTab = true
+    keepRule(g.rule)
+  }
+  const ok = take(visitorMove(state.game!, cell, now))
+  if (ok) set({ ...state, cursor: cell, preview: null, armed: null, picker: false, forbid: null })
   return ok
 }
+/** #603 the forbidden reason at a point for the visitor now (the ✕, the cell's words), or null */
+export const omokForbidAt = (cell: number | null): Forbid | null => (cell === null || !state.game ? null : visitorForbid(state.game, cell))
 /** the clock: the agent's stone lands, a quiet visitor is let go (play.md 2.5) */
 export function stepOmok(now: number) {
   const g = state.game

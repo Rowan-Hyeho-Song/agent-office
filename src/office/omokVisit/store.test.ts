@@ -5,6 +5,8 @@ import {
   CENTER, closeOmok, drainOmokEvents, getOmokVisit, isOmokActive, moveCursor, omokArrived, omokLeft, openOmok, placeOmok, resetOmok, setOmokTag,
   stepOmok, viewName, visitorMayPlace, workOmok, type Orient,
 } from './store'
+import { chooseRule, closeRulePicker, forgetRuleChoice, lastRule, openRulePicker, seedOmok, selectRule } from './store'
+import { FORBID_LINE, RULE_LINES } from '../../play/visitorOmok'
 
 const T = 1_000_000
 const sitDown = (orient?: Orient) => {
@@ -94,5 +96,65 @@ describe('the keyboard cursor as the visitor sees the board', () => {
       expect(a1).toBeDefined()
       expect(viewName(N * N - 1 - a1!, o)).toBe('O15')
     }
+  })
+})
+
+// #603 (play.md 11.2 · 11.4) the rule chooser and the forbidden points
+describe('the rules at the visitor board', () => {
+  it('the first game in this tab opens the chooser by itself; a rule chosen there starts the game under it with the agent word; later games do not ask', () => {
+    forgetRuleChoice()
+    sitDown()
+    expect(getOmokVisit()).toMatchObject({ picker: true, pickerRule: 'renju' })
+    expect(getOmokVisit().game?.rule).toBe('renju')
+    selectRule('exact')
+    expect(getOmokVisit().game?.rule).toBe('renju') // only selected
+    drainOmokEvents()
+    expect(chooseRule(getOmokVisit().pickerRule, T + 100)).toBe(true)
+    expect(getOmokVisit()).toMatchObject({ picker: false })
+    expect(getOmokVisit().game?.rule).toBe('exact')
+    expect(drainOmokEvents()).toContainEqual({ kind: 'say', text: RULE_LINES.exact })
+    resetOmok()
+    sitDown()
+    expect(getOmokVisit().picker).toBe(false)
+  })
+  it('reopened from the chip before the first stone; Esc closes it keeping the rule; after the first stone it does not open', () => {
+    forgetRuleChoice()
+    sitDown()
+    closeRulePicker()
+    expect(getOmokVisit().picker).toBe(false)
+    expect(openRulePicker()).toBe(true)
+    expect(placeOmok(CENTER, T + 100)).toBe(true) // the first stone closes it and starts the game
+    expect(getOmokVisit().picker).toBe(false)
+    stepOmok(T + 10_000)
+    expect(openRulePicker()).toBe(false)
+  })
+  it('the first stone with the chooser open starts under the rule selected there (빨리 시작)', () => {
+    forgetRuleChoice()
+    sitDown()
+    selectRule('free')
+    expect(placeOmok(CENTER, T + 100)).toBe(true)
+    expect(getOmokVisit().game?.rule).toBe('free')
+    expect(getOmokVisit().game?.moves).toEqual([CENTER])
+  })
+  it('a forbidden point: nothing placed, the guidance (where, why), the agent says so once a game', () => {
+    forgetRuleChoice()
+    sitDown()
+    closeRulePicker()
+    // black's 3-3 at H8 after the agent's answers far away: the visitor's stones put on the board as they stand
+    const g = getOmokVisit().game!
+    const board = g.s.board.slice()
+    for (const c of [7 * N + 5, 7 * N + 6, 5 * N + 7, 6 * N + 7]) board[c] = 1
+    for (const c of [0, 2, 4, 6]) board[c] = 2
+    seedOmok({ ...g, s: { ...g.s, board, toMove: 1, moveIndex: 8 }, moves: [7 * N + 5, 0, 7 * N + 6, 2, 5 * N + 7, 4, 6 * N + 7, 6] })
+    drainOmokEvents()
+    expect(placeOmok(CENTER, T + 100)).toBe(false)
+    expect(getOmokVisit().forbid).toEqual({ cell: CENTER, why: '33', at: T + 100 })
+    expect(getOmokVisit().game?.s.board[CENTER]).toBe(0)
+    expect(drainOmokEvents()).toEqual([{ kind: 'say', text: FORBID_LINE }])
+    placeOmok(CENTER, T + 200)
+    expect(drainOmokEvents()).toEqual([]) // once a game
+  })
+  it('the last rule is kept in this browser (renju without storage)', () => {
+    expect(lastRule()).toBe('renju')
   })
 })
