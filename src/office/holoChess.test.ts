@@ -565,45 +565,63 @@ describe('visitor marks (#604 stage 2)', () => {
     holo.update(frame(T, ci({ board: pos })))
     expect(holo.marks.count).toBe(0)
     expect(holo.dots.count).toBe(0)
+    expect(holo.overMarks.count).toBe(0)
+    expect(holo.overDots.count).toBe(0)
   })
 
-  it('a 2x2 px dot at each legal square, a cyan ring at the cursor', () => {
+  it('a 2x2 px dot at each legal square, a cyan ring at the cursor: over the pieces (#660: no depth test, after them)', () => {
     const { holo, T } = setup()
     holo.update(frame(T, ci({ board: pos, visitor: visitor({ selected: sq('e4'), targets: [{ sq: sq('e5'), capture: false }, { sq: sq('e6'), capture: false }], cursor: sq('e5') }) })))
-    expect(holo.marks.count).toBe(2 + 4)
+    const om = holo.overMarks
+    expect(holo.marks.count).toBe(0)
+    expect(om.count).toBe(2 + 4)
+    expect(om.material).toBe(holo.materials.overMarks)
+    expect(holo.materials.overMarks.depthTest).toBe(false)
+    expect(om.renderOrder).toBeGreaterThan(pm(holo, 1, 2).renderOrder)
     const e5 = sqLocal(holo, sq('e5'))
-    const d0 = inst(holo.marks, 'iPos', 0)
+    const d0 = inst(om, 'iPos', 0)
     expect(d0[0]).toBeCloseTo(e5.x)
     expect(d0[2]).toBeCloseTo(e5.z)
-    const sz = inst(holo.marks, 'iSize', 0)
+    const sz = inst(om, 'iSize', 0)
     expect(sz[0]).toBeCloseTo((2 * SQ) / 11)
     expect(sz[1]).toBeCloseTo((2 * SQ) / 11)
-    expect(inst(holo.marks, 'iCol', 0)[2]).toBeGreaterThan(inst(holo.marks, 'iCol', 0)[0]) // cyan: blue > red
+    expect(inst(om, 'iCol', 0)[2]).toBeGreaterThan(inst(om, 'iCol', 0)[0]) // cyan: blue > red
     // ring: four edge bars round e5
     for (let i = 2; i < 6; i++) {
-      const p = inst(holo.marks, 'iPos', i)
+      const p = inst(om, 'iPos', i)
       expect(near(new Vector3(p[0], 0, p[2]), e5.x, e5.z)).toBe(true)
     }
     expect(holo.dots.count).toBe(0)
+    expect(holo.overDots.count).toBe(0)
   })
 
-  it('capture squares get cyan corners drawn after (over) the red last-move corners', () => {
+  it('the piece under the cursor has a cyan rim (#660), the others ink', () => {
+    const { holo, T } = setup()
+    const w = (sel: number | null) => {
+      holo.update(frame(T, ci({ board: pos, visitor: visitor({ cursor: sel }) })))
+      return [inst(pm(holo, 1, 2), 'iCol', 0)[3], inst(pm(holo, 6, 2), 'iCol', 0)[3]] // white pawn e4, white king e1
+    }
+    expect(w(sq('e4'))).toEqual([1, 0])
+    expect(w(sq('e1'))).toEqual([0, 1])
+    expect(w(sq('e5'))).toEqual([0, 0]) // an empty square: the ring alone
+    expect(holo.chessLayer!.materials.piece.vertexShader).toContain('iCol.w > 0.5 ? uRimCursor : uInk')
+  })
+
+  it('capture squares get cyan corners over the pieces (#660), the red last-move corners stay under them', () => {
     const { holo, T } = setup()
     holo.update(frame(T, ci({ board: pos, lastMove: { from: sq('e2'), to: sq('d5') }, visitor: visitor({ selected: sq('e4'), targets: [{ sq: sq('d5'), capture: true }] }) })))
-    expect(holo.marks.count).toBe(0) // no centre dot on a capture square
-    expect(holo.dots.count).toBe(16 + 8) // two red corner sets, one cyan
-    const col = (i: number) => inst(holo.dots, 'iCol', i)
-    const isRed = (i: number) => col(i)[0] > col(i)[2]
-    // d5 corners: red come before cyan in the buffer (cyan over red)
-    const red = Array.from({ length: 24 }, (_, i) => i).filter(isRed)
-    const cyan = Array.from({ length: 24 }, (_, i) => i).filter((i) => !isRed(i))
-    expect(red.length).toBe(16)
-    expect(cyan.length).toBe(8)
-    expect(Math.min(...cyan)).toBeGreaterThan(Math.max(...red))
+    expect(holo.marks.count + holo.overMarks.count).toBe(0) // no centre dot on a capture square
+    expect(holo.dots.count).toBe(16) // two red corner sets, depth tested (behind the pieces)
+    expect(holo.overDots.count).toBe(8) // one cyan set, over everything
+    expect(holo.materials.dot.depthTest).toBe(true)
+    expect(holo.materials.overDots.depthTest).toBe(false)
+    expect(holo.overDots.renderOrder).toBeGreaterThan(holo.dots.renderOrder)
+    for (let i = 0; i < 16; i++) expect(inst(holo.dots, 'iCol', i)[0]).toBeGreaterThan(inst(holo.dots, 'iCol', i)[2]) // red
     // cyan corners sit exactly where the red ones of d5 are
     const d5 = sqLocal(holo, sq('d5'))
-    for (const i of cyan) {
-      const p = inst(holo.dots, 'iPos', i)
+    for (let i = 0; i < 8; i++) {
+      expect(inst(holo.overDots, 'iCol', i)[2]).toBeGreaterThan(inst(holo.overDots, 'iCol', i)[0])
+      const p = inst(holo.overDots, 'iPos', i)
       expect(near(new Vector3(p[0], 0, p[2]), d5.x, d5.z)).toBe(true)
     }
   })
@@ -743,7 +761,7 @@ describe('the ink rim round the opaque glyphs (#659, hologram.md 11.2)', () => {
     opened(holo)
     const m = holo.chessLayer!.materials.piece
     expect('#' + (m.uniforms.uInk.value as Color).getHexString()).toBe('#0b0e13')
-    expect(m.vertexShader).toContain('vInk > 0.5 ? uInk')
+    expect(m.vertexShader).toContain('vInk > 0.5 ? (iCol.w > 0.5 ? uRimCursor : uInk)')
     expect(m.fragmentShader).toContain('vInk > 0.5 ? 1.0')
   })
 })

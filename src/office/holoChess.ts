@@ -211,8 +211,8 @@ export const TILT_S = 0.3
 
 const PIECE_VERT = /* glsl */ `
 attribute float aShade; attribute float aRow; attribute float aCap;
-attribute vec3 iPos; attribute vec4 iSt; attribute vec4 iRows; attribute vec3 iCol;
-uniform vec3 uCam; uniform float uTilt; uniform vec3 uInk;
+attribute vec3 iPos; attribute vec4 iSt; attribute vec4 iRows; attribute vec4 iCol;
+uniform vec3 uCam; uniform float uTilt; uniform vec3 uInk; uniform vec3 uRimCursor;
 varying vec3 vCol; varying float vA; varying float vInk;
 const float VOX = ${CVOX};
 const float BACK = ${(-GLYPH_DEPTH / 2) * CVOX};
@@ -230,9 +230,9 @@ void main() {
   p = vec3(p.x, p.y * ce + pz * se, -p.y * se + pz * ce + zb);
   float c = cos(iSt.w); float s = sin(iSt.w);
   p = vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c) + iPos;
-  // #659 the ink rim: its own colour, not the piece's, nor its brightness (a lit piece keeps a dark rim)
+  // #659 the ink rim: its own colour, not the piece's, nor its brightness (a lit piece keeps a dark rim); #660 cyan on the cursor's piece (iCol.w)
   vInk = aShade < 0.0 ? 1.0 : 0.0;
-  vCol = vInk > 0.5 ? uInk : iCol * aShade * iSt.y; vA = iSt.z;
+  vCol = vInk > 0.5 ? (iCol.w > 0.5 ? uRimCursor : uInk) : iCol.rgb * aShade * iSt.y; vA = iSt.z;
   gl_Position = vis ? projectionMatrix * modelViewMatrix * vec4(p, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);
 }`
 
@@ -309,6 +309,9 @@ export interface ChessFrame {
   glow(colour: number, x: number, z: number, r: number, a: number): void
   mark(x: number, y: number, z: number, sx: number, sz: number, rot: number, c: Color, bright: number, a?: number): void
   dot(x: number, y: number, z: number, sx: number, sz: number, c: Color, a: number): void
+  /** #660 the same, drawn over the opaque pieces (no depth test): the visitor's cursor ring, target dots, capture corners */
+  markOver?(x: number, y: number, z: number, sx: number, sz: number, rot: number, c: Color, bright: number, a?: number): void
+  dotOver?(x: number, y: number, z: number, sx: number, sz: number, c: Color, a: number): void
 }
 
 const LAND = 0
@@ -369,7 +372,7 @@ void main() {
   gl_FragColor = vec4(vCol * scan, vA * uAlpha);
   #include <colorspace_fragment>
 }`,
-      uniforms: { ...stage.uniforms, uCam: { value: new Vector3() }, uTilt: { value: 0 }, uInk: { value: new Color(CHESS_COLORS.ink) } },
+      uniforms: { ...stage.uniforms, uCam: { value: new Vector3() }, uTilt: { value: 0 }, uInk: { value: new Color(CHESS_COLORS.ink) }, uRimCursor: { value: new Color(CHESS_COLORS.cyan) } },
     })
     // hologram.md 11.2 (#657, #655): the pieces' voxels are opaque (normal blending, depth written, unlit), not added light: a piece in front
     // hides the one behind it (the near pawns stand out against the back rank) at every view. Still drawn after the film (transparent pass,
@@ -397,7 +400,7 @@ void main() {
       const out: Record<number, InstancedMesh> = {}
       for (let k = 1; k <= 6; k++) {
         geos[k] ??= buildPieceGeometry(k)
-        out[k] = stage.inst(geos[k].clone(), pieceMat, 40, { iPos: 3, iSt: 4, iRows: 4, iCol: 3 }, 2)
+        out[k] = stage.inst(geos[k].clone(), pieceMat, 40, { iPos: 3, iSt: 4, iRows: 4, iCol: 4 }, 2)
         stage.root.add(out[k])
       }
       void colour
@@ -643,7 +646,7 @@ void main() {
   private counts = new Map<InstancedMesh, number>()
 
   /** one glyph instance */
-  private emit(kind: number, colour: number, x: number, y: number, z: number, o: { scale?: number; bright: number; alpha: number; lo?: number; hi?: number; shake?: number; stair?: boolean; yaw?: number }) {
+  private emit(kind: number, colour: number, x: number, y: number, z: number, o: { scale?: number; bright: number; alpha: number; lo?: number; hi?: number; shake?: number; stair?: boolean; yaw?: number; rim?: boolean }) {
     const m = this.pieces[colour === 2 ? 2 : 1][kind]
     const i = this.counts.get(m) ?? 0
     if (i >= 40) return
@@ -653,7 +656,7 @@ void main() {
     s.put(m, i, 'iPos', x, y, z)
     s.put(m, i, 'iSt', o.scale ?? 1, o.bright, o.alpha, o.yaw ?? this.yawAt(x, z))
     s.put(m, i, 'iRows', o.lo ?? 0, o.hi ?? rowsOf(kind), o.shake ?? 0, o.stair ? 1 : 0)
-    s.put(m, i, 'iCol', c.r, c.g, c.b)
+    s.put(m, i, 'iCol', c.r, c.g, c.b, o.rim ? 1 : 0)
   }
 
   draw(f: ChessFrame) {
@@ -704,7 +707,8 @@ void main() {
         }
         // look from its birth
         const a = t - this.born[sq]
-        const o = { bright: 1, alpha: 1, hi: rowsOf(kind), stair: false, lo: 0 }
+        // #660 the keyboard cursor on this piece's square: its rim turns cyan (hologram.md 11.3)
+        const o = { bright: 1, alpha: 1, hi: rowsOf(kind), stair: false, lo: 0, rim: c?.visitor?.cursor === sq }
         if (this.birth[sq] === LAND) {
           if (reduced) {
             o.alpha = Math.min(1, a / 0.1)
@@ -822,20 +826,23 @@ void main() {
           f.dot(p.x + s * 4.5 * PXC, dotY, p.z, PXC, 8 * PXC, RED, 1)
         }
       }
-      // the visitor's marks: centre dots (0.7), cyan ring round the cursor, cyan corners over the red last-move corners
+      // the visitor's marks: centre dots (0.7), cyan ring round the cursor, cyan corners over the red last-move corners; over the pieces
+      // (#660: not hidden by the opaque glyphs; the red last move stays under them)
       const vm = c?.visitor
+      const mark = f.markOver ?? f.mark
+      const dot = f.dotOver ?? f.dot
       if (vm) {
         const my = lift + CGLOW_Y
         for (const tg of vm.targets) {
           if (tg.capture) continue
           this.squareLocal(tg.sq, p)
-          f.mark(p.x, my, p.z, 2 * PXC, 2 * PXC, 0, CYAN, 0.7)
+          mark(p.x, my, p.z, 2 * PXC, 2 * PXC, 0, CYAN, 0.7)
         }
         if (vm.cursor !== null) {
           this.squareLocal(vm.cursor, p)
           for (const s of [-1, 1]) {
-            f.mark(p.x, my, p.z + s * 4.5 * PXC, 10 * PXC, PXC, 0, CYAN, 1)
-            f.mark(p.x + s * 4.5 * PXC, my, p.z, PXC, 8 * PXC, 0, CYAN, 1)
+            mark(p.x, my, p.z + s * 4.5 * PXC, 10 * PXC, PXC, 0, CYAN, 1)
+            mark(p.x + s * 4.5 * PXC, my, p.z, PXC, 8 * PXC, 0, CYAN, 1)
           }
         }
         for (const tg of vm.targets) {
@@ -843,8 +850,8 @@ void main() {
           this.squareLocal(tg.sq, p)
           for (const sx of [-1, 1])
             for (const sz of [-1, 1]) {
-              f.dot(p.x + sx * 3.5 * PXC, dotY + 0.0001, p.z + sz * 4.5 * PXC, 3 * PXC, PXC, CYAN, 1)
-              f.dot(p.x + sx * 4.5 * PXC, dotY + 0.0001, p.z + sz * 3.5 * PXC, PXC, 3 * PXC, CYAN, 1)
+              dot(p.x + sx * 3.5 * PXC, dotY + 0.0001, p.z + sz * 4.5 * PXC, 3 * PXC, PXC, CYAN, 1)
+              dot(p.x + sx * 4.5 * PXC, dotY + 0.0001, p.z + sz * 3.5 * PXC, PXC, 3 * PXC, CYAN, 1)
             }
         }
       }

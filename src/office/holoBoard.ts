@@ -262,7 +262,10 @@ export class HoloBoard {
   readonly founts: InstancedMesh
   readonly marks: InstancedMesh // additive: ripple, win line, turn line
   readonly dots: InstancedMesh // normal blended: last move
-  readonly materials: Record<'film' | 'grid' | 'stone' | 'glow' | 'fount' | 'marks' | 'dot', ShaderMaterial>
+  /** #660 the visitor's chess marks drawn over the opaque pieces (no depth test): cursor ring and target dots (added), capture corners (normal) */
+  readonly overMarks: InstancedMesh
+  readonly overDots: InstancedMesh
+  readonly materials: Record<'film' | 'grid' | 'stone' | 'glow' | 'fount' | 'marks' | 'dot' | 'overMarks' | 'overDots', ShaderMaterial>
 
   private readonly surface: Object3D
   private readonly scene: Object3D
@@ -344,7 +347,12 @@ export class HoloBoard {
       fount: voxMat(),
       marks: quadMat(AdditiveBlending, false),
       dot: quadMat(NormalBlending, false),
+      overMarks: quadMat(AdditiveBlending, false),
+      overDots: quadMat(NormalBlending, false),
     }
+    // #660 (hologram.md 11.3) the visitor's marks are not hidden by the opaque chess pieces: no depth test, drawn after them
+    this.materials.overMarks.depthTest = false
+    this.materials.overDots.depthTest = false
 
     const plane = (size: number) => new PlaneGeometry(size, size).rotateX(-Math.PI / 2)
     this.film = new Mesh(plane(FILM_SIZE), film)
@@ -370,8 +378,10 @@ export class HoloBoard {
     this.glow = quads(this.materials.glow, CAP, 1)
     this.marks = quads(this.materials.marks, MAX_RIPPLES * 4 + 8 + 32, 3)
     this.dots = quads(this.materials.dot, 128, 5)
+    this.overMarks = quads(this.materials.overMarks, 96, 6)
+    this.overDots = quads(this.materials.overDots, 64, 7)
 
-    this.root.add(this.film, this.grid, this.glow, this.stones[1], this.stones[2], this.founts, this.marks, this.dots)
+    this.root.add(this.film, this.grid, this.glow, this.stones[1], this.stones[2], this.founts, this.marks, this.dots, this.overMarks, this.overDots)
     scene.add(this.root)
     this.sync()
   }
@@ -745,6 +755,8 @@ export class HoloBoard {
     let nGlow = 0
     let nMark = 0
     let nDot = 0
+    let nOverMark = 0
+    let nOverDot = 0
     let nFount = 0
     const p = new Vector3()
     const base = this.lift + STONE_Y
@@ -790,9 +802,24 @@ export class HoloBoard {
       this.put(this.dots, i, 'iRot', 0)
       this.put(this.dots, i, 'iCol', c.r, c.g, c.b, a)
     }
+    // #660 over the pieces (the visitor's chess marks)
+    const markOver = (x: number, y: number, z: number, sx: number, sz: number, rot: number, c: Color, bright: number, a = 1) => {
+      const i = nOverMark++
+      this.put(this.overMarks, i, 'iPos', x, y, z)
+      this.put(this.overMarks, i, 'iSize', sx, sz)
+      this.put(this.overMarks, i, 'iRot', rot)
+      this.put(this.overMarks, i, 'iCol', c.r * bright, c.g * bright, c.b * bright, a)
+    }
+    const dotOver = (x: number, y: number, z: number, sx: number, sz: number, c: Color, a: number) => {
+      const i = nOverDot++
+      this.put(this.overDots, i, 'iPos', x, y, z)
+      this.put(this.overDots, i, 'iSize', sx, sz)
+      this.put(this.overDots, i, 'iRot', 0)
+      this.put(this.overDots, i, 'iCol', c.r, c.g, c.b, a)
+    }
     // the chess layer always runs, so its instance counts drop to zero when it is not shown
     const chessOn = this.game === 'chess'
-    this.chess?.draw({ t, reduced, live: live && chessOn, on: on && chessOn, c: inp.chess, held: inp.held, glow, mark, dot })
+    this.chess?.draw({ t, reduced, live: live && chessOn, on: on && chessOn, c: inp.chess, held: inp.held, glow, mark, dot, markOver, dotOver })
     // likewise the alkkagi layer (no ripple, no founts, no red)
     const alkOn = this.game === 'alkkagi'
     this.alk?.draw({ t, reduced, live: live && alkOn, on: on && alkOn, a: inp.alkkagi, glow, mark })
@@ -904,8 +931,10 @@ export class HoloBoard {
     this.glow.count = nGlow
     this.marks.count = nMark
     this.dots.count = nDot
+    this.overMarks.count = nOverMark
+    this.overDots.count = nOverDot
     this.founts.count = nFount
-    this.flush(this.stones[1], this.stones[2], this.glow, this.marks, this.dots, this.founts)
+    this.flush(this.stones[1], this.stones[2], this.glow, this.marks, this.dots, this.overMarks, this.overDots, this.founts)
   }
 
   dispose() {
@@ -915,6 +944,6 @@ export class HoloBoard {
     for (const m of Object.values(this.materials)) m.dispose()
     const tex = this.materials.grid.uniforms.uMap.value as DataTexture
     tex.dispose()
-    for (const o of [this.film, this.grid, this.glow, this.stones[1], this.stones[2], this.founts, this.marks, this.dots]) o.geometry.dispose()
+    for (const o of [this.film, this.grid, this.glow, this.stones[1], this.stones[2], this.founts, this.marks, this.dots, this.overMarks, this.overDots]) o.geometry.dispose()
   }
 }
