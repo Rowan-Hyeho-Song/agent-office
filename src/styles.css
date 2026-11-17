@@ -1060,6 +1060,14 @@ html[data-omok] .corner-dock, html[data-omok] .agent-list, html[data-omok] .tour
 .omok-rules-go kbd { font: inherit; color: var(--color-text-muted); }
 .omok-rule-chip { flex: none; height: 32px; padding: 0 8px; border: 0; background: none; color: var(--color-text); font: inherit; cursor: pointer; box-shadow: inset 0 0 0 1px var(--color-line); }
 .omok-rule-chip:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: -2px; }
+.omok-hud .game-chip:disabled { opacity: 1; color: var(--color-text); cursor: default; box-shadow: none; }
+.game-sheet { width: 200px; }
+.chess-promo { width: 300px; }
+.chess-promo > div { display: flex; gap: 6px; }
+.chess-promo > div button { flex: 1; height: 44px; border: 0; background: none; color: var(--color-text); font: inherit; cursor: pointer; box-shadow: inset 0 0 0 1px var(--color-line); }
+.chess-promo > div button:first-child { box-shadow: inset 0 0 0 1px var(--color-cyan); }
+.chess-promo > div button:hover, .chess-promo > div button:focus-visible { color: var(--color-cyan); outline: none; box-shadow: inset 0 0 0 1px var(--color-cyan); }
+.chess-promo kbd { font: inherit; color: var(--color-text-muted); font-size: 11px; }
 /* #603 a forbidden point pressed: 2 s over the HUD, a small red ✕ first (play.md 11.4) */
 .omok-forbid { position: fixed; z-index: 31; left: 50%; translate: -50% 0; bottom: calc(var(--space-4) + 60px + env(safe-area-inset-bottom, 0px)); margin: 0; padding: 4px 12px; white-space: nowrap;
   background: var(--color-surface-alpha); color: #f3ead8; font: 13px var(--font-pixel, monospace); box-shadow: inset 0 0 0 1px var(--color-line); }

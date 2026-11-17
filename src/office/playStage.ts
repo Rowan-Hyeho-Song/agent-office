@@ -32,6 +32,7 @@ import { CELL as HOLO_CELL, HoloBoard, N as HOLO_N, STONE_H as HOLO_STONE_H, STO
 import { chessPinch, flickHand, pinchSequence, pinchTimes, type Pinch } from '../play/holoPinch'
 import { ALK_HAND, alkkagiAt, type AlkView } from '../play/alkkagiTimeline'
 import { CHESS_HAND, chessAt, type ChessView } from '../play/chessTimeline'
+import type { ChessInput } from './holoChess'
 import { KING, QUEEN } from '../play/chess'
 import { fingerModelOf, type AgentRig, type PropBank } from './rig'
 import { LIFT, OPEN_ANGLE, halfAngle } from './bookGeom'
@@ -186,6 +187,8 @@ export interface StageIn {
   forcedSessions?: PlaySession[]
   /** #137 ② a visitor's game with the agent at the board (omokVisit/store.ts): drawn instead of the board's own game, in this tab only */
   visitorOmok?: { agent: string; view: OmokView } | null
+  /** #604 the visitor's game of chess with the agent at the board (omokVisit/store.ts): its view (visitorChess.ts chessViewOf) and the visitor's marks, this tab only */
+  visitorChess?: { agent: string; view: ChessView; visitor?: ChessInput['visitor'] } | null
   /** #137 ③ the visitor's match with the agent at the far end (pingpong_b): its rally (visitorPingpong.ts rallyOf) on the match clock, this tab only */
   visitorPingpong?: { agent: string; rally: Rally; tMs: number } | null
   /** #455 the treats taken in a hand: which, and when it landed (office ms) */
@@ -275,6 +278,8 @@ export class PlayStage {
   private chessHold = new Map<string, { key: string; yaw: number; flip: boolean }>()
   /** #604 the chess phase last frame (a reset begins a new game) */
   private chessPhase: ChessView['phase'] | null = null
+  /** #604 the pieces taken as of the last chess frame (the visitor's own capture has no hand to read it from) */
+  private chessTaken = 0
   /** #538 the projector's live neons (hologram.md 1.5) */
   private holoPanel: (k: number) => void = () => {}
   private holoTurn: Record<1 | 2, (k: number) => void> = { 1: () => {}, 2: () => {} }
@@ -613,6 +618,8 @@ export class PlayStage {
     // visitor's moves before that were neither drawn nor heard (sound, #648). The agent's hand waits for its chair (omokHands)
     const vo = inp.visitorOmok
     if (vo) og = { kind: 'boardgame', spot: 'game_a', players: [vo.agent, VISITOR], seed: hash(`visitor|${vo.agent}`), startMs: 0, game: 'omok', visitor: vo.view }
+    const vc = inp.visitorChess
+    if (vc) og = { kind: 'boardgame', spot: 'game_a', players: [vc.agent, VISITOR], seed: hash(`visitor|chess|${vc.agent}`), startMs: 0, game: 'chess', visitorChess: vc.view }
     // #137 ③ the visitor holds the near paddle: their match, the agent at the far end (no hand at the near one)
     const vp = inp.visitorPingpong
     if (vp) pp = inp.rigs[vp.agent]?.arrived === 'pingpong_b' ? { kind: 'pingpong', spot: 'pingpong_a', players: [VISITOR, vp.agent], seed: hash(`visitor|pp|${vp.agent}`), startMs: 0 } : null
@@ -763,6 +770,17 @@ export class PlayStage {
     const j = Math.round((p.z - g.o.z) / g.cell)
     if (i < 0 || j < 0 || i >= g.n || j >= g.n) return null
     return Math.hypot(p.x - (g.o.x + i * g.cell), p.z - (g.o.z + j * g.cell)) <= g.cell / 2 + 1e-9 ? j * g.n + i : null
+  }
+  /** #604 the game the board shows (omok, chess, alkkagi): the tag offers the one the agent plays */
+  get boardGame(): 'omok' | 'chess' | 'alkkagi' {
+    return this.holoGame
+  }
+  /** #604 chess: the square under a world point (-1: none), the square's place (the board as last turned), and the plane the pieces stand on */
+  chessSquareAt(p: Vector3): number {
+    return this.holo ? this.holo.squareAt(p) : -1
+  }
+  chessSquarePos(sq: number, out = new Vector3()): Vector3 | null {
+    return this.holo ? this.holo.squarePos(sq, out) : null
   }
   /** a point's place on the board (world), or null before the model */
   omokPoint(cell: number, out = new Vector3()): Vector3 | null {
@@ -916,8 +934,10 @@ export class PlayStage {
     if (!holo) return
     const snap = inp.t - this.holoT > 1 || inp.t < this.holoT
     this.holoT = inp.t
-    const tMs = s ? sessionTime(s, inp.now) : -1
-    const view = s && tMs >= 0 ? chessAt(s.seed, s.players, tMs) : null
+    const tMs = s ? (s.visitorChess ? 0 : sessionTime(s, inp.now)) : -1
+    // #604 the visitor's game: its own view (the agent's hand rides on view.move, the visitor's moves have none)
+    const vis = s?.visitorChess ?? null
+    const view = s && tMs >= 0 ? (vis ?? chessAt(s.seed, s.players, tMs)) : null
     // the seated (white is the side holding view.white; a record alone: the colour to move)
     const seats: { seat: Vector3; color: 1 | 2; id: string }[] = []
     if (s) {
@@ -928,7 +948,15 @@ export class PlayStage {
         const white = s.solo ? view?.toMove === 0 : view ? view.white === i : i === 0
         seats.push({ seat: rig.parts.root.position.clone(), color: white ? 2 : 1, id })
       })
+      // the visitor sits from the start of its game, in the empty chair at game_b (as in omok)
+      if (vis) {
+        const centre = holo.squarePos(27).lerp(holo.squarePos(36), 0.5)
+        const chair = this.visitorChair ?? (seats[0] ? centre.clone().multiplyScalar(2).sub(seats[0].seat) : null)
+        if (chair) seats.push({ seat: chair.clone(), color: vis.white === 1 ? 2 : 1, id: VISITOR })
+      }
     }
+    // black visitor: the board is turned so their colour is near (hologram.md 11.5)
+    const flip = !!vis && vis.white === 0
     const on = !!s && seats.length > 0
     const phase = view?.phase ?? null
     const playing = phase === 'thinking' || phase === 'pick' || phase === 'place'
@@ -969,6 +997,8 @@ export class PlayStage {
                 : null,
             end: view.end ? { result: view.end.kind === 'win' ? ('mate' as const) : ('draw' as const), ...(view.end.kind === 'win' ? { loser: view.end.side === 0 ? (1 as const) : (2 as const) } : {}), since: inp.t - view.end.sinceMs / 1000 } : null,
             camera: inp.camera,
+            ...(flip ? { flip: true } : {}),
+            ...(s?.visitorChess ? { visitor: inp.visitorChess?.visitor } : {}),
           }
         : undefined,
     })
@@ -978,11 +1008,27 @@ export class PlayStage {
     if (r.boardOnStart) this.sounds.holoBoard(true, centre, inp.reduced)
     if (r.boardOffStart) this.sounds.holoBoard(false, centre, inp.reduced)
     if (!s || !view || !on) return
-    if (phase !== 'catching') this.sounds.chessPiece(s.seed, view.game, view.moveIndex, view.lastMove ? holo.squarePos(view.lastMove.to) : null, !!(mv && phase === 'place' && mv.capture))
+    // the visitor's own move: sounds as 'ui' (its piece is the visitor's colour); it has no hand, so what it took is read from the captured rows
+    const taken = view.takenByWhite.length + view.takenByBlack.length
+    const piece = view.lastMove ? view.board[view.lastMove.to] : 0
+    const visitorMove = !!vis && !!piece && piece > 0 === (view.white === 1)
+    const capture = visitorMove ? taken > this.chessTaken : !!(mv && phase === 'place' && mv.capture)
+    this.chessTaken = taken
+    if (phase !== 'catching') this.sounds.chessPiece(s.seed, view.game, view.moveIndex, view.lastMove ? holo.squarePos(view.lastMove.to) : null, capture, visitorMove)
     if (r.checkStart && view.check !== null) this.sounds.chessCheck(s.seed, view.game, view.moveIndex, holo.squarePos(view.check))
     // the faces of the result, as in omok (play.md 2.5): the winner glad, the loser embarrassed; a draw has none; not a record alone
     const end = view.end
-    if (end && end.kind === 'win' && end.sinceMs > 500 && !s.solo) {
+    // against the visitor the faces and words come with the game (omokVisit/store.ts); the agent's clap / fist as in omok (play.md 2.5)
+    if (end && end.kind === 'win' && end.sinceMs > 500 && vis && !inp.reduced) {
+      const rk = `chess:${s.spot}:visitor:${view.game}`
+      const rig = inp.rigs[s.players[0]]
+      if (rig && this.reactedGame.get(rk) === undefined) {
+        this.reactedGame.set(rk, inp.t)
+        const agentWon = end.side === (view.white === 0 ? 0 : 1)
+        rig.reaction = agentWon ? { kind: 'fist', t0: inp.t, dur: 1.0 } : { kind: 'clap', t0: inp.t + 0.4, dur: 1.4 }
+      }
+    }
+    if (end && end.kind === 'win' && end.sinceMs > 500 && !s.solo && !vis) {
       const fk = `chess:${s.spot}:${view.game}`
       if (!this.faced.has(fk)) {
         this.faced.add(fk)

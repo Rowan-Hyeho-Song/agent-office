@@ -14,6 +14,7 @@ import { PlayStage, type StageIn } from './playStage'
 import { AgentRig, PropBank, buildRig } from './rig'
 import type { Goal } from './director'
 import { startVisitorGame, viewOf } from '../play/visitorOmok'
+import { chessViewOf, startVisitorChess } from '../play/visitorChess'
 
 stubCanvas()
 const IDS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
@@ -424,5 +425,28 @@ describe('PlayStage', () => {
     }
     expect(look(1)).toEqual({ n: 1, rgb: rgbOf('#4df3ff') })
     expect(look(2)).toEqual({ n: 1, rgb: rgbOf('#f3ead8') })
+  })
+
+  // #604 the visitor's chess: its view is drawn on the board, the visitor's colour is near (a black visitor turns the board)
+  it("chess: the visitor's game is drawn (the board on, all 32 pieces); a black visitor turns the board so their colour is near the chair", async () => {
+    const chair = (w: W) => at(w.scene, 'nav_game_b')
+    for (const game of [0, 1]) {
+      const w = await world()
+      const goals = visitorSeat(w)
+      const h = holoOf(w) as Holo & { chessLayer: { pieces: Record<1 | 2, Record<number, InstancedMesh>> } }
+      const g = startVisitorChess('agent_0', 7, 0, 'normal', game)
+      const vis = { selected: null, targets: [], cursor: 12, drag: null }
+      const run = (t: number) => w.stage.update(inp(w, goals, 10_000, t, { dt: 0.02, visitorChess: { agent: 'agent_0', view: chessViewOf(g, 9_000), visitor: vis } }))
+      for (let t = 1; t < 5; t += 0.2) run(t)
+      expect(h.state).toBe('on')
+      let n = 0
+      for (const c of [1, 2] as const) for (let k = 1; k <= 6; k++) n += h.chessLayer.pieces[c][k].count
+      expect(n).toBe(32)
+      // the visitor's back rank is the near one: white's e1 (game 0) / black's e8 (game 1) is nearer the chair than the far king
+      const mine = w.stage.chessSquarePos(game === 0 ? 4 : 60)!
+      const theirs = w.stage.chessSquarePos(game === 0 ? 60 : 4)!
+      expect(mine.distanceTo(chair(w))).toBeLessThan(theirs.distanceTo(chair(w)))
+      expect(w.stage.chessSquareAt(mine)).toBe(game === 0 ? 4 : 60)
+    }
   })
 })
