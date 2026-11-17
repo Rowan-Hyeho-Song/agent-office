@@ -1,7 +1,7 @@
 // #538 (hologram.md 4.3) the pinch timeline of the hologram board's hand.
 import { describe, expect, it } from 'vitest'
 import { HAND_MS, PLACE_AT } from './omok'
-import { PINCH, pinchSequence, pinchTimes } from './holoPinch'
+import { CHESS_PINCH, PINCH, chessPinch, pinchSequence, pinchTimes } from './holoPinch'
 
 describe('the pinch timeline (hologram.md 4.3)', () => {
   const think = 1200
@@ -52,5 +52,33 @@ describe('the pinch timeline (hologram.md 4.3)', () => {
       expect(Math.abs(p.w - prev.w), `w at ${s}`).toBeLessThan(0.1)
       prev = p
     }
+  })
+})
+
+describe('the chess hand (hologram.md 11.4)', () => {
+  const think = 900
+  it('waits over its edge while thinking, reaches the piece, takes it at 0.37 s and puts it down at 0.92 s after the thinking', () => {
+    expect(chessPinch(400, think)).toMatchObject({ stage: 'hover', a: 0, held: false })
+    expect(chessPinch(think + 100, think).stage).toBe('reach')
+    expect(chessPinch(think + CHESS_PINCH.pick - 1, think).held).toBe(false)
+    expect(chessPinch(think + CHESS_PINCH.pick, think)).toMatchObject({ stage: 'arc', held: true, a: 1, close: 1 })
+    expect(chessPinch(think + CHESS_PINCH.land - 1, think)).toMatchObject({ held: true, u: 1 })
+    expect(chessPinch(think + CHESS_PINCH.land, think)).toMatchObject({ landed: true, held: false })
+    expect(chessPinch(think + CHESS_PINCH.end, think)).toMatchObject({ stage: 'rest', w: 0 })
+  })
+  it('the arc rises no higher than 8 cm and moves without jumps while the hand is on its path', () => {
+    let top = 0
+    let prev = chessPinch(0, think)
+    for (let s = 5; s <= think + CHESS_PINCH.end; s += 5) {
+      const p = chessPinch(s, think)
+      top = Math.max(top, p.h)
+      if (p.w > 0.05 && prev.w > 0.05) {
+        expect(Math.abs(p.h - prev.h), `h at ${s}`).toBeLessThan(0.005)
+        expect(Math.abs(p.u - prev.u) + Math.abs(p.a - prev.a), `path at ${s}`).toBeLessThan(0.08)
+      }
+      prev = p
+    }
+    expect(top).toBeLessThanOrEqual(CHESS_PINCH.arcTop + 1e-9)
+    expect(top).toBeGreaterThan(0.07)
   })
 })

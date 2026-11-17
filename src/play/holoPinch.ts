@@ -117,3 +117,60 @@ export function pinchSequence(sinceMs: number, thinkMs: number): Pinch {
   out.pull = PINCH.backPull * k
   return out
 }
+
+// ---- #604 chess (hologram.md 11.4) -----------------------------------------------------------------------------------------------
+// The hand waits over its own edge of the board while the player thinks; then it reaches over the piece (0–0.25 s), takes it (0.25–0.37 s,
+// holo.pick), carries it in an arc no higher than 8 cm (0.37–0.82 s), comes down onto the square (0.82–0.92 s) and puts it down at 0.92 s
+// (chess.place / chess.capture), back at 1.25 s. Times are from the end of the thinking.
+
+export const CHESS_PINCH = {
+  hoverH: 0.04,
+  reach: 250,
+  pick: 370,
+  arcEnd: 820,
+  land: 920,
+  release: 100,
+  end: 1250,
+  overCell: 0.02,
+  arcTop: 0.08,
+  releaseLift: 0.005,
+  backRise: 0.06,
+  backPull: 0.05,
+} as const
+
+export interface ChessPinch extends Pinch {
+  /** from the hover over the board's edge (0) to over the piece (1) */
+  a: number
+}
+
+/** where the hand is `sinceMs` into a half-move that thinks `thinkMs` */
+export function chessPinch(sinceMs: number, thinkMs: number): ChessPinch {
+  const C = CHESS_PINCH
+  const s = sinceMs
+  const k = s - thinkMs
+  const base: ChessPinch = { stage: 'rest', w: 0, a: 0, u: 0, h: 0, close: 0, open: 0, held: false, landed: k >= C.land, rise: 0, pull: 0 }
+  if (s < 0 || k >= C.end) return base
+  const out: ChessPinch = { ...base, w: ease(s / C.reach), h: C.hoverH }
+  if (k < 0) return { ...out, stage: 'hover' }
+  if (k < C.reach) return { ...out, stage: 'reach', a: ease(k / C.reach), open: ease(k / C.reach) }
+  out.a = 1
+  if (k < C.pick) {
+    const q = (k - C.reach) / (C.pick - C.reach)
+    return { ...out, stage: 'pinch', open: 1 - ease(q), h: C.hoverH * (1 - ease(q)), close: ease((q - 0.5) * 2) }
+  }
+  out.close = 1
+  if (k < C.arcEnd) {
+    const q = (k - C.pick) / (C.arcEnd - C.pick)
+    return { ...out, stage: 'arc', held: true, u: ease(q), h: C.overCell * ease(q) + (C.arcTop - C.overCell) * Math.sin(Math.PI * q) }
+  }
+  out.u = 1
+  if (k < C.land) return { ...out, stage: 'descend', held: true, h: C.overCell * (1 - ease((k - C.arcEnd) / (C.land - C.arcEnd))) }
+  out.h = 0
+  const since = k - C.land
+  if (since < C.release) {
+    const q = ease(since / C.release)
+    return { ...out, stage: 'release', close: 1 - 0.5 * q, rise: C.releaseLift * q }
+  }
+  const q = ease((since - C.release) / (C.end - C.land - C.release))
+  return { ...out, stage: 'back', close: 0.5 * (1 - q), w: 1 - q, rise: C.releaseLift + C.backRise * q, pull: C.backPull * q }
+}
