@@ -54,14 +54,18 @@ describe('which day opens (timelapse.md 10.5)', () => {
     expect(gap.getSnapshot().day).toBe('2026-11-05')
     expect(gap.getSnapshot().i).toBe(0)
   })
-  it('"▶ 이 날 보기" in the list: that day from its first point, playing, in the office', async () => {
+  it('"▶ 이 날 보기" in the list: that day where it opens (past its empty night, #599 13.3), playing, in the office', async () => {
     const s = await opened({ project: 'all', mode: 'list' })
     expect(s.getSnapshot().mode).toBe('list')
     await s.showDay('all', '2026-11-06')
     const st = s.getSnapshot()
     expect(st.mode).toBe('office')
     expect(st.day).toBe('2026-11-06')
-    expect(st.i).toBe(0)
+    // 11.06 begins with 12 steps of a night nobody works in: it opens at the last of them, the next one has someone at work
+    expect(st.i).toBe(11)
+    expect(st.night).toBeNull()
+    expect([0, 10].map((k) => s.rateAt(k))).toEqual([16, 16])
+    expect([11, 12].map((k) => s.rateAt(k))).toEqual([1, 1])
     expect(st.playing).toBe(true)
     expect(s.landedVia).toBe('seek')
     // "사무실에서 보기": the latest day

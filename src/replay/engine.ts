@@ -143,14 +143,19 @@ export const stepMs = (p: Point, speed: Speed = 1) => (p.kind === 'minutes' ? MI
 export const daybreakMs = (speed: Speed = 1) => DAYBREAK_MS / speed
 export const isDaybreak = (a: Point, b: Point) => dayKey(a) !== dayKey(b) && atMs(b) - atMs(a) >= DAYBREAK_GAP_MS
 
-/** the time left from point `i` at this speed, ms; `wait` adds the expected holds per point (replay ms, they run faster too) */
-export function remainingMs(points: readonly Point[], i: number, speed: Speed, wait?: (k: number, first: boolean) => number, ended = false): number {
+/**
+ * the time left from point `i` at this speed, ms; `wait` adds the expected holds per point (replay ms, they run faster too). The speed may differ
+ * per step (#599: an empty night step at x16)
+ */
+export function remainingMs(points: readonly Point[], i: number, speed: Speed | ((k: number) => Speed), wait?: (k: number, first: boolean) => number, ended = false): number {
   // the last point has played (the end card is up): nothing is left, not the 3 s the last point itself lasts
   if (ended) return 0
+  const at = typeof speed === 'function' ? speed : () => speed
   let ms = 0
   for (let k = Math.max(0, i); k < points.length; k++) {
-    ms += stepMs(points[k], speed) + (wait ? wait(k, k === Math.max(0, i)) / speed : 0)
-    if (k + 1 < points.length && isDaybreak(points[k], points[k + 1])) ms += daybreakMs(speed)
+    const v = at(k)
+    ms += stepMs(points[k], v) + (wait ? wait(k, k === Math.max(0, i)) / v : 0)
+    if (k + 1 < points.length && isDaybreak(points[k], points[k + 1])) ms += daybreakMs(v)
   }
   return ms
 }
@@ -230,6 +235,60 @@ export function lifeStatusAt(points: readonly Point[], i: number): StatusMap {
       : ({ state: 'idle', since: t } satisfies AgentStatus)
   }
   return applyDuty(raw, Object.keys(raw), t)
+}
+
+/** #599 (timelapse.md 13.2) the night, KST: from 23:00 to 09:00 */
+export const NIGHT_HOURS = { from: 23, to: 9 }
+const nightHour = (h: number) => h >= NIGHT_HOURS.from || h < NIGHT_HOURS.to
+
+/**
+ * #599 (timelapse.md 13.2) a step of the night: 'empty' = its point is at night (KST 23–09) and nobody works in the replay status at it (12.1: all
+ * asleep, on duty or resting); 'event' = the same but a meeting (minutes) or a deploy, an event of the whole office that is never passed fast;
+ * 'day' = someone works, or it is past 09:00 (it ends a night run)
+ */
+export type NightKind = 'empty' | 'event' | 'day'
+export function nightKindAt(points: readonly Point[], i: number): NightKind {
+  const p = points[i]
+  if (!p || !nightHour(kst(atMs(p)).h) || Object.values(lifeStatusAt(points, i)).some((s) => s.state === 'working')) return 'day'
+  return p.kind === 'minutes' || p.kind === 'deploy' ? 'event' : 'empty'
+}
+export const emptyNightAt = (points: readonly Point[], i: number) => nightKindAt(points, i) === 'empty'
+/** the night kinds of the window `lo` … `lo + n - 1` of `points` (its statuses read the points before the window too) */
+export const nightKinds = (points: readonly Point[], lo: number, n: number): NightKind[] => Array.from({ length: n }, (_, k) => nightKindAt(points, lo + k))
+export const emptyNights = (points: readonly Point[], lo: number, n: number): boolean[] => nightKinds(points, lo, n).map((k) => k === 'empty')
+
+/** a night run passes fast only with at least this many empty steps (fewer is under 12 s at x1: nothing to skip, and the chip would only blink) */
+export const NIGHT_RUN_MIN = 4
+/**
+ * #599 (#641) the night runs: from an empty step up to the first 'day' step; the meetings and deploys inside do not break one. Each step gets its run's
+ * number, or -1 when it is in none (or in a run with under NIGHT_RUN_MIN empty steps). The chip and "이 밤만 끄기" hold for a whole run
+ */
+export function nightRuns(kinds: readonly NightKind[]): number[] {
+  const run = kinds.map(() => -1)
+  let id = 0
+  for (let k = 0; k < kinds.length; ) {
+    if (kinds[k] !== 'empty') {
+      k++
+      continue
+    }
+    let e = k
+    let empties = 0
+    for (; e < kinds.length && kinds[e] !== 'day'; e++) if (kinds[e] === 'empty') empties++
+    if (empties >= NIGHT_RUN_MIN) {
+      for (let j = k; j < e; j++) run[j] = id
+      id++
+    }
+    k = e
+  }
+  return run
+}
+/**
+ * #599 (timelapse.md 13.3) where a day opens: past its leading empty night steps, at the step just before the first one that is not (everyone still
+ * asleep, and someone goes to work next). 0 when the day starts with no empty night step, or is all one
+ */
+export function openingIndex(nights: readonly boolean[]): number {
+  const k = nights.findIndex((e) => !e)
+  return k <= 0 ? 0 : k - 1
 }
 
 /** the approval tray after the points up to `i`: requests minus results, oldest answered first */

@@ -147,16 +147,15 @@ describe('the AI', () => {
     const firsts = new Set(Array.from({ length: 12 }, (_, k) => moveText(aiMove(startPosition(), 'easy', k))))
     expect(firsts.size).toBeGreaterThan(1)
   })
-  it('one move stays under 0.3 s at every level (a node budget, not a clock)', () => {
-    for (const lv of ['easy', 'normal', 'strong'] as const) {
-      let worst = 0
+  // a node budget, not a clock: a clock fails on a busy machine (#604: 461 ms in a full run). The budget is what keeps a move short (strong: 48 ms measured)
+  it('one move never searches more than the node budget of its level', () => {
+    for (const lv of ['easy', 'normal', 'strong'] as const)
       for (const f of POSITIONS) {
-        const t0 = performance.now()
-        aiMove(at(f), lv, 3)
-        worst = Math.max(worst, performance.now() - t0)
+        const stats = { nodes: 0 }
+        aiMove(at(f), lv, 3, stats)
+        expect(stats.nodes, `${lv} ${f}`).toBeGreaterThan(0)
+        expect(stats.nodes, `${lv} ${f}`).toBeLessThanOrEqual(CHESS_AI[lv].nodes + 1)
       }
-      expect(worst, lv).toBeLessThan(300)
-    }
     expect(CHESS_AI.easy.nodes).toBeLessThan(CHESS_AI.normal.nodes)
     expect(CHESS_AI.normal.nodes).toBeLessThan(CHESS_AI.strong.nodes)
   })

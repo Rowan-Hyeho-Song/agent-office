@@ -7,6 +7,7 @@ import {
   build,
   collect,
   decisionRows,
+  filesSeat,
   finalize,
   issueSeat,
   mergePoints,
@@ -14,6 +15,7 @@ import {
   minutesSeat,
   seatIn,
   serialize,
+  sessionSeat,
   tierFor,
 } from './build.mjs'
 import { redact } from './filter.mjs'
@@ -91,8 +93,8 @@ describe('kinds and attribution', () => {
   it('a commit before roles existed is null', () => {
     expect(points.find((p) => p.key.endsWith('/c0'))).toMatchObject({ issue: null, pr: null, agent: null })
   })
-  it('deploy is the main-only merge, with its PR number and no seat', () => {
-    expect(of('deploy')[0]).toMatchObject({ agent: null, pr: 5 })
+  it('deploy is the main-only merge, with its PR number, on the planner (#634: the planner releases)', () => {
+    expect(of('deploy')[0]).toMatchObject({ agent: 0, pr: 5 })
   })
   it('a deploy is titled by its PR (#462); without a PR title, the merge line', () => {
     expect(of('deploy')[0].title).toBe('Merge pull request #5 from x/dev')
@@ -106,8 +108,10 @@ describe('kinds and attribution', () => {
     expect(issueSeat(issue(1, '[디자인] x'))).toEqual({ known: true, seat: 2 })
     expect(issueSeat(issue(1, '[기능] x', 'no field'))).toEqual({ known: false, seat: null })
   })
-  it('plan: the planner opened it once roles existed, else null', () => {
-    expect(of('plan').map((p) => [p.issue, p.agent])).toEqual([[1, 0], [2, 0], [3, null]])
+  it('plan: the planner opened it (#634: any issue once roles existed); before roles only an issue with a seat', () => {
+    expect(of('plan').map((p) => [p.issue, p.agent])).toEqual([[1, 0], [2, 0], [3, 0]])
+    const early = build(data({ issues: [issue(9, '처음', '무엇', { created_at: '2026-11-07T10:00:00Z' })] }), cfg).find((p) => p.kind === 'plan')!
+    expect(early.agent).toBeNull()
   })
   it('minutes: first speaking seat, the owner speaking first is skipped; its 결정 becomes a decision of the planner', () => {
     expect(minutesSeat(MINUTES)).toBe(0)
@@ -270,5 +274,59 @@ describe('approval result (#82)', () => {
   it('the backfill marks the owner result comments', () => {
     const points = collect(data() as never)
     expect(points.filter((p) => p.kind === 'approval').map((p) => p.result === true)).toEqual([false, true])
+  })
+})
+
+describe("#634 a work point is on its PR's seat", () => {
+  const withFiles = (c: ReturnType<typeof commit>, ...paths: string[]) => ({ ...c, files: paths.map((filename) => ({ filename })) })
+  const work = (d: object) => build(data(d), cfg).find((p) => p.key.endsWith('/c1'))!
+  it('the session line in the PR body comes first, over the files and the issue', () => {
+    expect(sessionSeat('…\n\n작성 세션: 디자이너\n')).toBe(2)
+    expect(sessionSeat('작성 세션 : 3D')).toBe(1)
+    expect(sessionSeat('- 작성 세션: 사운드 (Claude)')).toBe(4)
+    expect(sessionSeat('작성 세션: 기획')).toBe(0)
+    expect(sessionSeat('작성 세션: 코더')).toBe(3)
+    expect(sessionSeat('작성 세션: 코더들')).toBeNull()
+    expect(sessionSeat('세션 없음')).toBeNull()
+    expect(work({ pulls: [pull(4, 'Closes #1\n\n작성 세션: 사운드'), pull(5, '', 'd1')] }).agent).toBe(4)
+  })
+  it('without the line, where its files changed', () => {
+    expect(filesSeat(['src/audio/cues.ts', 'src/audio/audio.test.ts', 'docs/design/sound.md'])).toBe(4)
+    expect(filesSeat(['assets/blender/office_bake.py', 'public/models/office.glb', 'src/office/navSpots.fixture.ts'])).toBe(1)
+    expect(filesSeat(['docs/design/timelapse.md'])).toBe(2)
+    expect(filesSeat(['docs/design/play.md', 'docs/design/play.html'])).toBe(2)
+    expect(filesSeat(['package.json'])).toBe(0)
+    expect(filesSeat(['docs/workflow.md', 'docs/design/play.md'])).toBe(0)
+    expect(filesSeat(['src/audio/SoundRoot.tsx', 'src/office/Agents.tsx', 'docs/design/timelapse.md'])).toBe(3)
+    expect(filesSeat(['scripts/timeline/build.mjs'])).toBe(3)
+    expect(filesSeat([])).toBeNull()
+    expect(filesSeat(['hooks/office-hook.mjs', 'hooks/hooks.test.ts'])).toBe(3)
+    expect(filesSeat(['.env.example', 'docs/plan.md', 'vercel.json'])).toBe(3)
+    expect(filesSeat(['README.md'])).toBe(0)
+    // the issue says 코더 (FORM), the PR's files say designer
+    expect(work({ devCommits: [withFiles(commit('c1', 'docs: 하나 (#1) (#4)'), 'docs/design/play.md')] }).agent).toBe(2)
+  })
+  it("an issue opened without the form no longer leaves a PR on '역할 분담 이전'", () => {
+    const d = { issues: [issue(1, '타임랩스 밤', '## 배경\n무엇')], devCommits: [withFiles(commit('c1', 'feat: 밤 (#1) (#4)'), 'src/replay/store.ts')] }
+    expect(work(d).agent).toBe(3)
+  })
+  it("a commit with no PR, or from before roles existed, keeps the issue's seat or null", () => {
+    const noPr = build(data({ pulls: [], devCommits: [withFiles(commit('c1', 'docs: 바로 (#3)'), 'docs/design/play.md')] }), cfg)
+    expect(noPr.find((p) => p.key.endsWith('/c1'))!.agent).toBeNull()
+    const early = build(data({ devCommits: [withFiles(commit('c1', 'feat: 처음 (#3) (#4)', 1, 'Rowan-Hyeho-Song', '2026-11-07T15:00:00Z'), 'src/a.ts')] }), cfg)
+    expect(early.find((p) => p.key.endsWith('/c1'))!.agent).toBeNull()
+  })
+  it('a deploy is on the planner; one before roles existed on nobody', () => {
+    expect(build(data(), cfg).find((p) => p.kind === 'deploy')!.agent).toBe(0)
+    const early = build(data({ mainCommits: [commit('d1', 'Merge pull request #5 from x/dev', 2, 'Rowan-Hyeho-Song', '2026-11-07T10:00:00Z')] }), cfg)
+    expect(early.find((p) => p.kind === 'deploy')!.agent).toBeNull()
+  })
+  it('a minutes comment: its session line first, then the first speaker, then the planner', () => {
+    const seatOf = (body: string, at = '2026-11-08T12:00:00Z') => build(data({ comments: [{ ...comment(1, 1, body), created_at: at }] }), cfg).find((p) => p.kind === 'minutes')!.agent
+    expect(seatOf(MINUTES + '\n\n작성 세션: 사운드')).toBe(4)
+    expect(seatOf(MINUTES)).toBe(0)
+    const noTable = '### 🗂 에이전트 간 협의 기록 (2026-11-08)\n\n**코더 → 디자이너**: 이것\n\n**결정**: 그것'
+    expect(seatOf(noTable)).toBe(0)
+    expect(seatOf(noTable, '2026-11-07T10:00:00Z')).toBeNull()
   })
 })

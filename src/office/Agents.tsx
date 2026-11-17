@@ -1,7 +1,7 @@
 import { Html } from '@react-three/drei'
 import { setDoorMessage } from '../room/doorMessage'
 import { BubbleLayer, type Anchor, type TagItem } from './bubbleLayer'
-import { BUBBLE, statusTag, type BubbleItem } from './bubbles'
+import { BUBBLE, replayTag, statusTag, zRises, type BubbleItem } from './bubbles'
 import { openDocs } from './docs/panel'
 import { seatName } from './meeting'
 import { captionOf } from './minutes'
@@ -339,7 +339,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
     const status = scene ? scene.status : world.source.getSnapshot()
     // ?debug=1: window.__office.forceSpots = { agent_0: 'whiteboard', ... } sends agents to spots (head-on tests, screenshots)
     if (world.debug && world.forceSpots) for (const id in world.forceSpots) if (goals[id]) goals[id] = { ...goals[id], spot: world.forceSpots[id], pose: 'idle', label: 'debug' }
-    if (world.debug && world.forceGoal) for (const id in world.forceGoal) if (goals[id]) goals[id] = { ...goals[id], ...world.forceGoal[id], label: 'debug' }
+    // (the director's own place for it is dropped: its slot, facing, departure or gap would walk the body off the forced spot when its plan moves on, #654)
+    if (world.debug && world.forceGoal) for (const id in world.forceGoal) if (goals[id]) goals[id] = { ...goals[id], slot: undefined, face: undefined, depart: undefined, gap: undefined, ...world.forceGoal[id], label: 'debug' }
     // #601 (designer, #615) held at the visitor's game while called to work: this tab's tag and list show the real activity (파일 편집 중, no
     // "자리로 가는 중": it is not on its way); the other tabs keep the director's words, the body there does go to its desk. Read by the director's
     // next frame
@@ -448,7 +449,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
           touches.reset() // and nothing on a desk is touched for what was jumped over
         }
       }
-      const speed = replay.getSnapshot().speed
+      const speed = replay.getSnapshot().rate
       const tauTotal = steps.reduce((a, s) => a + s.dt, 0)
       const realDt = Math.min(dt, 0.1)
       for (const step of steps)
@@ -523,7 +524,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
       dt: Math.min(dt, 0.1),
       reduced,
       replaying: !!st,
-      speed: st ? replay.getSnapshot().speed : 1,
+      speed: st ? replay.getSnapshot().rate : 1,
       rigs,
       goals,
       status,
@@ -535,9 +536,9 @@ export function Agents({ world }: { world: OfficeWorld }) {
       visitorPingpong: pingpongView(!st),
       // #455 the treats in a hand (not in the replay: a treat is a live visitor's)
       treats: st ? undefined : world.treats,
-      // #137 ② the visitor plays black from the empty chair, the agent white: its bowl rests by the agent (the corner by game_a) while they play
-      bowlRest: !st && omokView(now) ? 'corner' : world.director.bowlRest(),
       gripDemo: world.debug ? world.gripDemo : null,
+      // #604 the hologram chess pieces face the camera
+      camera: state.camera.position,
     })
     const tag = playStage.tag
     if (tagEl.current) {
@@ -577,7 +578,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
       const lines = meet.script.lines
       const line = lines[k]
       if (line) {
-        mode = lineMode(reduced ? 1 : replay.getSnapshot().speed, (lines[k + 1]?.startMs ?? meet.script.linesMs) - line.startMs)
+        mode = lineMode(reduced ? 1 : replay.getSnapshot().rate, (lines[k + 1]?.startMs ?? meet.script.linesMs) - line.startMs)
         // the caption reads `메시 → 휴 — 내용`: instead of a bubble, and while the receiver of a 1:1 pass reads (timelapse.md 11.2)
         if (mode === 'subtitle' || (line.pass && meet.t - line.startMs >= (line.readAt ?? 0))) sub = captionOf(line)
       }
@@ -627,8 +628,10 @@ export function Agents({ world }: { world: OfficeWorld }) {
     const area = sideArea()
     const anchors: Record<string, Anchor> = {}
     const tags: TagItem[] = []
-    // the replay shows the past: no live night / duty state (sleepers' z, status tags) reaches the bubble layer
+    // the replay shows the past: no live night / duty state reaches the bubble layer; its own (sleepers' z, the night chips, #599) does
     const status = replaying ? (replay.scene()?.status ?? {}) : world.source.getSnapshot()
+    /** lying on the sofa (its goal's pose, arrived): asleep (faceMind baseExpression) */
+    const napping = (id: string) => world.goals[id]?.pose === 'sofa' && rigs[id].arrived === world.goals[id]?.spot
     const omok = getOmokVisit()
     for (const id in rigs) {
       const rig = rigs[id]
@@ -656,15 +659,17 @@ export function Agents({ world }: { world: OfficeWorld }) {
         }
       }
       if (anchors[id].x > area.w || anchors[id].y > area.h) anchors[id].visible = false
-      const tag = replaying ? null : statusTag(world.director.shown[id]?.status ?? status[id], world.director.shown[id]?.detail)
+      const tag = replaying ? replayTag(status[id], napping(id)) : statusTag(world.director.shown[id]?.status ?? status[id], world.director.shown[id]?.detail)
       if (tag) tags.push({ id, seat: Number(id.split('_')[1]), ...tag })
     }
     l.update([...byId.values()], tags, anchors, { w: area.w, h: area.h, narrow: narrow.matches })
+    // the sleepers' z: dozing at the desk at night; in the timelapse also lying on the sofa (#599 timelapse.md 13.1, the asleep face of 12.4)
+    const dozing = (id: string) => status[id]?.night === 'sleep' && rigs[id].arrived === world.goals[id]?.spot && world.goals[id]?.pose === 'doze'
     l.updateZ(
-      Object.keys(rigs).filter((id) => status[id]?.night === 'sleep' && rigs[id].arrived === world.goals[id]?.spot && world.goals[id]?.pose === 'doze').map((id) => ({ id, seat: Number(id.split('_')[1]) })),
+      Object.keys(rigs).filter((id) => dozing(id) || (replaying && napping(id))).map((id) => ({ id, seat: Number(id.split('_')[1]) })),
       anchors,
       state.clock.elapsedTime,
-      reduced,
+      !zRises(replaying, replay.getSnapshot().rate, reduced),
     )
   }
 

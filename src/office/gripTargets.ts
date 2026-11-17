@@ -40,14 +40,14 @@ const AXES = new WeakMap<object, 'y' | 'z'>()
 /**
  * Which local axis of a contact node is its outward normal. Blender aims +z; the glTF export maps that to the node's +y (the first #172
  * bake), and the re-bake that fixes it makes the node's +z the normal. Read it from the go stone's index contact, which faces straight up or down on its local axis, so
- * both bakes work.
+ * both bakes work. #538: the hologram bake has no go stone any more; every bake since the re-bake is 'z', so a scene without it is 'z'.
  */
 export function contactAxis(scene: Object3D): 'y' | 'z' {
   let a = AXES.get(scene)
   if (!a) {
     const n = scene.getObjectByName('prop_piece_a_contact_index')
     scene.updateMatrixWorld(true)
-    a = n && Math.abs(new Vector3(0, 0, 1).transformDirection(n.matrixWorld).y) > 0.9 ? 'z' : 'y'
+    a = !n || Math.abs(new Vector3(0, 0, 1).transformDirection(n.matrixWorld).y) > 0.9 ? 'z' : 'y'
     AXES.set(scene, a)
   }
   return a
@@ -132,6 +132,83 @@ export function resolvePageTarget(scene: Object3D, bookName: string, pg: Matrix4
   })
   return { key: `${bookName}_page:r`, kind: 'leaf', side: 'r', obj: null, pg: pg.clone(), contacts, solids, solidSets }
 }
+
+/** #538 the light stone's radius, m (hologram.md 3.2: 8 voxels of 2.8 mm) */
+export const HOLO_PINCH_R = 0.0112
+
+/**
+ * #538 (hologram.md 4.1) the right hand's grip frame for the light stone, in the stone's frame (x: thumb to index across the diameter, y: up,
+ * z: forward, away from the body): palm down, the fingers forward and about 15° down. Of the 24 axis-aligned frames every agent fits within
+ * 0.35 mm; this one has the palm down (normal y −0.95) and the fingers forward, pitched 25° down so the fingertips look at the board.
+ */
+export const HOLO_PINCH_PG = new Matrix4().makeRotationX((25 * Math.PI) / 180).multiply(new Matrix4().makeBasis(new Vector3(0, 1, 0), new Vector3(0, 0, -1), new Vector3(-1, 0, 0)))
+
+/** #538 the light stone held by the thumb and index on its rim, at the two ends of a diameter (not a node of the model: the board is light) */
+export const holoPinchTarget = (): GripTarget => ({
+  key: 'holo_stone:r',
+  kind: 'holo',
+  side: 'r',
+  obj: null,
+  pg: HOLO_PINCH_PG.clone(),
+  contacts: [
+    { finger: 'thumb', p: new Vector3(-HOLO_PINCH_R, 0, 0), n: new Vector3(-1, 0, 0) },
+    { finger: 'index', p: new Vector3(HOLO_PINCH_R, 0, 0), n: new Vector3(1, 0, 0) },
+  ],
+})
+
+/** #604 a chess glyph's thickness (2 voxels of 3.6 mm, hologram.md 11.2) */
+export const CHESS_CARD_T = 0.0072
+
+/**
+ * #604 (hologram.md 11.4) a chess piece taken like a card: the thumb on the glyph's back face, the index on its front, at the grip point (the caller puts
+ * it at 70% of the glyph's height). The piece's frame: x across the glyph, y up, z out of its front (toward the camera). Of the 24 axis-aligned
+ * frames every agent fits within 0.33 mm; these two have the palm down and the fingers along the glyph, A along +x, B along −x (the caller
+ * takes the one nearer the player's forward)
+ */
+export const chessCardTarget = (flip: boolean): GripTarget => ({
+  key: `chess_card_${flip ? 'b' : 'a'}:r`,
+  kind: 'holo',
+  side: 'r',
+  obj: null,
+  pg: new Matrix4().makeBasis(new Vector3(0, 1, 0), new Vector3(flip ? 1 : -1, 0, 0), new Vector3(0, 0, flip ? -1 : 1)),
+  contacts: [
+    { finger: 'thumb', p: new Vector3(0, 0, -CHESS_CARD_T / 2), n: new Vector3(0, 0, -1) },
+    { finger: 'index', p: new Vector3(0, 0, CHESS_CARD_T / 2), n: new Vector3(0, 0, 1) },
+  ],
+})
+
+/**
+ * #604 (hologram.md 11.4, hand-poses.md 6) the king and the queen taken with three fingers just under the glyph's top: the thumb on the back face,
+ * the index and the middle on the front, 2 cm apart (the glyph is 21.6 mm wide there; 1 cm apart no agent's fingers fit within 3 mm, 2 cm within
+ * 0.9 mm); the same frames as the card pinch (A / B), the index on the side that keeps the palm down
+ */
+export const CHESS_TRIPOD_HALF = 0.01
+export const chessTripodTarget = (flip: boolean): GripTarget => ({
+  ...chessCardTarget(flip),
+  key: `chess_tripod_${flip ? 'b' : 'a'}:r`,
+  kind: 'holo_tripod',
+  contacts: [
+    { finger: 'thumb', p: new Vector3(0, 0, -CHESS_CARD_T / 2), n: new Vector3(0, 0, -1) },
+    { finger: 'index', p: new Vector3(flip ? CHESS_TRIPOD_HALF : -CHESS_TRIPOD_HALF, 0, CHESS_CARD_T / 2), n: new Vector3(0, 0, 1) },
+    { finger: 'middle', p: new Vector3(flip ? -CHESS_TRIPOD_HALF : CHESS_TRIPOD_HALF, 0, CHESS_CARD_T / 2), n: new Vector3(0, 0, 1) },
+  ],
+})
+
+/** #605 an alkkagi stone's radius on the board, m (the engine's 0.46 lines of 2 cm, hologram.md 12.2) */
+export const ALK_STONE_R = 0.0092
+
+/**
+ * #605 (hologram.md 12.4) the flick: the index fingertip on the stone's back (opposite the flick), the stone's frame x across, y up, z the flick's
+ * direction; palm down, the fingers forward along it (the omok pinch's base frame, unpitched)
+ */
+export const holoFlickTarget = (): GripTarget => ({
+  key: 'holo_flick:r',
+  kind: 'holo_flick',
+  side: 'r',
+  obj: null,
+  pg: new Matrix4().makeBasis(new Vector3(0, 1, 0), new Vector3(0, 0, -1), new Vector3(-1, 0, 0)),
+  contacts: [{ finger: 'index', p: new Vector3(0, 0, -ALK_STONE_R), n: new Vector3(0, 0, -1) }],
+})
 
 /** the grip target of `objName` for a `kind` of grip, or null when the model has no grip empty for that hand */
 export function resolveTarget(scene: Object3D, objName: string, kind: string, side: 'l' | 'r'): GripTarget | null {

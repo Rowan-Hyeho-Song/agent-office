@@ -150,7 +150,7 @@ export class Stage {
       }
     }
     const s = store.getSnapshot()
-    if (s.mode === 'office' && s.playing) this.pending += dtMs * s.speed
+    if (s.mode === 'office' && s.playing) this.pending += dtMs * s.rate
     while (store.getSnapshot().playing) {
       const len = Math.min(TICK_MS, store.untilBoundary())
       if (this.pending < len || store.clock + len > until) break
@@ -195,7 +195,7 @@ export class Stage {
     const base = { ...goals }
     const place = { at: (a: string) => (planner.has(a) ? planner.position(a, tau / 1000) : null), spot: (sp: string) => this.env.spot?.(sp) ?? null }
     // a minutes point is timed for the speed it plays at (timelapse.md 11.4): a change of speed times the rest of its rows again
-    const speed = store.getSnapshot().speed
+    const speed = store.getSnapshot().rate
     if (speed !== this.speed) {
       this.speed = speed
       meeting.replan(speed, tau)

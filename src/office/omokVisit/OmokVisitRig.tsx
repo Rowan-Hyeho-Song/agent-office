@@ -1,6 +1,7 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
-import { CircleGeometry, Group, Matrix4, CylinderGeometry, Mesh, MeshBasicMaterial, Plane, PlaneGeometry, Raycaster, RingGeometry, Vector2, Vector3, type PerspectiveCamera } from 'three'
+import { AdditiveBlending, Group, Matrix4, Mesh, MeshBasicMaterial, Plane, PlaneGeometry, Raycaster, RingGeometry, Vector2, Vector3, type PerspectiveCamera } from 'three'
+import { COLORS as HOLO_COLORS, STONE_Y as HOLO_STONE_Y, buildVoxelGeometry } from '../holoBoard'
 import { cue } from '../../audio/cues'
 import type { Expression } from '../faceModel'
 import type { PlayStage } from '../playStage'
@@ -62,35 +63,35 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
     return found.current ?? undefined
   }
 
-  // the marks on the board: the preview stone, the cursor ring, the last move's dot
+  // the marks on the hologram board (#538 hologram.md 3.2 · 3.3): the preview stone, the cursor ring; the last move's dot is the board's own
   const marks = useMemo(() => {
-    const preview = new Mesh(new CylinderGeometry(0.0105, 0.0105, 0.006, 20), new MeshBasicMaterial({ color: '#111318', transparent: true, opacity: 0.5, depthWrite: false }))
-    const cursor = new Mesh(new RingGeometry(0.0115, 0.0145, 32).rotateX(-Math.PI / 2), new MeshBasicMaterial({ color: '#5fd6c8', transparent: true, depthWrite: false }))
-    const last = new Mesh(new CircleGeometry(0.002, 16).rotateX(-Math.PI / 2), new MeshBasicMaterial({ color: '#e05a4f', depthWrite: false }))
-    for (const m of [preview, cursor, last]) {
+    // the visitor's preview: the same pixel stone at 0.45, no glow under it (light: added, unlit)
+    const preview = new Mesh(buildVoxelGeometry(2, false), new MeshBasicMaterial({ color: HOLO_COLORS.cyan, transparent: true, opacity: 0.45, blending: AdditiveBlending, depthWrite: false, toneMapped: false }))
+    const cursor = new Mesh(new RingGeometry(0.0115, 0.0145, 32).rotateX(-Math.PI / 2), new MeshBasicMaterial({ color: HOLO_COLORS.cyan, transparent: true, blending: AdditiveBlending, depthWrite: false, toneMapped: false }))
+    for (const m of [preview, cursor]) {
       m.visible = false
-      m.renderOrder = 5
+      m.renderOrder = 6
     }
     // #603 (play.md 11.4) a forbidden point: ✕ on the board's plane in a unit cell (scaled by the grid step): two strokes at 45°, 0.6 long, 0.10
-    // thick, square ends, red over an ink outline (60%, 0.02) so it reads on the wood; painted as it is (no tone mapping: it went dark brown, #617)
+    // thick, square ends. #538 on the hologram board: the red is normal blending and opaque, drawn after the light (added, it washes to white on a
+    // cyan stone), and its outline is a glow of the same red, added, reaching 0.15 of the step round the strokes
     const forbid = new Group()
-    // both strokes in the transparent pass, the red after the ink (an opaque red was drawn first and the ink outline went over it)
-    const stroke = (len: number, wid: number, color: string, opacity: number, ry: number, y: number, order: number) => {
-      const m = new Mesh(new PlaneGeometry(len, wid).rotateX(-Math.PI / 2), new MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, toneMapped: false }))
+    const stroke = (len: number, wid: number, opacity: number, ry: number, y: number, order: number, glow: boolean) => {
+      const m = new Mesh(new PlaneGeometry(len, wid).rotateX(-Math.PI / 2), new MeshBasicMaterial({ color: HOLO_COLORS.red, transparent: glow, opacity, ...(glow ? { blending: AdditiveBlending } : {}), depthWrite: false, toneMapped: false }))
       m.rotation.y = ry
       m.position.y = y
       m.renderOrder = order
       return m
     }
-    for (const ry of [Math.PI / 4, -Math.PI / 4]) forbid.add(stroke(0.6 + 0.04, 0.1 + 0.04, '#111318', 0.6, ry, 0, 6))
-    for (const ry of [Math.PI / 4, -Math.PI / 4]) forbid.add(stroke(0.6, 0.1, '#ff5a5f', 1, ry, 0.0005, 7))
+    for (const ry of [Math.PI / 4, -Math.PI / 4]) forbid.add(stroke(0.6 + 0.3, 0.1 + 0.3, 0.35, ry, 0, 6, true))
+    for (const ry of [Math.PI / 4, -Math.PI / 4]) forbid.add(stroke(0.6, 0.1, 1, ry, 0.0005, 7, false))
     forbid.visible = false
-    return { preview, cursor, last, forbid }
+    return { preview, cursor, forbid }
   }, [])
   useEffect(() => {
-    scene.add(marks.preview, marks.cursor, marks.last, marks.forbid)
+    scene.add(marks.preview, marks.cursor, marks.forbid)
     return () => {
-      scene.remove(marks.preview, marks.cursor, marks.last, marks.forbid)
+      scene.remove(marks.preview, marks.cursor, marks.forbid)
     }
   }, [scene, marks])
 
@@ -331,9 +332,9 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
     const hover = v.preview ?? v.armed
     // #603 the ✕ instead of the preview stone where the visitor may not stand (the pointer's point, a first tap, else the keyboard's cursor)
     const xAt = hover !== null && omokForbidAt(hover) ? hover : v.preview === null && omokForbidAt(v.cursor) ? v.cursor : null
-    put(marks.preview, hover !== null && empty(hover) && visitorMayPlace() && hover !== xAt ? hover : null, 0.003)
-    // #603 the preview stone in the colour the visitor places now (swap: their opening alternates, or white after the choice)
-    if (game) (marks.preview.material as MeshBasicMaterial).color.set(visitorStone(game) === 1 ? '#111318' : '#f3f0e8')
+    put(marks.preview, hover !== null && empty(hover) && visitorMayPlace() && hover !== xAt ? hover : null, HOLO_STONE_Y)
+    // #603 the preview stone in the colour the visitor places now (swap: their opening alternates, or white after the choice); #538 the side colours
+    if (game) (marks.preview.material as MeshBasicMaterial).color.set(visitorStone(game) === 1 ? HOLO_COLORS.cyan : HOLO_COLORS.ivory)
     marks.forbid.visible = show && xAt !== null
     if (marks.forbid.visible && g) {
       st!.omokPoint(xAt!, marks.forbid.position)
@@ -350,8 +351,8 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
         cue('omok.forbid', { pos: { x: p.x, y: p.y, z: p.z } })
       }
     }
-    put(marks.cursor, v.preview === null ? v.cursor : null, 0.0012)
-    put(marks.last, game && game.s.lastMove >= 0 ? game.s.lastMove : null, 0.0062)
+    // the keyboard's cursor ring 3 mm over the board (hologram.md 3.2)
+    put(marks.cursor, v.preview === null ? v.cursor : null, 0.003)
   })
   return null
 }

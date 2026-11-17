@@ -10,7 +10,7 @@
 
 import {
   Box3,
-  BoxGeometry,
+  Color,
   CircleGeometry,
   InstancedMesh,
   Matrix4,
@@ -18,24 +18,28 @@ import {
   MeshBasicMaterial,
   Object3D,
   Quaternion,
-  RingGeometry,
   SphereGeometry,
   Vector3,
-  type BufferGeometry,
   type Material,
 } from 'three'
 import type { Goal } from './director'
 import type { GripDemo } from './debugPlay'
-import { GRIPS, GripClock, STONE_ABD, STONE_FALLBACK_M, STONE_H, STONE_PITCH, STONE_PITCH_FLAT, handFor, objectFor, stoneGrip, stoneRoll, tipAt, type StoneGrip } from './grip'
-import { DIP_K, POSES, fingerFromC, toVec } from './handPose'
-import { contactNormal, fitFingers, handGripMatrix, offsetOf, resolveTarget, type GripTarget } from './gripTargets'
+import { GRIPS, GripClock, curlOf, handFor, objectFor, tipAt } from './grip'
+import { DIP_K } from './handPose'
+import { contactNormal, fitFingers, handGripMatrix, chessCardTarget, chessTripodTarget, composeOffset, holoFlickTarget, holoPinchTarget, offsetOf, resolveTarget, solveTarget, type GripTarget } from './gripTargets'
+import { HOLO_GRIP_OFFSETS } from './holoGrip.data'
+import { CELL as HOLO_CELL, HoloBoard, N as HOLO_N, STONE_H as HOLO_STONE_H, STONE_Y as HOLO_STONE_Y } from './holoBoard'
+import { chessPinch, flickHand, pinchSequence, pinchTimes, type Pinch } from '../play/holoPinch'
+import { ALK_HAND, alkkagiAt, type AlkView } from '../play/alkkagiTimeline'
+import { CHESS_HAND, chessAt, type ChessView } from '../play/chessTimeline'
+import { KING, QUEEN } from '../play/chess'
 import { fingerModelOf, type AgentRig, type PropBank } from './rig'
 import { LIFT, OPEN_ANGLE, halfAngle } from './bookGeom'
 import { LeafBend, PINCH_LET_GO, TURN_S, fingerWeight, leafAngle, pinchArc, poseWeight } from './bookLeaf'
 import { noteTourEvent } from './tourEvents'
 import { meshesOf } from './nodes'
 import type { StatusMap } from './status'
-import { gameAt, N, type OmokView } from '../play/omok'
+import { gameAt, type OmokView } from '../play/omok'
 import { hash } from './play'
 import { rallyAt, type Dims, type Rally, type V3 } from '../play/pingpong'
 import { CARRY_HOLD, HOLD_DEFAULT, PLANTS, POUR_TILT, canPose, dropAt, landing, lerpHold, plantsFrom, pourAt, solvePour, spoutOf, type Plant } from './water'
@@ -69,9 +73,8 @@ import { SIP_TOP_S, TREAT_HOLD, TREAT_LOOK, TREAT_PROP, takeSounds, treatPhase, 
 import { handsOf } from './paperRun'
 import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, pageTau, rowOf } from './shelfRun'
 import { cue, cue as treatCue } from '../audio/cues'
-import { type Place, SEQ, ease, habitOf, placeSequence } from '../play/choreo'
+import { ease } from '../play/choreo'
 import { STEP, stepAt, strokeAt } from '../play/stroke'
-import { BOWL_CORNER, BOWL_S, SOLO_LEAD_MS } from './bowlRun'
 import { VISITOR, sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { PlaySounds } from '../audio/playSounds'
 import { Typist } from './typist'
@@ -87,6 +90,43 @@ const ONE = new Vector3(1, 1, 1)
 /** the table tennis table the model has (pp_table extras size / net_h) with the engine's default reach */
 const dimsOf = (size: number[], netH: number): Dims => ({ L: size[0], W: size[1], netH, ballR: 0.02, reach: 0.25, floorY: -0.76 })
 /** the blade's centre above the paddle node's origin, along its y */
+/**
+ * #538 a live neon of the projector (holo_panel, holo_turn_b / _w): its own copy of the material, its colour the bake's glow_color times k (0 dark,
+ * 1 full); a node without glow_color keeps its own colour as full
+ */
+function holoNeon(node: Object3D | undefined, dark = '#000000'): (k: number) => void {
+  const off = new Color(dark)
+  const parts: { mat: MeshBasicMaterial; base: Color }[] = []
+  const glow = (node?.userData as { glow_color?: string } | undefined)?.glow_color
+  node?.traverse((o) => {
+    const mesh = o as Mesh
+    if (!mesh.isMesh || !(mesh.material as MeshBasicMaterial)?.color) return
+    const mat = (mesh.material as MeshBasicMaterial).clone()
+    mat.toneMapped = false
+    mesh.material = mat
+    // under the film: drawn before it (the film is renderOrder -1 and writes no depth), so it only shows faintly through (hologram.md 1.4, #648:
+    // a transparent neon drawn after the film came out on top of it)
+    mesh.renderOrder = -2
+    parts.push({ mat, base: glow ? new Color(glow) : mat.color.clone() })
+  })
+  let last = -1
+  return (k: number) => {
+    if (k === last) return
+    last = k
+    // dark: its unlit face (the panel off is a dark glass, not a hole: #111317, designer #648), the light added over it
+    for (const p of parts) p.mat.color.copy(p.base).multiplyScalar(k).add(off)
+  }
+}
+/** #538 (hologram.md 1.5) the projector's panel while the board is on, and the turn lights: the side to move, the other, the board off */
+const HOLO_NEON = { panel: 0.1, turn: 1, idle: 0.15 } as const
+/** #538 the panel switched off: a dark glass that sits with the bezel (designer, #648), not pure black */
+const HOLO_PANEL_OFF = '#111317'
+
+/** #604 a chess glyph's height by kind (hologram.md 11.2: rows of 3.6 mm; pawn 8 … king 14), m */
+const CHESS_GLYPH_H = [0, 8, 12, 12, 10, 13, 14].map((rows) => rows * 0.0036)
+
+/** #538 the thumb and index opened over the fount before the pinch (2.4 cm between their tips, hologram.md 4.3) */
+const PINCH_WIDE = curlOf([0.02, 0.25, 0.3, 0.35], [0, 0.1])
 const BLADE_Y = 0.175
 /** #600 a stone hand no longer driven lets go over this long (s) */
 const STONE_LET_GO_S = 0.4
@@ -112,8 +152,6 @@ const LEAN_MAX_M = 0.08
 const WEIGHT_DIP_M = 0.03
 const WRIST_SAG = (5 * Math.PI) / 180 / ((30 * Math.PI) / 180)
 const LEAN_IN_M = 0.05
-/** the white bowl in the carrying hold: in front of the chest, its bottom this high, this far forward of the body */
-const BOWL_CARRY = { y: 0.82, fwd: 0.3 }
 /** the paddle hand's shoulder, from the body's spot: height above the floor and sideways toward the right hand (rig.ts's throw: 1.0 m, 0.12–0.15 m) */
 const SHOULDER_Y = 1.0
 const SHOULDER_SIDE = 0.15
@@ -152,9 +190,9 @@ export interface StageIn {
   visitorPingpong?: { agent: string; rally: Rally; tMs: number } | null
   /** #455 the treats taken in a hand: which, and when it landed (office ms) */
   treats?: Record<string, { kind: SnackKind; at: number }>
-  /** #137 ① where the white bowl rests when no hand has it (Director.bowlRest): its home by game_b, or the corner by game_a */
-  bowlRest?: 'home' | 'corner'
   gripDemo?: GripDemo | null
+  /** #604 where the camera is (the hologram chess pieces turn to face it) */
+  camera?: Vector3
 }
 
 /** the 2 s score tag over the net after a point */
@@ -219,24 +257,31 @@ export class PlayStage {
 
   // omok
   private grid: { o: Vector3; n: number; cell: number } | null = null
-  private bowl: Record<'b' | 'w', { mouth: Vector3; contact: Vector3 } | undefined> = { b: undefined, w: undefined }
-  /** the bowls' dip points as nodes: the white one rides with prop_omok_bowl_w (#137 ①), so its points are read every frame */
-  private bowlNodes: Partial<Record<'b' | 'w', { mouth: Object3D; contact: Object3D }>> = {}
-  /** #137 ① the white bowl's home (its bottom centre) and the stone sample's offset from it, for resting both at the corner */
-  private bowlHome: Vector3 | null = null
-  private pieceOnBowl: Vector3 | null = null
-  /** where the white bowl is drawn now, and (reduced motion) its swap from one rest to the other: out at the old, in at the new, 0.12 s each */
-  private bowlShown: 'home' | 'corner' = 'home'
-  private bowlSwap: { from: 'home' | 'corner'; to: 'home' | 'corner'; t0: number } | null = null
-  /** #137 ② whether the last frame drew a visitor's game (its bowl's rest changes by a fade, not a walk) */
-  private visitorBowl = false
-  private bowlMats: Material[] | null = null
-  /** tests: the white bowl's opacity now */
-  bowlOpacity = 1
-  private stones: { b: InstancedMesh; w: InstancedMesh } | null = null
-  private shadows: InstancedMesh | null = null
-  private rings: Mesh[] = []
-  private line: Mesh | null = null
+  /** #538 the hologram board (holoBoard.ts) over the projector's surface_holo: the light grid, stones and marks */
+  private holo: HoloBoard | null = null
+  /** the scene clock of the last omok frame: a jump of more than 1 s (a seek in the timelapse) draws the result, no animation (hologram.md 6.2) */
+  private holoT = Number.NEGATIVE_INFINITY
+  /** the last frame's phase of the game on the board (a reset begins a new game: its rows are wiped) */
+  private holoPhase: OmokView['phase'] | null = null
+  /** per agent: the pinch on the light stone, solved once (the hand offset and the fitted thumb and index) */
+  private pinchFits = new Map<string, { tgt: GripTarget; offset: Matrix4; hold: number[] }>()
+  /** #604 the game the board last showed (it goes off as that game) */
+  private holoGame: 'omok' | 'chess' | 'alkkagi' = 'omok'
+  /** #605 the alkkagi phase last frame, the flick whose events were last sounded (and how far into its motion), the stone's place at the aim */
+  private alkPhase: AlkView['phase'] | null = null
+  private alkHeard: { key: string; ms: number } | null = null
+  private alkAimAt = new Map<string, { key: string; x: number; y: number }>()
+  /** #604 per mover and half-move: the held piece's facing and the grip (card pinch side) chosen at the pick, kept while it is held */
+  private chessHold = new Map<string, { key: string; yaw: number; flip: boolean }>()
+  /** #604 the chess phase last frame (a reset begins a new game) */
+  private chessPhase: ChessView['phase'] | null = null
+  /** #538 the projector's live neons (hologram.md 1.5) */
+  private holoPanel: (k: number) => void = () => {}
+  private holoTurn: Record<1 | 2, (k: number) => void> = { 1: () => {}, 2: () => {} }
+  /** #538 the visitor's chair (the nav spot game_b), for its stone fount and turn line */
+  private visitorChair: Vector3 | null = null
+  /** the picks already sounded and flashed (seed:game:cell:pick) */
+  private picked = new Set<string>()
   private reactedGame = new Map<string, number>()
   /** the faces of a result (#193): the games and points already answered, the coffee drinkers who had their first sip */
   private faced = new Set<string>()
@@ -245,12 +290,9 @@ export class PlayStage {
   /** #490 B a watcher's last cheer (gapMotion cheerAt) */
   private cheered = new Map<string, number>()
   /** each mover's place sequence of this frame (tests read it) */
-  readonly lastPlace: Record<string, Place> = {}
+  readonly lastPlace: Record<string, Pinch> = {}
   /** per mover: whether the move's hand began from the pick (a move first seen after its pick, a seat taken mid-move, is left to the board: no hand ever took its stone) */
   private handMove: Record<string, { key: string; ok: boolean }> = {}
-  private stoneFrames = new Map<string, StoneGrip[]>()
-  /** per agent, decided once from the fits: the go grip, or (when its tips cannot land on the stone's discs within STONE_FALLBACK_M at some pitch) the tripod pinch */
-  private stoneModes = new Map<string, 'go' | 'pinch'>()
   /** #600 the stone hand's last drive per agent; a frame without it (the record over mid-move, an errand taking over) lets go over STONE_LET_GO_S */
   private stoneLetGo = new Map<string, { side: 'l' | 'r'; drive: NonNullable<AgentRig['drive']['l']>; seen: boolean; from: number | null }>()
 
@@ -317,58 +359,15 @@ export class PlayStage {
     this.shadow.renderOrder = 2
     scene.add(this.shadow)
 
-    const g = scene.getObjectByName('omok_grid')
-    if (g) {
-      const ud = g.userData as { n?: number; cell?: number }
-      this.grid = { o: g.getWorldPosition(new Vector3()), n: ud.n ?? N, cell: ud.cell ?? 0.0257 }
+    // #538 the board is light over the projector (hologram.md 6.1): its grid is the hologram's (columns +x, rows +z, cell 0 at o)
+    const surface = scene.getObjectByName('surface_holo')
+    if (surface) {
+      this.holo = new HoloBoard(scene, surface)
+      this.grid = { o: this.holo.cellPos(0), n: HOLO_N, cell: HOLO_CELL }
     }
-    for (const c of ['b', 'w'] as const) {
-      const bowl = scene.getObjectByName(`omok_bowl_${c}`)
-      const contact = scene.getObjectByName(`omok_bowl_${c}_contact_index`)
-      if (bowl && contact) {
-        this.bowl[c] = { mouth: bowl.getWorldPosition(new Vector3()), contact: contact.getWorldPosition(new Vector3()) }
-        this.bowlNodes[c] = { mouth: bowl, contact }
-      }
-    }
-    const bw = scene.getObjectByName('prop_omok_bowl_w')
-    const pw = scene.getObjectByName('prop_piece_b')
-    if (bw && pw) {
-      this.bowlHome = bw.getWorldPosition(new Vector3())
-      this.pieceOnBowl = pw.getWorldPosition(new Vector3()).sub(this.bowlHome)
-    }
-    // the stones on the board: the two samples are hidden and instanced
-    const sb = nodes.omok_stone_b
-    const sw = nodes.omok_stone_w
-    if (sb && sw && this.grid) {
-      const make = (node: Object3D) => {
-        const mesh = meshesOf(node)[0]
-        node.visible = false
-        const im = new InstancedMesh(mesh.geometry as BufferGeometry, mesh.material as Material, N * N)
-        im.count = 0
-        im.frustumCulled = false
-        scene.add(im)
-        return im
-      }
-      this.stones = { b: make(sb), w: make(sw) }
-      const sh = new InstancedMesh(new CircleGeometry(0.0125, 20).rotateX(-Math.PI / 2), new MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.28, depthWrite: false }), N * N)
-      sh.count = 0
-      sh.frustumCulled = false
-      sh.renderOrder = 1
-      scene.add(sh)
-      this.shadows = sh
-      for (let i = 0; i < 5; i++) {
-        const ring = new Mesh(new RingGeometry(0.0125, 0.0152, 28).rotateX(-Math.PI / 2), new MeshBasicMaterial({ color: '#ffffff', transparent: true, depthWrite: false }))
-        ring.visible = false
-        ring.renderOrder = 3
-        scene.add(ring)
-        this.rings.push(ring)
-      }
-      const line = new Mesh(new BoxGeometry(1, 0.0012, 0.0024), new MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.9, depthWrite: false }))
-      line.visible = false
-      line.renderOrder = 3
-      scene.add(line)
-      this.line = line
-    }
+    this.visitorChair = scene.getObjectByName('nav_game_b')?.getWorldPosition(new Vector3()) ?? null
+    this.holoPanel = holoNeon(scene.getObjectByName('holo_panel'), HOLO_PANEL_OFF)
+    this.holoTurn = { 1: holoNeon(scene.getObjectByName('holo_turn_b')), 2: holoNeon(scene.getObjectByName('holo_turn_w')) }
     // water for the can, and the book's two halves
     this.spout = nodes.prop_watering_can_spout
     this.plants = plantsFrom(scene)
@@ -574,7 +573,6 @@ export class PlayStage {
   // ------------------------------------------------------------------------------------------------------------- frame
 
   update(inp: StageIn) {
-    this.restBowl(this.bowlSwapStep(inp.bowlRest ?? 'home', inp))
     for (const node of this.forced) this.props.force(node, null)
     this.forced.clear()
     this.typed.clear()
@@ -598,24 +596,33 @@ export class PlayStage {
     let pp: PlaySession | null = null
     let og: PlaySession | null = null
     for (const s of sessions) {
-      const ready = s.players.every((id) => {
+      const at = (id: string) => {
         const r = inp.rigs[id]
         const g = inp.goals[id]
-        return r?.visible && g?.pose === s.kind && r.arrived === g.spot
-      })
+        return !!r?.visible && g?.pose === s.kind && r.arrived === g.spot
+      }
+      // ping-pong needs both ends; the board is on from the first one seated (#538 hologram.md 2: the board comes on 0.3 s after the first sits; the
+      // games draw and move only the seated, #654 sound: it came on only with the second)
+      const ready = s.kind === 'boardgame' ? s.players.some(at) : s.players.every(at)
       if (!ready) continue
       if (s.kind === 'pingpong') pp = s
       else og = s
     }
-    // #137 ② the visitor sat down opposite: their game on the board (the agent at game_a, the visitor at the empty chair, no hand of theirs)
+    // #137 ② the visitor sat down opposite: their game on the board (the agent at game_a, the visitor at the empty chair, no hand of theirs).
+    // #538 from the moment the visitor sits (hologram.md 2: the visitor turns the board on too), not only once the agent reached its chair: the
+    // visitor's moves before that were neither drawn nor heard (sound, #648). The agent's hand waits for its chair (omokHands)
     const vo = inp.visitorOmok
-    if (vo) og = inp.rigs[vo.agent]?.arrived === 'game_a' ? { kind: 'boardgame', spot: 'game_a', players: [vo.agent, VISITOR], seed: hash(`visitor|${vo.agent}`), startMs: 0, visitor: vo.view } : null
+    if (vo) og = { kind: 'boardgame', spot: 'game_a', players: [vo.agent, VISITOR], seed: hash(`visitor|${vo.agent}`), startMs: 0, game: 'omok', visitor: vo.view }
     // #137 ③ the visitor holds the near paddle: their match, the agent at the far end (no hand at the near one)
     const vp = inp.visitorPingpong
     if (vp) pp = inp.rigs[vp.agent]?.arrived === 'pingpong_b' ? { kind: 'pingpong', spot: 'pingpong_a', players: [VISITOR, vp.agent], seed: hash(`visitor|pp|${vp.agent}`), startMs: 0 } : null
     this.pingpong(pp, inp)
     for (const e of this.stoneLetGo.values()) e.seen = false
-    this.omok(og, inp)
+    // #604 the board's game (hologram.md 10.2): chess or omok on the one projector; with nobody there, the last game's board goes off
+    if (og) this.holoGame = og.game === 'chess' ? 'chess' : og.game === 'alkkagi' ? 'alkkagi' : 'omok'
+    if (this.holoGame === 'chess') this.chess(og?.game === 'chess' ? og : null, inp)
+    else if (this.holoGame === 'alkkagi') this.alkkagi(og?.game === 'alkkagi' ? og : null, inp)
+    else this.omok(og, inp)
     for (const e of this.carry.values()) e.seen = false
     // #481 writing the wrap-up cards: the card on the desk, the pen hand on the pen; nothing else takes the hands meanwhile
     const writing = new Set(ids.filter((id) => this.writeDesk.drive(inp.rigs[id], inp.goals[id], inp)))
@@ -762,205 +769,81 @@ export class PlayStage {
     return this.grid ? this.cellPos(cell, out) : null
   }
 
-  /** which finger's contact on the go stone faces up (it presses from above) */
-  private stoneTop(): 'index' | 'middle' {
-    const n = this.sceneRef.getObjectByName('prop_piece_a_contact_index')
-    return n && contactNormal(this.sceneRef, n).y > 0 ? 'index' : 'middle'
-  }
-
-  /** the stone's frame in the right hand when it is held 바둑식 (cached per agent) */
-  private stoneFrame(rig: AgentRig) {
-    let f = this.stoneFrames.get(rig.id)
+  /** #538 the pinch on the light stone for this agent's right hand (gripTargets.ts holoPinchTarget), solved once: deterministic per agent */
+  private pinchFit(rig: AgentRig) {
+    let f = this.pinchFits.get(rig.id)
     if (!f) {
       const hand = rig.parts.hands.r
-      const hold = GRIPS.piece.r!.hold
-      const models = { index: fingerModelOf(hand, 0, 'r')!, middle: fingerModelOf(hand, 1, 'r')! }
-      // the finger that presses from above is the one whose contact empty on the stone faces up (data, not code)
-      const top = this.stoneTop()
-      // carrying: the hand pitched 40°; sliding in it lays flatter (30°)
-      // a fit every 2° from the carrying pitch to the flat one; the wrist is blended between neighbours so the tips stay on the stone throughout
-      f = Array.from({ length: 11 }, (_, k) => {
-        const pitch = STONE_PITCH + ((STONE_PITCH_FLAT - STONE_PITCH) * k) / 10
-        return stoneGrip(models, top, { index: hold[0], middle: hold[1] }, pitch, stoneRoll(models, top, { index: hold[0], middle: hold[1] }, pitch))
-      })
-      this.stoneFrames.set(rig.id, f)
-      this.stoneModes.set(rig.id, f.every((g) => g.err[top] <= STONE_FALLBACK_M) ? 'go' : 'pinch')
+      const tgt = holoPinchTarget()
+      const offset = this.holoOffset(tgt, rig)
+      const hold = rig.curlVec('r', GRIPS.holo.r!.hold)
+      for (const fit of fitFingers(tgt, hand, offset)) {
+        if (fit.finger === 'thumb') hold.splice(16, 4, ...fit.joints)
+        else setFingerJoints(hold, ['index', 'middle', 'ring', 'little'].indexOf(fit.finger), fit.joints)
+      }
+      f = { tgt, offset, hold }
+      this.pinchFits.set(rig.id, f)
     }
     return f
   }
 
   /**
-   * #137 ① the white bowl rests at the corner by game_a while a record is placed alone (and the stone sample with it, at the same offset);
-   * the bowls' dip points are read from their nodes, so a stone is taken from wherever the bowl is now
+   * #538 (hologram.md 2 · 3 · 4 · 8) omok on the hologram board: it is on while someone sits at it (an agent arrived at its chair, or the visitor's
+   * game), the stones and marks follow the game, each seated player has a stone fount on its side, the turn line shows whose move it is. The hands
+   * pinch a stone from the fount (omokHands). The sounds: holo.board.on / .off, holo.pick, holo.place (the visitor's own move as 'ui').
    */
-  /**
-   * Reduced motion (#456): a change of the bowl's rest is not walked over; it fades out where it was (0.12 s) and in where it goes (0.12 s),
-   * the bowl and the stone sample snapped there in between. Otherwise the rest changes while the hands hold it (bowlErrand). Returns the
-   * rest to draw this frame.
-   */
-  private bowlSwapStep(want: 'home' | 'corner', inp: StageIn): 'home' | 'corner' {
-    // #137 ② a visitor sitting down or leaving moves the bowl with no hand to carry it: it fades over as with reduced motion
-    const visitor = !!inp.visitorOmok
-    const byVisitor = visitor !== this.visitorBowl
-    this.visitorBowl = visitor
-    if (!this.bowlSwap && want !== this.bowlShown) {
-      if (!inp.reduced && !byVisitor) this.bowlShown = want
-      else this.bowlSwap = { from: this.bowlShown, to: want, t0: inp.t }
-    }
-    const sw = this.bowlSwap
-    if (!sw) return this.bowlShown
-    const u = (inp.t - sw.t0) / (CAN_FADE_MS / 1000)
-    if (u < 1) {
-      this.setBowlOpacity(1 - u)
-      return sw.from
-    }
-    if (this.bowlShown !== sw.to) {
-      // snap: set the new rest and put both there before they fade in (nothing slides)
-      this.restBowl(sw.to)
-      for (const name of ['prop_omok_bowl_w', 'prop_piece_b']) {
-        const n = this.sceneRef.getObjectByName(name)
-        if (n) n.position.setFromMatrixPosition(this.props.homeWorld(n))
-      }
-      this.bowlShown = sw.to
-    }
-    if (u < 2) {
-      this.setBowlOpacity(u - 1)
-      return sw.to
-    }
-    this.setBowlOpacity(1)
-    this.bowlSwap = null
-    return sw.to
-  }
-  private setBowlOpacity(o: number) {
-    const k = Math.max(0, Math.min(1, o))
-    if (k === this.bowlOpacity) return
-    const nodes = ['prop_omok_bowl_w', 'prop_piece_b'].map((n) => this.sceneRef.getObjectByName(n)).filter(Boolean) as Object3D[]
-    if (!this.bowlMats) {
-      this.bowlMats = []
-      for (const node of nodes)
-        for (const m of meshesOf(node)) {
-          m.material = (m.material as Material).clone()
-          this.bowlMats.push(m.material as Material)
-        }
-    }
-    this.bowlOpacity = k
-    for (const mat of this.bowlMats) {
-      mat.transparent = k < 1
-      mat.opacity = k
-      mat.depthWrite = k >= 1
-    }
-  }
-
-  private restBowl(rest: 'home' | 'corner') {
-    if (this.bowlHome && this.pieceOnBowl) {
-      if (rest === 'corner') {
-        const at = new Vector3(BOWL_CORNER.x, this.bowlHome.y, BOWL_CORNER.z)
-        this.props.setRest('prop_omok_bowl_w', new Matrix4().makeTranslation(at.x, at.y, at.z))
-        const p = at.clone().add(this.pieceOnBowl)
-        this.props.setRest('prop_piece_b', new Matrix4().makeTranslation(p.x, p.y, p.z))
-      } else {
-        this.props.setRest('prop_omok_bowl_w', null)
-        this.props.setRest('prop_piece_b', null)
-      }
-    }
-    for (const c of ['b', 'w'] as const) {
-      const n = this.bowlNodes[c]
-      const b = this.bowl[c]
-      if (!n || !b) continue
-      n.mouth.updateWorldMatrix(true, false)
-      n.mouth.getWorldPosition(b.mouth)
-      n.contact.updateWorldMatrix(true, false)
-      n.contact.getWorldPosition(b.contact)
-    }
-  }
-
   private omok(s: PlaySession | null, inp: StageIn) {
-    const st = this.stones
-    if (!st || !this.grid) return
+    const holo = this.holo
+    if (!holo || !this.grid) return
+    const snap = inp.t - this.holoT > 1 || inp.t < this.holoT
+    this.holoT = inp.t
     const key = s ? `${s.spot}` : '-'
-    const mat = new Matrix4()
-    if (!s) {
-      // block over (or the players left): the stones are swept off in 2.5 s, in a fixed scatter
-      this.sweep(inp)
-      return
-    }
-    // a record placed alone starts once the white bowl has been brought over (#137 ①)
-    // (reduced motion: no fetching, so no delay, #456)
-    const tMs = s.visitor ? 0 : sessionTime(s, inp.now) - (s.solo && !inp.reduced ? SOLO_LEAD_MS : 0)
-    if (tMs < 0) {
-      this.sweep(inp)
-      return
-    }
-    const view = s.visitor ?? gameAt(s.seed, s.players, tMs, inp.reduced)
-    this.sounds.omokStone(s.seed, view.game, view.moveIndex, view.lastMove >= 0 ? this.cellPos(view.lastMove) : null)
-    this.sweepState = { start: null, board: view.board.slice() }
-    // stones on the board
-    let nb = 0
-    let nw = 0
-    let ns = 0
-    const pos = new Vector3()
-    const recent = view.lastMove >= 0 && inp.reduced ? this.fadeK(s, tMs, view) : 1
-    for (let cell = 0; cell < view.board.length; cell++) {
-      const c = view.board[cell]
-      if (!c) continue
-      this.cellPos(cell, pos)
-      let k = cell === view.lastMove ? recent : 1
-      let from: Vector3 | null = null
-      if (view.phase === 'reset') {
-        const bowl = this.bowl[c === 1 ? 'b' : 'w']
-        const rank = ((cell * 37) % 61) / 61
-        const e = ease(view.resetT01 * 1.5 - rank * 0.5)
-        if (bowl) from = bowl.mouth
-        if (from) pos.lerp(from, e)
-        k = 1 - 0.6 * e
-        if (e >= 1) continue
-        pos.y += Math.sin(e * Math.PI) * 0.05
-      }
-      mat.compose(pos, new Quaternion(), new Vector3(k, k, k))
-      if (c === 1) st.b.setMatrixAt(nb++, mat)
-      else st.w.setMatrixAt(nw++, mat)
-      if (view.phase !== 'reset') {
-        this.cellPos(cell, pos)
-        pos.y += 0.0004
-        this.shadows!.setMatrixAt(ns++, mat.compose(pos, new Quaternion(), new Vector3(k, 1, k)))
-      }
-    }
-    st.b.count = nb
-    st.w.count = nw
-    st.b.instanceMatrix.needsUpdate = true
-    st.w.instanceMatrix.needsUpdate = true
-    this.shadows!.count = ns
-    this.shadows!.instanceMatrix.needsUpdate = true
-    // the win: a ring of the winner's colour on each of the five, then a line across them in 0.4 s
-    const showWin = view.phase === 'won' && view.line && view.winner
-    for (const r of this.rings) r.visible = false
-    if (this.line) this.line.visible = false
-    if (showWin) {
-      const winnerIdx = view.winner === 1 ? view.black : (1 - view.black) as 0 | 1
-      // the visitor's own colour is ivory (play.md 2.5: the visitor has no agent colour)
-      const col = s.players[winnerIdx] === VISITOR ? VISITOR_RING : (inp.colors[s.players[winnerIdx]] ?? '#ffffff')
-      const cells = [...view.line!].sort((a, b) => a - b).slice(0, 5)
-      cells.forEach((cell, i) => {
-        const ring = this.rings[i]
-        ring.visible = true
-        this.cellPos(cell, ring.position)
-        ring.position.y += STONE_H + 0.0008
-        ;(ring.material as MeshBasicMaterial).color.set(col)
+    const tMs = s ? (s.visitor ? 0 : sessionTime(s, inp.now)) : -1
+    const view = s && tMs >= 0 ? (s.visitor ?? gameAt(s.seed, s.players, tMs, inp.reduced)) : null
+    // who sits at the board: the agents at their chairs, and the visitor (no rig: across the board from the agent)
+    const centre = holo.cellPos((HOLO_N * HOLO_N - 1) / 2)
+    const seats: { seat: Vector3; color: 1 | 2; id: string }[] = []
+    if (s) {
+      const ids = s.solo ? [s.players[0]] : s.players
+      ids.forEach((id, i) => {
+        const rig = inp.rigs[id]
+        if (rig && (rig.arrived === 'game_a' || rig.arrived === 'game_b')) seats.push({ seat: rig.parts.root.position.clone(), color: s.solo ? (view?.toMove ?? 1) : view && view.black === i ? 1 : 2, id })
       })
-      const a = this.cellPos(cells[0])
-      const b = this.cellPos(cells[cells.length - 1])
-      const k = ease((view.wonMs - 300) / 400)
-      if (this.line && k > 0) {
-        this.line.visible = true
-        const mid = a.clone().lerp(b, 0.5)
-        mid.y += STONE_H + 0.0012
-        this.line.position.copy(mid)
-        const dir = b.clone().sub(a)
-        this.line.rotation.set(0, Math.atan2(-dir.z, dir.x), 0)
-        this.line.scale.set(dir.length() * k, 1, 1)
-        ;(this.line.material as MeshBasicMaterial).color.set(col)
+      // the visitor is seated from the start of its game (hologram.md 2: the first one to sit, the visitor too, turns the board on), in the empty
+      // chair at game_b (OmokVisitRig's seat), whether or not the agent has reached its own yet (sound: the board came on only with the agent, 4–6 s late)
+      if (s.visitor) {
+        const chair = this.visitorChair ?? (seats[0] ? centre.clone().multiplyScalar(2).sub(seats[0].seat) : null)
+        if (chair) seats.push({ seat: chair.clone(), color: view && view.black === 1 ? 1 : 2, id: VISITOR })
       }
     }
+    const on = !!s && seats.length > 0
+    const phase = view?.phase ?? null
+    const playing = phase === 'thinking' || phase === 'pick' || phase === 'place'
+    if (view && on) {
+      const visitorColor = view.black === 1 ? 1 : 2
+      this.sounds.holoStone(s!.seed, view.game, view.moveIndex, view.lastMove >= 0 ? this.cellPos(view.lastMove) : null, !!s!.visitor && view.lastMove >= 0 && view.board[view.lastMove] === visitorColor)
+    }
+    // the hand first (it says where the stone between its fingers is); reduced motion has no hand, the stone appears on the board
+    const held = view && on && !inp.reduced && s && playing ? this.omokHands(s, view, inp, seats) : null
+    const r = holo.update({
+      t: inp.t,
+      reduced: inp.reduced,
+      snap,
+      on,
+      board: view && phase !== 'reset' ? view.board : null,
+      lastMove: view && phase !== 'reset' ? view.lastMove : -1,
+      win: view && phase === 'won' && view.line && view.winner ? { line: view.line, color: view.winner } : null,
+      newGame: phase === 'reset' && this.holoPhase !== 'reset',
+      turn: view && playing ? view.toMove : null,
+      players: seats.map((p) => ({ seat: p.seat, color: p.color })),
+      held: held ? { pos: held.pos, color: held.color, since: held.since } : null,
+      pick: held?.pick,
+    })
+    this.holoPhase = phase
+    this.holoNeons(r.boardOn, view && playing ? view.toMove : null)
+    if (r.boardOnStart) this.sounds.holoBoard(true, centre, inp.reduced)
+    if (r.boardOffStart) this.sounds.holoBoard(false, centre, inp.reduced)
+    if (!s || !view) return
     // the faces of the result: the winner is glad (기쁨), the loser embarrassed (당황); an expression is information, reduced motion keeps it
     // a record placed alone has no winner to be glad and no loser to clap (#137 ①)
     if (view.phase === 'won' && view.winner && view.wonMs > 500 && !s.solo && !s.visitor) {
@@ -973,8 +856,6 @@ export class PlayStage {
       }
     }
     if (inp.reduced) return
-    // the hands
-    this.omokHands(s, view, inp)
     // #137 ② against the visitor (play.md 2.5): the agent claps three times when the visitor won, makes a small fist when it did (its face and words come with the game)
     if (view.phase === 'won' && view.winner && s.visitor) {
       const k = `${key}:visitor:${view.game}`
@@ -1001,62 +882,6 @@ export class PlayStage {
     }
   }
 
-  private sweepState: { start: number | null; board: Uint8Array } | null = null
-
-  /** nobody is playing any more: whatever is on the board is cleared in 2.5 s (play.md: the block-end clean-up) */
-  private sweep(inp: StageIn) {
-    const st = this.stones!
-    const sw = this.sweepState
-    for (const r of this.rings) r.visible = false
-    if (this.line) this.line.visible = false
-    if (!sw) {
-      st.b.count = 0
-      st.w.count = 0
-      this.shadows!.count = 0
-      return
-    }
-    if (sw.start === null) sw.start = inp.t
-    const k = inp.reduced ? 1 : (inp.t - sw.start) / 2.5
-    if (k >= 1) {
-      this.sweepState = null
-      st.b.count = 0
-      st.w.count = 0
-      this.shadows!.count = 0
-      return
-    }
-    let nb = 0
-    let nw = 0
-    const mat = new Matrix4()
-    const pos = new Vector3()
-    for (let cell = 0; cell < sw.board.length; cell++) {
-      const c = sw.board[cell]
-      if (!c) continue
-      const rank = ((cell * 37) % 61) / 61
-      const e = ease(k * 1.6 - rank * 0.6)
-      if (e >= 1) continue
-      const bowl = this.bowl[c === 1 ? 'b' : 'w']
-      this.cellPos(cell, pos)
-      if (bowl) pos.lerp(bowl.mouth, e)
-      pos.y += Math.sin(e * Math.PI) * 0.05
-      const sc = 1 - 0.6 * e
-      mat.compose(pos, new Quaternion(), new Vector3(sc, sc, sc))
-      if (c === 1) st.b.setMatrixAt(nb++, mat)
-      else st.w.setMatrixAt(nw++, mat)
-    }
-    st.b.count = nb
-    st.w.count = nw
-    st.b.instanceMatrix.needsUpdate = true
-    st.w.instanceMatrix.needsUpdate = true
-    this.shadows!.count = 0
-  }
-
-  /** reduced motion: the newest stone fades in over 0.12 s (shown as a growth from nothing; the stones are lit solids) */
-  private fadeK(s: PlaySession, tMs: number, view: OmokView) {
-    let present = 0
-    for (let a = 1; a <= 3; a++) if (gameAt(s.seed, s.players, tMs - a * 40, true).board[view.lastMove]) present++
-    return 1 - present / 3
-  }
-
   /**
    * #600 the stone hand drives the rig directly (no grip clock): when the record ends mid-move or an errand takes the agent (the white bowl's
    * run home began the frame the record ended, with a stone in the hand), it used to drop to rest in one frame (0.35 m). It lets go from where it
@@ -1081,120 +906,427 @@ export class PlayStage {
     }
   }
 
-  private omokHands(s: PlaySession, view: OmokView, inp: StageIn) {
-    const mv = view.move
-    if (!mv || (view.phase !== 'thinking' && view.phase !== 'pick' && view.phase !== 'place')) return
+  /**
+   * #604 (hologram.md 10 · 11) chess on the hologram board, the agents' games from the session's seed (chessTimeline.ts, computed a few half-moves
+   * a frame: a seek catches up without a stop). The board is on while someone sits at it; the mover's hand takes the piece from its square and
+   * puts it down (chessHands); the sounds: holo.pick, chess.place / chess.capture, chess.check, holo.board.on / .off.
+   */
+  private chess(s: PlaySession | null, inp: StageIn) {
+    const holo = this.holo
+    if (!holo) return
+    const snap = inp.t - this.holoT > 1 || inp.t < this.holoT
+    this.holoT = inp.t
+    const tMs = s ? sessionTime(s, inp.now) : -1
+    const view = s && tMs >= 0 ? chessAt(s.seed, s.players, tMs) : null
+    // the seated (white is the side holding view.white; a record alone: the colour to move)
+    const seats: { seat: Vector3; color: 1 | 2; id: string }[] = []
+    if (s) {
+      const ids = s.solo ? [s.players[0]] : s.players
+      ids.forEach((id, i) => {
+        const rig = inp.rigs[id]
+        if (!rig || (rig.arrived !== 'game_a' && rig.arrived !== 'game_b')) return
+        const white = s.solo ? view?.toMove === 0 : view ? view.white === i : i === 0
+        seats.push({ seat: rig.parts.root.position.clone(), color: white ? 2 : 1, id })
+      })
+    }
+    const on = !!s && seats.length > 0
+    const phase = view?.phase ?? null
+    const playing = phase === 'thinking' || phase === 'pick' || phase === 'place'
+    const held = view && on && !inp.reduced && s && view.move && phase !== 'catching' ? this.chessHands(s, view, inp, seats) : null
+    const mv = view?.move
+    const landedAt = mv && phase === 'place' ? inp.t - (mv.sinceMs - mv.thinkMs - CHESS_HAND.land) / 1000 : null
+    const r = holo.update({
+      t: inp.t,
+      reduced: inp.reduced,
+      // catching up (a seek, a first sight) draws no move events (move is null then) but is no jump of the board: its coming on still unfolds (#653)
+      snap,
+      on,
+      game: 'chess',
+      board: null,
+      lastMove: -1,
+      win: null,
+      newGame: phase === 'reset' && this.chessPhase !== 'reset',
+      turn: view && playing ? (view.toMove === 0 ? 2 : 1) : null,
+      players: seats.map((p) => ({ seat: p.seat, color: p.color })),
+      held,
+      chess: view
+        ? {
+            board: view.board,
+            lastMove: view.lastMove,
+            check: view.check,
+            captured: { 2: view.takenByWhite.map((kind) => ({ kind, color: 1 as const })), 1: view.takenByBlack.map((kind) => ({ kind, color: 2 as const })) },
+            move:
+              mv && landedAt !== null
+                ? {
+                    id: view.game * 1000 + view.moveIndex,
+                    from: mv.from,
+                    to: mv.to,
+                    at: landedAt,
+                    capture: mv.capture ? { sq: mv.captureAt, kind: mv.capture, color: mv.side === 0 ? (1 as const) : (2 as const) } : null,
+                    castle: mv.castle,
+                    ...(mv.promo ? { promotion: mv.promo } : {}),
+                  }
+                : null,
+            end: view.end ? { result: view.end.kind === 'win' ? ('mate' as const) : ('draw' as const), ...(view.end.kind === 'win' ? { loser: view.end.side === 0 ? (1 as const) : (2 as const) } : {}), since: inp.t - view.end.sinceMs / 1000 } : null,
+            camera: inp.camera,
+          }
+        : undefined,
+    })
+    this.chessPhase = phase
+    this.holoNeons(r.boardOn, view && playing ? (view.toMove === 0 ? 2 : 1) : null)
+    const centre = holo.squarePos(27).lerp(holo.squarePos(36), 0.5)
+    if (r.boardOnStart) this.sounds.holoBoard(true, centre, inp.reduced)
+    if (r.boardOffStart) this.sounds.holoBoard(false, centre, inp.reduced)
+    if (!s || !view || !on) return
+    if (phase !== 'catching') this.sounds.chessPiece(s.seed, view.game, view.moveIndex, view.lastMove ? holo.squarePos(view.lastMove.to) : null, !!(mv && phase === 'place' && mv.capture))
+    if (r.checkStart && view.check !== null) this.sounds.chessCheck(s.seed, view.game, view.moveIndex, holo.squarePos(view.check))
+    // the faces of the result, as in omok (play.md 2.5): the winner glad, the loser embarrassed; a draw has none; not a record alone
+    const end = view.end
+    if (end && end.kind === 'win' && end.sinceMs > 500 && !s.solo) {
+      const fk = `chess:${s.spot}:${view.game}`
+      if (!this.faced.has(fk)) {
+        this.faced.add(fk)
+        const winner = end.side === 0 ? view.white : ((1 - view.white) as 0 | 1)
+        inp.rigs[s.players[winner]]?.faceEvent('joy', inp.t)
+        inp.rigs[s.players[1 - winner]]?.faceEvent('embarrassed', inp.t)
+        if (!inp.reduced && this.reactedGame.get(fk) === undefined) {
+          this.reactedGame.set(fk, inp.t)
+          noteTourEvent(s.players[winner], 5000)
+          const wr = inp.rigs[s.players[winner]]
+          const lr = inp.rigs[s.players[1 - winner]]
+          if (wr) wr.reaction = { kind: 'fist', t0: inp.t, dur: 1.0 }
+          if (lr) lr.reaction = { kind: 'clap', t0: inp.t + 0.4, dur: 1.4 }
+        }
+      }
+    }
+  }
+
+  /**
+   * #538 (hologram.md 1.5) the projector's live neons for every game: the panel glows while the board is on; the turn light of the colour to
+   * move is lit, the other dim, both dark with the board off (#605: chess and alkkagi left the panel at its bake, bright through the film)
+   */
+  private holoNeons(lit: boolean, turn: 1 | 2 | null) {
+    this.holoPanel(lit ? HOLO_NEON.panel : 0)
+    for (const c of [1, 2] as const) this.holoTurn[c](!lit ? 0 : turn === c ? HOLO_NEON.turn : HOLO_NEON.idle)
+  }
+
+  /**
+   * #605 (hologram.md 12) alkkagi on the hologram board, the agents' games from the session's seed (alkkagiTimeline.ts, a flick per frame at most:
+   * a seek catches up). The stones move by the engine's own path; the mover's index flicks the stone (alkHands). The sounds: alkkagi.flick at the
+   * nail, alkkagi.hit / .drop at each engine event, holo.board.on / .off.
+   */
+  private alkkagi(s: PlaySession | null, inp: StageIn) {
+    const holo = this.holo
+    if (!holo) return
+    const snap = inp.t - this.holoT > 1 || inp.t < this.holoT
+    this.holoT = inp.t
+    const tMs = s ? sessionTime(s, inp.now) : -1
+    const view = s && tMs >= 0 ? alkkagiAt(s.seed, s.players, tMs) : null
+    // the seated: the side flicking first (engine side 0) is cyan (colour 1), the other ivory (2); a game alone: the side to flick
+    const seats: { seat: Vector3; color: 1 | 2; id: string }[] = []
+    if (s) {
+      const ids = s.solo ? [s.players[0]] : s.players
+      ids.forEach((id, i) => {
+        const rig = inp.rigs[id]
+        if (!rig || (rig.arrived !== 'game_a' && rig.arrived !== 'game_b')) return
+        const side0 = s.solo ? view?.toMove === 0 : view ? view.first === i : i === 0
+        seats.push({ seat: rig.parts.root.position.clone(), color: side0 ? 1 : 2, id })
+      })
+    }
+    const on = !!s && seats.length > 0
+    const phase = view?.phase ?? null
+    const f = view?.flick ?? null
+    const fh = f ? flickHand(f.sinceMs, f.thinkMs) : null
+    if (view && on && !inp.reduced && s && f && phase !== 'catching') this.alkHands(s, view, inp)
+    // the scene clock of a moment of the motion (ms since the nail)
+    const atMotion = (ms: number) => inp.t - ((f?.motionMs ?? 0) - ms) / 1000
+    const r = holo.update({
+      t: inp.t,
+      reduced: inp.reduced,
+      snap,
+      on,
+      game: 'alkkagi',
+      board: null,
+      lastMove: -1,
+      win: null,
+      newGame: phase === 'reset' && this.alkPhase !== 'reset',
+      turn: view && (phase === 'thinking' || phase === 'aim' || phase === 'moving' || phase === 'settle') ? (view.toMove === 0 ? 1 : 2) : null,
+      players: seats.map((p) => ({ seat: p.seat, color: p.color })),
+      held: null,
+      alkkagi: view
+        ? {
+            stones: view.stones,
+            hits: view.events.flatMap((e) => (e.kind === 'hit' ? [{ a: e.a, b: e.b, speed: e.speed, at: atMotion(e.atMs) }] : [])),
+            outs: view.events.flatMap((e) => {
+              if (e.kind !== 'out') return []
+              const st = view.stones[e.a]
+              const n = Math.hypot(st.x, st.y) || 1
+              return [{ a: e.a, at: atMotion(e.atMs), dir: { x: st.x / n, y: st.y / n } }]
+            }),
+            aim: f && fh && fh.aim !== null && !fh.flicked ? { stone: f.flick.stone, dx: f.flick.dx, dy: f.flick.dy, power: f.flick.power, grow: fh.aim } : null,
+            end: view.end ? { winner: view.end.kind === 'win' ? view.end.side : null, since: inp.t - view.end.sinceMs / 1000 } : null,
+          }
+        : undefined,
+    })
+    this.alkPhase = phase
+    this.holoNeons(r.boardOn, view && (phase === 'thinking' || phase === 'aim' || phase === 'moving' || phase === 'settle') ? (view.toMove === 0 ? 1 : 2) : null)
+    const centre = holo.alkPos(0, 0)
+    if (r.boardOnStart) this.sounds.holoBoard(true, centre, inp.reduced)
+    if (r.boardOffStart) this.sounds.holoBoard(false, centre, inp.reduced)
+    if (!s || !view || !on || !f) return
+    // the sounds of this flick: the nail, then each event passed since the last frame (a jump, or a flick first seen mid-way, plays nothing)
+    const key = `${s.seed}:${view.game}:${view.turn}`
+    const ms = f.sinceMs - f.thinkMs - ALK_HAND.flick
+    const prev = this.alkHeard?.key === key ? this.alkHeard.ms : null
+    if (!snap && prev !== null && ms >= 0) {
+      if (prev < 0) {
+        const st = view.stones[f.flick.stone]
+        this.sounds.alkFlick(s.seed, view.game, view.turn, holo.alkPos(st.x, st.y))
+      }
+      for (const e of view.events)
+        if (e.atMs > prev && e.atMs <= f.motionMs) {
+          const st = view.stones[e.kind === 'hit' ? e.a : e.a]
+          const p = e.kind === 'hit' ? holo.alkPos((st.x + view.stones[e.b].x) / 2, (st.y + view.stones[e.b].y) / 2) : holo.alkPos(st.x, st.y)
+          this.sounds.alkEvent(s.seed, view.game, view.turn, e.kind === 'hit' ? { kind: 'hit', step: e.step, speed: e.speed } : { kind: 'out', step: e.step }, p)
+        }
+    }
+    this.alkHeard = { key, ms: ms < 0 ? -1 : f.motionMs }
+    // the faces of the result, as chess
+    const end = view.end
+    if (end && end.kind === 'win' && end.sinceMs > 500 && !s.solo) {
+      const fk = `alkkagi:${s.spot}:${view.game}`
+      if (!this.faced.has(fk)) {
+        this.faced.add(fk)
+        const winner = end.side === 0 ? view.first : ((1 - view.first) as 0 | 1)
+        inp.rigs[s.players[winner]]?.faceEvent('joy', inp.t)
+        inp.rigs[s.players[1 - winner]]?.faceEvent('embarrassed', inp.t)
+      }
+    }
+  }
+
+  /**
+   * #605 (hologram.md 12.4) the mover's right hand: over the chosen stone while it thinks, low behind it, aiming, the index cocked on the thumb and
+   * snapped out so its tip meets the stone's back at the nail's frame; it stays where the stone was while the stone flies. The stone's place and
+   * the direction are taken at the aim (a flick first seen after its nail has no hand)
+   */
+  private alkHands(s: PlaySession, view: AlkView, inp: StageIn) {
+    const holo = this.holo!
+    const f = view.flick!
+    const id = s.players[f.mover]
+    const rig = inp.rigs[id]
+    if (!rig || (rig.arrived !== 'game_a' && rig.arrived !== 'game_b')) return
+    const p = flickHand(f.sinceMs, f.thinkMs)
+    if (p.stage === 'rest') return
+    const key = `${s.seed}:${view.game}:${view.turn}`
+    let place = this.alkAimAt.get(id)
+    if (!place || place.key !== key) {
+      if (p.flicked) return
+      const st = view.stones[f.flick.stone]
+      place = { key, x: st.x, y: st.y }
+      this.alkAimAt.set(id, place)
+    }
+    const c = holo.alkPos(place.x, place.y)
+    c.y += HOLO_STONE_Y + 0.0023
+    const ahead = holo.alkPos(place.x + f.flick.dx / 1000, place.y + f.flick.dy / 1000)
+    const dir = new Vector3(ahead.x - c.x, 0, ahead.z - c.z).normalize()
+    if (!isFinite(dir.x)) return
+    const across = new Vector3().crossVectors(UP, dir)
+    const at = c.clone().addScaledVector(dir, -p.back)
+    at.y += p.h
+    const stoneWorld = new Matrix4().makeBasis(across, UP, dir).setPosition(at)
+    const fit = this.flickFit(rig)
+    const hand = handFor(stoneWorld, fit.tgt.pg, handGripMatrix(rig.parts.hands.r)).multiply(fit.offset)
+    const spec = GRIPS.holo_flick.r!
+    const cock = rig.curlVec('r', spec.pre)
+    const ext = rig.curlVec('r', spec.after)
+    const angles = cock.map((v, i) => v * p.cock + fit.hold[i] * p.strike + ext[i] * p.extend)
+    rig.drive.r = { target: hand, w: p.w, curl: null, angles, abdLimits: null, wc: p.w, spread: null }
+    this.stoneLetGo.set(rig.id, { side: 'r', drive: rig.drive.r!, seen: true, from: null })
+    if (f.sinceMs < f.thinkMs) rig.glance = { at: c, max: 10 * DEG }
+  }
+
+  /** #605 the flick's fit for this agent (the stored offset, the index fitted on the stone's back) */
+  private flickFit(rig: AgentRig) {
+    const key = `${rig.id}:flick`
+    let f = this.pinchFits.get(key)
+    if (!f) {
+      const hand = rig.parts.hands.r
+      const tgt = holoFlickTarget()
+      const offset = this.holoOffset(tgt, rig)
+      const hold = rig.curlVec('r', GRIPS.holo_flick.r!.hold)
+      for (const fit of fitFingers(tgt, hand, offset)) {
+        if (fit.finger === 'thumb') hold.splice(16, 4, ...fit.joints)
+        else setFingerJoints(hold, ['index', 'middle', 'ring', 'little'].indexOf(fit.finger), fit.joints)
+      }
+      f = { tgt, offset, hold }
+      this.pinchFits.set(key, f)
+    }
+    return f
+  }
+
+  /**
+   * #604 (hologram.md 11.4) the mover's right hand: over its own edge of the board while it thinks, then over the piece, the pinch on the glyph's
+   * thickness like a card (front and back faces at 70% of its height; the side chosen so the fingers point the player's way), an arc to the
+   * square, put down. The piece keeps the facing it had when taken. Returns the held piece for the board.
+   */
+  private chessHands(s: PlaySession, view: ChessView, inp: StageIn, seats: { seat: Vector3; color: 1 | 2; id: string }[]) {
+    const holo = this.holo!
+    const mv = view.move!
     const id = s.players[mv.mover]
     const rig = inp.rigs[id]
-    const wantColor = view.black === mv.mover ? 1 : 2
-    const bowl = this.bowl[wantColor === 1 ? 'b' : 'w']
-    if (!bowl || !this.grid) return
-    const habit = habitOf(id)
-    const p = placeSequence(mv.sinceMs, mv.thinkMs, habit)
-    this.lastPlace[id] = p
-    const mk = `${s.seed}:${view.game}:${mv.cell}`
-    if (this.handMove[id]?.key !== mk) this.handMove[id] = { key: mk, ok: mv.sinceMs < SEQ.pick }
-    if (!this.handMove[id].ok) return
-    if (p.stage === 'rest' && !p.landed) return
-    const stone = this.props.info(rig, 'piece', `prop_piece_${wantColor === 1 ? 'a' : 'b'}`)
-    // the opponent's last stone: a 10° glance while thinking; the chin hand and the 5° tilt of the defensive one
-    if (mv.sinceMs < mv.thinkMs) {
-      if (view.lastMove >= 0) rig.glance = { at: this.cellPos(view.lastMove), max: 10 * DEG }
-      if (p.chin) {
-        rig.chin = true
-        rig.headExtra.roll = 5 * DEG
-      }
-    }
-    // the stone's path: its bottom from the bowl's contact (under the mouth) to the intersection
-    const target = this.cellPos(mv.cell)
-    // the stone is taken where it rests (the proxy on the bowl, 4 cm above the pile's contact point in the model): no jump at the grasp (#228)
-    const bowlBottom = stone ? new Vector3().setFromMatrixPosition(this.props.homeWorld(stone.node)).addScaledVector(UP, -STONE_H / 2) : bowl.contact.clone().addScaledVector(UP, -STONE_H)
-    const bottom = bowlBottom.clone().lerp(target, p.u)
-    const fwdDir = new Vector3(target.x - rig.x, 0, target.z - rig.z).normalize()
-    if (isFinite(fwdDir.x)) bottom.addScaledVector(fwdDir, -p.back * p.u)
-    bottom.y += p.h
-    bottom.x += p.dx
-    bottom.z += p.dz
-    const fwd = new Vector3(target.x - rig.x, 0, target.z - rig.z).normalize()
+    if (!rig || (rig.arrived !== 'game_a' && rig.arrived !== 'game_b')) return null
+    const p = chessPinch(mv.sinceMs, mv.thinkMs)
+    const mk = `${s.seed}:${view.game}:${view.moveIndex}:${mv.from}`
+    // a half-move first seen after its pick is left to the board (no hand took it)
+    if (this.handMove[id]?.key !== mk) this.handMove[id] = { key: mk, ok: mv.sinceMs < mv.thinkMs + CHESS_HAND.pick }
+    if (!this.handMove[id].ok || p.stage === 'rest') return null
+    const at = rig.parts.root.position
+    const mid = holo.squarePos(27).lerp(holo.squarePos(36), 0.5)
+    const fwd = new Vector3(mid.x - at.x, 0, mid.z - at.z).normalize()
     if (!isFinite(fwd.x)) fwd.set(1, 0, 0)
-    const xs = fwd
-    const ys = UP.clone()
-    const zs = new Vector3().crossVectors(xs, ys)
-    const rollQ = new Quaternion().setFromAxisAngle(xs, p.roll)
-    const centre = bottom.clone().addScaledVector(UP, STONE_H / 2)
-    // a cell farther than an arm from the player's spot (the far corners of the board): the body leans over it by the difference, up to LEAN_MAX_M (water.ts REACH is 0.75)
-    const over = Math.min(LEAN_MAX_M, Math.max(0, Math.hypot(centre.x - rig.x, centre.z - rig.z) - STONE_COMFORT_M))
+    // the grip point: 70% of the glyph's height over the piece's foot
+    // the king and the queen: three fingers just under the top (one voxel down); the others: the card pinch at 70% of the height
+    const big = mv.kind === KING || mv.kind === QUEEN
+    const gripH = big ? CHESS_GLYPH_H[mv.kind] - 0.0036 * 1.5 : CHESS_GLYPH_H[mv.kind] * 0.7
+    const from = holo.squarePos(mv.from)
+    const to = holo.squarePos(mv.to)
+    const edge = mid.clone().addScaledVector(fwd, -0.18)
+    const hover = new Vector3(edge.x, from.y, edge.z)
+    const foot = p.a < 1 ? hover.clone().lerp(from, p.a) : from.clone().lerp(to, p.u)
+    foot.y += p.h
+    // the facing and the grip side, chosen at the pick and kept while held
+    let hold = this.chessHold.get(id)
+    if (!hold || hold.key !== mk) {
+      const cam = inp.camera ?? at
+      const yaw = Math.atan2(cam.x - from.x, cam.z - from.z)
+      // the piece's +x across the glyph; the card pinch's fingers run along +x (A) or −x (B): the one nearer the player's forward
+      const across = new Vector3(Math.cos(yaw), 0, -Math.sin(yaw))
+      hold = { key: mk, yaw, flip: across.dot(fwd) < 0 }
+      this.chessHold.set(id, hold)
+    }
+    const pieceWorld = new Matrix4().makeRotationY(hold.yaw).setPosition(foot.x, foot.y + gripH, foot.z)
+    const over = Math.min(LEAN_MAX_M, Math.max(0, Math.hypot(foot.x - at.x, foot.z - at.z) - STONE_COMFORT_M))
     if (over > 0) rig.leanOver(fwd.x * over, fwd.z * over)
-    // 휴 rolls the stone about the finger axis through its centre
-    const stoneWorld = frame(xs, ys, zs, centre)
-    if (p.roll) stoneWorld.premultiply(new Matrix4().makeTranslation(-centre.x, -centre.y, -centre.z)).premultiply(new Matrix4().makeRotationFromQuaternion(rollQ)).premultiply(new Matrix4().makeTranslation(centre.x, centre.y, centre.z))
-    const sf = this.stoneFrame(rig)
-    const fk = p.flat * 10
-    const f0 = Math.min(9, Math.floor(fk))
-    const fr = fk - f0
-    const hand = blend(stoneWorld.clone().multiply(new Matrix4().copy(sf[f0].m).invert()), stoneWorld.clone().multiply(new Matrix4().copy(sf[f0 + 1].m).invert()), fr)
-    hand.elements[13] += p.lift + p.rise
-    if (isFinite(fwdDir.x)) {
-      hand.elements[12] -= fwdDir.x * p.retreat
-      hand.elements[14] -= fwdDir.z * p.retreat
-    }
-    const mix = (a: number, b: number) => a + (b - a) * fr
-    const side = 'r'
-    const spec = GRIPS.piece.r!
-    // the fingers: pre-grip → the 바둑식 grip as the stone is picked, each letting go when it should
-    const free = (k: number) => (k === 0 ? p.freeIndex : k === 1 ? p.freeMiddle : p.freeRest)
-    const fan = rig.fanOf(side)
-    const curlJ = (k: number, c: number) => {
-      const f = fingerFromC(k, c, fan[k])
-      return [f.mcp, f.pip, f.abd]
-    }
-    const curl = [0, 1, 2, 3, 4, 5].map((k) => {
-      const held = k === 5 || k === 4 ? spec.hold[k] : k < 2 ? spec.hold[k] : spec.hold[k]
-      // the pick is a thumb + index pinch; the arc re-grips it into the go grip
-      const pinch = [0.6, 0.25, 0.3, 0.35, 0.15, 0.7][k]
-      const grip = pinch + (held - pinch) * p.regrip
-      const closed = spec.pre[k] + (grip - spec.pre[k]) * p.close
-      return closed + (spec.after[k] - closed) * free(k === 5 || k === 4 ? 2 : k)
+    if (mv.sinceMs < mv.thinkMs && view.lastMove) rig.glance = { at: holo.squarePos(view.lastMove.to), max: 10 * DEG }
+    const fit = this.cardFit(rig, hold.flip, big)
+    const hand = handFor(pieceWorld, fit.tgt.pg, handGripMatrix(rig.parts.hands.r)).multiply(fit.offset)
+    hand.elements[12] -= fwd.x * p.pull
+    hand.elements[13] += p.rise
+    hand.elements[14] -= fwd.z * p.pull
+    const spec = (big ? GRIPS.holo_tripod : GRIPS.holo).r!
+    const pre = rig.curlVec('r', spec.pre)
+    const wide = rig.curlVec('r', PINCH_WIDE)
+    const angles = pre.map((v, i) => {
+      const open = v + (wide[i] - v) * p.open
+      return open + (fit.hold[i] - open) * p.close
     })
-    const angles = rig.curlVec(side, curl)
-    // the index and the middle finger: full joints (MCP, PIP, abduction) from the stone fits, blended pre-grip → pinch → go grip → after like the curls above
-    for (const k of [0, 1]) {
-      const held = [0, 1, 2].map((i) => mix(sf[f0][k === 0 ? 'index' : 'middle'].j[i], sf[f0 + 1][k === 0 ? 'index' : 'middle'].j[i]))
-      if (k === 1) {
-        held[0] += 1.7 * p.press
-        held[1] += 2 * p.press
+    rig.drive.r = { target: hand, w: p.w, curl: null, angles, abdLimits: null, wc: p.w, spread: null }
+    this.stoneLetGo.set(rig.id, { side: 'r', drive: rig.drive.r!, seen: true, from: null })
+    const pickKey = `${mk}:pick`
+    if (p.held && !this.picked.has(pickKey)) {
+      this.picked.add(pickKey)
+      this.sounds.holoPick(s.seed, view.game, view.moveIndex + 1, from)
+    }
+    if (!p.held) return null
+    const color: 1 | 2 = mv.side === 0 ? 2 : 1
+    void seats
+    return { pos: foot, color, since: inp.t - (mv.sinceMs - mv.thinkMs - CHESS_HAND.pick) / 1000, kind: mv.kind, facing: hold.yaw, from: mv.from }
+  }
+
+  /**
+   * #538 · #604 the hand's offset on a light piece: stored per agent (holoGrip.data.ts, solved by holoGrip.test.ts); solving it here held the main
+   * thread 2–5 s the first time an agent took a piece (#653). A seat without stored values (a new agent) is solved once
+   */
+  private holoOffset(tgt: GripTarget, rig: AgentRig) {
+    const v = HOLO_GRIP_OFFSETS[`${tgt.key}:${Number(rig.id.split('_')[1])}`]
+    return v ? composeOffset(v) : solveTarget(tgt, rig.parts.hands.r).offset
+  }
+
+  /** #604 the card pinch on a chess glyph for this agent, solved once per side choice (gripTargets.ts chessCardTarget) */
+  private cardFit(rig: AgentRig, flip: boolean, tripod = false) {
+    const key = `${rig.id}:${tripod ? 'tripod' : 'card'}:${flip ? 'b' : 'a'}`
+    let f = this.pinchFits.get(key)
+    if (!f) {
+      const hand = rig.parts.hands.r
+      const tgt = tripod ? chessTripodTarget(flip) : chessCardTarget(flip)
+      const offset = this.holoOffset(tgt, rig)
+      const hold = rig.curlVec('r', GRIPS[tgt.kind].r!.hold)
+      for (const fit of fitFingers(tgt, hand, offset)) {
+        if (fit.finger === 'thumb') hold.splice(16, 4, ...fit.joints)
+        else setFingerJoints(hold, ['index', 'middle', 'ring', 'little'].indexOf(fit.finger), fit.joints)
       }
-      const pinch = curlJ(k, [0.6, 0.25][k])
-      const pre = curlJ(k, spec.pre[k])
-      const after = curlJ(k, spec.after[k])
-      const j = [0, 1, 2].map((i) => {
-        const grip = pinch[i] + (held[i] - pinch[i]) * p.regrip
-        const closed = pre[i] + (grip - pre[i]) * p.close
-        return closed + (after[i] - closed) * free(k)
-      })
-      setFingerJoints(angles, k, j)
+      f = { tgt, offset, hold }
+      this.pinchFits.set(key, f)
     }
-    // an agent whose fingers cannot reach the stone's discs holds it with the tripod pinch instead (decided once per agent from the fits, deterministic)
-    const pinch = this.stoneModes.get(rig.id) === 'pinch'
-    if (pinch) {
-      const tri = toVec(POSES.tripod)
-      const pre = rig.curlVec(side, spec.pre)
-      const after = rig.curlVec(side, spec.after)
-      angles.forEach((_, i) => {
-        const closed = pre[i] + (tri[i] - pre[i]) * p.close
-        angles[i] = closed + (after[i] - closed) * free(0)
-      })
+    return f
+  }
+
+  /**
+   * #538 (hologram.md 4 · agents.md 2.7 pinch) the mover's right hand: over its stone fount while it thinks, the pinch closing on the fount makes the
+   * stone between the thumb and the index (holo.pick), an arc to the intersection, put down as it is (holoPinch.ts). The stone is held palm down,
+   * across its diameter, its forward the player's toward the board. Returns the held stone (its centre, colour, when it was picked) for the board.
+   */
+  private omokHands(s: PlaySession, view: OmokView, inp: StageIn, seats: { seat: Vector3; color: 1 | 2; id: string }[]) {
+    const mv = view.move
+    if (!mv || !this.holo) return null
+    const id = s.players[mv.mover]
+    const rig = inp.rigs[id]
+    if (!rig || id === VISITOR) return null
+    // a hand only from the chair (an agent still walking to the visitor's game: its stone appears on the board without a hand)
+    if (rig.arrived !== 'game_a' && rig.arrived !== 'game_b') return null
+    const color: 1 | 2 = view.black === mv.mover ? 1 : 2
+    const p = pinchSequence(mv.sinceMs, mv.thinkMs)
+    this.lastPlace[id] = p
+    // a move first seen after its pick (a seat taken mid-move) is left to the board: no hand ever took its stone
+    const times = pinchTimes(mv.thinkMs)
+    const mk = `${s.seed}:${view.game}:${mv.cell}`
+    if (this.handMove[id]?.key !== mk) this.handMove[id] = { key: mk, ok: mv.sinceMs < times.pick }
+    if (!this.handMove[id].ok || p.stage === 'rest') return null
+    const at = rig.parts.root.position
+    const fount = this.holo.fountPos(at)
+    const target = this.cellPos(mv.cell)
+    // the stone's centre on its way: from the fount to the intersection, its bottom on the light plane
+    const lift = HOLO_STONE_Y + HOLO_STONE_H / 2
+    const a = new Vector3(fount.x, target.y + lift, fount.z)
+    const b = new Vector3(target.x, target.y + lift, target.z)
+    const centre = a.lerp(b, p.u)
+    centre.y += p.h
+    // the opponent's last stone: a 10° glance while thinking
+    if (mv.sinceMs < mv.thinkMs && view.lastMove >= 0) rig.glance = { at: this.cellPos(view.lastMove), max: 10 * DEG }
+    // forward: from the player toward the board's middle
+    const mid = this.holo.cellPos((HOLO_N * HOLO_N - 1) / 2)
+    const fwd = new Vector3(mid.x - at.x, 0, mid.z - at.z).normalize()
+    if (!isFinite(fwd.x)) fwd.set(1, 0, 0)
+    const side = new Vector3().crossVectors(UP, fwd)
+    const stoneWorld = new Matrix4().makeBasis(side, UP, fwd).setPosition(centre)
+    // a cell farther than an arm from the player's spot (the far corners): the body leans over it by the difference, up to LEAN_MAX_M
+    const over = Math.min(LEAN_MAX_M, Math.max(0, Math.hypot(centre.x - at.x, centre.z - at.z) - STONE_COMFORT_M))
+    if (over > 0) rig.leanOver(fwd.x * over, fwd.z * over)
+    const fit = this.pinchFit(rig)
+    const hand = handFor(stoneWorld, fit.tgt.pg, handGripMatrix(rig.parts.hands.r)).multiply(fit.offset)
+    hand.elements[12] -= fwd.x * p.pull
+    hand.elements[13] += p.rise
+    hand.elements[14] -= fwd.z * p.pull
+    // the fingers: their pre pose (wider still while it opens over the fount) → the pinch fitted on the rim
+    const spec = GRIPS.holo.r!
+    const pre = rig.curlVec('r', spec.pre)
+    const wide = rig.curlVec('r', PINCH_WIDE)
+    const angles = pre.map((v, i) => {
+      const open = v + (wide[i] - v) * p.open
+      return open + (fit.hold[i] - open) * p.close
+    })
+    rig.drive.r = { target: hand, w: p.w, curl: null, angles, abdLimits: null, wc: p.w, spread: null }
+    this.stoneLetGo.set(rig.id, { side: 'r', drive: rig.drive.r!, seen: true, from: null })
+    // the pick: the frame the pinch closes (once per move); the fount of the mover's seat flashes
+    const pickKey = `${mk}:pick`
+    const pick = p.held && this.handMove[id].key === mk && !this.picked.has(pickKey) ? seats.findIndex((x) => x.id === id) : -1
+    if (p.held && !this.picked.has(pickKey)) {
+      this.picked.add(pickKey)
+      if (this.picked.size > 400) this.picked = new Set([...this.picked].slice(-100))
+      this.sounds.holoPick(s.seed, view.game, view.moveIndex + 1, fount)
     }
-    rig.drive[side] = { target: hand, w: p.w, curl: null, angles, abdLimits: pinch ? null : [STONE_ABD.index, STONE_ABD.middle, undefined, undefined], wc: p.w, spread: null }
-    this.stoneLetGo.set(rig.id, { side, drive: rig.drive[side]!, seen: true, from: null })
-    // the stone: the prop piece, in the hand until it lands; the board's own instance shows from the landing
-    if (stone) {
-      rig.want = { kind: 'piece', side, prefer: `prop_piece_${wantColor === 1 ? 'a' : 'b'}`, attached: p.attached }
-      if (p.attached) {
-        this.props.force(stone.node, stoneWorld)
-        this.forced.add(stone.node)
-      }
-    }
+    if (!p.held) return null
+    return { pos: centre, color, since: inp.t - (mv.sinceMs - times.pick) / 1000, pick: pick >= 0 ? pick : undefined }
   }
 
   // ----------------------------------------------------------------------------------------------------- solo activities
@@ -1262,8 +1394,6 @@ export class PlayStage {
     if (this.lounge.drink(rig, goal, inp)) return
     // the watering errand: first, so nothing else (the stamp) takes the right hand while it carries the can
     if (goal.pose === 'water') return this.errand(rig, goal, inp)
-    // #137 ① the white bowl in both hands
-    if (goal.pose === 'bowl' && goal.bowl) return this.bowlErrand(rig, goal.bowl, inp)
     // the lounge acts (fridge, dispenser, turntable), the pillow on the sofa, the door lever (loungeActs.ts)
     if (this.lounge.solo(rig, goal, inp)) return
     // #490 B (play.md 9.2): at the ping-pong table before the partner is there, the ball bounces on the paddle (a pair without its rally, as in the
@@ -1481,41 +1611,6 @@ export class PlayStage {
     const hu = w.stage === 'pour' && lv.body ? habitU(plant.name, w.habit, w.u) : null
     if (hu !== null && w.habit) this.habit(rig, plant, w.habit, hu, habitEnv(hu, habitS), inp)
     this.pouring = attached && w.stage === 'pour' ? { rig, held, plant, flow, u: w.u, shakes: lv.shakes } : null
-  }
-
-  /**
-   * #137 ① the white bowl's errand (bowlRun.ts): both hands take it by the bulge where it rests (lift), carry it in front of the chest while
-   * walking, and lower it to where it goes (put: its rest is already there, Director.bowlRest), the hands letting go. Nothing else holds
-   * the hands meanwhile; the bowl is never moved but by the right hand's grip with the left hand following it.
-   */
-  private bowlErrand(rig: AgentRig, b: NonNullable<Goal['bowl']>, inp: StageIn) {
-    if (b.stage === 'fetch') return
-    const bowl = this.props.info(rig, 'bowl')
-    if (!bowl) return
-    const root = rig.parts.root
-    const body = new Quaternion().setFromAxisAngle(UP, rig.heading)
-    const fwd = new Vector3(0, 0, -1).applyQuaternion(body)
-    const carry = new Matrix4().compose(new Vector3(root.position.x, BOWL_CARRY.y, root.position.z).addScaledVector(fwd, BOWL_CARRY.fwd), body, new Vector3(1, 1, 1))
-    const rest = this.props.homeWorld(bowl.node)
-    let want = true
-    let held = carry
-    if (b.stage === 'lift') {
-      // it takes the weight: the body dips 2 cm as the hands close and comes up with it
-      rig.bodyDip = 0.02 * Math.sin(Math.PI * Math.min(1, b.u / BOWL_S.lift))
-      rig.headExtra.pitch = -0.2
-    } else if (b.stage === 'put') {
-      const dur = Math.max(0.6, rig.gestureMin)
-      rig.headExtra.pitch = -0.2
-      if (b.u < dur + 0.06) held = blend(carry, rest, ease(Math.min(1, b.u / dur)))
-      else {
-        // let go: both hands come away on the grip clock (#600: the left one used to drop its drive at once and jump 0.4 m in a frame)
-        held = rest
-        want = false
-      }
-    }
-    this.grip(rig, 'r', 'bowl', bowl.node.name, want, held, inp)
-    const tl = this.target(bowl.node.name, 'bowl', 'l')
-    if (tl) this.partner(rig, 'bowl', 'l', tl, this.lastObjPose, 'r')
   }
 
   /** the can swings a little with each step while it is carried (watering.md 2: ±3° per step); how much follows how fast the body moves */

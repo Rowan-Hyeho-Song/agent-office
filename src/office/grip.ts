@@ -69,6 +69,13 @@ export const GRIPS: Record<string, GripSpec> = {
   bookspine: { r: { pre: all(0.15, [0.1, 0.3]), hold: curlOf([0.4, 0.35, 0.35, 0.35], [0.35, 0.6]), after: REST, contacts: ['index', 'thumb'] } },
   // the closed book carried in front of the chest (#280, the bake's prop_book_grip_l / _contact_thumb_l, children of the book itself): the left hand under it, the thumb on its edge
   bookclosed: { l: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.3, 0.3, 0.3, 0.3], [0.3, 0.4]), after: REST, contacts: ['thumb'] } },
+  // #605 (hologram.md 12.4) the alkkagi flick: cocked (the index curled under the thumb, which holds it), the fit on the stone at the strike, the
+  // index out after it; the other three loosely curled
+  holo_flick: { r: { pre: curlOf([0.9, 0.4, 0.45, 0.5], [0.6, 0.6]), hold: curlOf([0.45, 0.4, 0.45, 0.5], [0.3, 0.45]), after: curlOf([0.08, 0.4, 0.45, 0.5], [0.25, 0.35]), contacts: ['index'] } },
+  // #604 (hologram.md 11.4, hand-poses.md 6) the king and queen glyphs taken by three fingers: thumb, index and middle, the other two folded
+  holo_tripod: { r: { pre: curlOf([0.1, 0.1, 0.4, 0.45], [0.05, 0.3]), hold: curlOf([0.55, 0.55, 0.7, 0.75], [0.25, 0.8]), after: REST, contacts: ['thumb', 'index', 'middle'] } },
+  // #538 (hologram.md 4.1) the light stone pinched across its diameter: the thumb and index tips on the rim, the other three as at rest
+  holo: { r: { pre: curlOf([0.1, 0.25, 0.3, 0.35], [0.05, 0.3]), hold: curlOf([0.6, 0.25, 0.3, 0.35], [0.25, 0.85]), after: REST, contacts: ['index', 'thumb'] } },
   // the right thumb and index pinching the corner of the one leaf that turns (#231): the index 0.6, the thumb (0.25, 0.85), the others 0.3
   leaf: { r: { pre: all(0.15, [0.1, 0]), hold: curlOf([0.6, 0.3, 0.3, 0.3], [0.25, 0.85]), after: REST, contacts: ['index', 'thumb'] } },
   // the loose sheet held by its long sides for reading (#374, grips.md "낱장 옆 쥐고 읽기"): the thumb on the text face, four fingers flat on the back, both hands

@@ -276,6 +276,22 @@ export function statusTag(status: AgentStatus | undefined, detail?: string): Tag
   return { icon: ACTIVITY_ICON[key] ?? 'cmd', label: withTask(words), private: key === 'private', other: other(words) }
 }
 
+/**
+ * #599 (timelapse.md 13.1) the timelapse's chip: only the night's (조는 중 · 야간 당번) from the replay's own status at that time, and 조는 중 for a body
+ * lying on the sofa (`napping`, the asleep face of 12.4). A sleeper at its desk shows its back to the camera, so without the chip the replayed night
+ * reads as bodies frozen in place; the working chips stay off (the timeline and the subtitle say it)
+ */
+export function replayTag(status: AgentStatus | undefined, napping = false): Tag | null {
+  if (status?.night) return statusTag(status)
+  return napping ? { icon: 'sleep', label: '조는 중', private: false } : null
+}
+
+/**
+ * The sleepers' z rises (#110) except with reduced motion and in the timelapse at x16 (#599 timelapse.md 13.1: its calm repeated motions are off).
+ * Then the chip's own icon, a still z z, says it (a still z beside it ran into the chip's words)
+ */
+export const zRises = (replaying: boolean, speed: number, reduced: boolean) => !reduced && !(replaying && speed >= 16)
+
 // ---- what the layer draws --------------------------------------------------------------------------------------------
 
 export type BubbleKind = 'talk' | 'react' | 'private'

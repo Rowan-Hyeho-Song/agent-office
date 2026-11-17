@@ -54,6 +54,7 @@ export class PlaySounds {
   private pp: PingpongPrev | null = null
   private bounce = new Map<string, number>()
   private omok: { seed: number; game: number; moves: number } | null = null
+  private chess: { seed: number; game: number; moves: number } | null = null
   private stampT: number | null = null
   private pourUntil = 0
   private signal: string | undefined
@@ -93,6 +94,54 @@ export class PlaySounds {
     this.omok = { seed, game, moves }
     if (!prev || prev.seed !== seed || prev.game !== game || moves !== prev.moves + 1 || !at) return
     cue('omok.place', { pos: { x: at.x, y: at.y, z: at.z }, key: `omok:${seed}:${game}:${moves}` })
+  }
+
+  /**
+   * #538 (sound.md 4.6) the hologram board: a new stone touching its intersection (the ripple's frame) is holo.place, once per move. The visitor's own
+   * stone sounds as 'ui' (visitor). Key: omok:<board seed>:<move number>
+   */
+  holoStone(seed: number, game: number, moves: number, at: Vec | null, visitor: boolean) {
+    const prev = this.omok
+    this.omok = { seed, game, moves }
+    if (!prev || prev.seed !== seed || prev.game !== game || moves !== prev.moves + 1 || !at) return
+    cue('holo.place', { pos: { x: at.x, y: at.y, z: at.z }, key: `omok:${seed}:${game}:${moves}`, ...(visitor ? { visitor: true } : {}) })
+  }
+  /**
+   * #604 (sound.md 4.6) a chess piece put down: chess.place, or chess.capture instead when it takes (the frame it touches the square), once per
+   * half-move. Key: chess:<seed>:<game>:<half-move>
+   */
+  chessPiece(seed: number, game: number, moves: number, at: Vec | null, capture: boolean) {
+    const prev = this.chess
+    this.chess = { seed, game, moves }
+    if (!prev || prev.seed !== seed || prev.game !== game || moves !== prev.moves + 1 || !at) return
+    cue(capture ? 'chess.capture' : 'chess.place', { pos: { x: at.x, y: at.y, z: at.z }, key: `chess:${seed}:${game}:${moves}` })
+  }
+  /**
+   * #605 (sound.md 4.6) alkkagi: the nail meeting the stone (alkkagi.flick, the physics starts), and each engine event of the flick as it is passed:
+   * a hit (alkkagi.hit, its power the closing speed over ALK.maxSpeed, none under 0.5 lines/s) and a stone over the edge (alkkagi.drop). Keys:
+   * alkkagi:<seed>:<game>:<flick>[:<step>]. A jump plays nothing (the events between are skipped)
+   */
+  alkFlick(seed: number, game: number, turn: number, at: Vec) {
+    cue('alkkagi.flick', { pos: { x: at.x, y: at.y, z: at.z }, key: `alkkagi:${seed}:${game}:${turn}` })
+  }
+  alkEvent(seed: number, game: number, turn: number, e: { kind: 'hit' | 'out'; step: number; speed?: number }, at: Vec) {
+    const key = `alkkagi:${seed}:${game}:${turn}:${e.step}`
+    if (e.kind === 'hit') {
+      if ((e.speed ?? 0) < 0.5) return
+      cue('alkkagi.hit', { pos: { x: at.x, y: at.y, z: at.z }, power: Math.min(1, (e.speed ?? 0) / 26), key })
+    } else cue('alkkagi.drop', { pos: { x: at.x, y: at.y, z: at.z }, key })
+  }
+  /** #604 the king put in check (the frame it begins), at its square */
+  chessCheck(seed: number, game: number, moves: number, at: Vec) {
+    cue('chess.check', { pos: { x: at.x, y: at.y, z: at.z }, key: `chess:${seed}:${game}:${moves}:check` })
+  }
+  /** #538 the pinch closing on the fount: the stone made between the fingers (once per move, keyed as its place) */
+  holoPick(seed: number, game: number, moves: number, at: Vec) {
+    cue('holo.pick', { pos: { x: at.x, y: at.y, z: at.z }, key: `omok:${seed}:${game}:${moves}:pick` })
+  }
+  /** #538 the board coming on (its first frame) / folding (after its stones are gone); reduced motion: the short fade (0.15 s) */
+  holoBoard(on: boolean, at: Vec, reduced: boolean) {
+    cue(on ? 'holo.board.on' : 'holo.board.off', { pos: { x: at.x, y: at.y, z: at.z }, ...(reduced ? { dur: 0.15 } : {}) })
   }
 
   /** the planner's stamp: one thud per press while stamping (null when not stamping) */

@@ -157,8 +157,6 @@ describe('the re-baked contact axes (#172 909aa69)', () => {
     const z = (name: string) => new Vector3(0, 0, 1).transformDirection(scene.getObjectByName(name)!.matrixWorld)
     expect(contactAxis(scene)).toBe('z')
     const cases: [string, number[]][] = [
-      ['prop_piece_a_contact_middle', [0, 1, 0]], // the middle fingertip presses the top face
-      ['prop_piece_a_contact_index', [0, -1, 0]], // the stone rests on the index nail: the bottom face
       ['prop_paddle_a_contact_thumb', [0, 1, 0]],
       ['prop_cup_0_contact_ring', [-1, 0, 0]],
     ]

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  EXTEND_MAX_MS, GAP_S, LEAVE_CAP, LEAVE_WINDOW_MS, NIGHT_PLAYS, PAIR_SOON_MS, PLAYS, STAY_MIN, WATCH_LEAVE_MS, WATCH_LEFT_MS, dayPlan, nextChange, planDay, playAt, restNear, soloAt, type Seg,
+  BOARD_LABEL, BOARD_STAY, EXTEND_MAX_MS, GAME_WEIGHTS, GAP_S, LEAVE_CAP, LEAVE_WINDOW_MS, NIGHT_PLAYS, PAIR_SOON_MS, PLAYS, STAY_MIN, WATCH_LEAVE_MS, WATCH_LEFT_MS, chooseGame, dayPlan, nextChange, planDay, playAt, restNear, soloAt, stayRange, type Seg,
 } from './play'
 
 // #490 (docs/design/play.md 9): no blocks; each agent has its own run of stays and gaps, laid out once a day from KST 04:00, the same for every visitor.
@@ -55,7 +55,7 @@ describe('stays (play.md 9.1)', () => {
         for (const s of stays(segs).slice(1)) {
           if (s.kind === 'watch') continue // a watcher leaves when the game ends
           if (s.joined) continue // a record placed alone ends when somebody sits down opposite (play.md 9.2 ①)
-          const [lo, hi] = STAY_MIN[s.kind as keyof typeof STAY_MIN]
+          const [lo, hi] = stayRange(s.kind as keyof typeof STAY_MIN, s.game) // a board game's range is its game's (hologram.md 10.2)
           const from = s.pairAt ?? s.start
           expect(s.end - from, `${s.kind}`).toBeGreaterThanOrEqual(lo * MIN - 1)
           expect(s.end - from, `${s.kind}`).toBeLessThanOrEqual(hi * MIN + EXTEND_MAX_MS + 1)
@@ -163,7 +163,7 @@ describe('at any moment (playAt)', () => {
       for (const a of FIVE) {
         if (a === 'agent_1') continue
         if (all[a].partner === 'agent_1') {
-          expect(['boardgame_solo', 'gap', 'coffee', 'books']).toContain(less[a].kind)
+          expect(['boardgame_solo', 'gap', 'coffee', 'books', 'watch']).toContain(less[a].kind) // aloneAt: a game to watch is one of the fills (play.md 9.2)
           expect(less[a].partner).toBeUndefined()
         } else if (all[a].kind === 'watch' && Object.entries(all).some(([b, o]) => o.kind === all[a].watch && o.partner && (b === 'agent_1' || o.partner === 'agent_1'))) {
           // its game is broken: it leaves at once
@@ -371,5 +371,106 @@ describe('resting in one place (#525)', () => {
           expect(g.spot, `${new Date(g.start).toISOString()}`).toBe(segs[k - 1].spot)
         }
     expect(stretches).toBeGreaterThan(20)
+  })
+})
+
+// #604 (hologram.md 10.2, play.md 9): the board table hosts one of several games, chosen when the empty table gets its first occupant
+describe('the board game (hologram.md 10.2)', () => {
+  const boards = (d: number) => dayPlan(d, FIVE).flatMap((segs) => segs.filter((s) => s.kind === 'boardgame' || s.kind === 'boardgame_solo'))
+  it('every board stay has a game; weights omok 4 : chess 4 : alkkagi 2 (#605 turned alkkagi on)', () => {
+    expect(GAME_WEIGHTS).toEqual({ omok: 4, chess: 4, alkkagi: 2 })
+    const days = Array.from({ length: 30 }, (_, k) => 20_400 + k)
+    const count = { omok: 0, chess: 0, alkkagi: 0 }
+    let n = 0
+    for (const d of days) for (const s of boards(d)) {
+      expect(s.game, `${s.kind}`).toBeDefined()
+      count[s.game!]++
+      n++
+    }
+    expect(n).toBeGreaterThan(400)
+    expect(count.alkkagi / n).toBeGreaterThan(0.1)
+    expect(count.alkkagi / n).toBeLessThan(0.3)
+    expect(count.chess / n).toBeGreaterThan(0.3)
+    expect(count.chess / n).toBeLessThan(0.5)
+    expect(count.omok / n).toBeGreaterThan(0.3)
+  })
+  it('chooseGame over many seeds: omok and chess about 40% each, alkkagi about 20%; the same seed the same game', () => {
+    const count = { omok: 0, chess: 0, alkkagi: 0 }
+    for (let k = 0; k < 1000; k++) count[chooseGame(`seed|${k}`)]++
+    expect(count.alkkagi).toBeGreaterThan(150)
+    expect(count.alkkagi).toBeLessThan(250)
+    expect(count.chess).toBeGreaterThan(340)
+    expect(count.chess).toBeLessThan(460)
+    expect(chooseGame('x|1')).toBe(chooseGame('x|1'))
+  })
+  it('a partner joining one alone keeps its game, and both are in that game', () => {
+    let joins = 0
+    for (const d of DAYS) {
+      const plan = dayPlan(d, FIVE)
+      for (const segs of plan)
+        for (const s of segs) {
+          if (!s.joined) continue
+          const next = segs[segs.indexOf(s) + 1]
+          expect(next.game).toBe(s.game)
+          const other = plan[FIVE.indexOf(next.partner!)].find((x) => x.stay === next.stay)!
+          expect(other.game).toBe(s.game)
+          joins++
+        }
+    }
+    expect(joins).toBeGreaterThan(3)
+  })
+  it('stays fall in the range of the game: pair and alone', () => {
+    expect(BOARD_STAY.chess).toEqual({ pair: [8, 14], solo: [4, 8] })
+    expect(BOARD_STAY.alkkagi).toEqual({ pair: [4, 8], solo: [3, 6] })
+    expect(BOARD_STAY.omok).toEqual({ pair: STAY_MIN.boardgame, solo: STAY_MIN.boardgame_solo })
+    const seen = new Set<string>()
+    for (const d of DAYS)
+      for (const s of dayPlan(d, FIVE).flatMap((segs) => stays(segs).slice(1)).filter((x) => x.kind === 'boardgame' || x.kind === 'boardgame_solo')) {
+        if (s.joined) continue
+        const [lo, hi] = BOARD_STAY[s.game!][s.kind === 'boardgame' ? 'pair' : 'solo']
+        const from = s.pairAt ?? s.start
+        expect(s.end - from, `${s.game} ${s.kind}`).toBeGreaterThanOrEqual(lo * MIN - 1)
+        expect(s.end - from, `${s.game} ${s.kind}`).toBeLessThanOrEqual(hi * MIN + EXTEND_MAX_MS + 1)
+        seen.add(`${s.game}|${s.kind}`)
+      }
+    for (const k of ['omok|boardgame', 'chess|boardgame', 'omok|boardgame_solo', 'chess|boardgame_solo']) expect(seen, k).toContain(k)
+  })
+  it('labels per game: pair, alone and watching', () => {
+    expect(BOARD_LABEL.omok).toEqual({ pair: '오목', solo: '기보 놓기', watch: '오목 구경' })
+    expect(BOARD_LABEL.chess).toEqual({ pair: '체스', solo: '체스 문제 풀기', watch: '체스 구경' })
+    expect(BOARD_LABEL.alkkagi).toEqual({ pair: '알까기', solo: '알까기 연습', watch: '알까기 구경' })
+    const seen = new Set<string>()
+    for (const d of DAYS) {
+      const plan = dayPlan(d, FIVE)
+      for (const [i, segs] of plan.entries())
+        for (const s of segs) {
+          if (s.kind !== 'boardgame' && s.kind !== 'boardgame_solo' && s.kind !== 'watch') continue
+          if (s.kind === 'watch' && s.watch !== 'boardgame') continue
+          const t = Math.min(s.end - 1, Math.max(s.start, s.pairAt ?? s.start) + 1000)
+          const a = playAt(t, FIVE)[FIVE[i]]
+          if (a.kind !== s.kind) continue
+          const want = BOARD_LABEL[s.game!][s.kind === 'boardgame' ? 'pair' : s.kind === 'boardgame_solo' ? 'solo' : 'watch']
+          expect(a.label).toBe(want)
+          expect(a.game).toBe(s.game)
+          seen.add(`${s.game}|${s.kind}`)
+        }
+    }
+    for (const k of ['chess|boardgame', 'chess|boardgame_solo', 'chess|watch', 'omok|watch']) expect(seen, k).toContain(k)
+  })
+  it('the same play is not chosen twice in a row across games: omok then chess counts as one play', () => {
+    for (const d of DAYS)
+      for (const segs of dayPlan(d, FIVE)) {
+        const plays = stays(segs).filter((s) => !['watch', 'water', 'fridge', 'dispenser', 'record'].includes(s.kind))
+        for (let k = 1; k < plays.length; k++) {
+          if (plays[k - 1].joined) continue // the record alone cut short by a partner: the same board goes on as a game
+          const board = (x: Seg) => (x.kind === 'boardgame_solo' ? 'boardgame' : x.kind)
+          expect(board(plays[k]), JSON.stringify([plays[k - 1], plays[k]])).not.toBe(board(plays[k - 1]))
+        }
+      }
+  })
+  it('deterministic: the same day gives the same games', () => {
+    const games = (d: number) => JSON.stringify(boards(d).map((s) => [s.stay, s.game]))
+    expect(games(DAYS[0])).toBe(games(DAYS[0]))
+    expect(games(DAYS[0])).not.toBe(games(DAYS[1]))
   })
 })

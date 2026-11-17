@@ -647,28 +647,3 @@ describe('resting never waits at the desk (#517)', () => {
     expect(atDesk.slice(0, 5)).toEqual([])
   }, 120_000)
 })
-
-// #600: while the white bowl is carried (either way), nobody but the runner has the board: another agent whose turn for a record placed alone
-// comes then does not sit at game_a (it placed its stones alone at the board the bowl was being carried to)
-describe('the white bowl keeps the board', () => {
-  it('a record placed alone by another agent waits while the bowl is carried out by the runner', () => {
-    // a moment when the schedule hands somebody a record placed alone
-    let t = Date.UTC(2026, 10, 9, 0, 0, 0)
-    let solo: string | undefined
-    for (; t < Date.UTC(2026, 10, 10); t += 60_000) {
-      solo = AGENTS.find((a) => playAt(t, AGENTS)[a]?.kind === 'boardgame_solo')
-      if (solo) break
-    }
-    expect(solo).toBeDefined()
-    const runner = AGENTS.find((a) => a !== solo)!
-    const d = new Director(AGENTS)
-    const { at, fn } = makeArrived()
-    for (const a of AGENTS) at[a] = playAt(t, AGENTS)[a]?.spot ?? null
-    // the runner is on the bowl's errand to the board (as if its own record had started a moment before)
-    ;(d as unknown as { bowl: unknown }).bowl = { agent: runner, way: 'out', stage: 'carry', t0: t, block: 0 }
-    const g = d.goals(t, Math.floor(t / 60000), allIdle(), fn)
-    expect(g[runner].pose).toBe('bowl')
-    expect(g[solo!].spot).not.toBe('game_a')
-    expect(g[solo!].pose).not.toBe('boardgame')
-  })
-})
