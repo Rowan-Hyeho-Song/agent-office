@@ -76,7 +76,8 @@ describe('notes in the Director', () => {
     drive(d, 0, 600, () => working(), (_t, g) => expect(g.agent_1.note, 'not while it works').toBeUndefined())
     expect(d.notesWaiting('agent_1')).toEqual([7, 8])
     let ids: number[] = []
-    drive(d, 600, 680, () => withIdle('agent_1'), (_t, g) => (ids = g.agent_1.note?.ids ?? ids))
+    // resting: it goes for them (after any errand of the schedule it was handed first, a book from the shelf say)
+    drive(d, 600, 1500, () => withIdle('agent_1'), (_t, g) => (ids = g.agent_1.note?.ids ?? ids))
     expect(ids).toEqual([7, 8])
     expect(d.notesWaiting('agent_1')).toEqual([])
   })

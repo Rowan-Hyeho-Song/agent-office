@@ -11,9 +11,9 @@ export type PlayKind = 'pingpong' | 'boardgame' | 'boardgame_solo' | 'coffee' | 
 export type BoardGameKind = 'omok' | 'chess' | 'alkkagi'
 
 /**
- * Which game the empty table gets, by weight (hologram.md 10.2). Alkkagi is off (0) until its engine ships: #605 / stage 1-b turns it to 2.
+ * Which game the empty table gets, by weight (hologram.md 10.2): omok 4 · chess 4 · alkkagi 2 (#605 turned alkkagi on).
  */
-export const GAME_WEIGHTS: Record<BoardGameKind, number> = { omok: 4, chess: 4, alkkagi: 0 }
+export const GAME_WEIGHTS: Record<BoardGameKind, number> = { omok: 4, chess: 4, alkkagi: 2 }
 
 /** the game for the table's first occupant(s), from a seed string (the day, the time, who sits down): the same in every browser */
 export function chooseGame(seed: string): BoardGameKind {

@@ -7,6 +7,7 @@ import { Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import { Walk, world } from './errandWorld.fixture'
 import { contactNormal } from './gripTargets'
+import { playAt } from './play'
 import type { AgentRig } from './rig'
 
 const LOG = process.env.FIT_LOG
@@ -67,7 +68,16 @@ describe('a pressed button (#559)', () => {
 
   it('the water dispenser: the fingertip on its tap as it pours (within 1 mm), into nothing', async () => {
     const w = await world()
-    const walk = new Walk(w, Date.UTC(2026, 10, 9, 5, 0, 0))
+    // a moment the schedule gives agent_1 no errand of its own (a book or the can would keep the forced act waiting; the schedule moves with its
+    // rules, #604 · #605 changed the board's stays)
+    const IDS5 = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
+    let start = Date.UTC(2026, 10, 9, 5, 0, 0)
+    for (let m = 0; m < 600; m++) {
+      const k = playAt(start, IDS5, new Set()).agent_1?.kind
+      if (k === 'coffee' || k === 'sofa') break
+      start += 60_000
+    }
+    const walk = new Walk(w, start)
     for (let k = 0; k < 60; k++) walk.step(DT)
     walk.director.forceAct('agent_1', 'dispenser', walk.t0 + walk.t * 1000, undefined, null)
     const acc = { near: Infinity, into: 0, frames: 0 }

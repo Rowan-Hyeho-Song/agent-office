@@ -26,10 +26,11 @@ import type { Goal } from './director'
 import type { GripDemo } from './debugPlay'
 import { GRIPS, GripClock, curlOf, handFor, objectFor, tipAt } from './grip'
 import { DIP_K } from './handPose'
-import { contactNormal, fitFingers, handGripMatrix, chessCardTarget, chessTripodTarget, composeOffset, holoPinchTarget, offsetOf, resolveTarget, solveTarget, type GripTarget } from './gripTargets'
+import { contactNormal, fitFingers, handGripMatrix, chessCardTarget, chessTripodTarget, composeOffset, holoFlickTarget, holoPinchTarget, offsetOf, resolveTarget, solveTarget, type GripTarget } from './gripTargets'
 import { HOLO_GRIP_OFFSETS } from './holoGrip.data'
 import { CELL as HOLO_CELL, HoloBoard, N as HOLO_N, STONE_H as HOLO_STONE_H, STONE_Y as HOLO_STONE_Y } from './holoBoard'
-import { chessPinch, pinchSequence, pinchTimes, type Pinch } from '../play/holoPinch'
+import { chessPinch, flickHand, pinchSequence, pinchTimes, type Pinch } from '../play/holoPinch'
+import { ALK_HAND, alkkagiAt, type AlkView } from '../play/alkkagiTimeline'
 import { CHESS_HAND, chessAt, type ChessView } from '../play/chessTimeline'
 import { KING, QUEEN } from '../play/chess'
 import { fingerModelOf, type AgentRig, type PropBank } from './rig'
@@ -265,7 +266,11 @@ export class PlayStage {
   /** per agent: the pinch on the light stone, solved once (the hand offset and the fitted thumb and index) */
   private pinchFits = new Map<string, { tgt: GripTarget; offset: Matrix4; hold: number[] }>()
   /** #604 the game the board last showed (it goes off as that game) */
-  private holoGame: 'omok' | 'chess' = 'omok'
+  private holoGame: 'omok' | 'chess' | 'alkkagi' = 'omok'
+  /** #605 the alkkagi phase last frame, the flick whose events were last sounded (and how far into its motion), the stone's place at the aim */
+  private alkPhase: AlkView['phase'] | null = null
+  private alkHeard: { key: string; ms: number } | null = null
+  private alkAimAt = new Map<string, { key: string; x: number; y: number }>()
   /** #604 per mover and half-move: the held piece's facing and the grip (card pinch side) chosen at the pick, kept while it is held */
   private chessHold = new Map<string, { key: string; yaw: number; flip: boolean }>()
   /** #604 the chess phase last frame (a reset begins a new game) */
@@ -611,8 +616,9 @@ export class PlayStage {
     this.pingpong(pp, inp)
     for (const e of this.stoneLetGo.values()) e.seen = false
     // #604 the board's game (hologram.md 10.2): chess or omok on the one projector; with nobody there, the last game's board goes off
-    if (og) this.holoGame = og.game === 'chess' ? 'chess' : 'omok'
+    if (og) this.holoGame = og.game === 'chess' ? 'chess' : og.game === 'alkkagi' ? 'alkkagi' : 'omok'
     if (this.holoGame === 'chess') this.chess(og?.game === 'chess' ? og : null, inp)
+    else if (this.holoGame === 'alkkagi') this.alkkagi(og?.game === 'alkkagi' ? og : null, inp)
     else this.omok(og, inp)
     for (const e of this.carry.values()) e.seen = false
     // #481 writing the wrap-up cards: the card on the desk, the pen hand on the pen; nothing else takes the hands meanwhile
@@ -993,6 +999,159 @@ export class PlayStage {
         }
       }
     }
+  }
+
+  /**
+   * #605 (hologram.md 12) alkkagi on the hologram board, the agents' games from the session's seed (alkkagiTimeline.ts, a flick per frame at most:
+   * a seek catches up). The stones move by the engine's own path; the mover's index flicks the stone (alkHands). The sounds: alkkagi.flick at the
+   * nail, alkkagi.hit / .drop at each engine event, holo.board.on / .off.
+   */
+  private alkkagi(s: PlaySession | null, inp: StageIn) {
+    const holo = this.holo
+    if (!holo) return
+    const snap = inp.t - this.holoT > 1 || inp.t < this.holoT
+    this.holoT = inp.t
+    const tMs = s ? sessionTime(s, inp.now) : -1
+    const view = s && tMs >= 0 ? alkkagiAt(s.seed, s.players, tMs) : null
+    // the seated: the side flicking first (engine side 0) is cyan (colour 1), the other ivory (2); a game alone: the side to flick
+    const seats: { seat: Vector3; color: 1 | 2; id: string }[] = []
+    if (s) {
+      const ids = s.solo ? [s.players[0]] : s.players
+      ids.forEach((id, i) => {
+        const rig = inp.rigs[id]
+        if (!rig || (rig.arrived !== 'game_a' && rig.arrived !== 'game_b')) return
+        const side0 = s.solo ? view?.toMove === 0 : view ? view.first === i : i === 0
+        seats.push({ seat: rig.parts.root.position.clone(), color: side0 ? 1 : 2, id })
+      })
+    }
+    const on = !!s && seats.length > 0
+    const phase = view?.phase ?? null
+    const f = view?.flick ?? null
+    const fh = f ? flickHand(f.sinceMs, f.thinkMs) : null
+    if (view && on && !inp.reduced && s && f && phase !== 'catching') this.alkHands(s, view, inp)
+    // the scene clock of a moment of the motion (ms since the nail)
+    const atMotion = (ms: number) => inp.t - ((f?.motionMs ?? 0) - ms) / 1000
+    const r = holo.update({
+      t: inp.t,
+      reduced: inp.reduced,
+      snap,
+      on,
+      game: 'alkkagi',
+      board: null,
+      lastMove: -1,
+      win: null,
+      newGame: phase === 'reset' && this.alkPhase !== 'reset',
+      turn: view && (phase === 'thinking' || phase === 'aim' || phase === 'moving' || phase === 'settle') ? (view.toMove === 0 ? 1 : 2) : null,
+      players: seats.map((p) => ({ seat: p.seat, color: p.color })),
+      held: null,
+      alkkagi: view
+        ? {
+            stones: view.stones,
+            hits: view.events.flatMap((e) => (e.kind === 'hit' ? [{ a: e.a, b: e.b, speed: e.speed, at: atMotion(e.atMs) }] : [])),
+            outs: view.events.flatMap((e) => {
+              if (e.kind !== 'out') return []
+              const st = view.stones[e.a]
+              const n = Math.hypot(st.x, st.y) || 1
+              return [{ a: e.a, at: atMotion(e.atMs), dir: { x: st.x / n, y: st.y / n } }]
+            }),
+            aim: f && fh && fh.aim !== null && !fh.flicked ? { stone: f.flick.stone, dx: f.flick.dx, dy: f.flick.dy, power: f.flick.power, grow: fh.aim } : null,
+            end: view.end ? { winner: view.end.kind === 'win' ? view.end.side : null, since: inp.t - view.end.sinceMs / 1000 } : null,
+          }
+        : undefined,
+    })
+    this.alkPhase = phase
+    const centre = holo.alkPos(0, 0)
+    if (r.boardOnStart) this.sounds.holoBoard(true, centre, inp.reduced)
+    if (r.boardOffStart) this.sounds.holoBoard(false, centre, inp.reduced)
+    if (!s || !view || !on || !f) return
+    // the sounds of this flick: the nail, then each event passed since the last frame (a jump, or a flick first seen mid-way, plays nothing)
+    const key = `${s.seed}:${view.game}:${view.turn}`
+    const ms = f.sinceMs - f.thinkMs - ALK_HAND.flick
+    const prev = this.alkHeard?.key === key ? this.alkHeard.ms : null
+    if (!snap && prev !== null && ms >= 0) {
+      if (prev < 0) {
+        const st = view.stones[f.flick.stone]
+        this.sounds.alkFlick(s.seed, view.game, view.turn, holo.alkPos(st.x, st.y))
+      }
+      for (const e of view.events)
+        if (e.atMs > prev && e.atMs <= f.motionMs) {
+          const st = view.stones[e.kind === 'hit' ? e.a : e.a]
+          const p = e.kind === 'hit' ? holo.alkPos((st.x + view.stones[e.b].x) / 2, (st.y + view.stones[e.b].y) / 2) : holo.alkPos(st.x, st.y)
+          this.sounds.alkEvent(s.seed, view.game, view.turn, e.kind === 'hit' ? { kind: 'hit', step: e.step, speed: e.speed } : { kind: 'out', step: e.step }, p)
+        }
+    }
+    this.alkHeard = { key, ms: ms < 0 ? -1 : f.motionMs }
+    // the faces of the result, as chess
+    const end = view.end
+    if (end && end.kind === 'win' && end.sinceMs > 500 && !s.solo) {
+      const fk = `alkkagi:${s.spot}:${view.game}`
+      if (!this.faced.has(fk)) {
+        this.faced.add(fk)
+        const winner = end.side === 0 ? view.first : ((1 - view.first) as 0 | 1)
+        inp.rigs[s.players[winner]]?.faceEvent('joy', inp.t)
+        inp.rigs[s.players[1 - winner]]?.faceEvent('embarrassed', inp.t)
+      }
+    }
+  }
+
+  /**
+   * #605 (hologram.md 12.4) the mover's right hand: over the chosen stone while it thinks, low behind it, aiming, the index cocked on the thumb and
+   * snapped out so its tip meets the stone's back at the nail's frame; it stays where the stone was while the stone flies. The stone's place and
+   * the direction are taken at the aim (a flick first seen after its nail has no hand)
+   */
+  private alkHands(s: PlaySession, view: AlkView, inp: StageIn) {
+    const holo = this.holo!
+    const f = view.flick!
+    const id = s.players[f.mover]
+    const rig = inp.rigs[id]
+    if (!rig || (rig.arrived !== 'game_a' && rig.arrived !== 'game_b')) return
+    const p = flickHand(f.sinceMs, f.thinkMs)
+    if (p.stage === 'rest') return
+    const key = `${s.seed}:${view.game}:${view.turn}`
+    let place = this.alkAimAt.get(id)
+    if (!place || place.key !== key) {
+      if (p.flicked) return
+      const st = view.stones[f.flick.stone]
+      place = { key, x: st.x, y: st.y }
+      this.alkAimAt.set(id, place)
+    }
+    const c = holo.alkPos(place.x, place.y)
+    c.y += HOLO_STONE_Y + 0.0023
+    const ahead = holo.alkPos(place.x + f.flick.dx / 1000, place.y + f.flick.dy / 1000)
+    const dir = new Vector3(ahead.x - c.x, 0, ahead.z - c.z).normalize()
+    if (!isFinite(dir.x)) return
+    const across = new Vector3().crossVectors(UP, dir)
+    const at = c.clone().addScaledVector(dir, -p.back)
+    at.y += p.h
+    const stoneWorld = new Matrix4().makeBasis(across, UP, dir).setPosition(at)
+    const fit = this.flickFit(rig)
+    const hand = handFor(stoneWorld, fit.tgt.pg, handGripMatrix(rig.parts.hands.r)).multiply(fit.offset)
+    const spec = GRIPS.holo_flick.r!
+    const cock = rig.curlVec('r', spec.pre)
+    const ext = rig.curlVec('r', spec.after)
+    const angles = cock.map((v, i) => v * p.cock + fit.hold[i] * p.strike + ext[i] * p.extend)
+    rig.drive.r = { target: hand, w: p.w, curl: null, angles, abdLimits: null, wc: p.w, spread: null }
+    this.stoneLetGo.set(rig.id, { side: 'r', drive: rig.drive.r!, seen: true, from: null })
+    if (f.sinceMs < f.thinkMs) rig.glance = { at: c, max: 10 * DEG }
+  }
+
+  /** #605 the flick's fit for this agent (the stored offset, the index fitted on the stone's back) */
+  private flickFit(rig: AgentRig) {
+    const key = `${rig.id}:flick`
+    let f = this.pinchFits.get(key)
+    if (!f) {
+      const hand = rig.parts.hands.r
+      const tgt = holoFlickTarget()
+      const offset = this.holoOffset(tgt, rig)
+      const hold = rig.curlVec('r', GRIPS.holo_flick.r!.hold)
+      for (const fit of fitFingers(tgt, hand, offset)) {
+        if (fit.finger === 'thumb') hold.splice(16, 4, ...fit.joints)
+        else setFingerJoints(hold, ['index', 'middle', 'ring', 'little'].indexOf(fit.finger), fit.joints)
+      }
+      f = { tgt, offset, hold }
+      this.pinchFits.set(key, f)
+    }
+    return f
   }
 
   /**

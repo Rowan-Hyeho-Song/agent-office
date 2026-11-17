@@ -188,6 +188,8 @@ export const ALK_FLICK = {
   cock: 750,
   flick: 810,
   hold: 910,
+  /** the nail stays on the stone this long from its meeting (ms) */
+  contact: 40,
   end: 1400,
   /** behind the stone: the fingertip this far from its contact when aiming, cocked (drawn back 0.5 cm more), and the follow-through past it */
   aimBack: 0.01,
@@ -234,7 +236,8 @@ export function flickHand(sinceMs: number, thinkMs: number): FlickHand {
     return { ...rest, stage: 'flick', w, back: F.cockBack * (1 - q), h: 0, cock: 1 - q, strike: q, aim: 1 }
   }
   if (k < F.hold) {
-    const q = ease((k - F.flick) / (F.hold - F.flick))
+    // the nail stays on the stone for its contact (the first 40 ms: the stone is struck there), then the finger runs out through where it was
+    const q = ease((k - F.flick - F.contact) / (F.hold - F.flick - F.contact))
     return { ...rest, stage: 'hold', w: 1, back: -F.through * q, h: 0, cock: 0, strike: 1 - q, extend: q, flicked: true }
   }
   const q = ease((k - F.hold) / (F.end - F.hold))

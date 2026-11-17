@@ -159,7 +159,7 @@ describe('pair games: paddles and stones', () => {
       const { sessionsAt } = await import('../play/session')
       let s = null as ReturnType<typeof sessionsAt>[number] | null
       // a pair (#490: the first one at the board places a record alone while it waits, a session of its own)
-      for (let m = 0; m < 3000 && !s; m++) s = sessionsAt(1_790_000_000_000 + m * 180_000, IDS).find((x) => x.kind === kind && !x.solo) ?? null
+      for (let m = 0; m < 3000 && !s; m++) s = sessionsAt(1_790_000_000_000 + m * 180_000, IDS).find((x) => x.kind === kind && !x.solo && (kind !== 'boardgame' || x.game === 'omok')) ?? null
       const w = await world()
       const home = new Map<string, Vector3>()
       const propNodes = Object.values(w.nodes).filter((n) => n.userData.prop && !n.userData.home_on)
