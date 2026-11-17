@@ -31,7 +31,10 @@ export const FILM_PX = 121 // the 0.44 m film in board pixels (coordinates live 
 export const PXC = SQ / SQ_PX // one chess board-texture pixel
 export const BOARD_SIZE = BOARD_PX * PXC
 export const CVOX = 0.0036
-export const CBOX = 0.92
+/** hologram.md 11.2 (#658): the opaque glyphs are solid, no 8% gap between voxels (it let the back layer's tops show as dark lines and dots) */
+export const CBOX = 1
+/** hologram.md 11.2 (#658): in the visitor's game view the glyphs lean toward the camera this part of the way to facing it full on */
+export const TILT_PART = 0.5
 export const CGLOW_R = 0.018
 export const CGLOW_Y = 0.0002
 export const CPIECE_Y = 0.0005
@@ -205,10 +208,10 @@ void main() {
   float k = mod(aRow, 2.0);
   float off = iRows.w > 0.5 ? (k < 1.0 ? 1.0 : -1.0) * (1.0 + mod(floor(aRow / 2.0), 2.0)) * VOX : 0.0;
   vec3 p = position; p.x += iRows.z + off; p *= iSt.x;
-  // the visitor's game view (uTilt 1): the glyph leans back about its foot's back edge until its face meets the line of sight (the camera's
-  // elevation from the piece); else it stands (yaw only)
+  // the visitor's game view (uTilt 1): the glyph leans back about its foot's back edge TILT_PART of the way to facing the line of sight (the
+  // camera's elevation from the piece; full on, the opaque back rank hid the pawns behind it, #658); else it stands (yaw only)
   vec3 d = uCam - iPos;
-  float e = uTilt * max(atan(d.y, max(length(d.xz), 1e-4)), 0.0);
+  float e = uTilt * ${TILT_PART.toFixed(3)} * max(atan(d.y, max(length(d.xz), 1e-4)), 0.0);
   float ce = cos(e); float se = sin(e); float zb = BACK * iSt.x; float pz = p.z - zb;
   p = vec3(p.x, p.y * ce + pz * se, -p.y * se + pz * ce + zb);
   float c = cos(iSt.w); float s = sin(iSt.w);

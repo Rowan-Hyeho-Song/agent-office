@@ -148,9 +148,10 @@ describe('glyphs', () => {
       const sh = g.getAttribute('aShade')
       const cap = g.getAttribute('aCap')
       for (let i = 0; i < pos.count; i += 4) if (Math.abs(sh.getX(i) - SHADE.top) < 1e-6 && cap.getX(i) === 0) top++
-      expect(maxY).toBeLessThanOrEqual(GLYPHS[k].length * CVOX + 1e-9)
+      // solid glyphs (#658) reach the top exactly; positions are stored as Float32 (~1e-8 m at 4 cm)
+      expect(maxY).toBeLessThanOrEqual(GLYPHS[k].length * CVOX + 1e-7)
       expect(maxY).toBeGreaterThan((GLYPHS[k].length - 1) * CVOX)
-      expect(maxZ - minZ).toBeCloseTo(CVOX * 1.92 - CVOX * 0.92 + CVOX * 0.92 + 0, 4) // 2 layers (gap 8% inside a voxel)
+      expect(maxZ - minZ).toBeCloseTo(CVOX * 2, 6) // 2 layers, solid (#658: no gap between voxels)
       // exposed tops per layer: the voxels with nothing above
       let exposed = 0
       const rows = GLYPHS[k]
@@ -682,5 +683,18 @@ describe('the pieces face the visitor full on in their game view (#655, hologram
     const m = holo.chessLayer!.materials
     expect([m.piece.blending, m.piece.depthWrite]).toEqual([NormalBlending, true])
     expect([m.grid.blending, m.grid.depthWrite]).toEqual([AdditiveBlending, false])
+  })
+  it('half the lean to facing the camera, and solid glyphs: the king exactly 14 voxels tall (#658)', () => {
+    const { holo } = make()
+    opened(holo)
+    expect(holo.chessLayer!.materials.piece.vertexShader).toContain('uTilt * 0.500 *')
+    const pos = buildPieceGeometry(6).getAttribute('position')
+    let minY = Infinity
+    let maxY = -Infinity
+    for (let i = 0; i < pos.count; i++) {
+      minY = Math.min(minY, pos.getY(i))
+      maxY = Math.max(maxY, pos.getY(i))
+    }
+    expect([minY, maxY].map((y) => +(y / CVOX).toFixed(6))).toEqual([0, 14])
   })
 })
