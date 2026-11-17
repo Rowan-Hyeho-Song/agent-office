@@ -30,7 +30,7 @@ async function world() {
 function findSession(kind: 'pingpong' | 'boardgame', agent?: string): PlaySession {
   for (let m = 0; m < 6000; m++) {
     // a pair (#490: the first one at the board places a record alone while it waits; that is its own, solo session)
-    const s = sessionsAt(1_790_000_000_000 + m * 180_000, IDS).find((x) => x.kind === kind && !x.solo && (!agent || x.players.includes(agent)))
+    const s = sessionsAt(1_790_000_000_000 + m * 180_000, IDS).find((x) => x.kind === kind && !x.solo && (kind !== 'boardgame' || x.game === 'omok') && (!agent || x.players.includes(agent))) // #604 the omok board
     if (s) return s
   }
   throw new Error('no session')
