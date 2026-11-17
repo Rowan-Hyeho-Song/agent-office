@@ -58,6 +58,8 @@ export interface OmokVisitState {
   drag: { pos: Vector3 } | null
   promo: { from: number; to: number } | null
   gameSheet: boolean
+  /** #604 the promotion square's top on the screen (the rig, while the promotion sheet is open): the sheet stands over it (hologram.md 11.5) */
+  promoAt: { x: number; y: number } | null
 }
 
 /** e2 (white) / e7 (black): where the keyboard's chess cursor starts */
@@ -80,7 +82,7 @@ export const viewName = (cell: number, o: Orient = state.orient) => `${String.fr
 
 /** the board's middle, H8 */
 export const CENTER = ((N / 2) | 0) * N + ((N / 2) | 0)
-export const CLOSED: OmokVisitState = { phase: 'closed', agent: null, game: null, cursor: CENTER, preview: null, armed: null, tag: null, orient: ORIENT, picker: false, pickerRule: DEFAULT_RULE, forbid: null, boardBox: null, work: null, chip: null, kind: 'omok', chess: null, sel: null, chessCursor: 12, drag: null, promo: null, gameSheet: false }
+export const CLOSED: OmokVisitState = { phase: 'closed', agent: null, game: null, cursor: CENTER, preview: null, armed: null, tag: null, orient: ORIENT, picker: false, pickerRule: DEFAULT_RULE, forbid: null, boardBox: null, work: null, chip: null, kind: 'omok', chess: null, sel: null, chessCursor: 12, drag: null, promo: null, gameSheet: false, promoAt: null }
 
 // #603 (play.md 11.2) the last rule chosen, kept in this browser (none, or storage blocked: renju); the chooser opens by itself for this tab's first game
 const RULE_KEY = 'agent-office.omok.rule'
@@ -239,6 +241,12 @@ export function setOmokBoardBox(b: OmokVisitState['boardBox']) {
   const c = state.boardBox
   if (c && b && Math.abs(c.right - b.right) < 0.5 && Math.abs(c.middle - b.middle) < 0.5) return
   set({ ...state, boardBox: b })
+}
+/** #604 the promotion square's top on the screen (the rig, while the promotion sheet is open) */
+export function setChessPromoAt(p: OmokVisitState['promoAt']) {
+  const c = state.promoAt
+  if (c === p || (c && p && Math.abs(c.x - p.x) < 0.5 && Math.abs(c.y - p.y) < 0.5)) return
+  set({ ...state, promoAt: p })
 }
 /** #603 swap: the visitor's colour after the agent's three (the HUD's buttons) */
 export const chooseColorOmok = (color: 1 | 2, now: number) => !!state.game && state.phase === 'open' && take(chooseColor(state.game, color, now))

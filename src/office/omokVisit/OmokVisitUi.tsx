@@ -16,7 +16,19 @@ import { PROMOTION_CHOICES, chessIdleLeft, chessLastMoveLine, chessStatusLine, l
 import { squareName } from '../../play/chess'
 
 /** #604 the games the sheet offers, in its order (designer decision: omok and chess only; alkkagi comes later) */
-const GAME_ROWS: { kind: VisitKind; name: string }[] = [{ kind: 'omok', name: '오목' }, { kind: 'chess', name: '체스' }]
+// hologram.md 10.3: a line of what each game is about (alkkagi's row '상대 돌을 판 밖으로' comes with its visitor game, #605 ③)
+const GAME_ROWS: { kind: VisitKind; name: string; hint: string }[] = [
+  { kind: 'omok', name: '오목', hint: '다섯 줄 먼저' },
+  { kind: 'chess', name: '체스', hint: '킹을 잡기' },
+]
+/** #604 the promotion sheet over its square, kept 16 px inside the screen's edges (hologram.md 11.5) */
+const PROMO_W = 300
+const PROMO_EDGE = 16
+export function overSquare(p: { x: number; y: number } | null, screenW = window.innerWidth): Record<string, string | number> | undefined {
+  if (!p) return undefined
+  const left = Math.min(Math.max(p.x - PROMO_W / 2, PROMO_EDGE), Math.max(PROMO_EDGE, screenW - PROMO_EDGE - PROMO_W))
+  return { left, top: p.y, bottom: 'auto', translate: '0 calc(-100% - 8px)', maxWidth: `calc(100vw - ${2 * PROMO_EDGE}px)` }
+}
 const PIECE_WORD = ['', '폰', '나이트', '비숍', '룩', '퀸', '킹'] as const
 const PROMO_NAME: Record<number, string> = { 5: '퀸', 4: '룩', 3: '비숍', 2: '나이트' }
 
@@ -225,6 +237,13 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
   useEffect(() => {
     if (v.gameSheet && !canSwitch) closeGameSheet()
   }, [v.gameSheet, canSwitch])
+  // the visitor's colour on the chip: chess white ○ / black ●; omok black ● unless the game gave them white
+  const chipMark = c ? (visitorColor(c) === 1 ? '●' : '○') : g && g.color === 2 ? '○' : '●'
+  // the HUD line without its head: the name chip says the game, and the rule chip (while it shows) the rule (hologram.md 10.3, play.md 11.2)
+  const ruleChip = !!g && !g.moves.length && !g.end
+  let omokLine = g ? status.replace(`${chipMark} 오목 · `, '') : ''
+  if (g && ruleChip) omokLine = omokLine.replace(`${RULE_BY_ID[g.rule].name} · `, '')
+  const chessLine = chessStatus.replace(`${chipMark} 체스 · `, '')
   // #604 the name chip is the game's button: '○ 체스 ▾' opens the sheet while the game may still be switched (hologram.md 10.3); the circle is the visitor's colour
   const gameChip = (
     <button
@@ -236,7 +255,7 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
       aria-label={`게임 ${v.kind === 'chess' ? '체스' : '오목'}${canSwitch ? ', 바꾸기' : ''}`}
       onClick={() => (v.gameSheet ? closeGameSheet() : openGameSheet())}
     >
-      <span aria-hidden="true">{c && visitorColor(c) === 1 ? '●' : '○'}</span> {v.kind === 'chess' ? '체스' : '오목'}{canSwitch ? ' ▾' : ''}
+      <span aria-hidden="true">{chipMark}</span> {v.kind === 'chess' ? '체스' : '오목'}{canSwitch ? ' ▾' : ''}
     </button>
   )
   const chessCellWord = (sq: number) => {
@@ -291,7 +310,7 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
         </button>
       )}
       {open && v.gameSheet && canSwitch && (
-        <div className="omok-rules game-sheet" role="dialog" aria-label="게임 고르기">
+        <div className="omok-rules game-sheet" role="dialog" aria-label="게임 고르기" style={besideBoard(v.boardBox)}>
           <h2>게임 고르기</h2>
           <div role="radiogroup" aria-label="게임">
             {GAME_ROWS.map((r) => (
@@ -308,13 +327,14 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
                 }}
               >
                 <b>{v.kind === r.kind ? '● ' : ''}{r.name}</b>
+                <small>{r.hint}</small>
               </button>
             ))}
           </div>
         </div>
       )}
       {open && c && v.promo && (
-        <div className="omok-rules chess-promo" role="dialog" aria-label="승진할 기물 고르기">
+        <div className="omok-rules chess-promo" role="dialog" aria-label="승진할 기물 고르기" style={overSquare(v.promoAt)}>
           <h2>승진할 기물 <kbd>Esc 취소</kbd></h2>
           <div>
             {PROMOTION_CHOICES.map((k) => (
@@ -376,7 +396,7 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
             </button>
           ) : null}
           <p className="omok-status" aria-live="polite">
-            {status}
+            {omokLine}
             {left !== null && <span className="omok-idle"> · {Math.ceil(left / 1000)}초 뒤 끝남</span>}
           </p>
           <span className="omok-cell" aria-hidden="true">{viewName(v.cursor)}</span>
@@ -474,7 +494,7 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
         <section className="omok-hud" aria-label="체스 대국">
           {gameChip}
           <p className="omok-status" aria-live="polite">
-            {chessStatus}
+            {chessLine}
             {cLeft !== null && <span className="omok-idle"> · {Math.ceil(cLeft / 1000)}초 뒤 끝남</span>}
           </p>
           <span className="omok-cell" aria-hidden="true">{squareName(v.chessCursor)}</span>

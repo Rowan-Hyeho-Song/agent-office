@@ -15,10 +15,13 @@ import { isBoardOpen } from '../boardView/store'
 import { isPingpongActive } from '../pingpongVisit/store'
 import {
   armOmok, chessDeselect, chessMoveTo, chessPick, closeOmok, drainOmokEvents, getOmokVisit, omokArrived, omokForbidAt, omokLeft, omokWorkTold, placeOmok, setChessDrag, setOmokBoardBox, setOmokChip,
-  setOmokPreview, setOmokTag, stepOmok, visitorMayMove, visitorMayPlace, chessSelect,
+  setChessPromoAt, setOmokPreview, setOmokTag, stepOmok, visitorMayMove, visitorMayPlace, chessSelect,
 } from './store'
 import { chessVisitorWon, visitorPieceAt } from '../../play/visitorChess'
 import { OMOK_VIEW, fitView, v3, visitPose, type V3 } from './pose'
+
+/** #604 the promotion sheet's anchor: this far over the square (a queen's height, m) */
+const PROMO_ABOVE_M = 0.05
 
 // The 3D side of the visitor's omok (#137 ②, play.md 2 · 4 · 8): where the "같이 두기" tag stands (over the empty chair while an agent places a
 // record alone), the camera flown to behind the visitor's chair (55° down onto the board, about 60% of the screen's height, the agent's head and
@@ -371,8 +374,8 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
       if (over && endAt.current !== null && now - endAt.current >= END_CLOSE_MS && getOmokVisit().phase === 'open') closeOmok(now)
     }
 
-    // #603 (designer, #617) the board's right edge and middle on the screen: the chooser stands beside it on a wide screen
-    if (g && v.picker) {
+    // #603 (designer, #617) the board's right edge and middle on the screen: the chooser stands beside it on a wide screen (#604 the game sheet too)
+    if (g && (v.picker || v.gameSheet)) {
       const r = gl.domElement.getBoundingClientRect()
       const sx = (p: Vector3) => r.left + ((p.x + 1) / 2) * r.width
       const sy = (p: Vector3) => r.top + ((1 - p.y) / 2) * r.height
@@ -387,6 +390,15 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
       }
       setOmokBoardBox({ right, middle: (top + bottom) / 2 })
     }
+    // #604 (hologram.md 11.5) the promotion sheet stands right over the square the pawn reached: a piece's height above it, on the screen
+    const promoSq = v.promo?.to ?? null
+    const promoP = promoSq !== null && st ? st.chessSquarePos(promoSq) : null
+    if (promoP) {
+      const r = gl.domElement.getBoundingClientRect()
+      promoP.y += PROMO_ABOVE_M
+      promoP.project(camera)
+      setChessPromoAt({ x: r.left + ((promoP.x + 1) / 2) * r.width, y: r.top + ((1 - promoP.y) / 2) * r.height })
+    } else if (v.promoAt) setChessPromoAt(null)
 
     // the marks
     const show = v.phase === 'open' && !!g && !!st && v.kind === 'omok'
