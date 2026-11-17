@@ -7,6 +7,30 @@ import { SPOTS } from './navSpots.fixture'
 
 export type PlayKind = 'pingpong' | 'boardgame' | 'boardgame_solo' | 'coffee' | 'sofa' | 'water' | 'books' | ActKind
 
+/** the hologram board games that share the one table (hologram.md 10.2) */
+export type BoardGameKind = 'omok' | 'chess' | 'alkkagi'
+
+/**
+ * Which game the empty table gets, by weight (hologram.md 10.2). Alkkagi is off (0) until its engine ships: #605 / stage 1-b turns it to 2.
+ */
+export const GAME_WEIGHTS: Record<BoardGameKind, number> = { omok: 4, chess: 4, alkkagi: 0 }
+
+/** the game for the table's first occupant(s), from a seed string (the day, the time, who sits down): the same in every browser */
+export function chooseGame(seed: string): BoardGameKind {
+  const kinds = Object.keys(GAME_WEIGHTS) as BoardGameKind[]
+  const total = kinds.reduce((a, k) => a + GAME_WEIGHTS[k], 0)
+  let r = rng(hash(`game|${seed}`))() * total
+  for (const k of kinds) if ((r -= GAME_WEIGHTS[k]) < 0) return k
+  return 'omok'
+}
+
+/** what a board game is called as a pair, as a record / practice alone, and watched (hologram.md 10.2) */
+export const BOARD_LABEL: Record<BoardGameKind, { pair: string; solo: string; watch: string }> = {
+  omok: { pair: '오목', solo: '기보 놓기', watch: '오목 구경' },
+  chess: { pair: '체스', solo: '체스 문제 풀기', watch: '체스 구경' },
+  alkkagi: { pair: '알까기', solo: '알까기 연습', watch: '알까기 구경' },
+}
+
 /** the pose a play is drawn with: placing a game record alone (#137) sits at the board like a game */
 export const playPose = (kind: PlayKind): Exclude<PlayKind, 'boardgame_solo'> => (kind === 'boardgame_solo' ? 'boardgame' : kind)
 
@@ -103,6 +127,15 @@ export const STAY_MIN: Record<PlayKind | 'watch', readonly [number, number]> = {
   record: [0.75, 1],
   watch: [1, 3],
 }
+/** how long a board game stays, minutes, per game (hologram.md 10.2); omok is STAY_MIN.boardgame / boardgame_solo */
+export const BOARD_STAY: Record<BoardGameKind, { pair: readonly [number, number]; solo: readonly [number, number] }> = {
+  omok: { pair: STAY_MIN.boardgame, solo: STAY_MIN.boardgame_solo },
+  chess: { pair: [8, 14], solo: [4, 8] },
+  alkkagi: { pair: [4, 8], solo: [3, 6] },
+}
+/** a play's stay range, minutes; the board games by their game */
+export const stayRange = (kind: PlayKind | 'watch', game?: BoardGameKind): readonly [number, number] =>
+  game && kind === 'boardgame' ? BOARD_STAY[game].pair : game && kind === 'boardgame_solo' ? BOARD_STAY[game].solo : STAY_MIN[kind]
 /** a game is watched only with this much of it left, and the watcher goes this long before it ends (play.md 9.2 구경, #517) */
 export const WATCH_LEFT_MS = 2 * MIN
 export const WATCH_LEAVE_MS = MIN
@@ -149,6 +182,8 @@ export interface PlayAssignment {
   watch?: 'pingpong' | 'boardgame'
   /** a pair game: when both players are there (the first one waits until then: 기보 놓기 at the board, the ball at the table) */
   pairAt?: number
+  /** the board game (boardgame, boardgame_solo, or the one a watcher watches) */
+  game?: BoardGameKind
 }
 
 /** one stretch of an agent's day in the plan */
@@ -164,6 +199,8 @@ export interface Seg {
   gap?: GapKind
   watch?: 'pingpong' | 'boardgame'
   plant?: string
+  /** the board game of a boardgame / boardgame_solo stay, or of the one a watcher watches */
+  game?: BoardGameKind
   /** a record placed alone cut short by a partner sitting down opposite (play.md 9.2 ①): the game they start is a stay of its own */
   joined?: boolean
 }
@@ -228,7 +265,10 @@ export function dayPlan(day: number, agents: readonly string[]): Seg[][] {
     const h = held.find((x) => x.spot === spot && x.from === from && x.to === to)
     if (h) h.to = until
   }
-  const stayMs = (k: PlayKind | 'watch') => between(STAY_MIN[k][0], STAY_MIN[k][1]) * MIN
+  const stayMs = (k: PlayKind | 'watch', game?: BoardGameKind) => {
+    const [lo, hi] = stayRange(k, game)
+    return between(lo, hi) * MIN
+  }
   const lastStay = (i: number) => [...segs[i]].reverse().find((s) => s.kind !== 'gap')
   /** the last play that counts for "never the same play twice": not a gap, watching or a short errand (#524) */
   const lastPlay = (i: number) => [...segs[i]].reverse().find((s) => !['gap', 'watch', 'water', 'fridge', 'dispenser', 'record'].includes(s.kind))
@@ -252,17 +292,19 @@ export function dayPlan(day: number, agents: readonly string[]): Seg[][] {
   /** a solo stay of `p` for agent i from `t` (or the end of a stay already under way at the day's start) */
   const soloStay = (i: number, p: PlayDef, t: number, phase = 0): Seg | null => {
     const a = roster[i]
-    const len = stayMs(p.kind)
+    // a record / practice alone: the game is chosen first (the empty table's first occupant), then the stay by the game
+    const game = p.kind === 'boardgame_solo' ? chooseGame(`${key}|${t}|${a}|${stays + 1}`) : undefined
+    const len = stayMs(p.kind, game)
     const from = t - len * phase
     const errand = p.kind === 'water' || isErrand(p.kind)
     const spot = errand ? DESK : spotOfDef(p, t, from + len)
     if (!spot) return null
-    const e = capEnd(from + len, 1, Math.max(t + 1000, from + STAY_MIN[p.kind][0] * MIN))
+    const e = capEnd(from + len, 1, Math.max(t + 1000, from + stayRange(p.kind, game)[0] * MIN))
     if (e === null) return null
     hold(spot, t, e)
     leave(e, 1)
     const plant = p.kind === 'water' ? WATER_PLANTS[hash(`${key}|water|${a}|${stays + 1}`) % WATER_PLANTS.length].name : undefined
-    return { kind: p.kind, start: t, end: e, spot: errand ? DESK : spot, stay: nextStay(), ...(plant ? { plant } : {}) }
+    return { kind: p.kind, start: t, end: e, spot: errand ? DESK : spot, stay: nextStay(), ...(plant ? { plant } : {}), ...(game ? { game } : {}) }
   }
 
   // the day's start: everybody is somewhere in a solo stay, so the ends are spread out (play.md 9.4)
@@ -285,6 +327,8 @@ export function dayPlan(day: number, agents: readonly string[]): Seg[][] {
   const PAIRS = SCHEDULED.filter((p) => p.pair)
   const GAME = PLAYS.find((p) => p.kind === 'boardgame')!
   const RECORD = PLAYS.find((p) => p.kind === 'boardgame_solo')!
+  /** the same play for "never twice in a row": the board games (omok, chess, alkkagi; pair or alone) are one play (hologram.md 10.2) */
+  const samePlay = (x: PlayKind, y: PlayKind | 'gap' | 'watch' | undefined) => y !== undefined && y !== 'gap' && y !== 'watch' && playPose(x) === playPose(y)
   const atBoard = (k: PlayKind | 'gap' | 'watch' | undefined) => k === 'boardgame' || k === 'boardgame_solo'
   /**
    * A pair game drawn by agent i at t, in its gap `gap` (play.md 9.2, #516): ① sit down opposite one placing a record alone; ② a partner whose stay or gap ends
@@ -298,10 +342,12 @@ export function dayPlan(day: number, agents: readonly string[]): Seg[][] {
     const again = (k: number) => lastPartner(i) === roster[k] || lastPartner(k) === a
     // ① one at the board alone: the record is swept up and a game starts for both, the board's own length from now; they leave together
     const join = (k: number): boolean => {
-      if (atBoard(before) || !free(GAME.spots[1], t, t + STAY_MIN.boardgame[0] * MIN)) return false
       const solo = segs[k][segs[k].length - 1]
+      // the partner joins the game that is on (hologram.md 10.2)
+      const game = solo.game ?? 'omok'
+      if (atBoard(before) || !free(GAME.spots[1], t, t + stayRange('boardgame', game)[0] * MIN)) return false
       unleave(solo.end)
-      const e = capEnd(t + stayMs('boardgame'), 2, t + STAY_MIN.boardgame[0] * MIN)
+      const e = capEnd(t + stayMs('boardgame', game), 2, t + stayRange('boardgame', game)[0] * MIN)
       if (e === null) {
         leave(solo.end, 1)
         return false
@@ -312,16 +358,18 @@ export function dayPlan(day: number, agents: readonly string[]): Seg[][] {
       hold(GAME.spots[1], t, e)
       leave(e, 2)
       const stay = nextStay()
-      segs[k].push({ kind: 'boardgame', start: t, end: e, spot: GAME.spots[0], stay, partner: a, pairAt: t })
-      segs[i].push({ kind: 'boardgame', start: t, end: e, spot: GAME.spots[1], stay, partner: roster[k], pairAt: t })
+      segs[k].push({ kind: 'boardgame', start: t, end: e, spot: GAME.spots[0], stay, partner: a, pairAt: t, game })
+      segs[i].push({ kind: 'boardgame', start: t, end: e, spot: GAME.spots[1], stay, partner: roster[k], pairAt: t, game })
       return true
     }
     // ② a partner free within PAIR_SOON_MS (its stay or its gap ends): a free table by weight, not what either played last
     const soon = (k: number): boolean => {
       const at = endOf(k)
-      const tables = PAIRS.filter((p) => p.kind !== before && p.kind !== lastPlay(k)?.kind && p.spots.every((s) => free(s, at, at + STAY_MIN[p.kind][0] * MIN)))
+      const tables = PAIRS.filter((p) => !samePlay(p.kind, before) && !samePlay(p.kind, lastPlay(k)?.kind) && p.spots.every((s) => free(s, at, at + STAY_MIN[p.kind][0] * MIN)))
       const p = pick(tables, (q) => q.weight * like(a, q.kind) * like(roster[k], q.kind))
-      const e = p ? capEnd(at + stayMs(p.kind), 2, at + STAY_MIN[p.kind][0] * MIN) : null
+      // a table for the board: the game is chosen first, then the stay by the game
+      const game = p?.kind === 'boardgame' ? chooseGame(`${key}|${at}|${a}|${roster[k]}`) : undefined
+      const e = p ? capEnd(at + stayMs(p.kind, game), 2, at + stayRange(p.kind, game)[0] * MIN) : null
       if (!p || e === null || !free(gap.spot, gap.end, at)) return false
       // this one's gap goes on till the partner is free; both walk to the table from then (the wait there is only the difference of the walks)
       rehold(gap.spot, gap.start, gap.end, at)
@@ -330,8 +378,8 @@ export function dayPlan(day: number, agents: readonly string[]): Seg[][] {
       hold(p.spots[1], at, e)
       leave(e, 2)
       const stay = nextStay()
-      segs[i].push({ kind: p.kind, start: at, end: e, spot: p.spots[0], stay, partner: roster[k], pairAt: at })
-      invites.set(k, { kind: p.kind, start: at, end: e, spot: p.spots[1], stay, partner: a, pairAt: at })
+      segs[i].push({ kind: p.kind, start: at, end: e, spot: p.spots[0], stay, partner: roster[k], pairAt: at, ...(game ? { game } : {}) })
+      invites.set(k, { kind: p.kind, start: at, end: e, spot: p.spots[1], stay, partner: a, pairAt: at, ...(game ? { game } : {}) })
       return true
     }
     const alone = roster.findIndex((_, x) => x !== i && !invites.has(x) && segs[x][segs[x].length - 1].kind === 'boardgame_solo' && segs[x][segs[x].length - 1].start < t && endOf(x) > t)
@@ -360,7 +408,7 @@ export function dayPlan(day: number, agents: readonly string[]): Seg[][] {
       if (e === null) return false
       hold(WATCH[o.watch].spot, t, e)
       leave(e, 1)
-      segs[i].push({ kind: 'watch', watch: o.watch, start: t, end: e, spot: WATCH[o.watch].spot, stay: nextStay() })
+      segs[i].push({ kind: 'watch', watch: o.watch, start: t, end: e, spot: WATCH[o.watch].spot, stay: nextStay(), ...(game.game ? { game: game.game } : {}) })
       return true
     }
     const one = soloStay(i, o.p!, t)
@@ -432,7 +480,7 @@ export function dayPlan(day: number, agents: readonly string[]): Seg[][] {
     const prev = lastStay(i)?.kind
     const options: Option[] = []
     for (const p of SCHEDULED) {
-      if (p.kind === before || p.kind === prev) continue
+      if (samePlay(p.kind, before) || samePlay(p.kind, prev)) continue
       if (p.pair) options.push({ p, pair: true })
       else if (isErrand(p.kind) || p.kind === 'water' || spotOfDef(p, t, t + STAY_MIN[p.kind][0] * MIN)) options.push({ p })
     }
@@ -518,7 +566,7 @@ export function playAt(ms: number, agents: string[], busy: ReadonlySet<string> =
       const at = spotsAt[o.spot]
       const used = (h: string) => taken.has(h) || Object.values(out).some((x) => x !== o && x.spot === h)
       const next = Object.keys(spotsAt)
-        .filter((h) => h.startsWith('hall_') && !used(h) && !WINDOW_SPOTS.includes(h))
+        .filter((h) => h.startsWith('hall_') && !used(h) && !WINDOW_SPOTS.includes(h) && h !== WATCH.pingpong.spot && h !== WATCH.boardgame.spot)
         .sort((x, y) => Math.hypot(spotsAt[x].x - at.x, spotsAt[x].z - at.z) - Math.hypot(spotsAt[y].x - at.x, spotsAt[y].z - at.z))[0]
       if (next) out[a] = { ...o, gap: 'wander', label: GAP_LABEL.wander, spot: next, face: undefined }
     }
@@ -588,12 +636,16 @@ function aloneAt(plan: Seg[][], roster: string[], agent: string, s: Seg, broke: 
   const fillFrom = Math.max(broke, s.pairAt ?? s.start) + ALONE_GAP_MS
   const fills: PlayAssignment[] = []
   for (const p of ALONE_FILL.map((k) => PLAYS.find((x) => x.kind === k)!))
-    if (!used(p.spots[0], fillFrom, s.end)) fills.push({ kind: p.kind, label: p.label, spot: p.spots[0], stay: s.stay, since, until: s.end, ...(p.face ? { face: p.face } : {}), ...(p.stand ? { stand: p.stand } : {}) })
+    if (!used(p.spots[0], fillFrom, s.end)) {
+      // a record alone at a broken ping-pong stay: the game is chosen from the stay
+      const game = p.kind === 'boardgame_solo' ? chooseGame(`alone|${s.stay}|${agent}`) : undefined
+      fills.push({ kind: p.kind, label: game ? BOARD_LABEL[game].solo : p.label, spot: p.spots[0], stay: s.stay, since, until: s.end, ...(game ? { game } : {}), ...(p.face ? { face: p.face } : {}), ...(p.stand ? { stand: p.stand } : {}) })
+    }
   for (const kind of ['pingpong', 'boardgame'] as const) {
     const game = plan.flat().find((x) => x.kind === kind && x.partner && x.stay !== s.stay && x.pairAt !== undefined && x.pairAt <= fillFrom && x.end >= fillFrom + WATCH_LEFT_MS)
     if (!game) continue
     const until = Math.min(s.end, game.end - WATCH_LEAVE_MS)
-    if (!used(WATCH[kind].spot, fillFrom, until)) fills.push({ kind: 'watch', watch: kind, label: WATCH[kind].label, spot: WATCH[kind].spot, face: WATCH[kind].face, stay: s.stay, since, until })
+    if (!used(WATCH[kind].spot, fillFrom, until)) fills.push({ kind: 'watch', watch: kind, label: kind === 'boardgame' && game.game ? BOARD_LABEL[game.game].watch : WATCH[kind].label, spot: WATCH[kind].spot, face: WATCH[kind].face, stay: s.stay, since, until, ...(game.game ? { game: game.game } : {}) })
   }
   const last = window(since)
   if (last) fills.push(last)
@@ -633,21 +685,24 @@ function assignmentOf(agent: string, s: Seg, ms: number, present: (a: string) =>
   }
   if (s.kind === 'watch') {
     const w = WATCH[s.watch!]
-    return { kind: 'watch', watch: s.watch, label: w.label, spot: w.spot, face: w.face, ...base }
+    const label = s.watch === 'boardgame' && s.game ? BOARD_LABEL[s.game].watch : w.label
+    return { kind: 'watch', watch: s.watch, label, spot: w.spot, face: w.face, ...base, ...(s.game ? { game: s.game } : {}) }
   }
   const def = PLAYS.find((p) => p.kind === s.kind)!
   if (def.pair) {
     const together = s.partner && present(s.partner) && s.pairAt !== undefined && ms >= s.pairAt
-    if (together) return { kind: s.kind, label: def.label, spot: s.spot, partner: s.partner, pairAt: s.pairAt, ...base }
+    if (together) return { kind: s.kind, label: s.game ? BOARD_LABEL[s.game].pair : def.label, spot: s.spot, partner: s.partner, pairAt: s.pairAt, ...base, ...(s.game ? { game: s.game } : {}) }
     // alone at the board (the partner gone to work): the first chair places a record; ping-pong is never alone (playAt: aloneAt)
-    return { kind: 'boardgame_solo', label: PLAYS.find((p) => p.kind === 'boardgame_solo')!.label, spot: 'game_a', ...base }
+    const game = s.game ?? 'omok'
+    return { kind: 'boardgame_solo', label: BOARD_LABEL[game].solo, spot: 'game_a', ...base, game }
   }
   let p: PlayDef = def
   if (s.kind === 'water' && s.plant) {
     const plant = WATER_PLANTS.find((w) => w.name === s.plant) ?? WATER_PLANTS[0]
     p = { ...p, face: { x: plant.x, z: plant.z }, stand: standOf(plant) }
   }
-  return { kind: s.kind, label: p.label, spot: s.spot === DESK ? p.spots[0] : s.spot, ...base, ...(s.plant ? { plant: s.plant } : {}), ...(p.face ? { face: p.face } : {}), ...(p.stand ? { stand: p.stand } : {}) }
+  const soloGame = s.kind === 'boardgame_solo' ? (s.game ?? 'omok') : undefined
+  return { kind: s.kind, label: soloGame ? BOARD_LABEL[soloGame].solo : p.label, spot: s.spot === DESK ? p.spots[0] : s.spot, ...base, ...(soloGame ? { game: soloGame } : {}), ...(s.plant ? { plant: s.plant } : {}), ...(p.face ? { face: p.face } : {}), ...(p.stand ? { stand: p.stand } : {}) }
 }
 
 /** the pose an assignment is drawn with: a gap or a watcher stands (play.md 9.2 · 9.3) */

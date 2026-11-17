@@ -35,7 +35,8 @@ function dayCombos() {
         else if (as.kind === 'coffee' || as.kind === 'books') solo.add(`${agent}|${as.kind}`)
       }
       // the two players of a pair game, in either order (the sides differ in the paddle / stone colour, not in what the hands do)
-      for (const s of sessionsAt(t, IDS, new Set(busy))) if (!pairs.has(`${s.kind}|${[...s.players].sort().join('|')}`)) pairs.set(`${s.kind}|${[...s.players].sort().join('|')}`, s)
+      // (#604 and each board game apart: omok and chess pairs of the same two)
+      for (const s of sessionsAt(t, IDS, new Set(busy))) if (!pairs.has(`${s.kind}|${s.game ?? ''}|${[...s.players].sort().join('|')}`)) pairs.set(`${s.kind}|${s.game ?? ''}|${[...s.players].sort().join('|')}`, s)
     }
     // the night-duty agent's quiet solo (any of them may hold the shift)
     for (const a of IDS) {
@@ -172,7 +173,8 @@ describe('a day of the schedule: no prop moves on its own, whatever the schedule
         if (kind === 'pingpong') expectClean(`${s.kind} ${s.players.join('/')}`, guard.stats, 'paddle')
         else {
           // #538 the board is light: a hand pinches a light stone and no prop is taken or moved
-          expect(held, `omok ${s.players.join('/')}: a hand held a light stone`).toBeGreaterThan(0)
+          // (#604 a chess pair: the hand takes light pieces too, measured in playChess.test.ts; no prop either)
+          if (s.game === 'omok') expect(held, `omok ${s.players.join('/')}: a hand held a light stone`).toBeGreaterThan(0)
           expect(guard.stats.grasps, `omok ${s.players.join('/')}: no prop taken`).toBe(0)
           expect(guard.stats.loose, `omok ${s.players.join('/')}: no prop away from home`).toBe(0)
         }
@@ -266,10 +268,11 @@ describe('omok through a whole game: the stone is always within an arm of the bo
 
   it('the exact pair of the one-can stretch (agent_1 at game_a, agent_3 at game_b) for 120 s of its game, and every omok pair of the day', async () => {
     const day = dayCombos()
-    const exact = [...day.pairs.values()].find((s) => s.kind === 'boardgame' && s.players.includes('agent_1') && s.players.includes('agent_3'))!
+    const omok = [...day.pairs.values()].filter((s) => s.kind === 'boardgame' && s.game === 'omok')
+    const exact = omok.find((s) => s.players.includes('agent_1') && s.players.includes('agent_3')) ?? omok[0]
     expect(exact, 'the pair is in the day').toBeTruthy()
     let worstLean = 0
-    for (const s of [exact, ...[...day.pairs.values()].filter((p) => p.kind === 'boardgame' && p !== exact)]) {
+    for (const s of [exact, ...omok.filter((p) => p !== exact)]) {
       const w = await world()
       const guard = new Guard(w)
       const r = whole(w, s, guard, 120)

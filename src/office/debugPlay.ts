@@ -145,13 +145,16 @@ export function makePlayTools(world: OfficeWorld) {
       world.forceGoal = world.forceGoal ?? {}
       // everyone else goes to their own desk, so nobody else is sent to the same spots by the schedule
       for (const id of ids) if (id !== agent && !world.forceGoal[id]) world.forceGoal[id] = { spot: 'work_' + Number(id.split('_')[1]), pose: 'idle' }
-      if (kind === 'pingpong' || kind === 'boardgame') {
+      // #604 'chess': a board game whose game is chess (the board otherwise picks by its seed)
+      if (kind === 'pingpong' || kind === 'boardgame' || kind === 'chess') {
+        const game = kind === 'chess' ? ('chess' as const) : ('omok' as const)
+        const sk = kind === 'pingpong' ? ('pingpong' as const) : ('boardgame' as const)
         const other = ids[(ids.indexOf(agent) + 1) % ids.length]
-        const spots = kind === 'pingpong' ? ['pingpong_a', 'pingpong_b'] : ['game_a', 'game_b']
+        const spots = sk === 'pingpong' ? ['pingpong_a', 'pingpong_b'] : ['game_a', 'game_b']
         const players: [string, string] = [agent, other]
-        const s: PlaySession = { kind, spot: spots[0], players, seed: hash('debug|' + kind + '|' + agent + '|' + other), startMs: Date.now() + world.timeOffsetMs - SETTLE_MS - 5000 }
+        const s: PlaySession = { kind: sk, spot: spots[0], players, seed: hash('debug|' + kind + '|' + agent + '|' + other), startMs: Date.now() + world.timeOffsetMs - SETTLE_MS - 5000, ...(sk === 'boardgame' ? { game } : {}) }
         world.forcedSessions = [s]
-        players.forEach((id, i) => (world.forceGoal![id] = { spot: spots[i], pose: kind }))
+        players.forEach((id, i) => (world.forceGoal![id] = { spot: spots[i], pose: sk }))
         return
       }
       if (kind === 'water') {

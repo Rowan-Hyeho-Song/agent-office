@@ -54,6 +54,7 @@ export class PlaySounds {
   private pp: PingpongPrev | null = null
   private bounce = new Map<string, number>()
   private omok: { seed: number; game: number; moves: number } | null = null
+  private chess: { seed: number; game: number; moves: number } | null = null
   private stampT: number | null = null
   private pourUntil = 0
   private signal: string | undefined
@@ -104,6 +105,20 @@ export class PlaySounds {
     this.omok = { seed, game, moves }
     if (!prev || prev.seed !== seed || prev.game !== game || moves !== prev.moves + 1 || !at) return
     cue('holo.place', { pos: { x: at.x, y: at.y, z: at.z }, key: `omok:${seed}:${game}:${moves}`, ...(visitor ? { visitor: true } : {}) })
+  }
+  /**
+   * #604 (sound.md 4.6) a chess piece put down: chess.place, or chess.capture instead when it takes (the frame it touches the square), once per
+   * half-move. Key: chess:<seed>:<game>:<half-move>
+   */
+  chessPiece(seed: number, game: number, moves: number, at: Vec | null, capture: boolean) {
+    const prev = this.chess
+    this.chess = { seed, game, moves }
+    if (!prev || prev.seed !== seed || prev.game !== game || moves !== prev.moves + 1 || !at) return
+    cue(capture ? 'chess.capture' : 'chess.place', { pos: { x: at.x, y: at.y, z: at.z }, key: `chess:${seed}:${game}:${moves}` })
+  }
+  /** #604 the king put in check (the frame it begins), at its square */
+  chessCheck(seed: number, game: number, moves: number, at: Vec) {
+    cue('chess.check', { pos: { x: at.x, y: at.y, z: at.z }, key: `chess:${seed}:${game}:${moves}:check` })
   }
   /** #538 the pinch closing on the fount: the stone made between the fingers (once per move, keyed as its place) */
   holoPick(seed: number, game: number, moves: number, at: Vec) {

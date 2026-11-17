@@ -156,6 +156,44 @@ export const holoPinchTarget = (): GripTarget => ({
   ],
 })
 
+/** #604 a chess glyph's thickness (2 voxels of 3.6 mm, hologram.md 11.2) */
+export const CHESS_CARD_T = 0.0072
+
+/**
+ * #604 (hologram.md 11.4) a chess piece taken like a card: the thumb on the glyph's back face, the index on its front, at the grip point (the caller puts
+ * it at 70% of the glyph's height). The piece's frame: x across the glyph, y up, z out of its front (toward the camera). Of the 24 axis-aligned
+ * frames every agent fits within 0.33 mm; these two have the palm down and the fingers along the glyph, A along +x, B along −x (the caller
+ * takes the one nearer the player's forward)
+ */
+export const chessCardTarget = (flip: boolean): GripTarget => ({
+  key: `chess_card_${flip ? 'b' : 'a'}:r`,
+  kind: 'holo',
+  side: 'r',
+  obj: null,
+  pg: new Matrix4().makeBasis(new Vector3(0, 1, 0), new Vector3(flip ? 1 : -1, 0, 0), new Vector3(0, 0, flip ? -1 : 1)),
+  contacts: [
+    { finger: 'thumb', p: new Vector3(0, 0, -CHESS_CARD_T / 2), n: new Vector3(0, 0, -1) },
+    { finger: 'index', p: new Vector3(0, 0, CHESS_CARD_T / 2), n: new Vector3(0, 0, 1) },
+  ],
+})
+
+/**
+ * #604 (hologram.md 11.4, hand-poses.md 6) the king and the queen taken with three fingers just under the glyph's top: the thumb on the back face,
+ * the index and the middle on the front, 2 cm apart (the glyph is 21.6 mm wide there; 1 cm apart no agent's fingers fit within 3 mm, 2 cm within
+ * 0.9 mm); the same frames as the card pinch (A / B), the index on the side that keeps the palm down
+ */
+export const CHESS_TRIPOD_HALF = 0.01
+export const chessTripodTarget = (flip: boolean): GripTarget => ({
+  ...chessCardTarget(flip),
+  key: `chess_tripod_${flip ? 'b' : 'a'}:r`,
+  kind: 'holo_tripod',
+  contacts: [
+    { finger: 'thumb', p: new Vector3(0, 0, -CHESS_CARD_T / 2), n: new Vector3(0, 0, -1) },
+    { finger: 'index', p: new Vector3(flip ? CHESS_TRIPOD_HALF : -CHESS_TRIPOD_HALF, 0, CHESS_CARD_T / 2), n: new Vector3(0, 0, 1) },
+    { finger: 'middle', p: new Vector3(flip ? -CHESS_TRIPOD_HALF : CHESS_TRIPOD_HALF, 0, CHESS_CARD_T / 2), n: new Vector3(0, 0, 1) },
+  ],
+})
+
 /** the grip target of `objName` for a `kind` of grip, or null when the model has no grip empty for that hand */
 export function resolveTarget(scene: Object3D, objName: string, kind: string, side: 'l' | 'r'): GripTarget | null {
   if (kind === 'book') return resolveBookTarget(scene, objName, side)

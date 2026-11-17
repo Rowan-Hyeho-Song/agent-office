@@ -57,3 +57,23 @@ describe('sessions', () => {
     expect(sessionsAt(t - STEP, agents, busy).find((x) => x.spot === all[0].spot && x.players.includes(all[0].players[0]))).toBeUndefined()
   })
 })
+
+describe('the board game of a session (hologram.md 10.2)', () => {
+  it('every board session has a game (pair and solo) that is the one the schedule gives; pingpong has none', () => {
+    const seen = new Set<string>()
+    for (let t = T; t < T + 12 * 3_600_000; t += STEP) {
+      const assign = playAt(t, agents)
+      for (const s of sessionsAt(t, agents)) {
+        if (s.kind === 'pingpong') {
+          expect(s.game).toBeUndefined()
+          continue
+        }
+        expect(s.game).toBeDefined()
+        expect(s.game).toBe(assign[s.players[0]].game)
+        seen.add(`${s.game}|${s.solo ? 'solo' : 'pair'}`)
+      }
+    }
+    expect(seen.has('omok|pair') && seen.has('chess|pair')).toBe(true)
+    expect(sessionsAt(T + 5 * 3_600_000, agents)).toEqual(sessionsAt(T + 5 * 3_600_000, agents))
+  })
+})

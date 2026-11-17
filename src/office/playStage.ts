@@ -26,9 +26,12 @@ import type { Goal } from './director'
 import type { GripDemo } from './debugPlay'
 import { GRIPS, GripClock, curlOf, handFor, objectFor, tipAt } from './grip'
 import { DIP_K } from './handPose'
-import { contactNormal, fitFingers, handGripMatrix, holoPinchTarget, offsetOf, resolveTarget, solveTarget, type GripTarget } from './gripTargets'
+import { contactNormal, fitFingers, handGripMatrix, chessCardTarget, chessTripodTarget, composeOffset, holoPinchTarget, offsetOf, resolveTarget, solveTarget, type GripTarget } from './gripTargets'
+import { HOLO_GRIP_OFFSETS } from './holoGrip.data'
 import { CELL as HOLO_CELL, HoloBoard, N as HOLO_N, STONE_H as HOLO_STONE_H, STONE_Y as HOLO_STONE_Y } from './holoBoard'
-import { pinchSequence, pinchTimes, type Pinch } from '../play/holoPinch'
+import { chessPinch, pinchSequence, pinchTimes, type Pinch } from '../play/holoPinch'
+import { CHESS_HAND, chessAt, type ChessView } from '../play/chessTimeline'
+import { KING, QUEEN } from '../play/chess'
 import { fingerModelOf, type AgentRig, type PropBank } from './rig'
 import { LIFT, OPEN_ANGLE, halfAngle } from './bookGeom'
 import { LeafBend, PINCH_LET_GO, TURN_S, fingerWeight, leafAngle, pinchArc, poseWeight } from './bookLeaf'
@@ -118,6 +121,9 @@ const HOLO_NEON = { panel: 0.1, turn: 1, idle: 0.15 } as const
 /** #538 the panel switched off: a dark glass that sits with the bezel (designer, #648), not pure black */
 const HOLO_PANEL_OFF = '#111317'
 
+/** #604 a chess glyph's height by kind (hologram.md 11.2: rows of 3.6 mm; pawn 8 … king 14), m */
+const CHESS_GLYPH_H = [0, 8, 12, 12, 10, 13, 14].map((rows) => rows * 0.0036)
+
 /** #538 the thumb and index opened over the fount before the pinch (2.4 cm between their tips, hologram.md 4.3) */
 const PINCH_WIDE = curlOf([0.02, 0.25, 0.3, 0.35], [0, 0.1])
 const BLADE_Y = 0.175
@@ -184,6 +190,8 @@ export interface StageIn {
   /** #455 the treats taken in a hand: which, and when it landed (office ms) */
   treats?: Record<string, { kind: SnackKind; at: number }>
   gripDemo?: GripDemo | null
+  /** #604 where the camera is (the hologram chess pieces turn to face it) */
+  camera?: Vector3
 }
 
 /** the 2 s score tag over the net after a point */
@@ -256,6 +264,12 @@ export class PlayStage {
   private holoPhase: OmokView['phase'] | null = null
   /** per agent: the pinch on the light stone, solved once (the hand offset and the fitted thumb and index) */
   private pinchFits = new Map<string, { tgt: GripTarget; offset: Matrix4; hold: number[] }>()
+  /** #604 the game the board last showed (it goes off as that game) */
+  private holoGame: 'omok' | 'chess' = 'omok'
+  /** #604 per mover and half-move: the held piece's facing and the grip (card pinch side) chosen at the pick, kept while it is held */
+  private chessHold = new Map<string, { key: string; yaw: number; flip: boolean }>()
+  /** #604 the chess phase last frame (a reset begins a new game) */
+  private chessPhase: ChessView['phase'] | null = null
   /** #538 the projector's live neons (hologram.md 1.5) */
   private holoPanel: (k: number) => void = () => {}
   private holoTurn: Record<1 | 2, (k: number) => void> = { 1: () => {}, 2: () => {} }
@@ -590,13 +604,16 @@ export class PlayStage {
     // #538 from the moment the visitor sits (hologram.md 2: the visitor turns the board on too), not only once the agent reached its chair: the
     // visitor's moves before that were neither drawn nor heard (sound, #648). The agent's hand waits for its chair (omokHands)
     const vo = inp.visitorOmok
-    if (vo) og = { kind: 'boardgame', spot: 'game_a', players: [vo.agent, VISITOR], seed: hash(`visitor|${vo.agent}`), startMs: 0, visitor: vo.view }
+    if (vo) og = { kind: 'boardgame', spot: 'game_a', players: [vo.agent, VISITOR], seed: hash(`visitor|${vo.agent}`), startMs: 0, game: 'omok', visitor: vo.view }
     // #137 ③ the visitor holds the near paddle: their match, the agent at the far end (no hand at the near one)
     const vp = inp.visitorPingpong
     if (vp) pp = inp.rigs[vp.agent]?.arrived === 'pingpong_b' ? { kind: 'pingpong', spot: 'pingpong_a', players: [VISITOR, vp.agent], seed: hash(`visitor|pp|${vp.agent}`), startMs: 0 } : null
     this.pingpong(pp, inp)
     for (const e of this.stoneLetGo.values()) e.seen = false
-    this.omok(og, inp)
+    // #604 the board's game (hologram.md 10.2): chess or omok on the one projector; with nobody there, the last game's board goes off
+    if (og) this.holoGame = og.game === 'chess' ? 'chess' : 'omok'
+    if (this.holoGame === 'chess') this.chess(og?.game === 'chess' ? og : null, inp)
+    else this.omok(og, inp)
     for (const e of this.carry.values()) e.seen = false
     // #481 writing the wrap-up cards: the card on the desk, the pen hand on the pen; nothing else takes the hands meanwhile
     const writing = new Set(ids.filter((id) => this.writeDesk.drive(inp.rigs[id], inp.goals[id], inp)))
@@ -749,7 +766,7 @@ export class PlayStage {
     if (!f) {
       const hand = rig.parts.hands.r
       const tgt = holoPinchTarget()
-      const { offset } = solveTarget(tgt, hand)
+      const offset = this.holoOffset(tgt, rig)
       const hold = rig.curlVec('r', GRIPS.holo.r!.hold)
       for (const fit of fitFingers(tgt, hand, offset)) {
         if (fit.finger === 'thumb') hold.splice(16, 4, ...fit.joints)
@@ -882,6 +899,197 @@ export class PlayStage {
       const w = 1 - ease(k)
       rig.drive[e.side] = { ...e.drive, w: e.drive.w * w, wc: e.drive.wc * w }
     }
+  }
+
+  /**
+   * #604 (hologram.md 10 · 11) chess on the hologram board, the agents' games from the session's seed (chessTimeline.ts, computed a few half-moves
+   * a frame: a seek catches up without a stop). The board is on while someone sits at it; the mover's hand takes the piece from its square and
+   * puts it down (chessHands); the sounds: holo.pick, chess.place / chess.capture, chess.check, holo.board.on / .off.
+   */
+  private chess(s: PlaySession | null, inp: StageIn) {
+    const holo = this.holo
+    if (!holo) return
+    const snap = inp.t - this.holoT > 1 || inp.t < this.holoT
+    this.holoT = inp.t
+    const tMs = s ? sessionTime(s, inp.now) : -1
+    const view = s && tMs >= 0 ? chessAt(s.seed, s.players, tMs) : null
+    // the seated (white is the side holding view.white; a record alone: the colour to move)
+    const seats: { seat: Vector3; color: 1 | 2; id: string }[] = []
+    if (s) {
+      const ids = s.solo ? [s.players[0]] : s.players
+      ids.forEach((id, i) => {
+        const rig = inp.rigs[id]
+        if (!rig || (rig.arrived !== 'game_a' && rig.arrived !== 'game_b')) return
+        const white = s.solo ? view?.toMove === 0 : view ? view.white === i : i === 0
+        seats.push({ seat: rig.parts.root.position.clone(), color: white ? 2 : 1, id })
+      })
+    }
+    const on = !!s && seats.length > 0
+    const phase = view?.phase ?? null
+    const playing = phase === 'thinking' || phase === 'pick' || phase === 'place'
+    const held = view && on && !inp.reduced && s && view.move && phase !== 'catching' ? this.chessHands(s, view, inp, seats) : null
+    const mv = view?.move
+    const landedAt = mv && phase === 'place' ? inp.t - (mv.sinceMs - mv.thinkMs - CHESS_HAND.land) / 1000 : null
+    const r = holo.update({
+      t: inp.t,
+      reduced: inp.reduced,
+      // catching up (a seek, a first sight) draws no move events (move is null then) but is no jump of the board: its coming on still unfolds (#653)
+      snap,
+      on,
+      game: 'chess',
+      board: null,
+      lastMove: -1,
+      win: null,
+      newGame: phase === 'reset' && this.chessPhase !== 'reset',
+      turn: view && playing ? (view.toMove === 0 ? 2 : 1) : null,
+      players: seats.map((p) => ({ seat: p.seat, color: p.color })),
+      held,
+      chess: view
+        ? {
+            board: view.board,
+            lastMove: view.lastMove,
+            check: view.check,
+            captured: { 2: view.takenByWhite.map((kind) => ({ kind, color: 1 as const })), 1: view.takenByBlack.map((kind) => ({ kind, color: 2 as const })) },
+            move:
+              mv && landedAt !== null
+                ? {
+                    id: view.game * 1000 + view.moveIndex,
+                    from: mv.from,
+                    to: mv.to,
+                    at: landedAt,
+                    capture: mv.capture ? { sq: mv.captureAt, kind: mv.capture, color: mv.side === 0 ? (1 as const) : (2 as const) } : null,
+                    castle: mv.castle,
+                    ...(mv.promo ? { promotion: mv.promo } : {}),
+                  }
+                : null,
+            end: view.end ? { result: view.end.kind === 'win' ? ('mate' as const) : ('draw' as const), ...(view.end.kind === 'win' ? { loser: view.end.side === 0 ? (1 as const) : (2 as const) } : {}), since: inp.t - view.end.sinceMs / 1000 } : null,
+            camera: inp.camera,
+          }
+        : undefined,
+    })
+    this.chessPhase = phase
+    const centre = holo.squarePos(27).lerp(holo.squarePos(36), 0.5)
+    if (r.boardOnStart) this.sounds.holoBoard(true, centre, inp.reduced)
+    if (r.boardOffStart) this.sounds.holoBoard(false, centre, inp.reduced)
+    if (!s || !view || !on) return
+    if (phase !== 'catching') this.sounds.chessPiece(s.seed, view.game, view.moveIndex, view.lastMove ? holo.squarePos(view.lastMove.to) : null, !!(mv && phase === 'place' && mv.capture))
+    if (r.checkStart && view.check !== null) this.sounds.chessCheck(s.seed, view.game, view.moveIndex, holo.squarePos(view.check))
+    // the faces of the result, as in omok (play.md 2.5): the winner glad, the loser embarrassed; a draw has none; not a record alone
+    const end = view.end
+    if (end && end.kind === 'win' && end.sinceMs > 500 && !s.solo) {
+      const fk = `chess:${s.spot}:${view.game}`
+      if (!this.faced.has(fk)) {
+        this.faced.add(fk)
+        const winner = end.side === 0 ? view.white : ((1 - view.white) as 0 | 1)
+        inp.rigs[s.players[winner]]?.faceEvent('joy', inp.t)
+        inp.rigs[s.players[1 - winner]]?.faceEvent('embarrassed', inp.t)
+        if (!inp.reduced && this.reactedGame.get(fk) === undefined) {
+          this.reactedGame.set(fk, inp.t)
+          noteTourEvent(s.players[winner], 5000)
+          const wr = inp.rigs[s.players[winner]]
+          const lr = inp.rigs[s.players[1 - winner]]
+          if (wr) wr.reaction = { kind: 'fist', t0: inp.t, dur: 1.0 }
+          if (lr) lr.reaction = { kind: 'clap', t0: inp.t + 0.4, dur: 1.4 }
+        }
+      }
+    }
+  }
+
+  /**
+   * #604 (hologram.md 11.4) the mover's right hand: over its own edge of the board while it thinks, then over the piece, the pinch on the glyph's
+   * thickness like a card (front and back faces at 70% of its height; the side chosen so the fingers point the player's way), an arc to the
+   * square, put down. The piece keeps the facing it had when taken. Returns the held piece for the board.
+   */
+  private chessHands(s: PlaySession, view: ChessView, inp: StageIn, seats: { seat: Vector3; color: 1 | 2; id: string }[]) {
+    const holo = this.holo!
+    const mv = view.move!
+    const id = s.players[mv.mover]
+    const rig = inp.rigs[id]
+    if (!rig || (rig.arrived !== 'game_a' && rig.arrived !== 'game_b')) return null
+    const p = chessPinch(mv.sinceMs, mv.thinkMs)
+    const mk = `${s.seed}:${view.game}:${view.moveIndex}:${mv.from}`
+    // a half-move first seen after its pick is left to the board (no hand took it)
+    if (this.handMove[id]?.key !== mk) this.handMove[id] = { key: mk, ok: mv.sinceMs < mv.thinkMs + CHESS_HAND.pick }
+    if (!this.handMove[id].ok || p.stage === 'rest') return null
+    const at = rig.parts.root.position
+    const mid = holo.squarePos(27).lerp(holo.squarePos(36), 0.5)
+    const fwd = new Vector3(mid.x - at.x, 0, mid.z - at.z).normalize()
+    if (!isFinite(fwd.x)) fwd.set(1, 0, 0)
+    // the grip point: 70% of the glyph's height over the piece's foot
+    // the king and the queen: three fingers just under the top (one voxel down); the others: the card pinch at 70% of the height
+    const big = mv.kind === KING || mv.kind === QUEEN
+    const gripH = big ? CHESS_GLYPH_H[mv.kind] - 0.0036 * 1.5 : CHESS_GLYPH_H[mv.kind] * 0.7
+    const from = holo.squarePos(mv.from)
+    const to = holo.squarePos(mv.to)
+    const edge = mid.clone().addScaledVector(fwd, -0.18)
+    const hover = new Vector3(edge.x, from.y, edge.z)
+    const foot = p.a < 1 ? hover.clone().lerp(from, p.a) : from.clone().lerp(to, p.u)
+    foot.y += p.h
+    // the facing and the grip side, chosen at the pick and kept while held
+    let hold = this.chessHold.get(id)
+    if (!hold || hold.key !== mk) {
+      const cam = inp.camera ?? at
+      const yaw = Math.atan2(cam.x - from.x, cam.z - from.z)
+      // the piece's +x across the glyph; the card pinch's fingers run along +x (A) or −x (B): the one nearer the player's forward
+      const across = new Vector3(Math.cos(yaw), 0, -Math.sin(yaw))
+      hold = { key: mk, yaw, flip: across.dot(fwd) < 0 }
+      this.chessHold.set(id, hold)
+    }
+    const pieceWorld = new Matrix4().makeRotationY(hold.yaw).setPosition(foot.x, foot.y + gripH, foot.z)
+    const over = Math.min(LEAN_MAX_M, Math.max(0, Math.hypot(foot.x - at.x, foot.z - at.z) - STONE_COMFORT_M))
+    if (over > 0) rig.leanOver(fwd.x * over, fwd.z * over)
+    if (mv.sinceMs < mv.thinkMs && view.lastMove) rig.glance = { at: holo.squarePos(view.lastMove.to), max: 10 * DEG }
+    const fit = this.cardFit(rig, hold.flip, big)
+    const hand = handFor(pieceWorld, fit.tgt.pg, handGripMatrix(rig.parts.hands.r)).multiply(fit.offset)
+    hand.elements[12] -= fwd.x * p.pull
+    hand.elements[13] += p.rise
+    hand.elements[14] -= fwd.z * p.pull
+    const spec = (big ? GRIPS.holo_tripod : GRIPS.holo).r!
+    const pre = rig.curlVec('r', spec.pre)
+    const wide = rig.curlVec('r', PINCH_WIDE)
+    const angles = pre.map((v, i) => {
+      const open = v + (wide[i] - v) * p.open
+      return open + (fit.hold[i] - open) * p.close
+    })
+    rig.drive.r = { target: hand, w: p.w, curl: null, angles, abdLimits: null, wc: p.w, spread: null }
+    this.stoneLetGo.set(rig.id, { side: 'r', drive: rig.drive.r!, seen: true, from: null })
+    const pickKey = `${mk}:pick`
+    if (p.held && !this.picked.has(pickKey)) {
+      this.picked.add(pickKey)
+      this.sounds.holoPick(s.seed, view.game, view.moveIndex + 1, from)
+    }
+    if (!p.held) return null
+    const color: 1 | 2 = mv.side === 0 ? 2 : 1
+    void seats
+    return { pos: foot, color, since: inp.t - (mv.sinceMs - mv.thinkMs - CHESS_HAND.pick) / 1000, kind: mv.kind, facing: hold.yaw, from: mv.from }
+  }
+
+  /**
+   * #538 · #604 the hand's offset on a light piece: stored per agent (holoGrip.data.ts, solved by holoGrip.test.ts); solving it here held the main
+   * thread 2–5 s the first time an agent took a piece (#653). A seat without stored values (a new agent) is solved once
+   */
+  private holoOffset(tgt: GripTarget, rig: AgentRig) {
+    const v = HOLO_GRIP_OFFSETS[`${tgt.key}:${Number(rig.id.split('_')[1])}`]
+    return v ? composeOffset(v) : solveTarget(tgt, rig.parts.hands.r).offset
+  }
+
+  /** #604 the card pinch on a chess glyph for this agent, solved once per side choice (gripTargets.ts chessCardTarget) */
+  private cardFit(rig: AgentRig, flip: boolean, tripod = false) {
+    const key = `${rig.id}:${tripod ? 'tripod' : 'card'}:${flip ? 'b' : 'a'}`
+    let f = this.pinchFits.get(key)
+    if (!f) {
+      const hand = rig.parts.hands.r
+      const tgt = tripod ? chessTripodTarget(flip) : chessCardTarget(flip)
+      const offset = this.holoOffset(tgt, rig)
+      const hold = rig.curlVec('r', GRIPS[tgt.kind].r!.hold)
+      for (const fit of fitFingers(tgt, hand, offset)) {
+        if (fit.finger === 'thumb') hold.splice(16, 4, ...fit.joints)
+        else setFingerJoints(hold, ['index', 'middle', 'ring', 'little'].indexOf(fit.finger), fit.joints)
+      }
+      f = { tgt, offset, hold }
+      this.pinchFits.set(key, f)
+    }
+    return f
   }
 
   /**

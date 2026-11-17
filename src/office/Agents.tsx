@@ -536,6 +536,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
       // #455 the treats in a hand (not in the replay: a treat is a live visitor's)
       treats: st ? undefined : world.treats,
       gripDemo: world.debug ? world.gripDemo : null,
+      // #604 the hologram chess pieces face the camera
+      camera: state.camera.position,
     })
     const tag = playStage.tag
     if (tagEl.current) {

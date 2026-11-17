@@ -27,6 +27,7 @@ import {
   Vector3,
   type WebGLRenderer,
 } from 'three'
+import { ChessLayer, type ChessInput } from './holoChess'
 
 export const N = 15
 export const CELL = 0.026
@@ -88,14 +89,20 @@ export interface HoloInput {
   newGame?: boolean
   turn: 1 | 2 | null
   players: { seat: Vector3; color: 1 | 2 }[]
-  held: { pos: Vector3; color: 1 | 2; since: number } | null
+  /** chess: `kind` 1..6 (needed to draw it), `facing` yaw in the surface frame (else the facing at the pick is kept), `from` the cell it was lifted from (hidden while held); pos = the point under its base */
+  held: { pos: Vector3; color: 1 | 2; since: number; kind?: number; facing?: number; from?: number } | null
   pick?: number
+  /** which game the film shows (default omok). Chess: color 2 = white, 1 = black; board/lastMove/win are ignored, see `chess` */
+  game?: 'omok' | 'chess'
+  chess?: ChessInput
 }
 export interface HoloResult {
   landed: number[]
   boardOn: boolean
   boardOffStart: boolean
   boardOnStart: boolean
+  /** chess: the king's check started this frame (the shake begins) */
+  checkStart?: boolean
 }
 
 // ---- pixels and geometry --------------------------------------------------------------------------------------------------
@@ -278,6 +285,9 @@ export class HoloBoard {
   private winStart = 0
   private flashUntil = [0, 0, 0, 0]
   private readonly v = new Vector3()
+  private game: 'omok' | 'chess' = 'omok'
+  private chess: ChessLayer | null = null
+  private flatMat!: (color: string, blending: Blending, map: DataTexture | null, opacity: number) => ShaderMaterial
 
   constructor(scene: Object3D, surface: Object3D) {
     this.scene = scene
@@ -306,6 +316,7 @@ export class HoloBoard {
     // film: normal blended ink, unlit, no scanline needed (scan only dims colour that is already dark)
     const film = flat(COLORS.ink, NormalBlending, null, FILM_OPACITY)
     const grid = flat(COLORS.grid, AdditiveBlending, gridTexture(), 1)
+    this.flatMat = flat
     const quadMat = (blending: Blending, radial: boolean) => {
       const m = new ShaderMaterial({
         vertexShader: QUAD_VERT,
@@ -354,7 +365,7 @@ export class HoloBoard {
       this.inst(unit.clone(), mat, cap, { iPos: 3, iSize: 2, iRot: 1, iCol: 4 }, order)
     this.glow = quads(this.materials.glow, CAP, 1)
     this.marks = quads(this.materials.marks, MAX_RIPPLES * 4 + 8, 3)
-    this.dots = quads(this.materials.dot, 4, 5)
+    this.dots = quads(this.materials.dot, 48, 5)
 
     this.root.add(this.film, this.grid, this.glow, this.stones[1], this.stones[2], this.founts, this.marks, this.dots)
     scene.add(this.root)
@@ -455,6 +466,39 @@ export class HoloBoard {
     return out.applyMatrix4(this.frame)
   }
 
+  private ensureChess(): ChessLayer {
+    return (this.chess ??= new ChessLayer({
+      root: this.root,
+      uniforms: { uDpr: this.uDpr, uAlpha: this.uAlpha },
+      scan: SCAN,
+      onRender: this.onRender,
+      light: (m, b) => this.light(m, b),
+      inst: (g, m, cap, attrs, order) => this.inst(g, m, cap, attrs, order),
+      put: (m, i, name, ...v) => this.put(m, i, name, ...v),
+      flush: (...ms) => this.flush(...ms),
+      flat: this.flatMat,
+      toLocal: (w, out) => out.copy(w).applyMatrix4(this.inv),
+      lift: () => this.lift,
+    }))
+  }
+
+  /** chess: the world point on the light plane at a cell centre (a1 = 0; turned as of the last update, white near +z before any) */
+  squarePos(sq: number, out = new Vector3()): Vector3 {
+    this.sync()
+    return this.ensureChess().squareLocal(sq, out).applyMatrix4(this.frame)
+  }
+
+  /** chess: the cell under a world point (in the plane), else -1 */
+  squareAt(world: Vector3): number {
+    this.sync()
+    return this.ensureChess().squareIndexLocal(this.v.copy(world).applyMatrix4(this.inv))
+  }
+
+  /** the chess layer, once created (tests, hand code) */
+  get chessLayer(): ChessLayer | null {
+    return this.chess
+  }
+
   private local(cell: number, out: Vector3): Vector3 {
     const c = cell % N
     return out.set((c - 7) * CELL, this.lift, ((cell - c) / N - 7) * CELL)
@@ -477,6 +521,7 @@ export class HoloBoard {
     this.col.fill(0)
     this.dieAt.fill(NaN)
     this.ripples.length = 0
+    this.chess?.clear()
   }
 
   private stoneLook(c: number, t: number, reduced: boolean, win: boolean) {
@@ -512,6 +557,14 @@ export class HoloBoard {
     const { t, reduced } = inp
     const snap = !!inp.snap
     const res: HoloResult = { landed: [], boardOn: false, boardOffStart: false, boardOnStart: false }
+    const game = inp.game ?? 'omok'
+    if (game !== this.game) {
+      this.game = game
+      this.clearStones()
+      this.synced = false
+    }
+    const chess = game === 'chess' ? this.ensureChess() : null
+    chess?.prepare(inp.chess, inp.players)
 
     // ---- phase machine
     if (snap) {
@@ -527,7 +580,8 @@ export class HoloBoard {
           res.boardOnStart = true
         }
       } else if (this.phase === 'on') {
-        for (let c = 0; c < N * N; c++) if (this.col[c] && Number.isNaN(this.dieAt[c])) this.kill(c, t, reduced ? 1 : 0)
+        if (chess) chess.killAll(t, inp.chess)
+        else for (let c = 0; c < N * N; c++) if (this.col[c] && Number.isNaN(this.dieAt[c])) this.kill(c, t, reduced ? 1 : 0)
         this.phase = 'wait'
         this.t0 = t
       } else if (this.phase === 'open') {
@@ -541,7 +595,10 @@ export class HoloBoard {
     }
     // ---- stones
     const quiet = snap || !this.synced
-    if (this.phase === 'on') {
+    if (this.phase === 'on' && chess) {
+      this.synced = true
+      chess.sync(inp.chess, t, reduced, quiet, !!inp.newGame, res)
+    } else if (this.phase === 'on') {
       this.synced = true
       const wiped = new Uint8Array(N * N)
       if (inp.newGame && !quiet) this.wipe(inp, wiped)
@@ -560,7 +617,7 @@ export class HoloBoard {
         }
       }
     }
-    let n = 0
+    let n = chess ? chess.liveCount(t, reduced) : 0
     for (let c = 0; c < N * N; c++) {
       if (this.col[c] && !Number.isNaN(this.dieAt[c]) && this.vanished(c, t)) this.col[c] = 0
       if (this.col[c]) n++
@@ -628,6 +685,9 @@ export class HoloBoard {
     this.materials.film.uniforms.uClip.value.set(hx === 1 ? 1 : hx * k, hz === 1 ? 1 : hz * k)
     this.materials.grid.uniforms.uBright.value = bright
     this.uAlpha.value = alpha
+    const chessOn = this.game === 'chess'
+    this.grid.visible = visible && !chessOn
+    this.chess?.setView(visible && chessOn, hx === 1 ? 1 : hx * k, hz === 1 ? 1 : hz * k, bright)
   }
 
   private put(m: InstancedMesh, i: number, name: string, ...v: number[]) {
@@ -684,7 +744,18 @@ export class HoloBoard {
       this.put(this.marks, i, 'iCol', c.r * bright, c.g * bright, c.b * bright, a)
     }
 
-    if (live) {
+    const omok = this.game === 'omok'
+    const dot = (x: number, y: number, z: number, sx: number, sz: number, c: Color, a: number) => {
+      const i = nDot++
+      this.put(this.dots, i, 'iPos', x, y, z)
+      this.put(this.dots, i, 'iSize', sx, sz)
+      this.put(this.dots, i, 'iRot', 0)
+      this.put(this.dots, i, 'iCol', c.r, c.g, c.b, a)
+    }
+    // the chess layer always runs, so its instance counts drop to zero when it is not shown
+    this.chess?.draw({ t, reduced, live: live && !omok, on: on && !omok, c: inp.chess, held: inp.held, glow, mark, dot })
+
+    if (live && omok) {
       for (let c = 0; c < N * N; c++) {
         const color = this.col[c]
         if (!color) continue
@@ -696,7 +767,7 @@ export class HoloBoard {
       }
     }
 
-    if (on) {
+    if (on && omok) {
       // last move dot, once its stone is fully up
       const lm = inp.lastMove
       if (lm >= 0 && lm < N * N && this.col[lm] && Number.isNaN(this.dieAt[lm])) {
@@ -742,6 +813,9 @@ export class HoloBoard {
         mark(p.x + R, y, p.z, PX, 2 * R - PX, 0, c, bright)
       }
 
+    }
+
+    if (on) {
       // turn light line and founts
       const ps = inp.players
       const info = ps.map((pl) => {
@@ -757,7 +831,7 @@ export class HoloBoard {
           else mark(0, y, e, TURN_LEN, 2 * PX, 0, sideColor(q.color), 0.6)
         }
       }
-      for (let i = 0; i < Math.min(info.length, 4); i++) {
+      for (let i = 0; i < (omok ? Math.min(info.length, 4) : 0); i++) {
         const q = info[i]
         if (inp.pick === i) this.flashUntil[i] = t + 0.05
         const c = sideColor(q.color)
@@ -768,7 +842,7 @@ export class HoloBoard {
       }
 
       // held stone and its glow
-      const h = inp.held
+      const h = omok ? inp.held : null
       if (h) {
         const a = t - h.since
         if (a >= 0) {
@@ -794,6 +868,7 @@ export class HoloBoard {
 
   dispose() {
     this.root.removeFromParent()
+    this.chess?.dispose()
     for (const m of Object.values(this.materials)) m.dispose()
     const tex = this.materials.grid.uniforms.uMap.value as DataTexture
     tex.dispose()
