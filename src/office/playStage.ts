@@ -90,7 +90,8 @@ const dimsOf = (size: number[], netH: number): Dims => ({ L: size[0], W: size[1]
  * #538 a live neon of the projector (holo_panel, holo_turn_b / _w): its own copy of the material, its colour the bake's glow_color times k (0 dark,
  * 1 full); a node without glow_color keeps its own colour as full
  */
-function holoNeon(node: Object3D | undefined): (k: number) => void {
+function holoNeon(node: Object3D | undefined, dark = '#000000'): (k: number) => void {
+  const off = new Color(dark)
   const parts: { mat: MeshBasicMaterial; base: Color }[] = []
   const glow = (node?.userData as { glow_color?: string } | undefined)?.glow_color
   node?.traverse((o) => {
@@ -108,11 +109,14 @@ function holoNeon(node: Object3D | undefined): (k: number) => void {
   return (k: number) => {
     if (k === last) return
     last = k
-    for (const p of parts) p.mat.color.copy(p.base).multiplyScalar(k)
+    // dark: its unlit face (the panel off is a dark glass, not a hole: #111317, designer #648), the light added over it
+    for (const p of parts) p.mat.color.copy(p.base).multiplyScalar(k).add(off)
   }
 }
 /** #538 (hologram.md 1.5) the projector's panel while the board is on, and the turn lights: the side to move, the other, the board off */
 const HOLO_NEON = { panel: 0.1, turn: 1, idle: 0.15 } as const
+/** #538 the panel switched off: a dark glass that sits with the bezel (designer, #648), not pure black */
+const HOLO_PANEL_OFF = '#111317'
 
 /** #538 the thumb and index opened over the fount before the pinch (2.4 cm between their tips, hologram.md 4.3) */
 const PINCH_WIDE = curlOf([0.02, 0.25, 0.3, 0.35], [0, 0.1])
@@ -343,7 +347,7 @@ export class PlayStage {
       this.grid = { o: this.holo.cellPos(0), n: HOLO_N, cell: HOLO_CELL }
     }
     this.visitorChair = scene.getObjectByName('nav_game_b')?.getWorldPosition(new Vector3()) ?? null
-    this.holoPanel = holoNeon(scene.getObjectByName('holo_panel'))
+    this.holoPanel = holoNeon(scene.getObjectByName('holo_panel'), HOLO_PANEL_OFF)
     this.holoTurn = { 1: holoNeon(scene.getObjectByName('holo_turn_b')), 2: holoNeon(scene.getObjectByName('holo_turn_w')) }
     // water for the can, and the book's two halves
     this.spout = nodes.prop_watering_can_spout
