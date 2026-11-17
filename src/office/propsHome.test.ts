@@ -179,6 +179,7 @@ describe('pair games: paddles and stones', () => {
       const guard = new Guard(w)
       let loose = 0
       let held = 0
+      let lightHeld = 0 // #538 omok: frames a hand held a light stone
       const dt = 0.02
       for (let k = 0; k < 1800; k++) {
         const t = k * dt
@@ -191,6 +192,7 @@ describe('pair games: paddles and stones', () => {
         w.props.update(dt)
         w.scene.updateMatrixWorld(true)
         guard.frame(t)
+        for (const id of s!.players) if (w.stage.lastPlace[id]?.held) lightHeld++
         for (const n of propNodes) {
           const holding = Object.values(w.rigs).some((r) => r.want?.attached && r.want.prefer === n.name)
           if (holding) {
@@ -200,9 +202,16 @@ describe('pair games: paddles and stones', () => {
           if (n.position.distanceTo(home.get(n.name)!) > 0.01) loose++
         }
       }
-      expect(held).toBeGreaterThan(100)
+      if (kind === 'pingpong') expect(held).toBeGreaterThan(100)
+      else {
+        // #538 the board is light: a hand held a light stone, and omok never takes a prop
+        expect(lightHeld, 'a hand held a light stone').toBeGreaterThan(0)
+        expect(held, 'no prop in a hand').toBe(0)
+        expect(guard.stats.grasps, 'no prop taken').toBe(0)
+      }
       expect(loose).toBe(0)
-      expectClean(kind, guard.stats, kind === 'pingpong' ? 'paddle' : 'piece')
+      expect(guard.stats.loose, 'no prop away from home').toBe(0)
+      if (kind === 'pingpong') expectClean(kind, guard.stats, 'paddle')
       if (LOG) appendFileSync(LOG, 'props reach ' + kind + ': grasps ' + guard.stats.grasps + ', grasp jump ' + (guard.stats.graspJump * 1000).toFixed(2) + ' mm, release jump ' + (guard.stats.releaseJump * 1000).toFixed(2) + ' mm, reach at grasp ' + guard.stats.graspReach.toFixed(3) + ' m, at release ' + guard.stats.releaseReach.toFixed(3) + ' m, worst held ' + guard.stats.heldReach.toFixed(3) + ' m\n')
       if (LOG) appendFileSync(LOG, 'props home ' + kind + ': held-prop frames ' + held + ', loose-away-from-home frames ' + loose + '\n')
     }, 60000)

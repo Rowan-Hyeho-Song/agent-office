@@ -84,8 +84,7 @@ Node contract (the app reads glTF extras):
   agent_<i>_hand_l|r_grip          empties, children of the palms: attach a held prop here (extras grip_of)
   screen_work_<i>, screen_door     live "screen" slots the app draws (extras screen, aspect, w, h, ppm); shipped off
   surface_whiteboard|bulletin      empties at the board faces where the app pins cards / notes (extras w, h, normal)
-  prop_*, agent_0_pen              live "prop": paddles, cups, watering can, omok stones in hand (prop_piece_a black,
-                                   _b white), book (its spine), paper plane, pen, A4 sheet (prop_paper, #262: a 2 mm core; extras size)
+  prop_*, agent_0_pen              live "prop": paddles, cups, watering can, book (its spine), paper plane, pen, A4 sheet (prop_paper, #262: a 2 mm core; extras size)
                                    (extras prop, home, grip; the pen's home is on its head: extras home_on)
   prop_paper_a|b                  live "bot" (#262): the sheet's near | far halves, pivot on the fold line (local x through
                                    the middle); extras fold {axis, sign} folds it up over the other, writing inside.
@@ -97,12 +96,15 @@ Node contract (the app reads glTF extras):
                                    (2 . 2 . 1). extras size [w, h, t], spine "z", cover, shelf_row (the real shelf, 0 =
                                    bottom; not the binders' r), shelf_slot; children _grip_r, _contact_index|thumb|palm
   prop_watering_can_spout          empty, child of the can: the spout's end, local +z = the water's way out
-  omok_board                       the 15 x 15 board and its two stone bowls (lounge atlas, 3x texels: the lines are baked)
-  omok_grid                        empty at the (0, 0) intersection on the board top, +x = columns, +z = rows
-                                   (extras n, cell, stone_h)
-  omok_stone_b|w                   live "bot" samples (the app hides them and instances the stones on the board);
-                                   pivot = the stone's bottom center
-  omok_bowl_b|w                    empties: the grab point in each stone bowl (extras bowl); black by nav_game_a
+  holo_projector                   (#538, was the omok board + bowls + stones) the hologram projector on the game
+                                   table: two stepped graphite 16-gons (0.34 / 0.31 m, 3.2 cm), a square bezel (lounge)
+  holo_panel                       live "neon": the 0.19 m 16 x 16 pixel panel, one quad facing up (UV 0..1: u along +x,
+                                   v = 1 at the back -z edge) for the app's shader; extras glow_color, glow, w, h, grid
+  holo_turn_b|w                    live "neon": the turn lights on the low step facing each stool (b at -x = game_a,
+                                   w at +x = game_b); extras glow_color, glow, turn
+  surface_holo                     empty at the panel's centre, +y up, +x = columns, +z = rows (extras surface holo,
+                                   normal, lift 0.02 = the board over it, size 0.40 = the light board, field 0.44 = the
+                                   projection field)
   pp_ball                          live "bot" (#135): the ball, the app moves it (not a prop); pivot = its center
   pp_table                         empty at the table top center, +x = the long side (extras size [l, w], net_h)
   door_lever                       live "bot" (#280 3): the door's lever, pivot on its axle (local z = out of the
@@ -134,8 +136,6 @@ Node contract (the app reads glTF extras):
                                    cup_of prop_headphones, swivel_axis y, swivel_deg [0, 90]; pivot = the yoke line);
                                    prop_headphones_grip_r + _contact_palm on the band's middle (unused now);
                                    prop_headphones_cup_grip_r + _contact_palm: the palm on its outer shell (DJ hold)
-  prop_omok_bowl_w                 (#137) prop: the white bowl (body, heap, floor; the lid baked), origin = its bottom
-                                   centre; children omok_bowl_w, omok_bowl_w_contact_index, _grip_r|l, _contact_palm|_palm_l
   pp_net                           live "bot" (#280 3): the net's navy 1 cm lattice (static; the posts, clamps and white
                                    band are in the lounge atlas)
   nav_<id>                         empties: where agents go and which way they face (navigation); nav_meet_center_*
@@ -2662,96 +2662,12 @@ VEIN_DENSITY = 4.0
 
 
 # ================================================================ LOUNGE (atlas: lounge)
-OMOK_NODES = []  # the omok board with its bowls: its own baked node in the lounge atlas at OMOK_DENSITY (1.2 mm lines)
-OMOK_DENSITY = 3.0
-OMOK = dict(n=15, cell=0.0257, board=0.42, top=0.77, stone_d=0.022, stone_h=0.008)
-OMOK_BOWLS = {}  # "b" | "w" -> the grab point in the bowl (web): build_props puts prop_piece_a|b there
-OMOK_BOWL_W = []  # #137: the white bowl's body, heap and floor (prop_omok_bowl_w, built in build_props); its lid stays baked
-SRNG = random.Random(135)  # #135's own draws (the stone heaps)
-
-
-def omok_mat(x0, z0, top):
-    """light wood with the 15 x 15 grid drawn in the shader (world position): 1.2 mm lines, the border 2 mm, five
-    star points 4 mm. Only on the top face (y >= top - 0.5 mm). Baked into the atlas like any colour."""
-    m, nodes, links, b = new_mat("omok_board")
-    # matte (designer, app cut): COMBINED baking reads a facing-up surface along its normal, so a glossy top baked
-    # the overhead panel into a white sheen (#fee399 in the app)
-    b.inputs["Roughness"].default_value = 0.92
-    for k in ("Specular IOR Level", "Specular"):
-        if k in b.inputs:
-            b.inputs[k].default_value = 0.15
-    bump(nodes, links, b, 900, 0.06, 0.0002)
-    geo = nodes.new("ShaderNodeNewGeometry")
-    sep = nodes.new("ShaderNodeSeparateXYZ")
-    links.new(geo.outputs["Position"], sep.inputs["Vector"])
-
-    def op(kind, a, bb=None, c=None):
-        n = nodes.new("ShaderNodeMath")
-        n.operation = kind
-        for k, v in enumerate((a, bb, c)):
-            if v is None:
-                continue
-            if isinstance(v, (int, float)):
-                n.inputs[k].default_value = v
-            else:
-                links.new(v, n.inputs[k])
-        return n.outputs[0]
-
-    pitch, last = OMOK["cell"], OMOK["n"] - 1
-    u = op("DIVIDE", op("SUBTRACT", sep.outputs["X"], x0), pitch)  # web x = Blender X
-    v = op("DIVIDE", op("SUBTRACT", op("MULTIPLY", sep.outputs["Y"], -1.0), z0), pitch)  # web z = -Blender Y
-
-    def line(a, other):
-        """mask of the lines a = const: near a whole number, inside the grid along the other axis"""
-        ra = op("ROUND", a)
-        border = op("MAXIMUM", op("LESS_THAN", ra, 0.5), op("GREATER_THAN", ra, last - 0.5))
-        hw = op("DIVIDE", op("ADD", 0.0006, op("MULTIPLY", border, 0.0004)), pitch)  # half width in cells
-        near = op("LESS_THAN", op("ABSOLUTE", op("SUBTRACT", a, ra)), hw)
-        inside = op("MULTIPLY", op("GREATER_THAN", other, op("MULTIPLY", hw, -1.0)), op("LESS_THAN", other, op("ADD", hw, last)))
-        within = op("MULTIPLY", op("GREATER_THAN", ra, -0.5), op("LESS_THAN", ra, last + 0.5))
-        return op("MULTIPLY", op("MULTIPLY", near, inside), within)
-
-    # star points: (3, 3), (3, 11), (11, 3), (11, 11), (7, 7) -> both rounded coords in {3, 11}, or both 7
-    ru, rv = op("ROUND", u), op("ROUND", v)
-
-    def is_(r, k):
-        return op("LESS_THAN", op("ABSOLUTE", op("SUBTRACT", r, k)), 0.5)
-
-    corner = op("MULTIPLY", op("MAXIMUM", is_(ru, 3), is_(ru, 11)), op("MAXIMUM", is_(rv, 3), is_(rv, 11)))
-    star = op("MAXIMUM", corner, op("MULTIPLY", is_(ru, 7), is_(rv, 7)))
-    du, dv = op("SUBTRACT", u, ru), op("SUBTRACT", v, rv)
-    dist = op("MULTIPLY", op("SQRT", op("ADD", op("MULTIPLY", du, du), op("MULTIPLY", dv, dv))), pitch)
-    dot = op("MULTIPLY", star, op("LESS_THAN", dist, 0.0026))  # star points: a clear dot, twice a line and more
-    on_top = op("GREATER_THAN", sep.outputs["Z"], top - 0.0005)  # web y = Blender Z
-    ink = op("MULTIPLY", op("MAXIMUM", op("MAXIMUM", line(u, v), line(v, u)), dot), on_top)
-    def mix(factor, a, b_):
-        """colour a where factor = 0, b_ where 1; a / b_ = hex or a colour socket"""
-        n = nodes.new("ShaderNodeMix")
-        n.data_type = "RGBA"
-        ca, cb = [s for s in n.inputs if s.type == "RGBA" and s.name in ("A", "B")]
-        for sock, v in ((ca, a), (cb, b_)):
-            if isinstance(v, str):
-                sock.default_value = rgba(v)
-            else:
-                links.new(v, sock)
-        links.new(factor, n.inputs["Factor"])
-        return [s for s in n.outputs if s.type == "RGBA"][0]
-
-    # designer (app cut): the top #b5844c reads as light wood once baked (x4 exposure, the lamp); the sides a step
-    # darker so the thickness reads
-    # the top bakes ~1.5x the sides under the overhead panel: #8d683d reads about #d4a463 in the app (measured, #172)
-    wood_c = mix(on_top, "#8f6438", "#8d683d")
-    # #156 (desk-room standard): a faint grain across the board, bands along z (the halves' long grain)
-    wave = nodes.new("ShaderNodeTexWave")
-    wave.wave_type, wave.bands_direction = "BANDS", "X"
-    wave.inputs["Scale"].default_value = 60.0  # straight, fine grain (a real board), within 8% lightness
-    wave.inputs["Distortion"].default_value = 0.6
-    wave.inputs["Detail"].default_value = 1.0
-    links.new(geo.outputs["Position"], wave.inputs["Vector"])
-    grain = op("POWER", wave.outputs["Fac"], 2.0)
-    wood_c = mix(op("MULTIPLY", grain, on_top), wood_c, "#83613a")  # grain: 7% darker
-    links.new(mix(ink, wood_c, "#2a1d12"), b.inputs["Base Color"])  # ink lines (designer: #2a1d12)
-    return m
+HOLO_NODES = []  # #538: the projector (holo_projector), its own baked node in the lounge atlas
+# hologram.md 3: two stepped 16-gons, graphite body, darker bezel, a 0.19 m 16 x 16 pixel panel, two turn lights
+HOLO = dict(r0=0.17, h0=0.020, r1=0.155, h1=0.012, bezel=0.205, panel=0.19, lift=0.02, size=0.40, field=0.44,
+            body="#32353b", side="#26282d", bezel_c="#24262b", glow_color="#4df3ff", glow=0.8, turn_b="#4df3ff", turn_w="#f2efe8", turn_glow=2.4)
+HOLO_LIVE = []  # (node, kind): holo_panel, holo_turn_b|w
+HOLO_DENSITY = 3.0  # like the omok board it replaces (#135)
 
 
 def lathe(name, profile, center, material, group, seg=32):
@@ -2778,85 +2694,57 @@ def lathe(name, profile, center, material, group, seg=32):
     return smooth(o)
 
 
-def lens(name, d, h, center, material, group, seg=16, rings=8):
-    """a go stone: a lens, both faces domed (a flattened sphere)"""
-    return sphere(name, d / 2, center, material, group, scale=(1.0, h / d, 1.0), seg=seg, rings=rings)
 
-
-def stone_mats():
-    return (plastic("#1d1f24", 0.25, 0, 0, "stone_b"), plastic("#f2efe8", 0.35, 0, 0, "stone_w"))
-
-
-def build_omok(gx, gz, G):
-    """the board, its bowls, lids and heaps: all baked into the omok_board node"""
-    B, top = OMOK["board"], OMOK["top"]
-    span = OMOK["cell"] * (OMOK["n"] - 1)
-    x0, z0 = gx - span / 2, gz - span / 2  # the (0, 0) intersection: the board's -x, -z corner
+def build_holo(gx, gz, G):
+    """#538 (가) pixel projector on the game table (hologram.md 3, 6.1): two stepped 16-gons (graphite) and a darker
+    square bezel (baked: holo_projector), the pixel panel (holo_panel, live neon: a 0..1 UV quad the app shades), the
+    turn lights on the steps facing the two stools (holo_turn_b|w, live neon), surface_holo at the panel's centre"""
+    H = HOLO
     table = 0.74
-    # a folding board (#156, real boards): two halves meeting on the middle line with a 0.6 mm seam (it falls inside
-    # line 7, so the grid reads whole), two small brass hinges on the front and back edges, an inset foot
-    board_m = omok_mat(x0, z0, top)
-    st = top - table - 0.008
-    half = (B - 0.0006) / 2
-    brass_m = brass()
-    parts = [box("omok_slab", (half, st, B), (gx - B / 2 + half / 2, table + 0.008 + st / 2, gz), board_m, G, bev=0.003, seg=3),
-             box("omok_slab", (half, st, B), (gx + B / 2 - half / 2, table + 0.008 + st / 2, gz), board_m, G, bev=0.003, seg=3),
-             box("omok_foot", (B - 0.008, 0.008, B - 0.008), (gx, table + 0.004, gz), plastic("#8f6438", 0.6, 0, 0.2, "omok_foot"), G, bev=0.001, seg=1)]
-    for sz in (-1, 1):
-        parts.append(box("omok_hinge", (0.016, 0.01, 0.0012), (gx, table + 0.008 + st / 2, gz + sz * (B / 2 + 0.0006)), brass_m, G, bev=0.0004, seg=1))
-        for sx in (-1, 1):  # the screw heads
-            parts.append(cyl("omok_screw", 0.0012, 0.0006, (gx + sx * 0.005, table + 0.008 + st / 2, gz + sz * (B / 2 + 0.0013)), brass_m, G, 8, axis="z"))
-    grid = bpy.data.objects.new("omok_grid", None)
-    coll("export").objects.link(grid)
-    grid.matrix_world = Mx((x0, top, z0))  # +x = columns, +z = rows
-    grid["n"], grid["cell"], grid["stone_h"] = OMOK["n"], OMOK["cell"], OMOK["stone_h"]
-    NODES.append({"obj": grid, "play": "omok"})
-    # bowls: wooden pots with the stones heaped in them, the lid upside down beside; black by game_a (-x)
-    bowl_m = plastic("#5e3f27", 0.5, 0, 0.3, "omok_bowl")  # designer: dark walnut (orange read as a terracotta pot)
-    rim_m = plastic("#7a5236", 0.5, 0, 0.3, "omok_lid_rim")
-    inner = plastic("#3b2717", 0.8, 0, 0.2, "omok_bowl_in")
-    mats = dict(zip("bw", stone_mats()))
-    # go bowls (#156, real ones): turned, bulging at 45% height, a narrow foot ring and a rolled lip; the domed lid
-    # lies upside down beside it, its lip (the lighter band) up. 0.09 wide, 0.052 high without the lid
-    BOWL = [(0.0, 0.0), (0.03, 0.0), (0.033, 0.002), (0.031, 0.004), (0.036, 0.006), (0.042, 0.014), (0.045, 0.024),
-            (0.044, 0.033), (0.04, 0.043), (0.035, 0.05), (0.0335, 0.052), (0.031, 0.0515), (0.03, 0.048), (0.0, 0.046)]
-    LID = [(0.0, 0.0), (0.016, 0.0008), (0.03, 0.004), (0.04, 0.009), (0.0445, 0.013), (0.0445, 0.0135), (0.0, 0.0135)]
-    LIP = [(0.0445, 0.0), (0.0445, 0.004), (0.0425, 0.0045), (0.0385, 0.0045), (0.0385, 0.0), (0.0445, 0.0)]
-    bh = 0.052
-    for side, dx in (("b", -0.29), ("w", 0.29)):
-        bx, bz = gx + dx, gz + 0.06
-        # #137 (designer A'): the white bowl (body, heap, floor) is a prop the agent carries over when playing alone;
-        # its lid stays baked. Built the same way (the RNG draws are unchanged), collected into OMOK_BOWL_W
-        body = OMOK_BOWL_W if side == "w" else parts
-        body.append(lathe("bowl", BOWL, (bx, table, bz), bowl_m, G, 32))
-        parts += [lathe("bowl_lid", LID, (bx, table, gz - 0.07), bowl_m, G, 32),
-                  lathe("bowl_lid_rim", LIP, (bx, table + 0.0135, gz - 0.07), rim_m, G, 32)]
-        for k in range(9):  # the heap: a ring of stones around the middle, mounded over the rim (grab point clear)
-            a, r = 2 * math.pi * (k + SRNG.random() * 0.6) / 9, 0.012 + SRNG.random() * 0.014
-            s = lens("heap", OMOK["stone_d"], OMOK["stone_h"], (bx + r * math.cos(a), table + 0.049 + (0.026 - r) * 0.15, bz + r * math.sin(a)),
-                     mats[side], G, 10, 5)
-            s.rotation_euler = (SRNG.uniform(-0.3, 0.3), SRNG.uniform(-0.3, 0.3), 0)
-            body.append(s)
-        body.append(cyl("bowl_in", 0.03, 0.001, (bx, table + 0.0465, bz), inner, G, 24))
-        at = (bx, table + bh + 0.002, bz)
-        OMOK_BOWLS[side] = at
-        e = bpy.data.objects.new(f"omok_bowl_{side}", None)  # where a hand dips in for a stone
-        coll("export").objects.link(e)
-        e.matrix_world = Mx(at)
-        e["bowl"] = side
-        NODES.append({"obj": e, "play": "omok"})
+    # designer (#643): one step darker (#3a3d44 -> #32353b) and rougher: up close it lifted to about #7a888e
+    body = plastic(H["body"], 0.78, 0, 0.15, "holo_body")
+    side = plastic(H["side"], 0.78, 0, 0.15, "holo_side")
+    parts = [cyl("holo_low", H["r0"], H["h0"], (gx, table + H["h0"] / 2, gz), body, G, 16),
+             cyl("holo_up", H["r1"], H["h1"], (gx, table + H["h0"] + H["h1"] / 2, gz), body, G, 16)]
+    for o in parts:  # a flat side (not a corner) faces each stool and the room
+        o.rotation_euler.z = math.pi / 16
+        # flat-shaded, no bevel (#643: a 1 to 1.5 mm bevel strip gets too few texels and bakes a jagged edge); the sides
+        # one step darker than the tops so the steps part by tone up close (designer: the top lighter)
+        o.data.materials.append(side)
+        for f in o.data.polygons:
+            f.use_smooth = False
+            if abs(f.normal.z) < 0.5:
+                f.material_index = 1
+    top = table + H["h0"] + H["h1"]
+    parts.append(box("holo_bezel", (H["bezel"], 0.002, H["bezel"]), (gx, top + 0.001, gz),
+                     plastic(H["bezel_c"], 0.5, 0, 0.1, "holo_bezel"), G, bev=0.0008, seg=1))
+    py = top + 0.002 + 0.0003
+    panel = quad("holo_panel", H["panel"], H["panel"], emitter(H["glow_color"], H["glow"], "holo_panel"), "export")
+    panel.matrix_world = Mx((gx, py, gz), rx=-math.pi / 2)  # facing up; u along +x, v = 1 at the back (-z) edge
+    panel["glow_color"], panel["glow"], panel["w"], panel["h"], panel["grid"] = H["glow_color"], H["glow"], H["panel"], H["panel"], 16
+    HOLO_LIVE.append((panel, "neon"))
+    # turn lights (hologram.md 3): on the low step's flat side facing each stool, black (cyan) at -x = game_a,
+    # white (ivory) at +x = game_b; the app lights the side to move
+    ax = H["r0"] * math.cos(math.pi / 16)
+    for side, sx in (("b", -1), ("w", 1)):
+        c = H["turn_" + side]
+        o = box(f"holo_turn_{side}", (0.0016, 0.006, 0.014), (gx + sx * (ax + 0.0006), table + H["h0"] / 2, gz),
+                emitter(c, H["turn_glow"], f"holo_turn_{side}"), "export")
+        o["glow_color"], o["glow"], o["turn"] = c, H["turn_glow"], side
+        HOLO_LIVE.append((o, "neon"))
+    s_ = bpy.data.objects.new("surface_holo", None)
+    coll("export").objects.link(s_)
+    s_.matrix_world = Mx((gx, py, gz))  # the panel's centre; +x = columns, +z = rows, +y = up
+    s_["surface"], s_["normal"] = "holo", [0, 1, 0]
+    s_["lift"], s_["size"], s_["field"] = H["lift"], H["size"], H["field"]  # board height, light board, projection field
+    NODES.append({"obj": s_, "surface": "holo", "play": "board"})
     return parts
 
 
 def build_play_lives():
-    """live nodes of #135 that are not props: the stone samples, the ball, the table surface"""
+    """live nodes of #135 that are not props: the ball, the table surface"""
     G = "prop"
     out = []
-    # stone samples (hidden by the app, which instances them): pivot at the bottom center. They sit on the heaps
-    for side, m in zip("bw", stone_mats()):
-        x, y, z = OMOK_BOWLS[side]
-        M = Mx((x, y, z))
-        out.append((pivot(join(f"omok_stone_{side}", place([lens("stone", OMOK["stone_d"], OMOK["stone_h"], (0, OMOK["stone_h"] / 2, 0), m, G)], M)), M), "bot"))
     # ping-pong: the ball moves by the app (not a prop: PropBank must not pick it up); pp_table = the playing surface
     tx, tz = PINGPONG
     th = 0.76
@@ -3078,11 +2966,10 @@ def build_lounge():
     p += [cyl("gt_top", 0.42, 0.04, (gx, 0.72, gz), plastic("#c9b89a", 0.55, 0, 0.35, "desk_top"), G, 40, bev=0.006),
           cyl("gt_col", 0.04, 0.68, (gx, 0.36, gz), metal, G, 14),
           cyl("gt_foot", 0.22, 0.03, (gx, 0.015, gz), metal, G, 32)]
-    # omok (#135, play.md 1): a 15 x 15 board on the table, a stone bowl at each stool's side. The stones on the
-    # board are the app's (InstancedMesh from omok_stone_b|w at omok_grid); the board bakes empty
+    # #538: the hologram projector (build_holo) in place of the omok board and bowls (#135)
     for k in range(10):
         RNG.randint(0, 7), RNG.randint(0, 7)  # the old chess pieces' draws: the RNG stream (plants below) stays as it was
-    board = build_omok(gx, gz, G)
+    board = build_holo(gx, gz, G)
     p += board
     for dx in (-0.6, 0.6):
         p += [cyl("stool", 0.18, 0.05, (gx + dx, 0.5, gz), plastic("#d64545", 0.6, 0, 0.3, "stool"), G, 24, bev=0.01),
@@ -3090,9 +2977,7 @@ def build_lounge():
               cyl("stool_foot", 0.15, 0.02, (gx + dx, 0.01, gz), metal, G, 24)]
     fp("game", p[mark:], "floor")  # the table with its two stools
     p = [o for o in p if o not in board]
-    # its own node at OMOK_DENSITY: the 1.2 mm lines need texels, and the bowls are near-field too (office-quality.md 0:
-    # >= 500 px/m up close, #156)
-    OMOK_NODES.append(join("omok_board", board))
+    HOLO_NODES.append(join("holo_projector", board))  # its own node: the bezel and the steps are near-field
     # coffee counter against the right wall (#109: it used to cut into the door), built in its own frame: local +x = front
     c = []
     c += [box("counter", (0.6, 0.9, 0.7), (0, 0.45, 0), plastic("#2b2f3a", 0.6, 0, 0.2, "counter"), G, bev=0.01),
@@ -3157,8 +3042,8 @@ def build_lounge():
 #                                 only on the hands that really hold it
 #   <prop>_contact_<part>[_l]     the point a finger pad (thumb, index, middle, ring, little) or the palm touches;
 #                                 local +z = the surface's outward normal. _l = the left hand of a two-handed prop
-# Children of the prop (they move with it); on baked things (mouse, coffee button, bowls) they stand alone.
-# The hand's _grip frame, measured on the #134 hand (preview hold_piece prints it): fingers along its -y, the palm
+# Children of the prop (they move with it); on baked things (mouse, coffee button) they stand alone.
+# The hand's _grip frame, measured on the #134 hand (preview hold_book prints it): fingers along its -y, the palm
 # facing -x (right hand) / +x (left hand).
 def child_empty(parent, name, M, extras=None):
     e = bpy.data.objects.new(name, None)
@@ -3246,7 +3131,6 @@ def prop(name, kind, objs, home_pos, home_rot=(0.0, 0.0, 0.0), grip_pos=(0.0, 0.
     return o
 
 
-PINCH_GRIP = {"l": (0.02, -0.0107, -0.03), "r": (-0.0274, -0.0077, -0.0297)}  # #135: pinch point per hand (web, _grip frame)
 BOOK_HALVES = []  # live bot: prop_book_l, prop_book_r
 
 
@@ -3638,32 +3522,6 @@ def build_props():
     # local +z along the spout (up and out): from the direction itself (an Euler here lost the upward tilt, #184)
     e.matrix_world = can.matrix_world @ Matrix.Translation(W(*rose_at)) @ web_z_along(rose_dir)  # the rose's centre, the water's way
     NODES.append({"obj": e, "play": "spout"})
-    # omok stones in the hand (#135: the chess pieces became go stones): a = black, b = white, home on the heap in
-    # its bowl, next to the sample stone. Center pivot, held in the pinch ("OK hand", agents.md 2.7): the point where
-    # the index and thumb tips meet differs per hand in the _grip frame (measured in the preview, hold_piece), so
-    # extras grip_lr = {l, r} gives each hand's offset; grip = the right hand's
-    # #137 (designer A'): prop_omok_bowl_w, the white bowl body + heap + floor (the lid stays baked), origin = the
-    # bowl's bottom centre; its dip point omok_bowl_w (and _contact_index, build_hands) ride as children
-    x, y, z = OMOK_BOWLS["w"]
-    Hb = Mx((x, y - 0.052 - 0.002, z))
-    bw_ = pivot(join("prop_omok_bowl_w", OMOK_BOWL_W), Hb)
-    for c in list(bw_.users_collection):
-        c.objects.unlink(bw_)
-    coll(G).objects.link(bw_)
-    hp = Hb.to_translation()
-    bw_["prop"], bw_["home"] = "bowl", {"pos": [round(hp.x, 4), round(hp.z, 4), round(-hp.y, 4)], "rot": [0, 0, 0]}
-    bw_["grip"] = {"pos": [0, 0, 0], "rot": [0, 0, 0]}
-    e_ = bpy.data.objects["omok_bowl_w"]
-    mw = e_.matrix_world.copy()
-    e_.parent = bw_
-    e_.matrix_world = mw
-    out.append(bw_)
-    for end, side, m in zip("ab", "bw", stone_mats()):
-        x, y, z = OMOK_BOWLS[side]
-        o = prop(f"prop_piece_{end}", "piece", [lens("piece", OMOK["stone_d"], OMOK["stone_h"], (0, 0, 0), m, G)],
-                 (x + (0.014 if side == "b" else -0.014), y + 0.006, z), grip_pos=PINCH_GRIP["r"])
-        o["grip_lr"] = {s: {"pos": list(PINCH_GRIP[s]), "rot": [0, 0, 0]} for s in "lr"}
-        out.append(o)
     # a book to read on the sofa (#135, play.md): closed 0.15 x 0.22 x 0.025 on the side table. prop_book is the
     # spine (the prop PropBank carries); its two halves are live bot nodes the app attaches to it and turns
     # about the spine (local z through the pivot): prop_book_l (the upper half) opens by +180° to lie flat at -x
@@ -3811,25 +3669,6 @@ def build_hands():
     grip_at(o, L, (0.08, CAN_Y_BOTTOM - 0.012, 0), (1, 0, 0), (0, 1, 0))
     contact(o, "palm", (0, 0.008, 0), (0, 1, 0))
     contact(o, "palm", (0.08, CAN_Y_BOTTOM, 0), (0, -1, 0), L)
-    # omok: the hand dips into a bowl (3 cm below the mouth's centre); the stone in hand, go style: middle on top,
-    # index under it (the app sticks it to the fingers, agents.md 2.10, #192)
-    for side in "bw":
-        x, y, z = OMOK_BOWLS[side]
-        contact(f"omok_bowl_{side}", "index", (0, 0, 0), (0, 1, 0), M=Mx((x, y - 0.002 - 0.03, z)))
-    # #137: the white bowl's dip contact rides with prop_omok_bowl_w; two hands carry it, palms on the bulge's sides
-    # (45% up, r 4.45 cm there), fingers up: _grip_r | _l, _contact_palm (right) | _contact_palm_l, +z = outward
-    o = O["prop_omok_bowl_w"]
-    c_ = O["omok_bowl_w_contact_index"]
-    mw = c_.matrix_world.copy()
-    c_.parent = o
-    c_.matrix_world = mw
-    for side, sx in ((R, 1), (L, -1)):
-        grip_at(o, side, (sx * 0.056, 0.0234, 0), (0, 1, 0), (-sx, 0, 0))
-        contact(o, "palm", (sx * 0.0452, 0.0234, 0), (sx, 0, 0), "" if side == R else "l")
-    for e in "ab":
-        o = O[f"prop_piece_{e}"]
-        contact(o, "middle", (0, OMOK["stone_h"] / 2, 0), (0, 1, 0))  # go style (Nihon Ki-in): the middle finger on top
-        contact(o, "index", (0, -OMOK["stone_h"] / 2, 0), (0, -1, 0))  # the index nail under the stone (designer, #192)
     # #262 the A4 sheet: a pinch at each short edge, 1.5 cm in (grip_r near = -z, grip_r_far = +z): the fingers reach
     # into the sheet, the palm faces down; the thumb on the writing face, the index under it. contact_palm: the middle
     # of the underside (a hand passing it on the flat palm)
@@ -5631,8 +5470,10 @@ for o in PLANT_NODES:  # #156: full texel density (half density left dark blotch
 live(shade, "neon")
 for o in PP_LIVE:  # #280 3: the ping-pong net lattice (baked in: its shadow lies on the table)
     live(o, "bot")
-for o in OMOK_NODES:  # #135: the 1.2 mm grid lines need about 3x the lounge texels
-    baked(o, "lounge", density=OMOK_DENSITY)
+for o in HOLO_NODES:  # #538: the projector, near-field at the game table (at 1x its dark body baked mottled)
+    baked(o, "lounge", density=HOLO_DENSITY)
+for o, kind in HOLO_LIVE:
+    live(o, kind)
 for o in build_props():
     live(o, "prop")
 for o, kind in build_play_lives():
@@ -5905,12 +5746,12 @@ if PREVIEW:
         "q_shelfbook_close": ((3.92, 1.12, -2.78), (4.16, 1.02, -3.22)),
         "q_mug": ((3.62, 1.28, -1.62), (4.0, 0.96, -1.93)),  # #156: from above at a slant, the inside and the coffee
         "q_can": ((3.25, 0.62, 2.75), (3.78, 0.12, 3.3)),
-        "q_omok": ((-1.6, 1.3, 2.62), (-1.6, 0.77, 2.2)),  # #135
-        "q_omok_side": ((-0.75, 1.15, 2.75), (-1.6, 0.76, 2.2)),
+        "q_holo": ((GAME_TABLE[0], 1.25, GAME_TABLE[1] + 0.45), (GAME_TABLE[0], 0.77, GAME_TABLE[1] + 0.02)),  # #538: the projector (was q_omok)
+        "q_holo_side": ((GAME_TABLE[0] + 0.55, 1.05, GAME_TABLE[1] + 0.6), (GAME_TABLE[0], 0.76, GAME_TABLE[1])),
         "q_paddles": ((1.55, 1.3, 0.95), (1.75, 0.76, 0.0)),
         "q_book": ((0.55, 1.0, 3.05), (0.14, 0.57, 2.66)),
     }
-    if not want or any(n in want for n in list(QUALITY) + ["q_omok_game", "q_book_open"]):
+    if not want or any(n in want for n in list(QUALITY) + ["q_book_open"]):
         was = {o.name: o.hide_render for o in bpy.data.objects if o.name.startswith("agent_")}
         for n in was:
             bpy.data.objects[n].hide_render = True
@@ -5925,20 +5766,8 @@ if PREVIEW:
             shoot("q_shelf_empty", (3.92, 1.12, -2.78), (4.16, 1.02, -3.22))
             for o in gone:
                 o.hide_render = False
-        # #135, as the app will do it: stones on the board (copies of the samples at grid points), the book open
-        if not want or any(n in want for n in ("q_omok_game", "q_book_open")):
-            grid = bpy.data.objects["omok_grid"].matrix_world
-            moves = [(7, 7), (8, 7), (8, 8), (6, 6), (9, 9), (7, 8), (6, 8), (9, 6), (5, 9), (7, 6), (10, 7)]
-            copies = []
-            for k, (c, r) in enumerate(moves):
-                s = bpy.data.objects[f"omok_stone_{'bw'[k % 2]}"]
-                o = s.copy()
-                scene.collection.objects.link(o)
-                o.matrix_world = grid @ Mx((c * OMOK["cell"], 0, r * OMOK["cell"]))
-                copies.append(o)
-            shoot("q_omok_game", (-1.6, 1.3, 2.62), (-1.6, 0.77, 2.2))
-            for o in copies:
-                bpy.data.objects.remove(o)
+        # #135, as the app will do it: the book open
+        if not want or "q_book_open" in want:
             L = bpy.data.objects["prop_book_l"]
             P = L.matrix_world.copy()
             L.matrix_world = P @ Mx(rz=math.pi)
@@ -5992,8 +5821,8 @@ if PREVIEW:
     for n, M in saved.items():
         bpy.data.objects[n].matrix_world = M
     # #135: the book (its halves follow the spine), the watering can, a stone pinched (agents.md 2.7 "집기")
-    if not want or any(n in want for n in ("hold_book", "hold_can", "hold_piece", "hold_piece_in", "hold_piece_top")):
-        names = ("prop_book", "prop_book_l", "prop_book_r", "prop_watering_can", "prop_piece_a")
+    if not want or any(n in want for n in ("hold_book", "hold_can")):
+        names = ("prop_book", "prop_book_l", "prop_book_r", "prop_watering_can")
         saved = {n: bpy.data.objects[n].matrix_world.copy() for n in names}
 
         def near(i, side, d=(0.32, 0.12, 0.42)):
@@ -6052,10 +5881,6 @@ if PREVIEW:
                 print(f"hand axes, {side} {frame_name} frame (web): fingers", wv3(fw), "palm", wv3(pw), "thumb", wv3(tw))
             pose(1, side, *PINCH)
             bpy.context.view_layer.update()
-        hold(1, "l", "prop_piece_a")
-        shoot("hold_piece", *near(1, "l", (-0.2, 0.08, 0.28)))
-        shoot("hold_piece_in", *near(1, "l", (0.22, 0.02, 0.12)))
-        shoot("hold_piece_top", *near(1, "l", (0.02, 0.3, 0.05)))
         for n, M in saved.items():
             bpy.data.objects[n].matrix_world = M
     # #164, as the app will do it: the hand moved so its _grip sits on the prop's <prop>_grip_<side>, then posed
@@ -6174,7 +5999,7 @@ scene.render.bake.target = "IMAGE_TEXTURES"
 # shows only as many as there are files)
 for n in NODES:
     nm_ = n["obj"].name  # #280: shelf_r<digit> = the library binders (not shelf_records, baked in lounge2)
-    if nm_.startswith(("agent_", "clock_", "keyrack_key", "desk_0_hourglass", "prop_headphones_cup", "window_", "prop_book_", "prop_shelfbook_", "prop_paper_", "omok_stone_", "pp_ball")) or n.get("live") == "prop" \
+    if nm_.startswith(("agent_", "clock_", "keyrack_key", "desk_0_hourglass", "prop_headphones_cup", "window_", "prop_book_", "prop_shelfbook_", "prop_paper_", "pp_ball", "holo_panel", "holo_turn_")) or n.get("live") == "prop" \
             or (nm_.startswith("shelf_r") and nm_[7:8].isdigit()) \
             or (nm_.startswith("desk_") and "_mouse" in nm_) \
             or n["obj"].get("hidden_at_rest"):  # #305: the mouse moves on its pad; #370: hidden at rest (the calendar page)

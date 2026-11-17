@@ -141,7 +141,7 @@ describe('the turntable through the Director', () => {
     const away = new Set<string>()
     drive(d, 0, 3, () => null, { wantsBreak: true, status: st }, (_t, g) => {
       // (the white bowl for a record placed alone is an errand too)
-      for (const x of IDS) if (g[x].read || g[x].water || g[x].bowl || (g[x].act && g[x].act!.kind !== 'record')) away.add(x)
+      for (const x of IDS) if (g[x].read || g[x].water || (g[x].act && g[x].act!.kind !== 'record')) away.add(x)
       who ??= IDS.find((a) => g[a].act?.kind === 'record') ?? null
     })
     expect(who).toBe(IDS.find((x) => x !== 'agent_4' && !away.has(x)))

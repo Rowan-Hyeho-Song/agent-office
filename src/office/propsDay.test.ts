@@ -14,7 +14,6 @@ import { GRAPH, SPOTS } from './navSpots.fixture'
 import { PLAYS, dayPlan, planDay, playAt, soloAt } from './play'
 import type { Goal } from './director'
 import { SETTLE_MS, sessionsAt, type PlaySession } from '../play/session'
-import { SOLO_LEAD_MS } from './bowlRun'
 import { WATER_PLANTS } from './water'
 
 stubCanvas()
@@ -84,25 +83,11 @@ function solo(w: World, agent: string, kind: 'coffee' | 'books' /* books: the ol
   }
 }
 
-/**
- * A record placed alone (#137 ①) starts with the white bowl already set down at the corner, a pair game with it at home (the errand that
- * carries it is the Director's, tested apart; in one world the sessions follow one another without it)
- */
-function bowlAt(w: World, rest: 'home' | 'corner') {
-  w.stage.update({ now: 0, t: 0, dt: 0.016, reduced: false, replaying: false, rigs: w.rigs, goals: Object.fromEntries(IDS.map((id) => [id, IDLE(id)])) as Record<string, Goal>, status: {}, tablet: false, stamp: false, colors: {}, bowlRest: rest })
-  for (const name of ['prop_omok_bowl_w', 'prop_piece_b']) {
-    const n = w.scene.getObjectByName(name)!
-    n.position.setFromMatrixPosition(w.props.homeWorld(n))
-    n.updateMatrixWorld(true)
-  }
-}
-
-/** a pair plays 9 s of its session (settled in, rally / stones running) */
 function pair(w: World, s: PlaySession, guard: Guard) {
+  let held = 0 // frames a hand held a light stone (#538: omok has no prop)
   const spots = s.kind === 'pingpong' ? ['pingpong_a', 'pingpong_b'] : ['game_a', 'game_b']
   // a record placed alone (#137 ①): one agent at game_a, the white bowl already at the corner, the game 20 s later
-  const lead = s.solo ? SOLO_LEAD_MS : 0
-  bowlAt(w, s.solo ? 'corner' : 'home')
+  const lead = 0
   ;(s.solo ? [s.players[0]] : s.players).forEach((id, i) => {
     const sp = SPOTS.find((x) => x.id === spots[i])!
     stand(w, id, spots[i], { x: sp.x, z: sp.z, ry: sp.ry })
@@ -113,12 +98,14 @@ function pair(w: World, s: PlaySession, guard: Guard) {
     const active = t < 9
     if (!active) for (const id of s.players) w.rigs[id].at = null
     const goals = Object.fromEntries(IDS.map((id) => [id, active && s.players.includes(id) ? { spot: spots[s.players.indexOf(id)], pose: s.kind, label: '' } : IDLE(id)])) as Record<string, Goal>
-    w.stage.update({ now: s.startMs + 20_000 + lead + t * 1000, t, dt, reduced: false, replaying: false, rigs: w.rigs, goals, status: {}, tablet: false, stamp: false, colors: {}, bowlRest: s.solo ? 'corner' : 'home', forcedSessions: [s] })
+    w.stage.update({ now: s.startMs + 20_000 + lead + t * 1000, t, dt, reduced: false, replaying: false, rigs: w.rigs, goals, status: {}, tablet: false, stamp: false, colors: {}, forcedSessions: [s] })
     w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
     w.props.update(dt)
     w.scene.updateMatrixWorld(true)
     guard.frame(t)
+    for (const id of s.players) if (w.stage.lastPlace[id]?.held) held++
   }
+  return held
 }
 
 describe('a day of the schedule: no prop moves on its own, whatever the schedule hands out', () => {
@@ -181,8 +168,14 @@ describe('a day of the schedule: no prop moves on its own, whatever the schedule
       for (const s of day.pairs.values()) {
         if (s.kind !== kind) continue
         const guard = new Guard(w)
-        pair(w, s, guard)
-        expectClean(`${s.kind} ${s.players.join('/')}`, guard.stats, kind === 'pingpong' ? 'paddle' : 'piece')
+        const held = pair(w, s, guard)
+        if (kind === 'pingpong') expectClean(`${s.kind} ${s.players.join('/')}`, guard.stats, 'paddle')
+        else {
+          // #538 the board is light: a hand pinches a light stone and no prop is taken or moved
+          expect(held, `omok ${s.players.join('/')}: a hand held a light stone`).toBeGreaterThan(0)
+          expect(guard.stats.grasps, `omok ${s.players.join('/')}: no prop taken`).toBe(0)
+          expect(guard.stats.loose, `omok ${s.players.join('/')}: no prop away from home`).toBe(0)
+        }
         worst = Math.max(worst, guard.stats.heldReach)
         n++
       }
@@ -248,26 +241,27 @@ describe('omok through a whole game: the stone is always within an arm of the bo
   /** one session of a pair game played from its first move for `s` seconds, both players standing at the game spots */
   function whole(w: World, session: PlaySession, guard: Guard, seconds: number) {
     const spots = ['game_a', 'game_b']
-    const lead = session.solo ? SOLO_LEAD_MS : 0
-    bowlAt(w, session.solo ? 'corner' : 'home')
+    const lead = 0
     ;(session.solo ? [session.players[0]] : session.players).forEach((id, i) => {
       const sp = SPOTS.find((x) => x.id === spots[i])!
       stand(w, id, spots[i], { x: sp.x, z: sp.z, ry: sp.ry })
     })
     const dt = 0.05
     let lean = 0
+    let held = 0
     for (let k = 0; k < seconds / dt; k++) {
       const t = k * dt
       const goals = Object.fromEntries(IDS.map((id) => [id, session.players.includes(id) ? { spot: spots[session.players.indexOf(id)], pose: 'boardgame', label: '' } : IDLE(id)])) as Record<string, Goal>
       for (const id of session.players) w.rigs[id].update(dt, t, GRAPH, w.rigs, false, undefined)
-      w.stage.update({ now: session.startMs + SETTLE_MS + lead + t * 1000, t, dt, reduced: false, replaying: false, rigs: w.rigs, goals, status: {}, tablet: false, stamp: false, colors: {}, bowlRest: session.solo ? 'corner' : 'home', forcedSessions: [session] })
+      w.stage.update({ now: session.startMs + SETTLE_MS + lead + t * 1000, t, dt, reduced: false, replaying: false, rigs: w.rigs, goals, status: {}, tablet: false, stamp: false, colors: {}, forcedSessions: [session] })
       w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
       w.props.update(dt)
       w.scene.updateMatrixWorld(true)
       guard.frame(t)
+      for (const id of session.players) if (w.stage.lastPlace[id]?.held) held++
       for (const id of session.players) lean = Math.max(lean, Math.hypot(w.rigs[id].parts.root.position.x - w.rigs[id].x, w.rigs[id].parts.root.position.z - w.rigs[id].z))
     }
-    return lean
+    return { lean, held }
   }
 
   it('the exact pair of the one-can stretch (agent_1 at game_a, agent_3 at game_b) for 120 s of its game, and every omok pair of the day', async () => {
@@ -278,8 +272,11 @@ describe('omok through a whole game: the stone is always within an arm of the bo
     for (const s of [exact, ...[...day.pairs.values()].filter((p) => p.kind === 'boardgame' && p !== exact)]) {
       const w = await world()
       const guard = new Guard(w)
-      worstLean = Math.max(worstLean, whole(w, s, guard, 120))
-      expectClean(`omok ${s.players.join('/')} whole game`, guard.stats, 'piece')
+      const r = whole(w, s, guard, 120)
+      worstLean = Math.max(worstLean, r.lean)
+      expect(r.held, `omok ${s.players.join('/')} whole game: a hand held a light stone`).toBeGreaterThan(0)
+      expect(guard.stats.grasps, `omok ${s.players.join('/')} whole game: no prop taken`).toBe(0)
+      expect(guard.stats.loose, `omok ${s.players.join('/')} whole game: no prop away from home`).toBe(0)
     }
     // the lean is a few cm at most, and it did happen (else this checks nothing)
     expect(worstLean).toBeLessThanOrEqual(0.08 + 1e-6)

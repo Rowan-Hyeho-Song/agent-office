@@ -1,17 +1,19 @@
 /// <reference types="node" />
-// PlayStage on the baked model, headless: the same office time gives the same ball and stones; the stone sits between the index and
-// middle fingertips at their contact points; the paddle's grip touches. Numbers are appended to FIT_LOG when set (the PR's table).
+// PlayStage on the baked model, headless: the same office time gives the same ball and hologram stones; the pinch holds the light stone on its rim;
+// the paddle's grip touches. Numbers are appended to FIT_LOG when set (the PR's table).
 import { appendFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { Object3D, Vector3 } from 'three'
+import { Color, type InstancedBufferAttribute, type InstancedMesh, type Object3D, Vector3 } from 'three'
 import { sessionsAt, sessionTime, type PlaySession } from '../play/session'
 import { loadOffice, stubCanvas } from './glbLoad'
-import { contactNormal } from './gripTargets'
-import { PlayStage, VISITOR_RING, type StageIn } from './playStage'
-import { STONE_DISC_R } from './grip'
+import { HOLO_PINCH_R } from './gripTargets'
+import { STONE_H as HOLO_STONE_H, STONE_Y as HOLO_STONE_Y } from './holoBoard'
+import { pinchSequence, pinchTimes } from '../play/holoPinch'
+import { gameAt } from '../play/omok'
+import { PlayStage, type StageIn } from './playStage'
 import { AgentRig, PropBank, buildRig } from './rig'
 import type { Goal } from './director'
-import { startVisitorGame, stepVisitorGame, viewOf, visitorMove, VISITOR_OMOK } from '../play/visitorOmok'
+import { startVisitorGame, viewOf } from '../play/visitorOmok'
 
 stubCanvas()
 const IDS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
@@ -64,13 +66,47 @@ const tipWorld = (rig: AgentRig, side: 'l' | 'r', f: number | 'thumb', out = new
   j.updateWorldMatrix(true, false)
   return out.copy(tip).applyMatrix4(j.matrixWorld)
 }
+
+
+// #538 the hologram board (hologram.md): the board is light the app draws; the mover's right hand pinches a light stone from its own fount
+type Holo = { stones: { 1: InstancedMesh; 2: InstancedMesh }; marks: InstancedMesh; state: string; fountPos(seat: Vector3): Vector3; cellPos(cell: number): Vector3 }
+const holoOf = (w: W) => (w.stage as unknown as { holo: Holo }).holo
+const ARR = (m: InstancedMesh, name: string) => Array.from((m.geometry.getAttribute(name) as InstancedBufferAttribute).array as Float32Array)
 const at = (scene: Object3D, name: string) => scene.getObjectByName(name)!.getWorldPosition(new Vector3())
-const up = (scene: Object3D, name: string) => contactNormal(scene, scene.getObjectByName(name)!)
-/** the go stone's contacts are discs (agents.md 2.10): the distance from a tip to the disc of STONE_DISC_R round the contact in the plane across its normal */
-const toDisc = (tip: Vector3, c: Vector3, n: Vector3) => {
-  const d = tip.clone().sub(c)
-  const h = d.dot(n)
-  return Math.hypot(h, Math.max(0, d.addScaledVector(n, -h).length() - STONE_DISC_R))
+const rgbOf = (hex: string) => new Color(hex).toArray().slice(0, 3).map((x) => x.toFixed(4)).join(',')
+
+/** the held stone of `agent`'s move at office time `now`, recomputed as PlayStage.omokHands does: the centre, and the two rim points the thumb and index meet */
+function heldStone(w: W, s: PlaySession, agent: string, now: number) {
+  const view = gameAt(s.seed, s.players, sessionTime(s, now), false)
+  const mv = view.move
+  if (!mv || s.players[mv.mover] !== agent) return null
+  const p = pinchSequence(mv.sinceMs, mv.thinkMs)
+  const holo = holoOf(w)
+  const at = w.rigs[agent].parts.root.position
+  const fount = holo.fountPos(at)
+  const target = holo.cellPos(mv.cell)
+  const lift = HOLO_STONE_Y + HOLO_STONE_H / 2
+  const centre = new Vector3(fount.x, target.y + lift, fount.z).lerp(new Vector3(target.x, target.y + lift, target.z), p.u)
+  centre.y += p.h
+  const mid = holo.cellPos(112)
+  const fwd = new Vector3(mid.x - at.x, 0, mid.z - at.z).normalize()
+  const side = new Vector3().crossVectors(new Vector3(0, 1, 0), fwd)
+  return { p, view, fount, centre, thumb: centre.clone().addScaledVector(side, -HOLO_PINCH_R), index: centre.clone().addScaledVector(side, HOLO_PINCH_R) }
+}
+
+/** agent_0 seated at game_a, for the visitor's game (the visitor has no rig) */
+function visitorSeat(w: W) {
+  const goals = Object.fromEntries(IDS.map((id) => [id, { spot: 'work_0', pose: 'idle', label: '' } as Goal]))
+  const r = w.rigs.agent_0
+  r.at = 'game_a'
+  r.x = -2.2
+  r.z = 2.2
+  r.heading = -Math.PI / 2
+  r.parts.root.position.set(r.x, 0, r.z)
+  r.parts.root.rotation.set(0, r.heading, 0)
+  r.parts.root.updateMatrixWorld(true)
+  goals.agent_0 = { spot: 'game_a', pose: 'boardgame', label: '' }
+  return goals
 }
 
 describe('PlayStage', () => {
@@ -172,171 +208,128 @@ describe('PlayStage', () => {
     expect(worst).toBeLessThanOrEqual(1.2 + 1e-6)
   })
 
-  it('reduced motion: the white bowl fades out at home (0.12 s) and in at the corner (0.12 s), never sliding over (#456)', async () => {
-    const w = await world()
-    const goals = Object.fromEntries(IDS.map((id) => [id, { spot: 'work_0', pose: 'idle', label: '' } as Goal]))
-    const bowl = w.scene.getObjectByName('prop_omok_bowl_w')!
-    const homeX = bowl.position.x
-    const frame = (t: number, rest: 'home' | 'corner') => {
-      w.stage.update(inp(w, goals, 0, t, { reduced: true, dt: 0.02, bowlRest: rest }))
-      w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
-      w.props.update(0.02)
-      return { o: (w.stage as unknown as { bowlOpacity: number }).bowlOpacity, x: bowl.position.x }
-    }
-    for (let t = 0; t < 0.2; t += 0.02) expect(frame(t, 'home').x).toBeCloseTo(homeX, 4)
-    const seen: { t: number; o: number; x: number }[] = []
-    for (let t = 0.2; t < 0.6; t += 0.02) seen.push({ t, ...frame(t, 'corner') })
-    const cornerX = seen.at(-1)!.x
-    expect(cornerX).toBeLessThan(homeX - 0.3)
-    // out at home first, then in at the corner: every frame is at one of the two places (nothing slides between them)
-    expect(seen.every((f) => Math.abs(f.x - homeX) < 0.005 || Math.abs(f.x - cornerX) < 0.005)).toBe(true)
-    expect(seen.filter((f) => Math.abs(f.x - homeX) < 0.005).every((f) => f.o <= 1)).toBe(true)
-    expect(Math.min(...seen.map((f) => f.o))).toBeLessThan(0.2)
-    expect(seen.find((f) => f.t > 0.2 + 0.12 && f.t < 0.2 + 0.24 && Math.abs(f.x - cornerX) < 0.005 && f.o > 0 && f.o < 1), 'fading in at the corner').toBeTruthy()
-    expect(seen.at(-1)!.o).toBe(1)
-  })
-
-  it('omok: the same office time gives the same stones; the stone sits between the index and middle fingertips at their contacts', async () => {
+  it('omok: the same office time gives the same hologram stones and the same hand, in two separate worlds', async () => {
     const s = findSession('boardgame')
-    const run = async (measure: boolean) => {
+    const run = async () => {
       const w = await world()
       const goals = seat(w.rigs, s)
-      const sig: number[] = []
-      let worst = 0
-      let frames = 0
-      let minOff = Infinity
+      const sig: unknown[] = []
       for (let k = 0; k < 400; k++) {
         const now = s.startMs + 15_000 + 3000 + k * 40
         w.stage.update(inp(w, goals, now, k * 0.04))
         w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
         w.props.update(0.04)
-        const st = (w.stage as unknown as { stones: { b: { count: number }; w: { count: number } } }).stones
-        sig.push(st.b.count, st.w.count)
-        if (!measure) continue
-        for (const id of s.players) {
-          const r = w.rigs[id]
-          if (r.want?.kind !== 'piece' || !r.want.attached) continue
-          const col = r.want.prefer!.endsWith('a') ? 'a' : 'b'
-          const d = r.drive.r
-          // only once the hand has fully closed on the stone and re-gripped into the go grip
-          if (!d || d.w < 0.999 || d.wc < 0.999 || (w.stage.lastPlace[id]?.regrip ?? 0) < 1) continue
-          w.scene.updateMatrixWorld(true)
-          const ci = 'prop_piece_' + col + '_contact_index'
-          const cm = 'prop_piece_' + col + '_contact_middle'
-          const ti = tipWorld(r, 'r', 0)
-          const tm = tipWorld(r, 'r', 1)
-          worst = Math.max(worst, toDisc(ti, at(w.scene, ci), up(w.scene, ci)), toDisc(tm, at(w.scene, cm), up(w.scene, cm)))
-          minOff = Math.min(minOff, ti.sub(at(w.scene, ci)).dot(up(w.scene, ci)), tm.sub(at(w.scene, cm)).dot(up(w.scene, cm)))
-          frames++
-        }
+        const h = holoOf(w)
+        sig.push([h.stones[1].count, h.stones[2].count, ARR(h.stones[1], 'iPos').slice(0, h.stones[1].count * 3), ARR(h.stones[2], 'iPos').slice(0, h.stones[2].count * 3), ...s.players.map((id) => w.rigs[id].drive.r?.target?.elements.slice() ?? null)])
       }
-      return { sig, worst, frames, minOff }
+      return sig as [number, number][]
     }
-    const a = await run(true)
-    const b = await run(false)
-    expect(a.sig).toEqual(b.sig)
-    expect(Math.max(...a.sig)).toBeGreaterThan(3) // stones are on the board
-    expect(a.frames).toBeGreaterThan(5)
-    if (LOG) appendFileSync(LOG, 'stone hold: ' + a.frames + ' frames, worst fingertip-to-contact ' + (a.worst * 1000).toFixed(2) + ' mm, min stand-off ' + (a.minOff * 1000).toFixed(2) + ' mm\n')
-    expect(a.worst).toBeLessThan(0.003)
-    expect(a.minOff).toBeGreaterThan(-0.0005)
+    const a = await run()
+    const b = await run()
+    expect(a).toEqual(b)
+    expect(Math.max(...a.map((x) => x[0] + x[1])), 'stones are on the board').toBeGreaterThan(3)
   }, 60000)
 
-  it('omok: at the place instant each agent hand is palm down and toward the body, fingers forward and down (designer: 30–45°), the stone flat', async () => {
+  it('omok: the thumb and index tips meet the held light stone on its rim (2.24 cm apart, 3 mm), palm down, fingers forward and down', async () => {
     for (const agent of IDS) {
       const s = findSession('boardgame', agent)
       const w = await world()
       const goals = seat(w.rigs, s)
       let n = 0
+      let worstRim = 0
+      let worstGap = 0
       let palmMax = -Infinity
       let pitchMin = Infinity
       let pitchMax = -Infinity
-      let flat = 1
       for (let k = 0; k < 500; k++) {
         const now = s.startMs + 15_000 + 100 + k * 40
         w.stage.update(inp(w, goals, now, k * 0.04))
         w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
         w.props.update(0.04)
+        w.scene.updateMatrixWorld(true)
         const r = w.rigs[agent]
         const d = r.drive.r
-        if (r.want?.kind !== 'piece' || !r.want.attached || !d?.target || d.w < 0.999) continue
+        const hs = heldStone(w, s, agent, now)
+        if (!hs || !hs.p.held || !w.stage.lastPlace[agent]?.held || !d?.target || d.w < 0.999) continue
+        const th = tipWorld(r, 'r', 'thumb')
+        const ix = tipWorld(r, 'r', 0)
+        worstRim = Math.max(worstRim, th.distanceTo(hs.thumb), ix.distanceTo(hs.index))
+        worstGap = Math.max(worstGap, Math.abs(th.distanceTo(ix) - 2 * HOLO_PINCH_R))
         const palm = new Vector3(0, 0, 1).transformDirection(d.target)
         const fingers = new Vector3(0, 1, 0).transformDirection(d.target)
         palmMax = Math.max(palmMax, palm.y)
         pitchMin = Math.min(pitchMin, fingers.y)
         pitchMax = Math.max(pitchMax, fingers.y)
-        const stone = w.scene.getObjectByName('prop_piece_' + (r.want.prefer!.endsWith('a') ? 'a' : 'b'))!
-        flat = Math.min(flat, new Vector3(0, 1, 0).transformDirection(stone.matrixWorld).y)
         n++
       }
-      if (LOG) appendFileSync(LOG, 'place hand ' + agent + ': ' + n + ' frames, palm normal y <= ' + palmMax.toFixed(2) + ', finger pitch y in [' + pitchMin.toFixed(2) + ', ' + pitchMax.toFixed(2) + '], stone normal y >= ' + flat.toFixed(3) + '\n')
+      if (LOG) appendFileSync(LOG, 'pinch ' + agent + ': ' + n + ' frames, worst tip-to-rim ' + (worstRim * 1000).toFixed(2) + ' mm, worst gap error ' + (worstGap * 1000).toFixed(2) + ' mm, palm normal y <= ' + palmMax.toFixed(2) + ', finger pitch y in [' + pitchMin.toFixed(2) + ', ' + pitchMax.toFixed(2) + ']\n')
       expect(n, agent).toBeGreaterThan(5)
+      expect(worstRim, agent + ' tips on the rim (m)').toBeLessThan(0.003)
+      expect(worstGap, agent + ' tip distance 2.24 cm').toBeLessThan(0.003)
       expect(palmMax, agent + ' palm down').toBeLessThanOrEqual(-0.6)
-      expect(pitchMax, agent + ' fingers down').toBeLessThan(-0.25)
+      expect(pitchMax, agent + ' fingers forward and down (y < -0.1)').toBeLessThan(-0.1)
       expect(pitchMin, agent + ' fingers not straight down').toBeGreaterThan(-0.85)
-      expect(flat, agent + ' stone flat').toBeGreaterThan(0.95)
     }
   }, 120000)
 
-  it('omok: every stone is taken from the bowl on the own side (seat → colour → bowl)', async () => {
-    const s = findSession('boardgame')
-    const w = await world()
-    const goals = seat(w.rigs, s)
-    w.scene.updateMatrixWorld(true)
-    const bowls = { b: at(w.scene, 'omok_bowl_b_contact_index'), w: at(w.scene, 'omok_bowl_w_contact_index') }
-    const was: Record<string, boolean> = {}
+  it("omok: every stone is pinched from the fount of the mover's own seat", async () => {
     let picks = 0
-    const seen = new Set<string>()
-    for (let k = 0; k < 2500; k++) {
-      const now = s.startMs + 15_000 + k * 40
-      w.stage.update(inp(w, goals, now, k * 0.04))
-      w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
-      w.props.update(0.04)
-      for (const [i, id] of s.players.entries()) {
-        const r = w.rigs[id]
-        const att = r.want?.kind === 'piece' && !!r.want.attached && r.want.prefer !== undefined
-        if (att && !was[id]) {
-          const target = r.drive.r!.target!
-          const hand = new Vector3().setFromMatrixPosition(target)
-          const own = i === 0 ? bowls.b : bowls.w
-          const other = i === 0 ? bowls.w : bowls.b
-          expect(hand.distanceTo(own), id + ' pick ' + picks).toBeLessThan(hand.distanceTo(other))
-          expect(r.want!.prefer, id + ' stone colour').toBe(i === 0 ? 'prop_piece_a' : 'prop_piece_b')
-          seen.add(id)
-          picks++
-        }
-        was[id] = att
-      }
-    }
-    expect(picks).toBeGreaterThan(10)
-    expect(seen.size).toBe(2)
-  }, 60000)
-
-  it('omok: seated mid-move (the first frame is already past the pick), the stone is never taken from anywhere but where it rests', async () => {
-    const s = findSession('boardgame')
-    let attachedFrames = 0
-    for (let off = 0; off < 9000; off += 450) {
+    for (const agent of IDS) {
+      const s = findSession('boardgame', agent)
       const w = await world()
       const goals = seat(w.rigs, s)
-      const stones = ['prop_piece_a', 'prop_piece_b'].map((n) => w.nodes[n])
-      const home = stones.map((n) => n.position.clone())
-      const had = new Set<string>()
-      for (let k = 0; k < 120; k++) {
-        const now = s.startMs + 15_000 + off + k * 40
+      let was = false
+      let worst = 0
+      for (let k = 0; k < 1500; k++) {
+        const now = s.startMs + 15_000 + k * 40
         w.stage.update(inp(w, goals, now, k * 0.04))
         w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
         w.props.update(0.04)
-        stones.forEach((n, i) => {
-          const holder = Object.values(w.rigs).find((r) => r.want?.attached && r.want.prefer === n.name)
-          if (!holder) return
-          attachedFrames++
-          // the frame a hand takes it: it is where it rested, give or take the first 40 ms frame of the lift (2.4 cm at most; a late take was 20 cm away)
-          if (!had.has(n.name)) expect(n.position.distanceTo(home[i]), `offset ${off} frame ${k}: ${n.name} taken away from where it rests`).toBeLessThanOrEqual(0.05)
-          had.add(n.name)
-        })
+        w.scene.updateMatrixWorld(true)
+        const held = !!w.stage.lastPlace[agent]?.held && !!heldStone(w, s, agent, now)
+        if (held && !was && w.rigs[agent].drive.r) {
+          const r = w.rigs[agent]
+          const mid = tipWorld(r, 'r', 'thumb').add(tipWorld(r, 'r', 0)).multiplyScalar(0.5)
+          const f = holoOf(w).fountPos(r.parts.root.position)
+          worst = Math.max(worst, Math.hypot(mid.x - f.x, mid.z - f.z))
+          picks++
+        }
+        was = held
+      }
+      expect(worst, agent + ' pick over its own fount (m)').toBeLessThan(0.015)
+    }
+    expect(picks).toBeGreaterThan(10)
+  }, 180000)
+
+  it('omok: seated mid-move (the first frame is already past the pick), no hand drive for that move: the light stone is never made from nothing', async () => {
+    const s = findSession('boardgame')
+    let late = 0
+    let early = 0
+    for (let off = 0; off < 9000; off += 450) {
+      const w = await world()
+      const goals = seat(w.rigs, s)
+      const first = new Map<string, { key: string; late: boolean }>()
+      for (let k = 0; k < 120; k++) {
+        const now = s.startMs + 15_000 + off + k * 40
+        w.stage.update(inp(w, goals, now, k * 0.04))
+        const view = gameAt(s.seed, s.players, sessionTime(s, now), false)
+        const mv = view.move
+        const playing = view.phase === 'thinking' || view.phase === 'pick' || view.phase === 'place'
+        if (!mv || !playing) continue
+        const id = s.players[mv.mover]
+        const key = `${view.game}:${mv.cell}`
+        const p = pinchSequence(mv.sinceMs, mv.thinkMs)
+        if (!first.has(id)) first.set(id, { key, late: mv.sinceMs >= pinchTimes(mv.thinkMs).pick })
+        const f = first.get(id)!
+        if (f.key !== key || p.stage === 'rest') continue
+        if (f.late) {
+          late++
+          expect(w.rigs[id].drive.r, `offset ${off} frame ${k}: ${id} has a hand on a stone nobody took`).toBeFalsy()
+        } else if (w.rigs[id].drive.r) early++
       }
     }
-    expect(attachedFrames).toBeGreaterThan(10)
+    expect(late).toBeGreaterThan(10)
+    expect(early).toBeGreaterThan(10)
   }, 120000)
 
   it('nobody seated: the ball waits on the table', async () => {
@@ -348,7 +341,64 @@ describe('PlayStage', () => {
     expect(sessionTime(s, s.startMs + 60_000)).toBeGreaterThan(0)
   })
 
-  it('#137 ②: the board takes a world point to its cell and back (the visitor pointer)', async () => {
+  it('omok: the hologram turns on while a player sits at the board and off after they leave; the stones carry the side colours only', async () => {
+    const s = findSession('boardgame')
+    const w = await world()
+    const goals = seat(w.rigs, s)
+    const h = holoOf(w)
+    expect(h.state).toBe('off')
+    const seen = new Set<string>()
+    const colours = new Set<string>()
+    let k = 0
+    for (; k < 600; k++) {
+      w.stage.update(inp(w, goals, s.startMs + 15_000 + 3000 + k * 40, k * 0.04))
+      seen.add(h.state)
+      for (const side of [1, 2] as const) {
+        const m = h.stones[side]
+        const c = ARR(m, 'iCol')
+        for (let i = 0; i < m.count; i++) colours.add(side + ':' + c.slice(i * 3, i * 3 + 3).map((x) => x.toFixed(4)).join(','))
+      }
+    }
+    expect(seen.has('on')).toBe(true)
+    expect([...colours].sort()).toEqual(['1:' + rgbOf('#4df3ff'), '2:' + rgbOf('#f3ead8')].sort())
+    for (const id of s.players) w.rigs[id].at = null
+    const idle = Object.fromEntries(IDS.map((id) => [id, { spot: 'work_0', pose: 'idle', label: '' } as Goal]))
+    for (let j = 0; j < 200 && h.state !== 'off'; j++, k++) w.stage.update(inp(w, idle, s.startMs + 15_000 + 3000 + k * 40, k * 0.04))
+    expect(h.state).toBe('off')
+    expect(h.stones[1].count + h.stones[2].count).toBe(0)
+  }, 60000)
+
+  it("omok: the visitor's game is drawn: the stones follow the visitor game", async () => {
+    const w = await world()
+    const goals = visitorSeat(w)
+    const g = startVisitorGame('agent_0', 7, 0)
+    const h = holoOf(w)
+    const view = { ...viewOf(g, 9_000), phase: 'won' as const, winner: 1 as const, line: [110, 111, 112, 113, 114], wonMs: 900 }
+    view.board = new Uint8Array(225)
+    for (const c of [110, 111, 112, 113, 114]) view.board[c] = 1
+    for (const c of [95, 96, 97]) view.board[c] = 2
+    w.stage.update(inp(w, goals, 10_000, 1, { dt: 0.02, visitorOmok: { agent: 'agent_0', view } }))
+    expect(h.state).toBe('on')
+    expect(h.stones[1].count).toBe(5)
+    expect(h.stones[2].count).toBe(3)
+  })
+
+  it("#538 the visitor sitting down turns the board on, while its agent is still on its way (hologram.md 2: the first one, the visitor too)", async () => {
+    const w = await world()
+    const goals = visitorSeat(w)
+    // the agent not at its chair yet: nowhere near the board
+    const r = w.rigs.agent_0
+    r.at = 'work_0'
+    r.parts.root.position.set(4, 0, -3)
+    r.parts.root.updateMatrixWorld(true)
+    const h = holoOf(w)
+    const view = viewOf(startVisitorGame('agent_0', 7, 0), 9_000)
+    w.stage.update(inp(w, goals, 10_000, 1, { dt: 0.02, visitorOmok: { agent: 'agent_0', view } }))
+    w.stage.update(inp(w, goals, 10_000, 1.4, { dt: 0.02, visitorOmok: { agent: 'agent_0', view } }))
+    expect(h.state).toBe('on')
+  })
+
+  it('#137 ② the board takes a world point to its cell and back (the visitor pointer)', async () => {
     const w = await world()
     const g = w.stage.omokGrid!
     expect(g.n).toBe(15)
@@ -360,68 +410,19 @@ describe('PlayStage', () => {
     expect(w.stage.omokCellAt(w.stage.omokPoint(0)!.add(new Vector3(-g.cell, 0, 0)))).toBeNull() // off the board
   })
 
-  it('#137 ②: the visitor game is drawn at game_a; its white bowl fades over to the agent corner and back, never sliding', async () => {
+  it("#137 ② (hologram.md 3): a won game draws the five in a line of the winner's side colour (cyan for black, ivory for white), whoever won", async () => {
     const w = await world()
-    const goals = Object.fromEntries(IDS.map((id) => [id, { spot: 'work_0', pose: 'idle', label: '' } as Goal]))
-    const r = w.rigs.agent_0
-    r.at = 'game_a'
-    r.x = -2.2
-    r.z = 2.2
-    r.heading = -Math.PI / 2
-    r.parts.root.position.set(r.x, 0, r.z)
-    r.parts.root.rotation.set(0, r.heading, 0)
-    r.parts.root.updateMatrixWorld(true)
-    goals.agent_0 = { spot: 'game_a', pose: 'boardgame', label: '' }
-    expect(r.arrived).toBe('game_a')
-    let g = visitorMove(startVisitorGame('agent_0', 7, 0), 112, 0)!.g
-    g = stepVisitorGame(g, VISITOR_OMOK.thinkCapMs + 100).g
-    const bowl = w.scene.getObjectByName('prop_omok_bowl_w')!
-    const homeX = bowl.position.x
-    const frame = (t: number, visit: boolean) => {
-      const now = 10_000 + t * 1000
-      w.stage.update(inp(w, goals, now, t, { dt: 0.02, bowlRest: visit ? 'corner' : 'home', visitorOmok: visit ? { agent: 'agent_0', view: viewOf(g, now) } : null }))
-      w.props.hold(new Map(Object.values(w.rigs).map((x) => [x, x.want])))
-      w.props.update(0.02)
-      const st = (w.stage as unknown as { stones: { b: { count: number }; w: { count: number } } }).stones
-      return { o: (w.stage as unknown as { bowlOpacity: number }).bowlOpacity, x: bowl.position.x, b: st.b.count, wc: st.w.count }
-    }
-    for (let t = 0; t < 0.2; t += 0.02) frame(t, false)
-    const seen: { o: number; x: number; b: number; wc: number }[] = []
-    for (let t = 0.2; t < 0.8; t += 0.02) seen.push(frame(t, true))
-    const cornerX = seen.at(-1)!.x
-    expect(cornerX).toBeLessThan(homeX - 0.3)
-    expect(seen.every((f) => Math.abs(f.x - homeX) < 0.005 || Math.abs(f.x - cornerX) < 0.005)).toBe(true)
-    expect(Math.min(...seen.map((f) => f.o))).toBeLessThan(0.2)
-    expect(seen.at(-1)).toMatchObject({ o: 1, b: 1, wc: 1 }) // the visitor's black and the agent's white, nothing else
-    const back: { o: number; x: number }[] = []
-    for (let t = 0.8; t < 1.4; t += 0.02) back.push(frame(t, false))
-    expect(back.every((f) => Math.abs(f.x - homeX) < 0.005 || Math.abs(f.x - cornerX) < 0.005)).toBe(true)
-    expect(Math.min(...back.map((f) => f.o))).toBeLessThan(0.2)
-    expect(back.at(-1)!.x).toBeCloseTo(homeX, 4)
-    expect(back.at(-1)!.o).toBe(1)
-  })
-  it('#137 ② (play.md 2.5): a visitor win rings the five in ivory; an agent win rings them in the agent colour', async () => {
-    const w = await world()
-    const goals = Object.fromEntries(IDS.map((id) => [id, { spot: 'work_0', pose: 'idle', label: '' } as Goal]))
-    const r = w.rigs.agent_0
-    r.at = 'game_a'
-    r.x = -2.2
-    r.z = 2.2
-    r.heading = -Math.PI / 2
-    r.parts.root.position.set(r.x, 0, r.z)
-    r.parts.root.rotation.set(0, r.heading, 0)
-    r.parts.root.updateMatrixWorld(true)
-    goals.agent_0 = { spot: 'game_a', pose: 'boardgame', label: '' }
+    const goals = visitorSeat(w)
     const g = startVisitorGame('agent_0', 7, 0)
     const line = [110, 111, 112, 113, 114]
+    const h = holoOf(w)
+    let t = 1
     const look = (winner: 1 | 2) => {
       const view = { ...viewOf(g, 9_000), phase: 'won' as const, winner, line, wonMs: 900 }
-      w.stage.update(inp(w, goals, 10_000, 1, { dt: 0.02, colors: { agent_0: '#4a90d9' }, visitorOmok: { agent: 'agent_0', view } }))
-      const st = w.stage as unknown as { rings: { visible: boolean; material: { color: { getHexString(): string } } }[]; line: { visible: boolean; material: { color: { getHexString(): string } } } }
-      const shown = st.rings.filter((x) => x.visible)
-      return { n: shown.length, rings: [...new Set(shown.map((x) => '#' + x.material.color.getHexString()))], line: st.line.visible ? '#' + st.line.material.color.getHexString() : null }
+      for (let i = 0; i < 3; i++) w.stage.update(inp(w, goals, 10_000, t++, { dt: 0.02, colors: { agent_0: '#4a90d9' }, visitorOmok: { agent: 'agent_0', view } }))
+      return { n: h.marks.count, rgb: ARR(h.marks, 'iCol').slice(0, 3).map((x) => x.toFixed(4)).join(',') }
     }
-    expect(look(1)).toEqual({ n: 5, rings: [VISITOR_RING], line: VISITOR_RING }) // the visitor holds black
-    expect(look(2)).toEqual({ n: 5, rings: ['#4a90d9'], line: '#4a90d9' })
+    expect(look(1)).toEqual({ n: 1, rgb: rgbOf('#4df3ff') })
+    expect(look(2)).toEqual({ n: 1, rgb: rgbOf('#f3ead8') })
   })
 })
