@@ -1,13 +1,14 @@
 // Hologram chess layer (#604 stage 1a, hologram.md 11): board and coordinate pixels, glyphs, squares, instances, capture / castling /
 // promotion / check / end looks, held piece, determinism, reduced motion. No WebGL.
 import { describe, expect, it } from 'vitest'
-import { AdditiveBlending, Euler, Group, NormalBlending, Object3D, Vector3, type InstancedBufferAttribute, type InstancedMesh } from 'three'
+import { AdditiveBlending, Color, Euler, Group, NormalBlending, Object3D, Vector3, type InstancedBufferAttribute, type InstancedMesh } from 'three'
 import { HoloBoard, type HoloInput } from './holoBoard'
 import {
   BOARD_PX,
   CVOX,
   FILM_PX,
   GLYPHS,
+  INK_SHADE,
   SHADE,
   SQ,
   TILT_S,
@@ -132,9 +133,9 @@ describe('glyphs', () => {
     expect(glyphVoxels(4)).toBe(72)
     expect(glyphVoxels(6)).toBe(80)
   })
-  it('merge to visible faces, two layers deep, standing', () => {
+  it('merge to visible faces, two layers deep, standing (the glyph alone, without its ink rim)', () => {
     for (let k = 1; k <= 6; k++) {
-      const g = buildPieceGeometry(k)
+      const g = buildPieceGeometry(k, false)
       const pos = g.getAttribute('position')
       let top = 0
       let maxY = 0
@@ -159,7 +160,7 @@ describe('glyphs', () => {
       expect(top).toBe(exposed * 2)
     }
     // face shades only (#655, hologram.md 11.2): front/back 1.0, top 0.6, sides 0.5; the front the brightest
-    const sh = buildPieceGeometry(2).getAttribute('aShade')
+    const sh = buildPieceGeometry(2, false).getAttribute('aShade')
     for (let i = 0; i < sh.count; i++) expect([1, 0.6, 0.5].some((v) => Math.abs(v - sh.getX(i)) < 1e-6)).toBe(true)
     expect(SHADE).toEqual({ front: 1, side: 0.5, top: 0.6 })
   })
@@ -695,6 +696,54 @@ describe('the pieces face the visitor full on in their game view (#655, hologram
       minY = Math.min(minY, pos.getY(i))
       maxY = Math.max(maxY, pos.getY(i))
     }
-    expect([minY, maxY].map((y) => +(y / CVOX).toFixed(6))).toEqual([0, 14])
+    // with its ink rim (#659) one voxel more over the top, none under the foot
+    expect([minY, maxY].map((y) => +(y / CVOX).toFixed(6))).toEqual([0, 15])
+  })
+})
+
+describe('the ink rim round the opaque glyphs (#659, hologram.md 11.2)', () => {
+  it('one voxel round the glyph (8 ways), 2 layers deep, from the foot up to a row over the top; its faces marked ink; rows with the glyph', () => {
+    for (let k = 1; k <= 6; k++) {
+      const rows = GLYPHS[k]
+      const H = rows.length
+      const has = (c: number, rb: number) => rb >= 0 && rb < H && c >= 0 && c < 10 && rows[H - 1 - rb][c] === '#'
+      // the rim's cells from the mask
+      const want = new Set<string>()
+      for (let rb = 0; rb <= H; rb++)
+        for (let c = -1; c <= 10; c++) {
+          if (has(c, rb)) continue
+          let near = false
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) near ||= has(c + dx, rb + dy)
+          if (near) want.add(`${c},${rb}`)
+        }
+      // the rim's front faces (z at the front, ink) as cells
+      const g = buildPieceGeometry(k)
+      const pos = g.getAttribute('position')
+      const sh = g.getAttribute('aShade')
+      const row = g.getAttribute('aRow')
+      const got = new Set<string>()
+      let maxZ = -Infinity
+      for (let i = 0; i < pos.count; i++) maxZ = Math.max(maxZ, pos.getZ(i))
+      for (let i = 0; i < pos.count; i += 4) {
+        if (sh.getX(i) !== INK_SHADE) continue
+        expect(row.getX(i)).toBeLessThanOrEqual(H - 1)
+        const zs = [0, 1, 2, 3].map((j) => pos.getZ(i + j))
+        if (!zs.every((z) => Math.abs(z - maxZ) < 1e-7)) continue
+        const xs = [0, 1, 2, 3].map((j) => pos.getX(i + j))
+        const ys = [0, 1, 2, 3].map((j) => pos.getY(i + j))
+        got.add(`${Math.round((Math.min(...xs) + CVOX / 2) / CVOX + 4.5)},${Math.round(Math.min(...ys) / CVOX)}`)
+      }
+      expect([...got].sort()).toEqual([...want].sort())
+      // nothing under the board
+      for (let i = 0; i < pos.count; i++) expect(pos.getY(i)).toBeGreaterThanOrEqual(-1e-9)
+    }
+  })
+  it('drawn in ink, unlit, without scanline', () => {
+    const { holo } = make()
+    opened(holo)
+    const m = holo.chessLayer!.materials.piece
+    expect('#' + (m.uniforms.uInk.value as Color).getHexString()).toBe('#0b0e13')
+    expect(m.vertexShader).toContain('vInk > 0.5 ? uInk')
+    expect(m.fragmentShader).toContain('vInk > 0.5 ? 1.0')
   })
 })

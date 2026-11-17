@@ -50,7 +50,7 @@ export const T_MATE_GLOW = 2
 export const T_DRAW_DIM = 1
 export const T_RIPPLE_C = 0.3
 export const RIPPLE_RADII_C = [0.5, 0.83, 1.17, 1.5] // squares, 4 discrete steps
-export const CHESS_COLORS = { cyan: '#4df3ff', ivory: '#f3ead8', grid: '#8fd3da', red: '#ff5a5f' }
+export const CHESS_COLORS = { cyan: '#4df3ff', ivory: '#f3ead8', grid: '#8fd3da', red: '#ff5a5f', ink: '#0b0e13' }
 
 const CYAN = new Color(CHESS_COLORS.cyan)
 const IVORY = new Color(CHESS_COLORS.ivory)
@@ -142,7 +142,7 @@ function tex(src: Uint8Array, size: number): DataTexture {
  * One merged glyph: 2 layers deep, standing (rows up the y axis, x across, z depth), visible faces only. Per vertex: aShade (hologram.md 11.2, #655:
  * front/back 1.0 (the face that draws the shape is the brightest), top 0.6, left/right 0.5), aRow (voxel row from the bottom) and aCap (1 = the top of a voxel with another above it, shown only while it is the topmost visible row).
  */
-export function buildPieceGeometry(kind: number): BufferGeometry {
+export function buildPieceGeometry(kind: number, ink = true): BufferGeometry {
   const rows = GLYPHS[kind]
   const H = rows.length
   const pos: number[] = []
@@ -161,10 +161,21 @@ export function buildPieceGeometry(kind: number): BufferGeometry {
     }
     idx.push(base, base + 1, base + 2, base, base + 2, base + 3)
   }
+  // #659 the ink rim: the voxels next to the glyph (8 ways) that are not in it, from its foot up to a row over its top (none under the board).
+  // Its rows show and go with the glyph's nearest row (aRow clamped), its faces carry aShade INK_SHADE (drawn in ink, no light, no scanline)
+  const rim = (c: number, rb: number) => {
+    if (!ink || rb < 0 || rb > H || c < -1 || c > 10 || has(c, rb)) return false
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (has(c + dx, rb + dy)) return true
+    return false
+  }
+  const solid = (c: number, rb: number) => has(c, rb) || rim(c, rb)
   const h = (CBOX * CVOX) / 2
-  for (let rb = 0; rb < H; rb++)
-    for (let c = 0; c < 10; c++) {
-      if (!has(c, rb)) continue
+  for (let rb = 0; rb <= H; rb++)
+    for (let c = -1; c <= 10; c++) {
+      const glyph = has(c, rb)
+      if (!glyph && !rim(c, rb)) continue
+      const r = Math.min(rb, H - 1)
+      const sh = (s: number) => (glyph ? s : INK_SHADE)
       const x0 = (c - 4.5) * CVOX - h
       const x1 = (c - 4.5) * CVOX + h
       const y0 = rb * CVOX + ((1 - CBOX) / 2) * CVOX
@@ -172,11 +183,11 @@ export function buildPieceGeometry(kind: number): BufferGeometry {
       for (let d = 0; d < GLYPH_DEPTH; d++) {
         const z0 = (d - 0.5) * CVOX - h
         const z1 = (d - 0.5) * CVOX + h
-        quad([[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], SHADE.top, rb, has(c, rb + 1) ? 1 : 0)
-        if (d === GLYPH_DEPTH - 1) quad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], SHADE.front, rb, 0)
-        if (d === 0) quad([[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]], SHADE.front, rb, 0)
-        if (!has(c + 1, rb)) quad([[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]], SHADE.side, rb, 0)
-        if (!has(c - 1, rb)) quad([[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], SHADE.side, rb, 0)
+        quad([[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], sh(SHADE.top), r, glyph && has(c, rb + 1) ? 1 : 0)
+        if (d === GLYPH_DEPTH - 1) quad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], sh(SHADE.front), r, 0)
+        if (d === 0) quad([[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]], sh(SHADE.front), r, 0)
+        if (!solid(c + 1, rb)) quad([[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]], sh(SHADE.side), r, 0)
+        if (!solid(c - 1, rb)) quad([[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], sh(SHADE.side), r, 0)
       }
     }
   const g = new BufferGeometry()
@@ -190,6 +201,9 @@ export function buildPieceGeometry(kind: number): BufferGeometry {
 
 /** hologram.md 11.2 (#655): the pieces' face brightness, the face toward the viewer the brightest */
 export const SHADE = { front: 1, side: 0.5, top: 0.6 } as const
+/** hologram.md 11.2 (#659): a 1-voxel rim of --color-ink round the opaque glyph, 2 layers deep, unlit and without scanline: a piece's outline
+ * is drawn over the same-coloured piece behind it. Its faces are marked by this aShade */
+export const INK_SHADE = -1
 /** hologram.md 11.2 (#655): the pieces' scanline, weaker than the board's 0.55 (a voxel is about 3 px, as the scanline's period) */
 export const PIECE_SCAN = 0.85
 /** hologram.md 11.2 (#655): the lean toward the camera comes and goes over this long (s) as the visitor's game view starts and ends */
@@ -198,8 +212,8 @@ export const TILT_S = 0.3
 const PIECE_VERT = /* glsl */ `
 attribute float aShade; attribute float aRow; attribute float aCap;
 attribute vec3 iPos; attribute vec4 iSt; attribute vec4 iRows; attribute vec3 iCol;
-uniform vec3 uCam; uniform float uTilt;
-varying vec3 vCol; varying float vA;
+uniform vec3 uCam; uniform float uTilt; uniform vec3 uInk;
+varying vec3 vCol; varying float vA; varying float vInk;
 const float VOX = ${CVOX};
 const float BACK = ${(-GLYPH_DEPTH / 2) * CVOX};
 void main() {
@@ -216,7 +230,9 @@ void main() {
   p = vec3(p.x, p.y * ce + pz * se, -p.y * se + pz * ce + zb);
   float c = cos(iSt.w); float s = sin(iSt.w);
   p = vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c) + iPos;
-  vCol = iCol * aShade * iSt.y; vA = iSt.z;
+  // #659 the ink rim: its own colour, not the piece's, nor its brightness (a lit piece keeps a dark rim)
+  vInk = aShade < 0.0 ? 1.0 : 0.0;
+  vCol = vInk > 0.5 ? uInk : iCol * aShade * iSt.y; vA = iSt.z;
   gl_Position = vis ? projectionMatrix * modelViewMatrix * vec4(p, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);
 }`
 
@@ -347,13 +363,13 @@ export class ChessLayer {
       vertexShader: PIECE_VERT,
       fragmentShader: /* glsl */ `
 uniform float uDpr; uniform float uAlpha;
-varying vec3 vCol; varying float vA;
+varying vec3 vCol; varying float vA; varying float vInk;
 void main() {
-  float scan = mod(floor(gl_FragCoord.y / uDpr), 3.0) < 1.0 ? ${PIECE_SCAN.toFixed(2)} : 1.0;
+  float scan = vInk > 0.5 ? 1.0 : mod(floor(gl_FragCoord.y / uDpr), 3.0) < 1.0 ? ${PIECE_SCAN.toFixed(2)} : 1.0;
   gl_FragColor = vec4(vCol * scan, vA * uAlpha);
   #include <colorspace_fragment>
 }`,
-      uniforms: { ...stage.uniforms, uCam: { value: new Vector3() }, uTilt: { value: 0 } },
+      uniforms: { ...stage.uniforms, uCam: { value: new Vector3() }, uTilt: { value: 0 }, uInk: { value: new Color(CHESS_COLORS.ink) } },
     })
     // hologram.md 11.2 (#657, #655): the pieces' voxels are opaque (normal blending, depth written, unlit), not added light: a piece in front
     // hides the one behind it (the near pawns stand out against the back rank) at every view. Still drawn after the film (transparent pass,
