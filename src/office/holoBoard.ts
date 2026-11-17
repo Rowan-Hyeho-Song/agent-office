@@ -368,8 +368,8 @@ export class HoloBoard {
     const quads = (mat: ShaderMaterial, cap: number, order: number) =>
       this.inst(unit.clone(), mat, cap, { iPos: 3, iSize: 2, iRot: 1, iCol: 4 }, order)
     this.glow = quads(this.materials.glow, CAP, 1)
-    this.marks = quads(this.materials.marks, MAX_RIPPLES * 4 + 8, 3)
-    this.dots = quads(this.materials.dot, 48, 5)
+    this.marks = quads(this.materials.marks, MAX_RIPPLES * 4 + 8 + 32, 3)
+    this.dots = quads(this.materials.dot, 128, 5)
 
     this.root.add(this.film, this.grid, this.glow, this.stones[1], this.stones[2], this.founts, this.marks, this.dots)
     scene.add(this.root)

@@ -538,3 +538,96 @@ describe('reduced motion', () => {
     expect(arr(black, 'iSt')[0]).toBeCloseTo(0.5)
   })
 })
+
+describe('visitor marks (#604 stage 2)', () => {
+  const pos = mk({ e1: 6, e8: -6, e4: 1, d5: -1 })
+  const setup = () => {
+    const { holo, surface } = make()
+    const t = opened(holo)
+    holo.update(frame(t + 0.1, ci({ board: pos }))) // pieces grown in
+    return { holo, surface, T: t + 1 }
+  }
+  const sqLocal = (holo: HoloBoard, s: number) => holo.chessLayer!.squareLocal(s, new Vector3())
+  const inst = (m: InstancedMesh, name: string, n: number) => {
+    const size = name === 'iCol' ? 4 : name === 'iSize' ? 2 : name === 'iRot' ? 1 : 3
+    return Array.from(arr(m, name).slice(n * size, n * size + size))
+  }
+  const near = (p: Vector3, x: number, z: number) => Math.abs(p.x - x) < SQ / 2 && Math.abs(p.z - z) < SQ / 2
+  const visitor = (o: Partial<NonNullable<ChessInput['visitor']>> = {}) => ({ selected: null, targets: [], cursor: null, drag: null, ...o })
+
+  it('draws nothing extra without visitor', () => {
+    const { holo, T } = setup()
+    holo.update(frame(T, ci({ board: pos })))
+    expect(holo.marks.count).toBe(0)
+    expect(holo.dots.count).toBe(0)
+  })
+
+  it('a 2x2 px dot at each legal square, a cyan ring at the cursor', () => {
+    const { holo, T } = setup()
+    holo.update(frame(T, ci({ board: pos, visitor: visitor({ selected: sq('e4'), targets: [{ sq: sq('e5'), capture: false }, { sq: sq('e6'), capture: false }], cursor: sq('e5') }) })))
+    expect(holo.marks.count).toBe(2 + 4)
+    const e5 = sqLocal(holo, sq('e5'))
+    const d0 = inst(holo.marks, 'iPos', 0)
+    expect(d0[0]).toBeCloseTo(e5.x)
+    expect(d0[2]).toBeCloseTo(e5.z)
+    const sz = inst(holo.marks, 'iSize', 0)
+    expect(sz[0]).toBeCloseTo((2 * SQ) / 11)
+    expect(sz[1]).toBeCloseTo((2 * SQ) / 11)
+    expect(inst(holo.marks, 'iCol', 0)[2]).toBeGreaterThan(inst(holo.marks, 'iCol', 0)[0]) // cyan: blue > red
+    // ring: four edge bars round e5
+    for (let i = 2; i < 6; i++) {
+      const p = inst(holo.marks, 'iPos', i)
+      expect(near(new Vector3(p[0], 0, p[2]), e5.x, e5.z)).toBe(true)
+    }
+    expect(holo.dots.count).toBe(0)
+  })
+
+  it('capture squares get cyan corners drawn after (over) the red last-move corners', () => {
+    const { holo, T } = setup()
+    holo.update(frame(T, ci({ board: pos, lastMove: { from: sq('e2'), to: sq('d5') }, visitor: visitor({ selected: sq('e4'), targets: [{ sq: sq('d5'), capture: true }] }) })))
+    expect(holo.marks.count).toBe(0) // no centre dot on a capture square
+    expect(holo.dots.count).toBe(16 + 8) // two red corner sets, one cyan
+    const col = (i: number) => inst(holo.dots, 'iCol', i)
+    const isRed = (i: number) => col(i)[0] > col(i)[2]
+    // d5 corners: red come before cyan in the buffer (cyan over red)
+    const red = Array.from({ length: 24 }, (_, i) => i).filter(isRed)
+    const cyan = Array.from({ length: 24 }, (_, i) => i).filter((i) => !isRed(i))
+    expect(red.length).toBe(16)
+    expect(cyan.length).toBe(8)
+    expect(Math.min(...cyan)).toBeGreaterThan(Math.max(...red))
+    // cyan corners sit exactly where the red ones of d5 are
+    const d5 = sqLocal(holo, sq('d5'))
+    for (const i of cyan) {
+      const p = inst(holo.dots, 'iPos', i)
+      expect(near(new Vector3(p[0], 0, p[2]), d5.x, d5.z)).toBe(true)
+    }
+  })
+
+  it('the selected piece is 1.3 bright and 1 cm up; others stay at 1 and rest', () => {
+    const { holo, T } = setup()
+    holo.update(frame(T, ci({ board: pos })))
+    const rest = inst(pm(holo, 1, 2), 'iPos', 0)[1]
+    expect(inst(pm(holo, 1, 2), 'iSt', 0)[1]).toBe(1)
+    holo.update(frame(T + 0.01, ci({ board: pos, visitor: visitor({ selected: sq('e4') }) })))
+    expect(inst(pm(holo, 1, 2), 'iSt', 0)[1]).toBeCloseTo(1.3)
+    expect(inst(pm(holo, 1, 2), 'iPos', 0)[1]).toBeCloseTo(rest + 0.01) // immediate, also for reduced
+    expect(inst(pm(holo, 1, 1), 'iSt', 0)[1]).toBe(1)
+    holo.update(frame(T + 0.02, ci({ board: pos, visitor: visitor({ selected: sq('e4') }) }), { reduced: true }))
+    expect(inst(pm(holo, 1, 2), 'iPos', 0)[1]).toBeCloseTo(rest + 0.01)
+    expect(inst(pm(holo, 1, 2), 'iSt', 0)[1]).toBeCloseTo(1.3)
+  })
+
+  it('a dragged piece leaves its cell and floats 2 cm over the pointer', () => {
+    const { holo, surface, T } = setup()
+    const w = new Vector3(1.5 + 0.03, 0.74 + 0.5, -2 - 0.05) // world point over the board
+    holo.update(frame(T, ci({ board: pos, visitor: visitor({ selected: sq('e4'), drag: { pos: w } }) })))
+    const white = pm(holo, 1, 2)
+    expect(white.count).toBe(1)
+    const q = surface.worldToLocal(w.clone())
+    const p = inst(white, 'iPos', 0)
+    expect(p[0]).toBeCloseTo(q.x)
+    expect(p[2]).toBeCloseTo(q.z)
+    expect(p[1]).toBeCloseTo(0.02 + 0.02) // light plane lift 2 cm + 2 cm
+    expect(inst(white, 'iSt', 0)[1]).toBeCloseTo(1.3)
+  })
+})

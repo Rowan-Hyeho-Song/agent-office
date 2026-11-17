@@ -51,6 +51,8 @@ export const CHESS_COLORS = { cyan: '#4df3ff', ivory: '#f3ead8', grid: '#8fd3da'
 const CYAN = new Color(CHESS_COLORS.cyan)
 const IVORY = new Color(CHESS_COLORS.ivory)
 const RED = new Color(CHESS_COLORS.red)
+export const VISITOR_LIFT = 0.01 // the selected piece rises 1 cm (11.3)
+export const VISITOR_DRAG_Y = 0.02 // a dragged piece floats 2 cm over the board (11.5)
 const lerp = (a: number, b: number, k: number) => a + (b - a) * Math.min(1, Math.max(0, k))
 const sideColor = (colour: number) => (colour === 1 ? CYAN : IVORY)
 
@@ -250,6 +252,17 @@ export interface ChessInput {
   flip?: boolean
   /** camera position in world space (the pieces turn to face it) */
   camera?: Vector3
+  /** the visitor's marks (11.3, 11.5); absent = none */
+  visitor?: {
+    /** the chosen piece's cell */
+    selected: number | null
+    /** squares it may move to; `capture` squares get cyan corners, the others a centre dot */
+    targets: { sq: number; capture: boolean }[]
+    /** keyboard cursor cell (cyan ring) */
+    cursor: number | null
+    /** while dragged: the selected piece follows this world point (2 cm over the board) instead of standing on its cell */
+    drag: { pos: Vector3 } | null
+  }
 }
 export interface ChessFrame {
   t: number
@@ -618,6 +631,8 @@ void main() {
         const promo = this.promos.find((q) => q.sq === sq)
         if (promo) code = promo.oldCode
         if (!code || (f.held && f.held.from === sq && t >= f.held.since)) continue
+        const vs = c?.visitor && c.visitor.selected === sq ? c.visitor : null
+        if (vs?.drag) continue // drawn at the pointer below
         const colour = colourOf(code)
         const kind = Math.abs(code)
         this.squareLocal(sq, p)
@@ -642,6 +657,7 @@ void main() {
         else o.hi = Math.max(1, Math.ceil(rowsOf(kind) * Math.min(1, Math.max(0, a / 0.2)) - 1e-9))
         const eb = endBright(colour)
         if (eb !== null) o.bright = eb
+        if (vs) o.bright = 1.3
         if (sq === kingSq && t >= end!.since) {
           const k = (t - end!.since) / (reduced ? 0.1 : T_CAPTURE)
           if (k >= 1) continue
@@ -661,8 +677,19 @@ void main() {
             if (cut < rowsOf(kind)) this.emit(kind, colour, x, base, z, { ...o, lo: cut })
             if (cut > 0) this.emit(nk, colour, x, base, z, { ...o, hi: cut })
           }
-        } else this.emit(kind, colour, x, base, z, { ...o, shake: shake * CVOX })
+        } else this.emit(kind, colour, x, vs ? base + VISITOR_LIFT : base, z, { ...o, shake: shake * CVOX })
         f.glow(colour, x, z, CGLOW_R, 0.3 * o.alpha * (o.hi / rowsOf(kind)))
+      }
+
+      // the dragged piece: follows the pointer 2 cm over the board, facing the camera
+      const vd = c?.visitor
+      if (vd?.drag && vd.selected !== null && this.offAt === null) {
+        const code = this.disp[vd.selected]
+        if (code) {
+          const q = this.stage.toLocal(vd.drag.pos, this.v)
+          this.emit(Math.abs(code), colourOf(code), q.x, lift + VISITOR_DRAG_Y, q.z, { bright: 1.3, alpha: 1 })
+          f.glow(colourOf(code), q.x, q.z, CGLOW_R, 0.1)
+        }
       }
 
       // captured pieces vanishing where they stood
@@ -736,6 +763,32 @@ void main() {
         for (const s of [-1, 1]) {
           f.dot(p.x, dotY, p.z + s * 4.5 * PXC, 10 * PXC, PXC, RED, 1)
           f.dot(p.x + s * 4.5 * PXC, dotY, p.z, PXC, 8 * PXC, RED, 1)
+        }
+      }
+      // the visitor's marks: centre dots (0.7), cyan ring round the cursor, cyan corners over the red last-move corners
+      const vm = c?.visitor
+      if (vm) {
+        const my = lift + CGLOW_Y
+        for (const tg of vm.targets) {
+          if (tg.capture) continue
+          this.squareLocal(tg.sq, p)
+          f.mark(p.x, my, p.z, 2 * PXC, 2 * PXC, 0, CYAN, 0.7)
+        }
+        if (vm.cursor !== null) {
+          this.squareLocal(vm.cursor, p)
+          for (const s of [-1, 1]) {
+            f.mark(p.x, my, p.z + s * 4.5 * PXC, 10 * PXC, PXC, 0, CYAN, 1)
+            f.mark(p.x + s * 4.5 * PXC, my, p.z, PXC, 8 * PXC, 0, CYAN, 1)
+          }
+        }
+        for (const tg of vm.targets) {
+          if (!tg.capture) continue
+          this.squareLocal(tg.sq, p)
+          for (const sx of [-1, 1])
+            for (const sz of [-1, 1]) {
+              f.dot(p.x + sx * 3.5 * PXC, dotY + 0.0001, p.z + sz * 4.5 * PXC, 3 * PXC, PXC, CYAN, 1)
+              f.dot(p.x + sx * 4.5 * PXC, dotY + 0.0001, p.z + sz * 3.5 * PXC, PXC, 3 * PXC, CYAN, 1)
+            }
         }
       }
       // landing ripple from one square size
