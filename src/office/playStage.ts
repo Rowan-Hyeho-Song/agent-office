@@ -99,6 +99,9 @@ function holoNeon(node: Object3D | undefined): (k: number) => void {
     const mat = (mesh.material as MeshBasicMaterial).clone()
     mat.toneMapped = false
     mesh.material = mat
+    // under the film: drawn before it (the film is renderOrder -1 and writes no depth), so it only shows faintly through (hologram.md 1.4, #648:
+    // a transparent neon drawn after the film came out on top of it)
+    mesh.renderOrder = -2
     parts.push({ mat, base: glow ? new Color(glow) : mat.color.clone() })
   })
   let last = -1

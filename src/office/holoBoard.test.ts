@@ -244,6 +244,8 @@ describe('materials', () => {
     expect(holo.materials.film.toneMapped).toBe(false)
     expect(holo.film.renderOrder).toBe(-1)
     expect(holo.dots.renderOrder).toBeGreaterThan(holo.stones[1].renderOrder)
-    expect(holo.film.position.y).toBeCloseTo(-0.001)
+    // the film 1 mm under the light plane, which is lift over the surface; the grid on the plane
+    expect(holo.film.position.y).toBeCloseTo(0.02 - 0.001, 6)
+    expect(holo.grid.position.y).toBeCloseTo(0.02, 6)
   })
 })

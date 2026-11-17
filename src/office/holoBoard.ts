@@ -36,6 +36,11 @@ export const BOX = 0.92
 export const GRID_SIZE = 0.39
 export const FILM_SIZE = 0.44
 export const FILM_DROP = 0.001
+/**
+ * #538 (hologram.md 1.4, #650) the film's opacity, set by what shows: over the cream table the screen reads about #1c1f24 (L 12–15), the projector's
+ * disc and panel only faintly through. Blended in linear space, measured on the page: 0.62 read #a6a69d, 0.9 #5a5b56, 0.99 #1e2021
+ */
+export const FILM_OPACITY = 0.99
 export const GRID_PX = 91
 export const CELL_PX = 6
 export const PX = CELL / CELL_PX // one board-texture pixel
@@ -299,7 +304,7 @@ export class HoloBoard {
       return m
     }
     // film: normal blended ink, unlit, no scanline needed (scan only dims colour that is already dark)
-    const film = flat(COLORS.ink, NormalBlending, null, 0.62)
+    const film = flat(COLORS.ink, NormalBlending, null, FILM_OPACITY)
     const grid = flat(COLORS.grid, AdditiveBlending, gridTexture(), 1)
     const quadMat = (blending: Blending, radial: boolean) => {
       const m = new ShaderMaterial({
@@ -390,6 +395,9 @@ export class HoloBoard {
     this.surface.matrixWorld.decompose(this.sp, this.sq, this.ss)
     const l = this.surface.userData?.lift
     if (typeof l === 'number') this.lift = l
+    // the light plane is lift over the surface (the projector's panel); the film 1 mm under it (#648: both were left at the panel, under its top)
+    this.grid.position.y = this.lift
+    this.film.position.y = this.lift - FILM_DROP
     this.frame.compose(this.sp, this.sq, new Vector3(1, 1, 1))
     this.inv.copy(this.frame).invert()
     this.scene.updateWorldMatrix(true, false)
