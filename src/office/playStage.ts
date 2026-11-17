@@ -282,6 +282,8 @@ export class PlayStage {
   private chessTaken = 0
   /** #655 the match on the chess board last frame (seed, the visitor's or not, players): a change while on is a quiet jump */
   private chessKey: string | null = null
+  /** #655 the match and its move count last frame (a check sounds only with the move that gives it) */
+  private chessMoves: { key: string; n: number } | null = null
   /** #538 the projector's live neons (hologram.md 1.5) */
   private holoPanel: (k: number) => void = () => {}
   private holoTurn: Record<1 | 2, (k: number) => void> = { 1: () => {}, 2: () => {} }
@@ -1010,6 +1012,11 @@ export class PlayStage {
           }
         : undefined,
     })
+    // #655 (sound) a check sounds with the move that gives it: the same match, its count one past last frame's, neither frame catching up. A
+    // check already standing when the board was handed over (or reached while catching up) shows on the board but is not heard
+    const prevMoves = this.chessMoves
+    this.chessMoves = view && key !== null ? { key, n: view.moveIndex } : null
+    const stepped = !!view && !!prevMoves && prevMoves.key === key && view.moveIndex === prevMoves.n + 1 && phase !== 'catching' && this.chessPhase !== 'catching'
     this.chessPhase = phase
     this.holoNeons(r.boardOn, view && playing ? (view.toMove === 0 ? 2 : 1) : null)
     const centre = holo.squarePos(27).lerp(holo.squarePos(36), 0.5)
@@ -1023,7 +1030,7 @@ export class PlayStage {
     const capture = visitorMove ? taken > this.chessTaken : !!(mv && phase === 'place' && mv.capture)
     this.chessTaken = taken
     if (phase !== 'catching') this.sounds.chessPiece(s.seed, view.game, view.moveIndex, view.lastMove ? holo.squarePos(view.lastMove.to) : null, capture, visitorMove)
-    if (r.checkStart && view.check !== null) this.sounds.chessCheck(s.seed, view.game, view.moveIndex, holo.squarePos(view.check))
+    if (r.checkStart && view.check !== null && stepped) this.sounds.chessCheck(s.seed, view.game, view.moveIndex, holo.squarePos(view.check))
     // the faces of the result, as in omok (play.md 2.5): the winner glad, the loser embarrassed; a draw has none; not a record alone
     const end = view.end
     // against the visitor the faces and words come with the game (omokVisit/store.ts); the agent's clap / fist as in omok (play.md 2.5)

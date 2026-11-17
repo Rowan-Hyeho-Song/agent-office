@@ -472,6 +472,10 @@ describe('PlayStage', () => {
     // handed to another match (another agent's) whose white king stands in check (the rook on h1): quiet
     run(startVisitorChess('agent_1', 8, 0, 'normal', 0, fromFen('4k3/8/8/8/8/8/8/R3K2r w - - 0 1')!), 6)
     expect(checks).toEqual([])
+    // the same match's position settling a frame after the hand-over (a seek catching up): a check standing in it, no move given it: quiet
+    run(startVisitorChess('agent_1', 8, 0, 'normal', 0, fromFen('4k3/8/8/8/8/8/8/R3K3 w - - 0 1')!), 6.5)
+    run(startVisitorChess('agent_1', 8, 0, 'normal', 0, fromFen('4k3/8/8/8/8/8/8/R3K2r w - - 0 1')!), 7)
+    expect(checks).toEqual([])
     // within one match a check given sounds once: Ra1-a8+
     const live = startVisitorChess('agent_0', 9, 0, 'normal', 0, fromFen('4k3/8/8/8/8/8/8/R3K3 w - - 0 1')!)
     run(live, 8)
