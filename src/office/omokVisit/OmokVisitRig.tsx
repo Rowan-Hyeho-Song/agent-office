@@ -14,10 +14,14 @@ import { faceScreenRect } from './bubbleAnchor'
 import { isBoardOpen } from '../boardView/store'
 import { isPingpongActive } from '../pingpongVisit/store'
 import {
-  armOmok, closeOmok, drainOmokEvents, getOmokVisit, omokArrived, omokForbidAt, omokLeft, omokWorkTold, placeOmok, setOmokBoardBox, setOmokChip, setOmokPreview, setOmokTag,
-  stepOmok, visitorMayPlace,
+  armOmok, chessDeselect, chessMoveTo, chessPick, closeOmok, drainOmokEvents, getOmokVisit, omokArrived, omokForbidAt, omokLeft, omokWorkTold, placeOmok, setChessDrag, setOmokBoardBox, setOmokChip,
+  setChessPromoAt, setOmokPreview, setOmokTag, stepOmok, visitorMayMove, visitorMayPlace, chessSelect,
 } from './store'
+import { chessVisitorWon, visitorPieceAt } from '../../play/visitorChess'
 import { OMOK_VIEW, fitView, v3, visitPose, type V3 } from './pose'
+
+/** #604 the promotion sheet's anchor: this far over the square (a queen's height, m) */
+const PROMO_ABOVE_M = 0.05
 
 // The 3D side of the visitor's omok (#137 ②, play.md 2 · 4 · 8): where the "같이 두기" tag stands (over the empty chair while an agent places a
 // record alone), the camera flown to behind the visitor's chair (55° down onto the board, about 60% of the screen's height, the agent's head and
@@ -142,13 +146,77 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
       else armOmok(cell)
     }
     const leave = () => setOmokPreview(null)
+
+    // #604 chess (hologram.md 11.5): a click on one's own piece selects it, a click on a target moves it; a piece dragged to a square moves there; a
+    // touch is two taps (the same). The square under the pointer comes from the board as it is turned now (PlayStage.chessSquareAt)
+    const plane = new Plane(new Vector3(0, 1, 0), 0)
+    const world3 = (e: PointerEvent): Vector3 | null => {
+      const st = stage()
+      const y = st?.chessSquarePos(27)?.y
+      if (!st || y === undefined) return null
+      const r = el.getBoundingClientRect()
+      ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1)
+      ray.setFromCamera(ndc, camera)
+      plane.constant = -y
+      return ray.ray.intersectPlane(plane, new Vector3())
+    }
+    const squareOf = (e: PointerEvent): number => {
+      const p = world3(e)
+      return p ? (stage()?.chessSquareAt(p) ?? -1) : -1
+    }
+    /** a press on one's own piece: where, whether it was already selected, whether it has been dragged since */
+    let hold: { from: number; was: boolean; moved: boolean; x: number; y: number; id: number } | null = null
+    const cdown = (e: PointerEvent) => {
+      const v = getOmokVisit()
+      if (v.phase !== 'open' || !v.chess || !visitorMayMove() || v.promo || e.button > 0) return
+      const sq = squareOf(e)
+      if (sq < 0 || !visitorPieceAt(v.chess, sq)?.mine) return
+      const was = v.sel === sq
+      chessPick(sq, false)
+      hold = { from: sq, was, moved: false, x: e.clientX, y: e.clientY, id: e.pointerId }
+    }
+    const cmove = (e: PointerEvent) => {
+      if (!hold || e.pointerId !== hold.id) return
+      if (!hold.moved && Math.hypot(e.clientX - hold.x, e.clientY - hold.y) < 6) return
+      hold.moved = true
+      const p = world3(e)
+      if (p) setChessDrag(p)
+    }
+    const cup = (e: PointerEvent) => {
+      const v = getOmokVisit()
+      if (v.phase !== 'open' || !v.chess) return
+      const now = officeNow(world)
+      const sq = squareOf(e)
+      const h = hold
+      hold = null
+      if (h) {
+        setChessDrag(null)
+        // dropped on another square: the move (an illegal drop leaves the piece selected); on its own square: a click, which lets go of a selected piece
+        if (h.moved && sq >= 0 && sq !== h.from) chessMoveTo(sq, now, h.from)
+        else if (!h.moved && h.was) chessDeselect()
+        return
+      }
+      if (visitorMayMove() && !v.promo && sq >= 0) chessSelect(sq, now)
+    }
+    const ccancel = () => {
+      hold = null
+      setChessDrag(null)
+    }
     el.addEventListener('pointermove', move)
     el.addEventListener('pointerup', up)
     el.addEventListener('pointerleave', leave)
+    el.addEventListener('pointerdown', cdown)
+    el.addEventListener('pointermove', cmove)
+    el.addEventListener('pointerup', cup)
+    el.addEventListener('pointercancel', ccancel)
     return () => {
       el.removeEventListener('pointermove', move)
       el.removeEventListener('pointerup', up)
       el.removeEventListener('pointerleave', leave)
+      el.removeEventListener('pointerdown', cdown)
+      el.removeEventListener('pointermove', cmove)
+      el.removeEventListener('pointerup', cup)
+      el.removeEventListener('pointercancel', ccancel)
     }
   }, [gl, camera, world])
 
@@ -205,10 +273,12 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
       const goals = world.goals
       const alone = Object.keys(goals).find((a) => goals[a].pose === 'boardgame' && goals[a].spot === 'game_a' && world.rigs[a]?.arrived === 'game_a')
       const opposite = Object.values(goals).some((x) => x.spot === 'game_b')
-      if (alone && !opposite && world.source.getSnapshot()[alone]?.state === 'idle') {
+      // #604 omok or chess on the board (alkkagi has no visitor game yet: no tag)
+      const game = st?.boardGame
+      if (alone && !opposite && (game === 'omok' || game === 'chess') && world.source.getSnapshot()[alone]?.state === 'idle') {
         camera.updateMatrixWorld(true)
         const p = new Vector3(seat.x, OMOK_VIEW.tagAboveM, seat.z).project(camera)
-        if (p.z < 1) tag = { x: ((p.x + 1) / 2) * live.current.size.width, y: ((1 - p.y) / 2) * live.current.size.height, agent: alone, orient: visitPose(center, seat, g!.n * g!.cell, camera.fov, camera.aspect).orient }
+        if (p.z < 1) tag = { x: ((p.x + 1) / 2) * live.current.size.width, y: ((1 - p.y) / 2) * live.current.size.height, agent: alone, orient: visitPose(center, seat, g!.n * g!.cell, camera.fov, camera.aspect).orient, kind: game }
       }
     }
     setOmokTag(tag)
@@ -266,7 +336,7 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
       }
       // #601 the moment the call came (once, once a stone in the hand is down): a look 25° toward the desk for 0.6 s, surprised then a nod, the line
       const wv = getOmokVisit()
-      const gm = wv.game
+      const gm = wv.chess ?? wv.game
       const rigA = world.rigs[v.agent]
       const midMove = !!gm && (!!gm.pending || (!!gm.landed && now < gm.landed.at + gm.landed.thinkMs + 1000))
       if (wv.work && !wv.work.told && !gm?.end && !midMove && rigA) {
@@ -282,27 +352,30 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
       const fr = chipShown(wv.work, now) && !gm?.end && v.phase === 'open' && face ? faceScreenRect(face, camera, { left: 0, top: 0, width: live.current.size.width, height: live.current.size.height }) : null
       setOmokChip(fr ? { x: fr.right + 8, y: fr.top } : null)
       // the game won (a five, or the agent resigned and the visitor played on): match.win once, at the winner's side (sound.md, #593)
-      const gw = getOmokVisit().game
+      const gw = getOmokVisit().chess ?? getOmokVisit().game
       const res = gw?.end?.result
       const key = gw?.end && (res === 'black' || res === 'resign' || res === 'white') ? `${gw.seed}|${gw.game}|${gw.end.at}` : null
       if (key && wonKey.current !== key) {
         wonKey.current = key
         const r = world.rigs[v.agent]
         // #603 the visitor may hold white after a swap: who won, not which colour
-        const at = gw && visitorWon(gw) ? (seat ? { x: seat.x, y: 0.9, z: seat.z } : undefined) : r ? { x: r.x, y: 1, z: r.z } : undefined
+        const cs = getOmokVisit().chess
+        const og = getOmokVisit().game
+        const vw = cs ? chessVisitorWon(cs) : !!og && visitorWon(og)
+        const at = vw ? (seat ? { x: seat.x, y: 0.9, z: seat.z } : undefined) : r ? { x: r.x, y: 1, z: r.z } : undefined
         cue('match.win', { pos: at })
       }
       if (!gw?.end) wonKey.current = null
       // a game it let go (quiet) closes by itself after the agent's word; #601 one wound up for work stays until the visitor leaves (play.md 10.3)
-      const game = getOmokVisit().game
+      const game = getOmokVisit().chess ?? getOmokVisit().game
       const over = game?.end && game.end.result === 'idle'
       if (over && endAt.current === null) endAt.current = now
       if (!over) endAt.current = null
       if (over && endAt.current !== null && now - endAt.current >= END_CLOSE_MS && getOmokVisit().phase === 'open') closeOmok(now)
     }
 
-    // #603 (designer, #617) the board's right edge and middle on the screen: the chooser stands beside it on a wide screen
-    if (g && v.picker) {
+    // #603 (designer, #617) the board's right edge and middle on the screen: the chooser stands beside it on a wide screen (#604 the game sheet too)
+    if (g && (v.picker || v.gameSheet)) {
       const r = gl.domElement.getBoundingClientRect()
       const sx = (p: Vector3) => r.left + ((p.x + 1) / 2) * r.width
       const sy = (p: Vector3) => r.top + ((1 - p.y) / 2) * r.height
@@ -317,9 +390,18 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
       }
       setOmokBoardBox({ right, middle: (top + bottom) / 2 })
     }
+    // #604 (hologram.md 11.5) the promotion sheet stands right over the square the pawn reached: a piece's height above it, on the screen
+    const promoSq = v.promo?.to ?? null
+    const promoP = promoSq !== null && st ? st.chessSquarePos(promoSq) : null
+    if (promoP) {
+      const r = gl.domElement.getBoundingClientRect()
+      promoP.y += PROMO_ABOVE_M
+      promoP.project(camera)
+      setChessPromoAt({ x: r.left + ((promoP.x + 1) / 2) * r.width, y: r.top + ((1 - promoP.y) / 2) * r.height })
+    } else if (v.promoAt) setChessPromoAt(null)
 
     // the marks
-    const show = v.phase === 'open' && !!g && !!st
+    const show = v.phase === 'open' && !!g && !!st && v.kind === 'omok'
     const put = (m: Mesh, cell: number | null, lift: number) => {
       m.visible = show && cell !== null && cell >= 0
       if (m.visible) {

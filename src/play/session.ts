@@ -4,6 +4,7 @@
 
 import { PLAYS, hash, playAt, type BoardGameKind } from '../office/play'
 import type { OmokView } from './omok'
+import type { ChessView } from './chessTimeline'
 
 export type SessionKind = 'pingpong' | 'boardgame'
 export interface PlaySession {
@@ -21,6 +22,8 @@ export interface PlaySession {
   solo?: boolean
   /** #137 ② a visitor's game against the agent (players = [agent, VISITOR], the visitor black): the view comes from the visitor's game, not the seed */
   visitor?: OmokView
+  /** #604 the visitor's chess game (players = [agent, VISITOR]): the view comes from the visitor's game (visitorChess.ts chessViewOf), not the seed */
+  visitorChess?: ChessView
 }
 
 /** the visitor's place in a session's players (no rig: their stones appear without a hand) */

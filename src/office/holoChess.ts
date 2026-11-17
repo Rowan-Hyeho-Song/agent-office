@@ -14,6 +14,7 @@ import {
   type InstancedMesh,
   Mesh,
   NearestFilter,
+  NormalBlending,
   PlaneGeometry,
   RGBAFormat,
   ShaderMaterial,
@@ -30,7 +31,10 @@ export const FILM_PX = 121 // the 0.44 m film in board pixels (coordinates live 
 export const PXC = SQ / SQ_PX // one chess board-texture pixel
 export const BOARD_SIZE = BOARD_PX * PXC
 export const CVOX = 0.0036
-export const CBOX = 0.92
+/** hologram.md 11.2 (#658): the opaque glyphs are solid, no 8% gap between voxels (it let the back layer's tops show as dark lines and dots) */
+export const CBOX = 1
+/** hologram.md 11.2 (#658): in the visitor's game view the glyphs lean toward the camera this part of the way to facing it full on */
+export const TILT_PART = 0.5
 export const CGLOW_R = 0.018
 export const CGLOW_Y = 0.0002
 export const CPIECE_Y = 0.0005
@@ -46,11 +50,13 @@ export const T_MATE_GLOW = 2
 export const T_DRAW_DIM = 1
 export const T_RIPPLE_C = 0.3
 export const RIPPLE_RADII_C = [0.5, 0.83, 1.17, 1.5] // squares, 4 discrete steps
-export const CHESS_COLORS = { cyan: '#4df3ff', ivory: '#f3ead8', grid: '#8fd3da', red: '#ff5a5f' }
+export const CHESS_COLORS = { cyan: '#4df3ff', ivory: '#f3ead8', grid: '#8fd3da', red: '#ff5a5f', ink: '#0b0e13' }
 
 const CYAN = new Color(CHESS_COLORS.cyan)
 const IVORY = new Color(CHESS_COLORS.ivory)
 const RED = new Color(CHESS_COLORS.red)
+export const VISITOR_LIFT = 0.01 // the selected piece rises 1 cm (11.3)
+export const VISITOR_DRAG_Y = 0.02 // a dragged piece floats 2 cm over the board (11.5)
 const lerp = (a: number, b: number, k: number) => a + (b - a) * Math.min(1, Math.max(0, k))
 const sideColor = (colour: number) => (colour === 1 ? CYAN : IVORY)
 
@@ -133,10 +139,10 @@ function tex(src: Uint8Array, size: number): DataTexture {
 // ---- geometry -------------------------------------------------------------------------------------------------------------
 
 /**
- * One merged glyph: 2 layers deep, standing (rows up the y axis, x across, z depth), visible faces only. Per vertex: aShade (top 1.0, front/back 0.7,
- * left/right 0.5), aRow (voxel row from the bottom) and aCap (1 = the top of a voxel with another above it, shown only while it is the topmost visible row).
+ * One merged glyph: 2 layers deep, standing (rows up the y axis, x across, z depth), visible faces only. Per vertex: aShade (hologram.md 11.2, #655:
+ * front/back 1.0 (the face that draws the shape is the brightest), top 0.6, left/right 0.5), aRow (voxel row from the bottom) and aCap (1 = the top of a voxel with another above it, shown only while it is the topmost visible row).
  */
-export function buildPieceGeometry(kind: number): BufferGeometry {
+export function buildPieceGeometry(kind: number, ink = true): BufferGeometry {
   const rows = GLYPHS[kind]
   const H = rows.length
   const pos: number[] = []
@@ -155,10 +161,21 @@ export function buildPieceGeometry(kind: number): BufferGeometry {
     }
     idx.push(base, base + 1, base + 2, base, base + 2, base + 3)
   }
+  // #659 the ink rim: the voxels next to the glyph (8 ways) that are not in it, from its foot up to a row over its top (none under the board).
+  // Its rows show and go with the glyph's nearest row (aRow clamped), its faces carry aShade INK_SHADE (drawn in ink, no light, no scanline)
+  const rim = (c: number, rb: number) => {
+    if (!ink || rb < 0 || rb > H || c < -1 || c > 10 || has(c, rb)) return false
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (has(c + dx, rb + dy)) return true
+    return false
+  }
+  const solid = (c: number, rb: number) => has(c, rb) || rim(c, rb)
   const h = (CBOX * CVOX) / 2
-  for (let rb = 0; rb < H; rb++)
-    for (let c = 0; c < 10; c++) {
-      if (!has(c, rb)) continue
+  for (let rb = 0; rb <= H; rb++)
+    for (let c = -1; c <= 10; c++) {
+      const glyph = has(c, rb)
+      if (!glyph && !rim(c, rb)) continue
+      const r = Math.min(rb, H - 1)
+      const sh = (s: number) => (glyph ? s : INK_SHADE)
       const x0 = (c - 4.5) * CVOX - h
       const x1 = (c - 4.5) * CVOX + h
       const y0 = rb * CVOX + ((1 - CBOX) / 2) * CVOX
@@ -166,11 +183,11 @@ export function buildPieceGeometry(kind: number): BufferGeometry {
       for (let d = 0; d < GLYPH_DEPTH; d++) {
         const z0 = (d - 0.5) * CVOX - h
         const z1 = (d - 0.5) * CVOX + h
-        quad([[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], 1, rb, has(c, rb + 1) ? 1 : 0)
-        if (d === GLYPH_DEPTH - 1) quad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], 0.7, rb, 0)
-        if (d === 0) quad([[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]], 0.7, rb, 0)
-        if (!has(c + 1, rb)) quad([[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]], 0.5, rb, 0)
-        if (!has(c - 1, rb)) quad([[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], 0.5, rb, 0)
+        quad([[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], sh(SHADE.top), r, glyph && has(c, rb + 1) ? 1 : 0)
+        if (d === GLYPH_DEPTH - 1) quad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], sh(SHADE.front), r, 0)
+        if (d === 0) quad([[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]], sh(SHADE.front), r, 0)
+        if (!solid(c + 1, rb)) quad([[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]], sh(SHADE.side), r, 0)
+        if (!solid(c - 1, rb)) quad([[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], sh(SHADE.side), r, 0)
       }
     }
   const g = new BufferGeometry()
@@ -182,20 +199,40 @@ export function buildPieceGeometry(kind: number): BufferGeometry {
   return g
 }
 
+/** hologram.md 11.2 (#655): the pieces' face brightness, the face toward the viewer the brightest */
+export const SHADE = { front: 1, side: 0.5, top: 0.6 } as const
+/** hologram.md 11.2 (#659): a 1-voxel rim of --color-ink round the opaque glyph, 2 layers deep, unlit and without scanline: a piece's outline
+ * is drawn over the same-coloured piece behind it. Its faces are marked by this aShade */
+export const INK_SHADE = -1
+/** hologram.md 11.2 (#655): the pieces' scanline, weaker than the board's 0.55 (a voxel is about 3 px, as the scanline's period) */
+export const PIECE_SCAN = 0.85
+/** hologram.md 11.2 (#655): the lean toward the camera comes and goes over this long (s) as the visitor's game view starts and ends */
+export const TILT_S = 0.3
+
 const PIECE_VERT = /* glsl */ `
 attribute float aShade; attribute float aRow; attribute float aCap;
-attribute vec3 iPos; attribute vec4 iSt; attribute vec4 iRows; attribute vec3 iCol;
-varying vec3 vCol; varying float vA;
+attribute vec3 iPos; attribute vec4 iSt; attribute vec4 iRows; attribute vec4 iCol;
+uniform vec3 uCam; uniform float uTilt; uniform vec3 uInk; uniform vec3 uRimCursor;
+varying vec3 vCol; varying float vA; varying float vInk;
 const float VOX = ${CVOX};
+const float BACK = ${(-GLYPH_DEPTH / 2) * CVOX};
 void main() {
   // iSt = scale, brightness, alpha, yaw; iRows = first row, row count, sideways shake (m), stair flag (vanishing)
   bool vis = aRow + 0.5 > iRows.x && aRow + 0.5 < iRows.y && (aCap < 0.5 || iRows.y < aRow + 1.5);
   float k = mod(aRow, 2.0);
   float off = iRows.w > 0.5 ? (k < 1.0 ? 1.0 : -1.0) * (1.0 + mod(floor(aRow / 2.0), 2.0)) * VOX : 0.0;
   vec3 p = position; p.x += iRows.z + off; p *= iSt.x;
+  // the visitor's game view (uTilt 1): the glyph leans back about its foot's back edge TILT_PART of the way to facing the line of sight (the
+  // camera's elevation from the piece; full on, the opaque back rank hid the pawns behind it, #658); else it stands (yaw only)
+  vec3 d = uCam - iPos;
+  float e = uTilt * ${TILT_PART.toFixed(3)} * max(atan(d.y, max(length(d.xz), 1e-4)), 0.0);
+  float ce = cos(e); float se = sin(e); float zb = BACK * iSt.x; float pz = p.z - zb;
+  p = vec3(p.x, p.y * ce + pz * se, -p.y * se + pz * ce + zb);
   float c = cos(iSt.w); float s = sin(iSt.w);
   p = vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c) + iPos;
-  vCol = iCol * aShade * iSt.y; vA = iSt.z;
+  // #659 the ink rim: its own colour, not the piece's, nor its brightness (a lit piece keeps a dark rim); #660 cyan on the cursor's piece (iCol.w)
+  vInk = aShade < 0.0 ? 1.0 : 0.0;
+  vCol = vInk > 0.5 ? (iCol.w > 0.5 ? uRimCursor : uInk) : iCol.rgb * aShade * iSt.y; vA = iSt.z;
   gl_Position = vis ? projectionMatrix * modelViewMatrix * vec4(p, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);
 }`
 
@@ -250,6 +287,17 @@ export interface ChessInput {
   flip?: boolean
   /** camera position in world space (the pieces turn to face it) */
   camera?: Vector3
+  /** the visitor's marks (11.3, 11.5); absent = none */
+  visitor?: {
+    /** the chosen piece's cell */
+    selected: number | null
+    /** squares it may move to; `capture` squares get cyan corners, the others a centre dot */
+    targets: { sq: number; capture: boolean }[]
+    /** keyboard cursor cell (cyan ring) */
+    cursor: number | null
+    /** while dragged: the selected piece follows this world point (2 cm over the board) instead of standing on its cell */
+    drag: { pos: Vector3 } | null
+  }
 }
 export interface ChessFrame {
   t: number
@@ -261,6 +309,9 @@ export interface ChessFrame {
   glow(colour: number, x: number, z: number, r: number, a: number): void
   mark(x: number, y: number, z: number, sx: number, sz: number, rot: number, c: Color, bright: number, a?: number): void
   dot(x: number, y: number, z: number, sx: number, sz: number, c: Color, a: number): void
+  /** #660 the same, drawn over the opaque pieces (no depth test): the visitor's cursor ring, target dots, capture corners */
+  markOver?(x: number, y: number, z: number, sx: number, sz: number, rot: number, c: Color, bright: number, a?: number): void
+  dotOver?(x: number, y: number, z: number, sx: number, sz: number, c: Color, a: number): void
 }
 
 const LAND = 0
@@ -306,6 +357,8 @@ export class ChessLayer {
   private offAt: number | null = null
   private heldSince = NaN
   private heldYaw = 0
+  /** #655 the lean toward the camera: where it was going from, to (0 standing, 1 facing the camera) and since when */
+  private tilt = { from: 0, to: 0, at: -Infinity }
 
   constructor(stage: HoloStage) {
     this.stage = stage
@@ -313,15 +366,19 @@ export class ChessLayer {
       vertexShader: PIECE_VERT,
       fragmentShader: /* glsl */ `
 uniform float uDpr; uniform float uAlpha;
-varying vec3 vCol; varying float vA;
+varying vec3 vCol; varying float vA; varying float vInk;
 void main() {
-  float scan = ${stage.scan};
+  float scan = vInk > 0.5 ? 1.0 : mod(floor(gl_FragCoord.y / uDpr), 3.0) < 1.0 ? ${PIECE_SCAN.toFixed(2)} : 1.0;
   gl_FragColor = vec4(vCol * scan, vA * uAlpha);
   #include <colorspace_fragment>
 }`,
-      uniforms: { ...stage.uniforms },
+      uniforms: { ...stage.uniforms, uCam: { value: new Vector3() }, uTilt: { value: 0 }, uInk: { value: new Color(CHESS_COLORS.ink) }, uRimCursor: { value: new Color(CHESS_COLORS.cyan) } },
     })
-    stage.light(pieceMat, AdditiveBlending)
+    // hologram.md 11.2 (#657, #655): the pieces' voxels are opaque (normal blending, depth written, unlit), not added light: a piece in front
+    // hides the one behind it (the near pawns stand out against the back rank) at every view. Still drawn after the film (transparent pass,
+    // render order 2) so a fading piece blends over it
+    stage.light(pieceMat, NormalBlending)
+    pieceMat.depthWrite = true
     this.boardTex = tex(boardPixels(), BOARD_PX)
     this.coordTex = [tex(coordPixels(false), FILM_PX), tex(coordPixels(true), FILM_PX)]
     const gridMat = stage.flat(CHESS_COLORS.grid, AdditiveBlending, this.boardTex, 1)
@@ -343,7 +400,7 @@ void main() {
       const out: Record<number, InstancedMesh> = {}
       for (let k = 1; k <= 6; k++) {
         geos[k] ??= buildPieceGeometry(k)
-        out[k] = stage.inst(geos[k].clone(), pieceMat, 40, { iPos: 3, iSt: 4, iRows: 4, iCol: 3 }, 2)
+        out[k] = stage.inst(geos[k].clone(), pieceMat, 40, { iPos: 3, iSt: 4, iRows: 4, iCol: 4 }, 2)
         stage.root.add(out[k])
       }
       void colour
@@ -442,13 +499,29 @@ void main() {
     return 1
   }
 
-  /** every frame: the board's turn and the camera (pieces face it) */
-  prepare(c: ChessInput | undefined, players: { seat: Vector3; color: number }[]) {
+  /**
+   * every frame: the board's turn and the camera (pieces face it). In the visitor's game view (c.visitor) they face it full on, leaning back
+   * (hologram.md 11.2, #655); the lean comes and goes over TILT_S, at once when reduced
+   */
+  prepare(c: ChessInput | undefined, players: { seat: Vector3; color: number }[], t = 0, reduced = false) {
     this.setOrientation(players, !!c?.flip)
     if (c?.camera) {
       this.stage.toLocal(c.camera, this.cam)
       this.hasCam = true
     } else this.hasCam = false
+    const to = this.hasCam && c?.visitor ? 1 : 0
+    const now = this.tiltAt(t, reduced)
+    if (to !== this.tilt.to) this.tilt = { from: now, to, at: t }
+    const u = this.materials.piece.uniforms
+    u.uTilt.value = this.tiltAt(t, reduced)
+    ;(u.uCam.value as Vector3).copy(this.cam)
+  }
+  /** the lean at time t (0 standing … 1 facing the camera) */
+  tiltAt(t: number, reduced = false): number {
+    const { from, to, at } = this.tilt
+    if (reduced) return to
+    const k = Math.min(1, Math.max(0, (t - at) / TILT_S))
+    return from + (to - from) * k * k * (3 - 2 * k)
   }
 
   /** drive state from the frame's inputs (phase on): reconcile the board, then events, captured row, check */
@@ -573,7 +646,7 @@ void main() {
   private counts = new Map<InstancedMesh, number>()
 
   /** one glyph instance */
-  private emit(kind: number, colour: number, x: number, y: number, z: number, o: { scale?: number; bright: number; alpha: number; lo?: number; hi?: number; shake?: number; stair?: boolean; yaw?: number }) {
+  private emit(kind: number, colour: number, x: number, y: number, z: number, o: { scale?: number; bright: number; alpha: number; lo?: number; hi?: number; shake?: number; stair?: boolean; yaw?: number; rim?: boolean }) {
     const m = this.pieces[colour === 2 ? 2 : 1][kind]
     const i = this.counts.get(m) ?? 0
     if (i >= 40) return
@@ -583,7 +656,7 @@ void main() {
     s.put(m, i, 'iPos', x, y, z)
     s.put(m, i, 'iSt', o.scale ?? 1, o.bright, o.alpha, o.yaw ?? this.yawAt(x, z))
     s.put(m, i, 'iRows', o.lo ?? 0, o.hi ?? rowsOf(kind), o.shake ?? 0, o.stair ? 1 : 0)
-    s.put(m, i, 'iCol', c.r, c.g, c.b)
+    s.put(m, i, 'iCol', c.r, c.g, c.b, o.rim ? 1 : 0)
   }
 
   draw(f: ChessFrame) {
@@ -618,6 +691,8 @@ void main() {
         const promo = this.promos.find((q) => q.sq === sq)
         if (promo) code = promo.oldCode
         if (!code || (f.held && f.held.from === sq && t >= f.held.since)) continue
+        const vs = c?.visitor && c.visitor.selected === sq ? c.visitor : null
+        if (vs?.drag) continue // drawn at the pointer below
         const colour = colourOf(code)
         const kind = Math.abs(code)
         this.squareLocal(sq, p)
@@ -632,7 +707,8 @@ void main() {
         }
         // look from its birth
         const a = t - this.born[sq]
-        const o = { bright: 1, alpha: 1, hi: rowsOf(kind), stair: false, lo: 0 }
+        // #660 the keyboard cursor on this piece's square: its rim turns cyan (hologram.md 11.3)
+        const o = { bright: 1, alpha: 1, hi: rowsOf(kind), stair: false, lo: 0, rim: c?.visitor?.cursor === sq }
         if (this.birth[sq] === LAND) {
           if (reduced) {
             o.alpha = Math.min(1, a / 0.1)
@@ -642,6 +718,7 @@ void main() {
         else o.hi = Math.max(1, Math.ceil(rowsOf(kind) * Math.min(1, Math.max(0, a / 0.2)) - 1e-9))
         const eb = endBright(colour)
         if (eb !== null) o.bright = eb
+        if (vs) o.bright = 1.3
         if (sq === kingSq && t >= end!.since) {
           const k = (t - end!.since) / (reduced ? 0.1 : T_CAPTURE)
           if (k >= 1) continue
@@ -661,8 +738,19 @@ void main() {
             if (cut < rowsOf(kind)) this.emit(kind, colour, x, base, z, { ...o, lo: cut })
             if (cut > 0) this.emit(nk, colour, x, base, z, { ...o, hi: cut })
           }
-        } else this.emit(kind, colour, x, base, z, { ...o, shake: shake * CVOX })
+        } else this.emit(kind, colour, x, vs ? base + VISITOR_LIFT : base, z, { ...o, shake: shake * CVOX })
         f.glow(colour, x, z, CGLOW_R, 0.3 * o.alpha * (o.hi / rowsOf(kind)))
+      }
+
+      // the dragged piece: follows the pointer 2 cm over the board, facing the camera
+      const vd = c?.visitor
+      if (vd?.drag && vd.selected !== null && this.offAt === null) {
+        const code = this.disp[vd.selected]
+        if (code) {
+          const q = this.stage.toLocal(vd.drag.pos, this.v)
+          this.emit(Math.abs(code), colourOf(code), q.x, lift + VISITOR_DRAG_Y, q.z, { bright: 1.3, alpha: 1 })
+          f.glow(colourOf(code), q.x, q.z, CGLOW_R, 0.1)
+        }
       }
 
       // captured pieces vanishing where they stood
@@ -736,6 +824,35 @@ void main() {
         for (const s of [-1, 1]) {
           f.dot(p.x, dotY, p.z + s * 4.5 * PXC, 10 * PXC, PXC, RED, 1)
           f.dot(p.x + s * 4.5 * PXC, dotY, p.z, PXC, 8 * PXC, RED, 1)
+        }
+      }
+      // the visitor's marks: centre dots (0.7), cyan ring round the cursor, cyan corners over the red last-move corners; over the pieces
+      // (#660: not hidden by the opaque glyphs; the red last move stays under them)
+      const vm = c?.visitor
+      const mark = f.markOver ?? f.mark
+      const dot = f.dotOver ?? f.dot
+      if (vm) {
+        const my = lift + CGLOW_Y
+        for (const tg of vm.targets) {
+          if (tg.capture) continue
+          this.squareLocal(tg.sq, p)
+          mark(p.x, my, p.z, 2 * PXC, 2 * PXC, 0, CYAN, 0.7)
+        }
+        if (vm.cursor !== null) {
+          this.squareLocal(vm.cursor, p)
+          for (const s of [-1, 1]) {
+            mark(p.x, my, p.z + s * 4.5 * PXC, 10 * PXC, PXC, 0, CYAN, 1)
+            mark(p.x + s * 4.5 * PXC, my, p.z, PXC, 8 * PXC, 0, CYAN, 1)
+          }
+        }
+        for (const tg of vm.targets) {
+          if (!tg.capture) continue
+          this.squareLocal(tg.sq, p)
+          for (const sx of [-1, 1])
+            for (const sz of [-1, 1]) {
+              dot(p.x + sx * 3.5 * PXC, dotY + 0.0001, p.z + sz * 4.5 * PXC, 3 * PXC, PXC, CYAN, 1)
+              dot(p.x + sx * 4.5 * PXC, dotY + 0.0001, p.z + sz * 3.5 * PXC, PXC, 3 * PXC, CYAN, 1)
+            }
         }
       }
       // landing ripple from one square size

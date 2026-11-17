@@ -110,11 +110,11 @@ export class PlaySounds {
    * #604 (sound.md 4.6) a chess piece put down: chess.place, or chess.capture instead when it takes (the frame it touches the square), once per
    * half-move. Key: chess:<seed>:<game>:<half-move>
    */
-  chessPiece(seed: number, game: number, moves: number, at: Vec | null, capture: boolean) {
+  chessPiece(seed: number, game: number, moves: number, at: Vec | null, capture: boolean, visitor = false) {
     const prev = this.chess
     this.chess = { seed, game, moves }
     if (!prev || prev.seed !== seed || prev.game !== game || moves !== prev.moves + 1 || !at) return
-    cue(capture ? 'chess.capture' : 'chess.place', { pos: { x: at.x, y: at.y, z: at.z }, key: `chess:${seed}:${game}:${moves}` })
+    cue(capture ? 'chess.capture' : 'chess.place', { pos: { x: at.x, y: at.y, z: at.z }, key: `chess:${seed}:${game}:${moves}`, ...(visitor ? { visitor: true } : {}) })
   }
   /**
    * #605 (sound.md 4.6) alkkagi: the nail meeting the stone (alkkagi.flick, the physics starts), and each engine event of the flick as it is passed:
