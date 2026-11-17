@@ -1834,8 +1834,27 @@ def build_keyrack():
     x0, y0, z0 = KR_AT
     wood_m = plastic("#6b4a30", 0.6, 0, 0.4, "shelf_wood")
     br = brass()
-    p = [place(rounded_slab("keyrack_board", 0.11, 0.018, 0.34, 0.012, (0, 0, 0), wood_m, G, seg=3, edge=0.003),
-               Mx(KR_AT, rz=math.pi / 2))[0]]
+    M = Mx(KR_AT, rz=math.pi / 2)
+    board = rounded_slab("keyrack_board", 0.11, 0.018, 0.34, 0.012, (0, 0, 0), wood_m, G, seg=3, edge=0.003)
+    # #478 (designer, follow-up): the back rim's 3 mm bevel baked to ~1 px strips that took the atlas margin's purple
+    # where the board meets the wall. Only the front rim is bevelled now; the back rim is a plain sharp corner
+    # (the back face sits 1 mm off the wall and is never seen)
+    me = board.data
+    back = max(me.polygons, key=lambda f: (M.to_3x3() @ f.normal).dot(W(-1, 0, 0)))  # faces the wall (web -x)
+    rim = set(back.edge_keys)
+    normals = {}
+    for f in me.polygons:
+        for k in f.edge_keys:
+            normals.setdefault(k, []).append(f.normal)
+    md = board.modifiers["bevel"]
+    wt = me.attributes.new("bevel_weight_edge", "FLOAT", "EDGE")
+    for e in me.edges:
+        ns = normals[e.key]
+        wt.data[e.index].value = float(len(ns) == 2 and ns[0].angle(ns[1]) > md.angle_limit and e.key not in rim)
+        e.use_edge_sharp = e.key in rim
+    md.limit_method = "WEIGHT"
+    md.segments = 1  # 13.2 "앞 모서리 3 mm 깎음": one chamfer strip; two segments split it into ~1 px islands that bled
+    p = [place(board, M)[0]]
     for s in (-1, 1):  # screw heads
         p.append(cyl("keyrack_screw", 0.006, 0.002, (KR_FX + 0.0005, 1.47, z0 + s * 0.145), br, G, 10, axis="x"))
     for dz in (-0.10, 0.0, 0.10):  # J hooks: out 3.5 cm, up 1.5 cm, a 5 mm ball on the tip
@@ -3249,9 +3268,13 @@ def make_book(name, W_, H_, T, cover_hex, home_pos, home_rot, G, ribbon=False):
                      box("label_ink", (W_ / 4.7, 0.0002, 0.003), (W_ / 2 + 0.008, c + 0.0015, -H_ * 0.2 + 0.006), ink, G)]
         elif ribbon:  # a ribbon bookmark slips out at the foot and lies on the table
             objs.append(box("ribbon", (0.005, 0.0005, 0.04), (0.055, -T / 2 + 0.0003, H_ / 2 + 0.012), band, G, rot_y=0.25))
-        for k in range(8):  # a few grey lines of text on the inner page (seen when open)
-            objs.append(box("line", (W_ - 0.04 - (0.03 if k % 3 == 2 else 0), 0.0002, 0.0025),
-                            (W_ / 2 - (0.015 if k % 3 == 2 else 0), -sgn * 0.0001, -H_ * 0.34 + k * H_ * 0.09), ink, G))
+        # a few grey lines of text on the inner page (seen when open). #281 2: one face each, facing out of the page
+        # 0.2 mm off it (where the 0.2 mm boxes' outer face was); the boxes' inner faces lay on the paper plane y = 0
+        # and fought the other half's paper and lines there while the book was closed. The paper planes stay at
+        # y = 0: the turning page (#231) and the open-book grips measure from them
+        for k in range(8):
+            objs += place(quad("line", W_ - 0.04 - (0.03 if k % 3 == 2 else 0), 0.0025, ink, G),
+                          Mx((W_ / 2 - (0.015 if k % 3 == 2 else 0), -sgn * 0.0002, -H_ * 0.34 + k * H_ * 0.09), rx=sgn * math.pi / 2))
         return live(pivot(join(nm, place(objs, H)), H), "bot")
 
     BOOK_HALVES.extend([half(f"{name}_l", 1), half(f"{name}_r", -1), turning_page(f"{name}_page", W_, H_, H, paper, G)])
