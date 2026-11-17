@@ -8,7 +8,9 @@ import {
   CVOX,
   FILM_PX,
   GLYPHS,
+  SHADE,
   SQ,
+  TILT_S,
   boardPixels,
   buildPieceGeometry,
   coordPixels,
@@ -145,7 +147,7 @@ describe('glyphs', () => {
       }
       const sh = g.getAttribute('aShade')
       const cap = g.getAttribute('aCap')
-      for (let i = 0; i < pos.count; i += 4) if (sh.getX(i) === 1 && cap.getX(i) === 0) top++
+      for (let i = 0; i < pos.count; i += 4) if (Math.abs(sh.getX(i) - SHADE.top) < 1e-6 && cap.getX(i) === 0) top++
       expect(maxY).toBeLessThanOrEqual(GLYPHS[k].length * CVOX + 1e-9)
       expect(maxY).toBeGreaterThan((GLYPHS[k].length - 1) * CVOX)
       expect(maxZ - minZ).toBeCloseTo(CVOX * 1.92 - CVOX * 0.92 + CVOX * 0.92 + 0, 4) // 2 layers (gap 8% inside a voxel)
@@ -155,9 +157,10 @@ describe('glyphs', () => {
       rows.forEach((r, y) => [...r].forEach((ch, x) => ch === '#' && (y === 0 || rows[y - 1][x] !== '#') && exposed++))
       expect(top).toBe(exposed * 2)
     }
-    // face shades only 1.0 / 0.7 / 0.5
+    // face shades only (#655, hologram.md 11.2): front/back 1.0, top 0.6, sides 0.5; the front the brightest
     const sh = buildPieceGeometry(2).getAttribute('aShade')
-    for (let i = 0; i < sh.count; i++) expect([1, 0.7, 0.5].some((v) => Math.abs(v - sh.getX(i)) < 1e-6)).toBe(true)
+    for (let i = 0; i < sh.count; i++) expect([1, 0.6, 0.5].some((v) => Math.abs(v - sh.getX(i)) < 1e-6)).toBe(true)
+    expect(SHADE).toEqual({ front: 1, side: 0.5, top: 0.6 })
   })
 })
 
@@ -629,5 +632,48 @@ describe('visitor marks (#604 stage 2)', () => {
     expect(p[2]).toBeCloseTo(q.z)
     expect(p[1]).toBeCloseTo(0.02 + 0.02) // light plane lift 2 cm + 2 cm
     expect(inst(white, 'iSt', 0)[1]).toBeCloseTo(1.3)
+  })
+})
+
+describe('the pieces face the visitor full on in their game view (#655, hologram.md 11.2)', () => {
+  const visitor = { selected: null, targets: [], cursor: null, drag: null }
+  const tilt = (holo: HoloBoard) => holo.chessLayer!.materials.piece.uniforms.uTilt.value as number
+  it('stand (yaw only) for the agents and the free camera; lean in over 0.3 s for the visitor, back out the same; the camera handed to the shader', () => {
+    const { holo } = make()
+    const t = opened(holo)
+    const b = startPosition().board
+    const cam = new Vector3(1.5, 1.6, -2 + 0.9)
+    holo.update(frame(t, ci({ board: b, camera: cam })))
+    expect(tilt(holo)).toBe(0)
+    holo.update(frame(t + 0.1, ci({ board: b, camera: cam, visitor })))
+    expect(tilt(holo)).toBe(0)
+    holo.update(frame(t + 0.1 + TILT_S / 2, ci({ board: b, camera: cam, visitor })))
+    expect(tilt(holo)).toBeCloseTo(0.5, 5)
+    holo.update(frame(t + 0.1 + TILT_S, ci({ board: b, camera: cam, visitor })))
+    expect(tilt(holo)).toBe(1)
+    // the shader's camera is in the board's frame (the surface at 1.5, 0.74, -2)
+    const u = holo.chessLayer!.materials.piece.uniforms.uCam.value as Vector3
+    expect([u.x, u.y, u.z].map((x) => +x.toFixed(6))).toEqual([0, +(1.6 - 0.74).toFixed(6), 0.9])
+    // the visitor leaves: back to standing over 0.3 s
+    holo.update(frame(t + 1, ci({ board: b, camera: cam })))
+    expect(tilt(holo)).toBe(1)
+    holo.update(frame(t + 1 + TILT_S, ci({ board: b, camera: cam })))
+    expect(tilt(holo)).toBe(0)
+  })
+  it('at once with reduced motion', () => {
+    const { holo } = make()
+    const t = opened(holo, true)
+    const b = startPosition().board
+    const cam = new Vector3(1.5, 1.6, -1.1)
+    holo.update(frame(t, ci({ board: b, camera: cam, visitor }), { reduced: true }))
+    expect(tilt(holo)).toBe(1)
+    holo.update(frame(t + 0.01, ci({ board: b, camera: cam }), { reduced: true }))
+    expect(tilt(holo)).toBe(0)
+  })
+  it('the pieces scanline is the weaker 0.85 (the board keeps 0.55)', () => {
+    const { holo } = make()
+    opened(holo)
+    expect(holo.chessLayer!.materials.piece.fragmentShader).toContain('? 0.85 : 1.0')
+    expect(holo.chessLayer!.materials.grid.fragmentShader).toContain('0.55')
   })
 })

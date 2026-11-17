@@ -135,8 +135,8 @@ function tex(src: Uint8Array, size: number): DataTexture {
 // ---- geometry -------------------------------------------------------------------------------------------------------------
 
 /**
- * One merged glyph: 2 layers deep, standing (rows up the y axis, x across, z depth), visible faces only. Per vertex: aShade (top 1.0, front/back 0.7,
- * left/right 0.5), aRow (voxel row from the bottom) and aCap (1 = the top of a voxel with another above it, shown only while it is the topmost visible row).
+ * One merged glyph: 2 layers deep, standing (rows up the y axis, x across, z depth), visible faces only. Per vertex: aShade (hologram.md 11.2, #655:
+ * front/back 1.0 (the face that draws the shape is the brightest), top 0.6, left/right 0.5), aRow (voxel row from the bottom) and aCap (1 = the top of a voxel with another above it, shown only while it is the topmost visible row).
  */
 export function buildPieceGeometry(kind: number): BufferGeometry {
   const rows = GLYPHS[kind]
@@ -168,11 +168,11 @@ export function buildPieceGeometry(kind: number): BufferGeometry {
       for (let d = 0; d < GLYPH_DEPTH; d++) {
         const z0 = (d - 0.5) * CVOX - h
         const z1 = (d - 0.5) * CVOX + h
-        quad([[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], 1, rb, has(c, rb + 1) ? 1 : 0)
-        if (d === GLYPH_DEPTH - 1) quad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], 0.7, rb, 0)
-        if (d === 0) quad([[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]], 0.7, rb, 0)
-        if (!has(c + 1, rb)) quad([[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]], 0.5, rb, 0)
-        if (!has(c - 1, rb)) quad([[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], 0.5, rb, 0)
+        quad([[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], SHADE.top, rb, has(c, rb + 1) ? 1 : 0)
+        if (d === GLYPH_DEPTH - 1) quad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], SHADE.front, rb, 0)
+        if (d === 0) quad([[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]], SHADE.front, rb, 0)
+        if (!has(c + 1, rb)) quad([[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]], SHADE.side, rb, 0)
+        if (!has(c - 1, rb)) quad([[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], SHADE.side, rb, 0)
       }
     }
   const g = new BufferGeometry()
@@ -184,17 +184,32 @@ export function buildPieceGeometry(kind: number): BufferGeometry {
   return g
 }
 
+/** hologram.md 11.2 (#655): the pieces' face brightness, the face toward the viewer the brightest */
+export const SHADE = { front: 1, side: 0.5, top: 0.6 } as const
+/** hologram.md 11.2 (#655): the pieces' scanline, weaker than the board's 0.55 (a voxel is about 3 px, as the scanline's period) */
+export const PIECE_SCAN = 0.85
+/** hologram.md 11.2 (#655): the lean toward the camera comes and goes over this long (s) as the visitor's game view starts and ends */
+export const TILT_S = 0.3
+
 const PIECE_VERT = /* glsl */ `
 attribute float aShade; attribute float aRow; attribute float aCap;
 attribute vec3 iPos; attribute vec4 iSt; attribute vec4 iRows; attribute vec3 iCol;
+uniform vec3 uCam; uniform float uTilt;
 varying vec3 vCol; varying float vA;
 const float VOX = ${CVOX};
+const float BACK = ${(-GLYPH_DEPTH / 2) * CVOX};
 void main() {
   // iSt = scale, brightness, alpha, yaw; iRows = first row, row count, sideways shake (m), stair flag (vanishing)
   bool vis = aRow + 0.5 > iRows.x && aRow + 0.5 < iRows.y && (aCap < 0.5 || iRows.y < aRow + 1.5);
   float k = mod(aRow, 2.0);
   float off = iRows.w > 0.5 ? (k < 1.0 ? 1.0 : -1.0) * (1.0 + mod(floor(aRow / 2.0), 2.0)) * VOX : 0.0;
   vec3 p = position; p.x += iRows.z + off; p *= iSt.x;
+  // the visitor's game view (uTilt 1): the glyph leans back about its foot's back edge until its face meets the line of sight (the camera's
+  // elevation from the piece); else it stands (yaw only)
+  vec3 d = uCam - iPos;
+  float e = uTilt * max(atan(d.y, max(length(d.xz), 1e-4)), 0.0);
+  float ce = cos(e); float se = sin(e); float zb = BACK * iSt.x; float pz = p.z - zb;
+  p = vec3(p.x, p.y * ce + pz * se, -p.y * se + pz * ce + zb);
   float c = cos(iSt.w); float s = sin(iSt.w);
   p = vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c) + iPos;
   vCol = iCol * aShade * iSt.y; vA = iSt.z;
@@ -319,6 +334,8 @@ export class ChessLayer {
   private offAt: number | null = null
   private heldSince = NaN
   private heldYaw = 0
+  /** #655 the lean toward the camera: where it was going from, to (0 standing, 1 facing the camera) and since when */
+  private tilt = { from: 0, to: 0, at: -Infinity }
 
   constructor(stage: HoloStage) {
     this.stage = stage
@@ -328,11 +345,11 @@ export class ChessLayer {
 uniform float uDpr; uniform float uAlpha;
 varying vec3 vCol; varying float vA;
 void main() {
-  float scan = ${stage.scan};
+  float scan = mod(floor(gl_FragCoord.y / uDpr), 3.0) < 1.0 ? ${PIECE_SCAN.toFixed(2)} : 1.0;
   gl_FragColor = vec4(vCol * scan, vA * uAlpha);
   #include <colorspace_fragment>
 }`,
-      uniforms: { ...stage.uniforms },
+      uniforms: { ...stage.uniforms, uCam: { value: new Vector3() }, uTilt: { value: 0 } },
     })
     stage.light(pieceMat, AdditiveBlending)
     this.boardTex = tex(boardPixels(), BOARD_PX)
@@ -455,13 +472,29 @@ void main() {
     return 1
   }
 
-  /** every frame: the board's turn and the camera (pieces face it) */
-  prepare(c: ChessInput | undefined, players: { seat: Vector3; color: number }[]) {
+  /**
+   * every frame: the board's turn and the camera (pieces face it). In the visitor's game view (c.visitor) they face it full on, leaning back
+   * (hologram.md 11.2, #655); the lean comes and goes over TILT_S, at once when reduced
+   */
+  prepare(c: ChessInput | undefined, players: { seat: Vector3; color: number }[], t = 0, reduced = false) {
     this.setOrientation(players, !!c?.flip)
     if (c?.camera) {
       this.stage.toLocal(c.camera, this.cam)
       this.hasCam = true
     } else this.hasCam = false
+    const to = this.hasCam && c?.visitor ? 1 : 0
+    const now = this.tiltAt(t, reduced)
+    if (to !== this.tilt.to) this.tilt = { from: now, to, at: t }
+    const u = this.materials.piece.uniforms
+    u.uTilt.value = this.tiltAt(t, reduced)
+    ;(u.uCam.value as Vector3).copy(this.cam)
+  }
+  /** the lean at time t (0 standing … 1 facing the camera) */
+  tiltAt(t: number, reduced = false): number {
+    const { from, to, at } = this.tilt
+    if (reduced) return to
+    const k = Math.min(1, Math.max(0, (t - at) / TILT_S))
+    return from + (to - from) * k * k * (3 - 2 * k)
   }
 
   /** drive state from the frame's inputs (phase on): reconcile the board, then events, captured row, check */

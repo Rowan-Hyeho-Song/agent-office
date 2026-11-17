@@ -595,7 +595,7 @@ export class HoloBoard {
     }
     const chess = game === 'chess' ? this.ensureChess() : null
     const alk = game === 'alkkagi' ? this.ensureAlk() : null
-    chess?.prepare(inp.chess, inp.players)
+    chess?.prepare(inp.chess, inp.players, t, reduced)
     alk?.prepare(inp.players)
 
     // ---- phase machine
