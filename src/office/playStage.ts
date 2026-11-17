@@ -837,11 +837,7 @@ export class PlayStage {
       pick: held?.pick,
     })
     this.holoPhase = phase
-    // the panel glows while the board is on; the turn light of the side to move is lit, the other dim, both dark with the board off
-    const lit = r.boardOn
-    this.holoPanel(lit ? HOLO_NEON.panel : 0)
-    const turn = view && playing ? view.toMove : null
-    for (const c of [1, 2] as const) this.holoTurn[c](!lit ? 0 : turn === c ? HOLO_NEON.turn : HOLO_NEON.idle)
+    this.holoNeons(r.boardOn, view && playing ? view.toMove : null)
     if (r.boardOnStart) this.sounds.holoBoard(true, centre, inp.reduced)
     if (r.boardOffStart) this.sounds.holoBoard(false, centre, inp.reduced)
     if (!s || !view) return
@@ -974,6 +970,7 @@ export class PlayStage {
         : undefined,
     })
     this.chessPhase = phase
+    this.holoNeons(r.boardOn, view && playing ? (view.toMove === 0 ? 2 : 1) : null)
     const centre = holo.squarePos(27).lerp(holo.squarePos(36), 0.5)
     if (r.boardOnStart) this.sounds.holoBoard(true, centre, inp.reduced)
     if (r.boardOffStart) this.sounds.holoBoard(false, centre, inp.reduced)
@@ -999,6 +996,15 @@ export class PlayStage {
         }
       }
     }
+  }
+
+  /**
+   * #538 (hologram.md 1.5) the projector's live neons for every game: the panel glows while the board is on; the turn light of the colour to
+   * move is lit, the other dim, both dark with the board off (#605: chess and alkkagi left the panel at its bake, bright through the film)
+   */
+  private holoNeons(lit: boolean, turn: 1 | 2 | null) {
+    this.holoPanel(lit ? HOLO_NEON.panel : 0)
+    for (const c of [1, 2] as const) this.holoTurn[c](!lit ? 0 : turn === c ? HOLO_NEON.turn : HOLO_NEON.idle)
   }
 
   /**
@@ -1060,6 +1066,7 @@ export class PlayStage {
         : undefined,
     })
     this.alkPhase = phase
+    this.holoNeons(r.boardOn, view && (phase === 'thinking' || phase === 'aim' || phase === 'moving' || phase === 'settle') ? (view.toMove === 0 ? 1 : 2) : null)
     const centre = holo.alkPos(0, 0)
     if (r.boardOnStart) this.sounds.holoBoard(true, centre, inp.reduced)
     if (r.boardOffStart) this.sounds.holoBoard(false, centre, inp.reduced)
