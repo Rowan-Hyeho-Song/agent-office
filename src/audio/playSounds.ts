@@ -116,6 +116,21 @@ export class PlaySounds {
     if (!prev || prev.seed !== seed || prev.game !== game || moves !== prev.moves + 1 || !at) return
     cue(capture ? 'chess.capture' : 'chess.place', { pos: { x: at.x, y: at.y, z: at.z }, key: `chess:${seed}:${game}:${moves}` })
   }
+  /**
+   * #605 (sound.md 4.6) alkkagi: the nail meeting the stone (alkkagi.flick, the physics starts), and each engine event of the flick as it is passed:
+   * a hit (alkkagi.hit, its power the closing speed over ALK.maxSpeed, none under 0.5 lines/s) and a stone over the edge (alkkagi.drop). Keys:
+   * alkkagi:<seed>:<game>:<flick>[:<step>]. A jump plays nothing (the events between are skipped)
+   */
+  alkFlick(seed: number, game: number, turn: number, at: Vec) {
+    cue('alkkagi.flick', { pos: { x: at.x, y: at.y, z: at.z }, key: `alkkagi:${seed}:${game}:${turn}` })
+  }
+  alkEvent(seed: number, game: number, turn: number, e: { kind: 'hit' | 'out'; step: number; speed?: number }, at: Vec) {
+    const key = `alkkagi:${seed}:${game}:${turn}:${e.step}`
+    if (e.kind === 'hit') {
+      if ((e.speed ?? 0) < 0.5) return
+      cue('alkkagi.hit', { pos: { x: at.x, y: at.y, z: at.z }, power: Math.min(1, (e.speed ?? 0) / 26), key })
+    } else cue('alkkagi.drop', { pos: { x: at.x, y: at.y, z: at.z }, key })
+  }
   /** #604 the king put in check (the frame it begins), at its square */
   chessCheck(seed: number, game: number, moves: number, at: Vec) {
     cue('chess.check', { pos: { x: at.x, y: at.y, z: at.z }, key: `chess:${seed}:${game}:${moves}:check` })

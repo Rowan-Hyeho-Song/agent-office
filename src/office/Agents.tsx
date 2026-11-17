@@ -339,7 +339,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
     const status = scene ? scene.status : world.source.getSnapshot()
     // ?debug=1: window.__office.forceSpots = { agent_0: 'whiteboard', ... } sends agents to spots (head-on tests, screenshots)
     if (world.debug && world.forceSpots) for (const id in world.forceSpots) if (goals[id]) goals[id] = { ...goals[id], spot: world.forceSpots[id], pose: 'idle', label: 'debug' }
-    if (world.debug && world.forceGoal) for (const id in world.forceGoal) if (goals[id]) goals[id] = { ...goals[id], ...world.forceGoal[id], label: 'debug' }
+    // (the director's own place for it is dropped: its slot, facing, departure or gap would walk the body off the forced spot when its plan moves on, #654)
+    if (world.debug && world.forceGoal) for (const id in world.forceGoal) if (goals[id]) goals[id] = { ...goals[id], slot: undefined, face: undefined, depart: undefined, gap: undefined, ...world.forceGoal[id], label: 'debug' }
     // #601 (designer, #615) held at the visitor's game while called to work: this tab's tag and list show the real activity (파일 편집 중, no
     // "자리로 가는 중": it is not on its way); the other tabs keep the director's words, the body there does go to its desk. Read by the director's
     // next frame

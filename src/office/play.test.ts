@@ -377,8 +377,8 @@ describe('resting in one place (#525)', () => {
 // #604 (hologram.md 10.2, play.md 9): the board table hosts one of several games, chosen when the empty table gets its first occupant
 describe('the board game (hologram.md 10.2)', () => {
   const boards = (d: number) => dayPlan(d, FIVE).flatMap((segs) => segs.filter((s) => s.kind === 'boardgame' || s.kind === 'boardgame_solo'))
-  it('every board stay has a game; weights omok 4 : chess 4, alkkagi off for now', () => {
-    expect(GAME_WEIGHTS).toEqual({ omok: 4, chess: 4, alkkagi: 0 })
+  it('every board stay has a game; weights omok 4 : chess 4 : alkkagi 2 (#605 turned alkkagi on)', () => {
+    expect(GAME_WEIGHTS).toEqual({ omok: 4, chess: 4, alkkagi: 2 })
     const days = Array.from({ length: 30 }, (_, k) => 20_400 + k)
     const count = { omok: 0, chess: 0, alkkagi: 0 }
     let n = 0
@@ -388,17 +388,19 @@ describe('the board game (hologram.md 10.2)', () => {
       n++
     }
     expect(n).toBeGreaterThan(400)
-    expect(count.alkkagi).toBe(0)
-    expect(count.chess / n).toBeGreaterThan(0.4)
-    expect(count.chess / n).toBeLessThan(0.6)
-    expect(count.omok / n).toBeGreaterThan(0.4)
+    expect(count.alkkagi / n).toBeGreaterThan(0.1)
+    expect(count.alkkagi / n).toBeLessThan(0.3)
+    expect(count.chess / n).toBeGreaterThan(0.3)
+    expect(count.chess / n).toBeLessThan(0.5)
+    expect(count.omok / n).toBeGreaterThan(0.3)
   })
-  it('chooseGame over many seeds: omok and chess about 50 / 50, never alkkagi; the same seed the same game', () => {
+  it('chooseGame over many seeds: omok and chess about 40% each, alkkagi about 20%; the same seed the same game', () => {
     const count = { omok: 0, chess: 0, alkkagi: 0 }
     for (let k = 0; k < 1000; k++) count[chooseGame(`seed|${k}`)]++
-    expect(count.alkkagi).toBe(0)
-    expect(count.chess).toBeGreaterThan(400)
-    expect(count.chess).toBeLessThan(600)
+    expect(count.alkkagi).toBeGreaterThan(150)
+    expect(count.alkkagi).toBeLessThan(250)
+    expect(count.chess).toBeGreaterThan(340)
+    expect(count.chess).toBeLessThan(460)
     expect(chooseGame('x|1')).toBe(chooseGame('x|1'))
   })
   it('a partner joining one alone keeps its game, and both are in that game', () => {
