@@ -2,7 +2,7 @@
 // during one stay of the day's plan (#490); its seed hashes (the stay, kind, spot, players), so the same wall time gives the same
 // rally and the same stones in every browser, in timelapse and after seeking. Pure: no Date, no random.
 
-import { PLAYS, hash, playAt } from '../office/play'
+import { PLAYS, hash, playAt, type BoardGameKind } from '../office/play'
 import type { OmokView } from './omok'
 
 export type SessionKind = 'pingpong' | 'boardgame'
@@ -15,6 +15,8 @@ export interface PlaySession {
   seed: number
   /** when both players are there (a pair; play.md 9.2: the first one waited), or when the record placed alone began (ms) */
   startMs: number
+  /** the board game, for kind 'boardgame' (pair, solo record, and the visitor's game; hologram.md 10.2) */
+  game?: BoardGameKind
   /** #137: one agent placing a game record alone (players = [it, it]): it plays both colours, the other chair is empty */
   solo?: boolean
   /** #137 ② a visitor's game against the agent (players = [agent, VISITOR], the visitor black): the view comes from the visitor's game, not the seed */
@@ -43,10 +45,10 @@ export function sessionsAt(ms: number, agents: string[], busy: ReadonlySet<strin
     if (!a) continue
     const b = assign[a].partner!
     if (assign[b]?.spot !== def.spots[1]) continue
-    out.push({ kind: def.kind, spot: def.spots[0], players: [a, b], seed: hash(`${assign[a].stay}|${def.kind}|${def.spots[0]}|${a}|${b}`), startMs: assign[a].pairAt ?? assign[a].since })
+    out.push({ kind: def.kind, spot: def.spots[0], players: [a, b], seed: hash(`${assign[a].stay}|${def.kind}|${def.spots[0]}|${a}|${b}`), startMs: assign[a].pairAt ?? assign[a].since, ...(def.kind === 'boardgame' ? { game: assign[a].game ?? 'omok' } : {}) })
   }
   // a game record placed alone (#137): the board's session with the one agent on both sides
   const solo = Object.keys(assign).sort().find((id) => assign[id].kind === 'boardgame_solo')
-  if (solo) out.push({ kind: 'boardgame', spot: assign[solo].spot, players: [solo, solo], solo: true, seed: hash(`${assign[solo].stay}|boardgame_solo|${assign[solo].spot}|${solo}`), startMs: assign[solo].since })
+  if (solo) out.push({ kind: 'boardgame', spot: assign[solo].spot, players: [solo, solo], solo: true, game: assign[solo].game ?? 'omok', seed: hash(`${assign[solo].stay}|boardgame_solo|${assign[solo].spot}|${solo}`), startMs: assign[solo].since })
   return out
 }

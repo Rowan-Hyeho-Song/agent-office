@@ -590,7 +590,7 @@ export class PlayStage {
     // #538 from the moment the visitor sits (hologram.md 2: the visitor turns the board on too), not only once the agent reached its chair: the
     // visitor's moves before that were neither drawn nor heard (sound, #648). The agent's hand waits for its chair (omokHands)
     const vo = inp.visitorOmok
-    if (vo) og = { kind: 'boardgame', spot: 'game_a', players: [vo.agent, VISITOR], seed: hash(`visitor|${vo.agent}`), startMs: 0, visitor: vo.view }
+    if (vo) og = { kind: 'boardgame', spot: 'game_a', players: [vo.agent, VISITOR], seed: hash(`visitor|${vo.agent}`), startMs: 0, game: 'omok', visitor: vo.view }
     // #137 ③ the visitor holds the near paddle: their match, the agent at the far end (no hand at the near one)
     const vp = inp.visitorPingpong
     if (vp) pp = inp.rigs[vp.agent]?.arrived === 'pingpong_b' ? { kind: 'pingpong', spot: 'pingpong_a', players: [VISITOR, vp.agent], seed: hash(`visitor|pp|${vp.agent}`), startMs: 0 } : null
