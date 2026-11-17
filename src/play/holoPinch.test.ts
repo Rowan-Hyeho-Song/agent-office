@@ -1,7 +1,7 @@
 // #538 (hologram.md 4.3) the pinch timeline of the hologram board's hand.
 import { describe, expect, it } from 'vitest'
 import { HAND_MS, PLACE_AT } from './omok'
-import { CHESS_PINCH, PINCH, chessPinch, pinchSequence, pinchTimes } from './holoPinch'
+import { ALK_FLICK, CHESS_PINCH, PINCH, chessPinch, flickHand, pinchSequence, pinchTimes } from './holoPinch'
 
 describe('the pinch timeline (hologram.md 4.3)', () => {
   const think = 1200
@@ -80,5 +80,31 @@ describe('the chess hand (hologram.md 11.4)', () => {
     }
     expect(top).toBeLessThanOrEqual(CHESS_PINCH.arcTop + 1e-9)
     expect(top).toBeGreaterThan(0.07)
+  })
+})
+
+describe('the alkkagi flick hand (hologram.md 12.4)', () => {
+  const think = 800
+  it('hovers over the stone while thinking, comes behind it, aims, cocks, and its nail meets the stone at 0.81 s; back by 1.4 s', () => {
+    expect(flickHand(300, think)).toMatchObject({ stage: 'hover', aim: null, flicked: false })
+    expect(flickHand(think + 400, think)).toMatchObject({ stage: 'aim', back: ALK_FLICK.aimBack })
+    expect(flickHand(think + 400, think).aim).toBeGreaterThan(0)
+    const cocked = flickHand(think + ALK_FLICK.cock - 1, think)
+    expect(cocked.back).toBeCloseTo(ALK_FLICK.cockBack, 3)
+    expect(cocked.cock).toBe(1)
+    const hit = flickHand(think + ALK_FLICK.flick, think)
+    expect(hit).toMatchObject({ stage: 'hold', flicked: true })
+    expect(hit.back).toBeCloseTo(0, 6)
+    expect(flickHand(think + ALK_FLICK.flick - 1, think).flicked).toBe(false)
+    expect(flickHand(think + ALK_FLICK.end, think)).toMatchObject({ stage: 'rest', w: 0 })
+  })
+  it('the finger weights always sum to 1 and the hand moves without jumps while on its path', () => {
+    let prev = flickHand(0, think)
+    for (let s = 5; s <= think + ALK_FLICK.end; s += 5) {
+      const p = flickHand(s, think)
+      expect(p.cock + p.strike + p.extend, `weights at ${s}`).toBeCloseTo(1, 6)
+      if (p.w > 0.05 && prev.w > 0.05) expect(Math.abs(p.back - prev.back) + Math.abs(p.h - prev.h), `path at ${s}`).toBeLessThan(0.012)
+      prev = p
+    }
   })
 })

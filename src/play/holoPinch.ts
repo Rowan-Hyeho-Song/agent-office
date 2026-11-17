@@ -174,3 +174,69 @@ export function chessPinch(sinceMs: number, thinkMs: number): ChessPinch {
   const q = ease((since - C.release) / (C.end - C.land - C.release))
   return { ...out, stage: 'back', close: 0.5 * (1 - q), w: 1 - q, rise: C.releaseLift + C.backRise * q, pull: C.backPull * q }
 }
+
+// ---- #605 alkkagi (hologram.md 12.4) --------------------------------------------------------------------------------------------
+// The hand hovers 4 cm over the chosen stone while the player thinks; then it comes low behind the stone (0–0.3 s), turns to the direction while
+// the dotted line grows (0.3–0.55 s), cocks the index on the thumb and draws back 0.5 cm (0.55–0.75 s), and flicks: the index snaps out and its
+// nail meets the stone's back at 0.81 s (the physics starts there). It holds the finger out 0.1 s, then goes back to rest by 1.4 s. Times from the
+// end of the thinking.
+
+export const ALK_FLICK = {
+  hoverH: 0.04,
+  reach: 300,
+  aim: 550,
+  cock: 750,
+  flick: 810,
+  hold: 910,
+  end: 1400,
+  /** behind the stone: the fingertip this far from its contact when aiming, cocked (drawn back 0.5 cm more), and the follow-through past it */
+  aimBack: 0.01,
+  cockBack: 0.015,
+  through: 0.004,
+  /** the hand's height: the fingertip at the stone's middle (0), over it while hovering */
+  low: 0,
+} as const
+
+export interface FlickHand {
+  stage: 'rest' | 'hover' | 'reach' | 'aim' | 'cock' | 'flick' | 'hold' | 'back'
+  w: number
+  /** the fingertip behind its contact on the stone (m, along the flick's direction; negative = past it) and over it (m) */
+  back: number
+  h: number
+  /** the fingers: cocked (index under the thumb), striking (the fit on the stone), extended (after) — weights summing to 1 */
+  cock: number
+  strike: number
+  extend: number
+  /** the dotted line's growth 0..1 (null: none) */
+  aim: number | null
+  /** the nail has met the stone (the physics runs) */
+  flicked: boolean
+}
+
+export function flickHand(sinceMs: number, thinkMs: number): FlickHand {
+  const F = ALK_FLICK
+  const k = sinceMs - thinkMs
+  const rest: FlickHand = { stage: 'rest', w: 0, back: 0, h: 0, cock: 0, strike: 1, extend: 0, aim: null, flicked: k >= F.flick }
+  if (sinceMs < 0 || k >= F.end) return rest
+  const w = ease(sinceMs / F.reach)
+  if (k < 0) return { ...rest, stage: 'hover', w, back: 0.04, h: F.hoverH, cock: 1, strike: 0 }
+  if (k < F.reach) {
+    const q = ease(k / F.reach)
+    return { ...rest, stage: 'reach', w, back: 0.04 + (F.aimBack - 0.04) * q, h: F.hoverH * (1 - q), cock: 1, strike: 0 }
+  }
+  if (k < F.aim) return { ...rest, stage: 'aim', w, back: F.aimBack, h: 0, cock: 1, strike: 0, aim: ease((k - F.reach) / (F.aim - F.reach)) }
+  if (k < F.cock) {
+    const q = ease((k - F.aim) / (F.cock - F.aim))
+    return { ...rest, stage: 'cock', w, back: F.aimBack + (F.cockBack - F.aimBack) * q, h: 0, cock: 1, strike: 0, aim: 1 }
+  }
+  if (k < F.flick) {
+    const q = (k - F.cock) / (F.flick - F.cock)
+    return { ...rest, stage: 'flick', w, back: F.cockBack * (1 - q), h: 0, cock: 1 - q, strike: q, aim: 1 }
+  }
+  if (k < F.hold) {
+    const q = ease((k - F.flick) / (F.hold - F.flick))
+    return { ...rest, stage: 'hold', w: 1, back: -F.through * q, h: 0, cock: 0, strike: 1 - q, extend: q, flicked: true }
+  }
+  const q = ease((k - F.hold) / (F.end - F.hold))
+  return { ...rest, stage: 'back', w: 1 - q, back: -F.through, h: 0.06 * q, cock: 0, strike: 0, extend: 1, flicked: true }
+}
