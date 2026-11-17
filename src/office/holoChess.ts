@@ -14,6 +14,7 @@ import {
   type InstancedMesh,
   Mesh,
   NearestFilter,
+  NormalBlending,
   PlaneGeometry,
   RGBAFormat,
   ShaderMaterial,
@@ -351,7 +352,11 @@ void main() {
 }`,
       uniforms: { ...stage.uniforms, uCam: { value: new Vector3() }, uTilt: { value: 0 } },
     })
-    stage.light(pieceMat, AdditiveBlending)
+    // hologram.md 11.2 (#657, #655): the pieces' voxels are opaque (normal blending, depth written, unlit), not added light: a piece in front
+    // hides the one behind it (the near pawns stand out against the back rank) at every view. Still drawn after the film (transparent pass,
+    // render order 2) so a fading piece blends over it
+    stage.light(pieceMat, NormalBlending)
+    pieceMat.depthWrite = true
     this.boardTex = tex(boardPixels(), BOARD_PX)
     this.coordTex = [tex(coordPixels(false), FILM_PX), tex(coordPixels(true), FILM_PX)]
     const gridMat = stage.flat(CHESS_COLORS.grid, AdditiveBlending, this.boardTex, 1)

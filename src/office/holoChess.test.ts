@@ -1,7 +1,7 @@
 // Hologram chess layer (#604 stage 1a, hologram.md 11): board and coordinate pixels, glyphs, squares, instances, capture / castling /
 // promotion / check / end looks, held piece, determinism, reduced motion. No WebGL.
 import { describe, expect, it } from 'vitest'
-import { Euler, Group, Object3D, Vector3, type InstancedBufferAttribute, type InstancedMesh } from 'three'
+import { AdditiveBlending, Euler, Group, NormalBlending, Object3D, Vector3, type InstancedBufferAttribute, type InstancedMesh } from 'three'
 import { HoloBoard, type HoloInput } from './holoBoard'
 import {
   BOARD_PX,
@@ -675,5 +675,12 @@ describe('the pieces face the visitor full on in their game view (#655, hologram
     opened(holo)
     expect(holo.chessLayer!.materials.piece.fragmentShader).toContain('? 0.85 : 1.0')
     expect(holo.chessLayer!.materials.grid.fragmentShader).toContain('0.55')
+  })
+  it('the pieces are opaque voxels (normal blending, depth written); the board and its light stay added light (#657)', () => {
+    const { holo } = make()
+    opened(holo)
+    const m = holo.chessLayer!.materials
+    expect([m.piece.blending, m.piece.depthWrite]).toEqual([NormalBlending, true])
+    expect([m.grid.blending, m.grid.depthWrite]).toEqual([AdditiveBlending, false])
   })
 })
