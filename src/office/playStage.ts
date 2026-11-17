@@ -26,7 +26,8 @@ import type { Goal } from './director'
 import type { GripDemo } from './debugPlay'
 import { GRIPS, GripClock, curlOf, handFor, objectFor, tipAt } from './grip'
 import { DIP_K } from './handPose'
-import { contactNormal, fitFingers, handGripMatrix, chessCardTarget, chessTripodTarget, holoPinchTarget, offsetOf, resolveTarget, solveTarget, type GripTarget } from './gripTargets'
+import { contactNormal, fitFingers, handGripMatrix, chessCardTarget, chessTripodTarget, composeOffset, holoPinchTarget, offsetOf, resolveTarget, solveTarget, type GripTarget } from './gripTargets'
+import { HOLO_GRIP_OFFSETS } from './holoGrip.data'
 import { CELL as HOLO_CELL, HoloBoard, N as HOLO_N, STONE_H as HOLO_STONE_H, STONE_Y as HOLO_STONE_Y } from './holoBoard'
 import { chessPinch, pinchSequence, pinchTimes, type Pinch } from '../play/holoPinch'
 import { CHESS_HAND, chessAt, type ChessView } from '../play/chessTimeline'
@@ -765,7 +766,7 @@ export class PlayStage {
     if (!f) {
       const hand = rig.parts.hands.r
       const tgt = holoPinchTarget()
-      const { offset } = solveTarget(tgt, hand)
+      const offset = this.holoOffset(tgt, rig)
       const hold = rig.curlVec('r', GRIPS.holo.r!.hold)
       for (const fit of fitFingers(tgt, hand, offset)) {
         if (fit.finger === 'thumb') hold.splice(16, 4, ...fit.joints)
@@ -932,7 +933,8 @@ export class PlayStage {
     const r = holo.update({
       t: inp.t,
       reduced: inp.reduced,
-      snap: snap || phase === 'catching',
+      // catching up (a seek, a first sight) draws no move events (move is null then) but is no jump of the board: its coming on still unfolds (#653)
+      snap,
       on,
       game: 'chess',
       board: null,
@@ -1062,6 +1064,15 @@ export class PlayStage {
     return { pos: foot, color, since: inp.t - (mv.sinceMs - mv.thinkMs - CHESS_HAND.pick) / 1000, kind: mv.kind, facing: hold.yaw, from: mv.from }
   }
 
+  /**
+   * #538 · #604 the hand's offset on a light piece: stored per agent (holoGrip.data.ts, solved by holoGrip.test.ts); solving it here held the main
+   * thread 2–5 s the first time an agent took a piece (#653). A seat without stored values (a new agent) is solved once
+   */
+  private holoOffset(tgt: GripTarget, rig: AgentRig) {
+    const v = HOLO_GRIP_OFFSETS[`${tgt.key}:${Number(rig.id.split('_')[1])}`]
+    return v ? composeOffset(v) : solveTarget(tgt, rig.parts.hands.r).offset
+  }
+
   /** #604 the card pinch on a chess glyph for this agent, solved once per side choice (gripTargets.ts chessCardTarget) */
   private cardFit(rig: AgentRig, flip: boolean, tripod = false) {
     const key = `${rig.id}:${tripod ? 'tripod' : 'card'}:${flip ? 'b' : 'a'}`
@@ -1069,7 +1080,7 @@ export class PlayStage {
     if (!f) {
       const hand = rig.parts.hands.r
       const tgt = tripod ? chessTripodTarget(flip) : chessCardTarget(flip)
-      const { offset } = solveTarget(tgt, hand)
+      const offset = this.holoOffset(tgt, rig)
       const hold = rig.curlVec('r', GRIPS[tgt.kind].r!.hold)
       for (const fit of fitFingers(tgt, hand, offset)) {
         if (fit.finger === 'thumb') hold.splice(16, 4, ...fit.joints)
