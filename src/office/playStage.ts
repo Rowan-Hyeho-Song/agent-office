@@ -596,11 +596,14 @@ export class PlayStage {
     let pp: PlaySession | null = null
     let og: PlaySession | null = null
     for (const s of sessions) {
-      const ready = s.players.every((id) => {
+      const at = (id: string) => {
         const r = inp.rigs[id]
         const g = inp.goals[id]
-        return r?.visible && g?.pose === s.kind && r.arrived === g.spot
-      })
+        return !!r?.visible && g?.pose === s.kind && r.arrived === g.spot
+      }
+      // ping-pong needs both ends; the board is on from the first one seated (#538 hologram.md 2: the board comes on 0.3 s after the first sits; the
+      // games draw and move only the seated, #654 sound: it came on only with the second)
+      const ready = s.kind === 'boardgame' ? s.players.some(at) : s.players.every(at)
       if (!ready) continue
       if (s.kind === 'pingpong') pp = s
       else og = s

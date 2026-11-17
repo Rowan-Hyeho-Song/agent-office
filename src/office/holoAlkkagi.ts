@@ -307,11 +307,16 @@ void main() {
   clear() {
     this.offAt = null
     this.fall.clear()
+    this.last = undefined
   }
+
+  /** the last input that had stones: the board folding the frame its session went (no input then) still takes them away over 0.15 s (#654) */
+  private last: AlkInput | undefined
 
   /** the board folds: the stones lose their layers over 0.15 s (0.1 s fade when reduced) */
   killAll(t: number, a: AlkInput | undefined) {
-    this.offAt = a && a.stones.length ? t : null
+    const had = a ?? this.last
+    this.offAt = had && had.stones.some((st) => !st.out) ? t : null
   }
 
   /** 1 while stones are still vanishing, else 0 */
@@ -325,8 +330,9 @@ void main() {
   }
 
   /** a new game: forget the fall positions (events are the caller's list; they are not counted here) */
-  sync(_a: AlkInput | undefined, _t: number, _reduced: boolean, _quiet: boolean, newGame: boolean) {
+  sync(a: AlkInput | undefined, _t: number, _reduced: boolean, _quiet: boolean, newGame: boolean) {
     if (newGame) this.fall.clear()
+    if (a && a.stones.length) this.last = a
   }
 
   // ---- drawing --------------------------------------------------------------------------------------------------------------
@@ -355,7 +361,8 @@ void main() {
 
   draw(f: AlkFrame) {
     const { t, reduced } = f
-    const a = f.a
+    // folding with no input this frame: the stones last shown
+    const a = f.a ?? (this.offAt !== null ? this.last : undefined)
     const lift = this.stage.lift()
     const base = lift + A_STONE_Y
     const p = new Vector3()

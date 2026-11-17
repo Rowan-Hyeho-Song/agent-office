@@ -434,6 +434,18 @@ describe('board on and off', () => {
     holo.update(frame(2, ai(), { on: false }))
     expect(holo.state).toBe('off')
   })
+  it('the session gone (no input that frame): the stones last shown still vanish over 0.15 s before the board folds (#654)', () => {
+    const { holo } = make()
+    opened(holo)
+    holo.update(frame(1, undefined, { on: false }))
+    expect(sm(holo).count).toBe(10)
+    expect(layersOf(holo, 0)).toBe(2)
+    holo.update(frame(1.08, undefined, { on: false }))
+    expect(layersOf(holo, 0)).toBe(1)
+    const r = holo.update(frame(1.16, undefined, { on: false }))
+    expect(sm(holo).count).toBe(0)
+    expect(r.boardOffStart).toBe(true)
+  })
   it('fades 0.1 s when reduced', () => {
     const { holo } = make()
     opened(holo, ai(), true)
