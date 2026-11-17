@@ -194,6 +194,22 @@ export const chessTripodTarget = (flip: boolean): GripTarget => ({
   ],
 })
 
+/** #605 an alkkagi stone's radius on the board, m (the engine's 0.46 lines of 2 cm, hologram.md 12.2) */
+export const ALK_STONE_R = 0.0092
+
+/**
+ * #605 (hologram.md 12.4) the flick: the index fingertip on the stone's back (opposite the flick), the stone's frame x across, y up, z the flick's
+ * direction; palm down, the fingers forward along it (the omok pinch's base frame, unpitched)
+ */
+export const holoFlickTarget = (): GripTarget => ({
+  key: 'holo_flick:r',
+  kind: 'holo_flick',
+  side: 'r',
+  obj: null,
+  pg: new Matrix4().makeBasis(new Vector3(0, 1, 0), new Vector3(0, 0, -1), new Vector3(-1, 0, 0)),
+  contacts: [{ finger: 'index', p: new Vector3(0, 0, -ALK_STONE_R), n: new Vector3(0, 0, -1) }],
+})
+
 /** the grip target of `objName` for a `kind` of grip, or null when the model has no grip empty for that hand */
 export function resolveTarget(scene: Object3D, objName: string, kind: string, side: 'l' | 'r'): GripTarget | null {
   if (kind === 'book') return resolveBookTarget(scene, objName, side)

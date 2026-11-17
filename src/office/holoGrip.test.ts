@@ -7,11 +7,13 @@ import { describe, expect, it } from 'vitest'
 import { Euler, Quaternion, Vector3 } from 'three'
 import { loadOffice, stubCanvas } from './glbLoad'
 import { HOLO_GRIP_OFFSETS } from './holoGrip.data'
-import { chessCardTarget, chessTripodTarget, composeOffset, fitFingers, holoPinchTarget, solveTarget } from './gripTargets'
+import { chessCardTarget, chessTripodTarget, composeOffset, fitFingers, holoFlickTarget, holoPinchTarget, solveTarget } from './gripTargets'
 import { AgentRig, buildRig } from './rig'
 
 stubCanvas()
-export const HOLO_TARGETS = () => [holoPinchTarget(), chessCardTarget(false), chessCardTarget(true), chessTripodTarget(false), chessTripodTarget(true)]
+export const HOLO_TARGETS = () => [holoPinchTarget(), chessCardTarget(false), chessCardTarget(true), chessTripodTarget(false), chessTripodTarget(true), holoFlickTarget()]
+/** HOLO_FIT_ONLY=holo_flick: solve again only the targets whose key starts with one of these (comma separated); the others keep their stored offsets */
+const ONLY = (process.env.HOLO_FIT_ONLY ?? '').split(',').filter(Boolean)
 
 describe('the hologram pieces\' stored grip offsets (holoGrip.data.ts)', () => {
   it('every agent\'s fingertips land on every light piece\'s contacts within 3 mm with the stored offset', async () => {
@@ -24,15 +26,15 @@ describe('the hologram pieces\' stored grip offsets (holoGrip.data.ts)', () => {
         const hand = r.parts.hands.r
         const key = `${t.key}:${seat}`
         let v = HOLO_GRIP_OFFSETS[key]
-        if (write) {
+        if (write && (!ONLY.length || ONLY.some((o) => t.key.startsWith(o)) || !v)) {
           const m = solveTarget(t, hand).offset
           const p = new Vector3()
           const q = new Quaternion()
           m.decompose(p, q, new Vector3())
           const e = new Euler().setFromQuaternion(q, 'XYZ')
           v = [p.x, p.y, p.z, e.x, e.y, e.z].map((x) => +x.toFixed(8))
-          rows.push(`  '${key}': [${v.join(', ')}],`)
         }
+        if (write) rows.push(`  '${key}': [${v!.join(', ')}],`)
         expect(v, `${key} stored`).toBeDefined()
         const worst = Math.max(...fitFingers(t, hand, composeOffset(v!)).map((f) => f.err))
         expect(worst, `${key} worst tip (m)`).toBeLessThan(0.003)
