@@ -70,14 +70,19 @@ describe('notes in the Director', () => {
   })
 
   it('working, it puts the note off; it goes once it rests; two notes are read on one walk', () => {
+    // a start whose rest (from 600 s on) is handed no errand of its plan first (a book, the can …: notes wait for those by rule, #605's schedule
+    // gave one at T0 + 600 s); the window to go for the notes stays 80 s
+    const others = new Set(IDS.filter((a) => a !== 'agent_1'))
+    const errand = (t: number) => ['books', 'water', 'fridge', 'dispenser', 'record', 'boardgame_solo', 'shelfbook'].includes(playAt(t, IDS, others).agent_1?.kind ?? '')
+    base = T0
+    while ([600, 610, 620, 640, 660, 680].some((s) => errand(base + s * 1000))) base += 60_000
     const d = new Director(IDS)
-    d.noteArrived('agent_1', 7, T0, T0)
-    d.noteArrived('agent_1', 8, T0 + 1000, T0 + 1000)
+    d.noteArrived('agent_1', 7, base, base)
+    d.noteArrived('agent_1', 8, base + 1000, base + 1000)
     drive(d, 0, 600, () => working(), (_t, g) => expect(g.agent_1.note, 'not while it works').toBeUndefined())
     expect(d.notesWaiting('agent_1')).toEqual([7, 8])
     let ids: number[] = []
-    // resting: it goes for them (after any errand of the schedule it was handed first, a book from the shelf say)
-    drive(d, 600, 1500, () => withIdle('agent_1'), (_t, g) => (ids = g.agent_1.note?.ids ?? ids))
+    drive(d, 600, 680, () => withIdle('agent_1'), (_t, g) => (ids = g.agent_1.note?.ids ?? ids))
     expect(ids).toEqual([7, 8])
     expect(d.notesWaiting('agent_1')).toEqual([])
   })
