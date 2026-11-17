@@ -27,7 +27,8 @@ import {
   Vector3,
   type WebGLRenderer,
 } from 'three'
-import { ChessLayer, type ChessInput } from './holoChess'
+import { AlkkagiLayer, type AlkInput } from './holoAlkkagi'
+import { ChessLayer, type ChessInput, type HoloStage } from './holoChess'
 
 export const N = 15
 export const CELL = 0.026
@@ -93,8 +94,10 @@ export interface HoloInput {
   held: { pos: Vector3; color: 1 | 2; since: number; kind?: number; facing?: number; from?: number } | null
   pick?: number
   /** which game the film shows (default omok). Chess: color 2 = white, 1 = black; board/lastMove/win are ignored, see `chess` */
-  game?: 'omok' | 'chess'
+  game?: 'omok' | 'chess' | 'alkkagi'
   chess?: ChessInput
+  /** alkkagi: stones, hits, outs, aim and end (holoAlkkagi.ts). Side 0 = cyan = the players' colour 1, who sits at engine y < 0; board/lastMove/win/held are ignored */
+  alkkagi?: AlkInput
 }
 export interface HoloResult {
   landed: number[]
@@ -285,8 +288,9 @@ export class HoloBoard {
   private winStart = 0
   private flashUntil = [0, 0, 0, 0]
   private readonly v = new Vector3()
-  private game: 'omok' | 'chess' = 'omok'
+  private game: 'omok' | 'chess' | 'alkkagi' = 'omok'
   private chess: ChessLayer | null = null
+  private alk: AlkkagiLayer | null = null
   private flatMat!: (color: string, blending: Blending, map: DataTexture | null, opacity: number) => ShaderMaterial
 
   constructor(scene: Object3D, surface: Object3D) {
@@ -466,8 +470,8 @@ export class HoloBoard {
     return out.applyMatrix4(this.frame)
   }
 
-  private ensureChess(): ChessLayer {
-    return (this.chess ??= new ChessLayer({
+  private stage(): HoloStage {
+    return {
       root: this.root,
       uniforms: { uDpr: this.uDpr, uAlpha: this.uAlpha },
       scan: SCAN,
@@ -479,7 +483,32 @@ export class HoloBoard {
       flat: this.flatMat,
       toLocal: (w, out) => out.copy(w).applyMatrix4(this.inv),
       lift: () => this.lift,
-    }))
+    }
+  }
+
+  private ensureChess(): ChessLayer {
+    return (this.chess ??= new ChessLayer(this.stage()))
+  }
+
+  private ensureAlk(): AlkkagiLayer {
+    return (this.alk ??= new AlkkagiLayer(this.stage()))
+  }
+
+  /** alkkagi: the world point on the light plane at an engine position (lines; turned as of the last update, side 0 near +z before any) */
+  alkPos(x: number, y: number, out = new Vector3()): Vector3 {
+    this.sync()
+    return this.ensureAlk().posLocal(x, y, out).applyMatrix4(this.frame)
+  }
+
+  /** alkkagi: the engine position (lines) under a world point (in the plane; not clipped to the board) */
+  alkAt(world: Vector3): { x: number; y: number } {
+    this.sync()
+    return this.ensureAlk().atLocal(this.v.copy(world).applyMatrix4(this.inv))
+  }
+
+  /** the alkkagi layer, once created (tests, hand code) */
+  get alkLayer(): AlkkagiLayer | null {
+    return this.alk
   }
 
   /** chess: the world point on the light plane at a cell centre (a1 = 0; turned as of the last update, white near +z before any) */
@@ -522,6 +551,7 @@ export class HoloBoard {
     this.dieAt.fill(NaN)
     this.ripples.length = 0
     this.chess?.clear()
+    this.alk?.clear()
   }
 
   private stoneLook(c: number, t: number, reduced: boolean, win: boolean) {
@@ -564,7 +594,9 @@ export class HoloBoard {
       this.synced = false
     }
     const chess = game === 'chess' ? this.ensureChess() : null
+    const alk = game === 'alkkagi' ? this.ensureAlk() : null
     chess?.prepare(inp.chess, inp.players)
+    alk?.prepare(inp.players)
 
     // ---- phase machine
     if (snap) {
@@ -581,6 +613,7 @@ export class HoloBoard {
         }
       } else if (this.phase === 'on') {
         if (chess) chess.killAll(t, inp.chess)
+        else if (alk) alk.killAll(t, inp.alkkagi)
         else for (let c = 0; c < N * N; c++) if (this.col[c] && Number.isNaN(this.dieAt[c])) this.kill(c, t, reduced ? 1 : 0)
         this.phase = 'wait'
         this.t0 = t
@@ -598,6 +631,9 @@ export class HoloBoard {
     if (this.phase === 'on' && chess) {
       this.synced = true
       chess.sync(inp.chess, t, reduced, quiet, !!inp.newGame, res)
+    } else if (this.phase === 'on' && alk) {
+      this.synced = true
+      alk.sync(inp.alkkagi, t, reduced, quiet, !!inp.newGame)
     } else if (this.phase === 'on') {
       this.synced = true
       const wiped = new Uint8Array(N * N)
@@ -617,7 +653,7 @@ export class HoloBoard {
         }
       }
     }
-    let n = chess ? chess.liveCount(t, reduced) : 0
+    let n = chess ? chess.liveCount(t, reduced) : alk ? alk.liveCount(t, reduced) : 0
     for (let c = 0; c < N * N; c++) {
       if (this.col[c] && !Number.isNaN(this.dieAt[c]) && this.vanished(c, t)) this.col[c] = 0
       if (this.col[c]) n++
@@ -686,8 +722,10 @@ export class HoloBoard {
     this.materials.grid.uniforms.uBright.value = bright
     this.uAlpha.value = alpha
     const chessOn = this.game === 'chess'
-    this.grid.visible = visible && !chessOn
+    const alkOn = this.game === 'alkkagi'
+    this.grid.visible = visible && !chessOn && !alkOn
     this.chess?.setView(visible && chessOn, hx === 1 ? 1 : hx * k, hz === 1 ? 1 : hz * k, bright)
+    this.alk?.setView(visible && alkOn, hx, hz, bright)
   }
 
   private put(m: InstancedMesh, i: number, name: string, ...v: number[]) {
@@ -753,7 +791,11 @@ export class HoloBoard {
       this.put(this.dots, i, 'iCol', c.r, c.g, c.b, a)
     }
     // the chess layer always runs, so its instance counts drop to zero when it is not shown
-    this.chess?.draw({ t, reduced, live: live && !omok, on: on && !omok, c: inp.chess, held: inp.held, glow, mark, dot })
+    const chessOn = this.game === 'chess'
+    this.chess?.draw({ t, reduced, live: live && chessOn, on: on && chessOn, c: inp.chess, held: inp.held, glow, mark, dot })
+    // likewise the alkkagi layer (no ripple, no founts, no red)
+    const alkOn = this.game === 'alkkagi'
+    this.alk?.draw({ t, reduced, live: live && alkOn, on: on && alkOn, a: inp.alkkagi, glow, mark })
 
     if (live && omok) {
       for (let c = 0; c < N * N; c++) {
@@ -869,6 +911,7 @@ export class HoloBoard {
   dispose() {
     this.root.removeFromParent()
     this.chess?.dispose()
+    this.alk?.dispose()
     for (const m of Object.values(this.materials)) m.dispose()
     const tex = this.materials.grid.uniforms.uMap.value as DataTexture
     tex.dispose()
