@@ -14,7 +14,8 @@ import { PlayStage, type StageIn } from './playStage'
 import { AgentRig, PropBank, buildRig } from './rig'
 import type { Goal } from './director'
 import { startVisitorGame, viewOf } from '../play/visitorOmok'
-import { chessViewOf, startVisitorChess } from '../play/visitorChess'
+import { chessViewOf, startVisitorChess, visitorChessMove, type VisitorChess } from '../play/visitorChess'
+import { fromFen } from '../play/chess'
 
 stubCanvas()
 const IDS = ['agent_0', 'agent_1', 'agent_2', 'agent_3']
@@ -448,5 +449,36 @@ describe('PlayStage', () => {
       expect(mine.distanceTo(chair(w))).toBeLessThan(theirs.distanceTo(chair(w)))
       expect(w.stage.chessSquareAt(mine)).toBe(game === 0 ? 4 : 60)
     }
+  })
+
+  // #655 (sound) the board handed from one match to another while it stays on: the frame is quiet, even onto a position in check
+  it('chess: a board handed to another match while on makes no check sound; a check given in play still does', async () => {
+    const w = await world()
+    const goals = visitorSeat(w)
+    const checks: number[] = []
+    const sounds = (w.stage as unknown as { sounds: { chessCheck: (...a: unknown[]) => void } }).sounds
+    const real = sounds.chessCheck.bind(sounds)
+    let t = 1
+    sounds.chessCheck = (...a: unknown[]) => {
+      checks.push(t)
+      real(...a)
+    }
+    const vis = { selected: null, targets: [], cursor: 12, drag: null }
+    const run = (g: VisitorChess, until: number) => {
+      for (; t < until; t += 0.1) w.stage.update(inp(w, goals, 10_000, t, { dt: 0.02, visitorChess: { agent: g.agent, view: chessViewOf(g, 9_000), visitor: vis } }))
+    }
+    run(startVisitorChess('agent_0', 7, 0, 'normal', 0), 4)
+    expect(holoOf(w).state).toBe('on')
+    // handed to another match (another agent's) whose white king stands in check (the rook on h1): quiet
+    run(startVisitorChess('agent_1', 8, 0, 'normal', 0, fromFen('4k3/8/8/8/8/8/8/R3K2r w - - 0 1')!), 6)
+    expect(checks).toEqual([])
+    // within one match a check given sounds once: Ra1-a8+
+    const live = startVisitorChess('agent_0', 9, 0, 'normal', 0, fromFen('4k3/8/8/8/8/8/8/R3K3 w - - 0 1')!)
+    run(live, 8)
+    expect(checks).toEqual([])
+    const after = visitorChessMove(live, 0, 56, 9_000)
+    if (!after || after === 'needsPromotion') throw new Error('Ra8+ not taken')
+    run(after.g, 9)
+    expect(checks.length).toBe(1)
   })
 })

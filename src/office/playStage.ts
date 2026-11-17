@@ -280,6 +280,8 @@ export class PlayStage {
   private chessPhase: ChessView['phase'] | null = null
   /** #604 the pieces taken as of the last chess frame (the visitor's own capture has no hand to read it from) */
   private chessTaken = 0
+  /** #655 the match on the chess board last frame (seed, the visitor's or not, players): a change while on is a quiet jump */
+  private chessKey: string | null = null
   /** #538 the projector's live neons (hologram.md 1.5) */
   private holoPanel: (k: number) => void = () => {}
   private holoTurn: Record<1 | 2, (k: number) => void> = { 1: () => {}, 2: () => {} }
@@ -627,6 +629,7 @@ export class PlayStage {
     for (const e of this.stoneLetGo.values()) e.seen = false
     // #604 the board's game (hologram.md 10.2): chess or omok on the one projector; with nobody there, the last game's board goes off
     if (og) this.holoGame = og.game === 'chess' ? 'chess' : og.game === 'alkkagi' ? 'alkkagi' : 'omok'
+    if (this.holoGame !== 'chess') this.chessKey = null
     if (this.holoGame === 'chess') this.chess(og?.game === 'chess' ? og : null, inp)
     else if (this.holoGame === 'alkkagi') this.alkkagi(og?.game === 'alkkagi' ? og : null, inp)
     else this.omok(og, inp)
@@ -932,7 +935,12 @@ export class PlayStage {
   private chess(s: PlaySession | null, inp: StageIn) {
     const holo = this.holo
     if (!holo) return
-    const snap = inp.t - this.holoT > 1 || inp.t < this.holoT
+    // #655 (sound) the board handed from one match to another while it stays on (the visitor's game closing onto the agents' going on, or
+    // the other way): that frame is a jump, quiet (no check, no move), not the end of one board and the start of another
+    const key = s ? `${s.seed}|${s.visitorChess ? 'visitor' : ''}|${s.players.join(',')}` : null
+    const handed = key !== null && this.chessKey !== null && key !== this.chessKey
+    this.chessKey = key
+    const snap = inp.t - this.holoT > 1 || inp.t < this.holoT || handed
     this.holoT = inp.t
     const tMs = s ? (s.visitorChess ? 0 : sessionTime(s, inp.now)) : -1
     // #604 the visitor's game: its own view (the agent's hand rides on view.move, the visitor's moves have none)
