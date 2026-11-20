@@ -36,13 +36,11 @@ export const STONE_H = 0.0056
 export const VOXEL = 0.0028
 export const BOX = 0.92
 export const GRID_SIZE = 0.39
-export const FILM_SIZE = 0.44
-export const FILM_DROP = 0.001
 /**
- * #538 (hologram.md 1.4, #650) the film's opacity, set by what shows: over the cream table the screen reads about #1c1f24 (L 12–15), the projector's
- * disc and panel only faintly through. Blended in linear space, measured on the page: 0.62 read #a6a69d, 0.9 #5a5b56, 0.99 #1e2021
+ * the light field's extent (m): the area the board, its coordinates and the turn lines use. #663: no film is drawn there any more (the table top is
+ * baked dark instead: a dark sheet on the cream table read as a board laid on it), the light goes straight onto the top
  */
-export const FILM_OPACITY = 0.99
+export const FILM_SIZE = 0.44
 export const GRID_PX = 91
 export const CELL_PX = 6
 export const PX = CELL / CELL_PX // one board-texture pixel
@@ -255,7 +253,6 @@ void main() {
 
 export class HoloBoard {
   readonly root = new Group()
-  readonly film: Mesh
   readonly grid: Mesh
   readonly stones: { 1: InstancedMesh; 2: InstancedMesh }
   readonly glow: InstancedMesh
@@ -265,7 +262,7 @@ export class HoloBoard {
   /** #660 the visitor's chess marks drawn over the opaque pieces (no depth test): cursor ring and target dots (added), capture corners (normal) */
   readonly overMarks: InstancedMesh
   readonly overDots: InstancedMesh
-  readonly materials: Record<'film' | 'grid' | 'stone' | 'glow' | 'fount' | 'marks' | 'dot' | 'overMarks' | 'overDots', ShaderMaterial>
+  readonly materials: Record<'grid' | 'stone' | 'glow' | 'fount' | 'marks' | 'dot' | 'overMarks' | 'overDots', ShaderMaterial>
 
   private readonly surface: Object3D
   private readonly scene: Object3D
@@ -320,8 +317,6 @@ export class HoloBoard {
       this.light(m, blending)
       return m
     }
-    // film: normal blended ink, unlit, no scanline needed (scan only dims colour that is already dark)
-    const film = flat(COLORS.ink, NormalBlending, null, FILM_OPACITY)
     const grid = flat(COLORS.grid, AdditiveBlending, gridTexture(), 1)
     this.flatMat = flat
     const quadMat = (blending: Blending, radial: boolean) => {
@@ -340,7 +335,6 @@ export class HoloBoard {
       return m
     }
     this.materials = {
-      film,
       grid,
       stone: voxMat(),
       glow: quadMat(AdditiveBlending, true),
@@ -355,12 +349,9 @@ export class HoloBoard {
     this.materials.overDots.depthTest = false
 
     const plane = (size: number) => new PlaneGeometry(size, size).rotateX(-Math.PI / 2)
-    this.film = new Mesh(plane(FILM_SIZE), film)
-    this.film.position.y = -FILM_DROP
-    this.film.renderOrder = -1
     this.grid = new Mesh(plane(GRID_SIZE), grid)
     this.grid.renderOrder = 0
-    for (const m of [this.film, this.grid]) {
+    for (const m of [this.grid]) {
       m.frustumCulled = false
       m.visible = false
       m.onBeforeRender = this.onRender
@@ -381,7 +372,7 @@ export class HoloBoard {
     this.overMarks = quads(this.materials.overMarks, 96, 6)
     this.overDots = quads(this.materials.overDots, 64, 7)
 
-    this.root.add(this.film, this.grid, this.glow, this.stones[1], this.stones[2], this.founts, this.marks, this.dots, this.overMarks, this.overDots)
+    this.root.add(this.grid, this.glow, this.stones[1], this.stones[2], this.founts, this.marks, this.dots, this.overMarks, this.overDots)
     scene.add(this.root)
     this.sync()
   }
@@ -420,9 +411,8 @@ export class HoloBoard {
     this.surface.matrixWorld.decompose(this.sp, this.sq, this.ss)
     const l = this.surface.userData?.lift
     if (typeof l === 'number') this.lift = l
-    // the light plane is lift over the surface (the projector's panel); the film 1 mm under it (#648: both were left at the panel, under its top)
+    // the light plane is lift over the surface (the projector's panel) (#648: it was left at the panel, under its top)
     this.grid.position.y = this.lift
-    this.film.position.y = this.lift - FILM_DROP
     this.frame.compose(this.sp, this.sq, new Vector3(1, 1, 1))
     this.inv.copy(this.frame).invert()
     this.scene.updateWorldMatrix(true, false)
@@ -704,7 +694,6 @@ export class HoloBoard {
   private drawBoard(t: number, reduced: boolean) {
     const ph = this.phase
     const visible = ph !== 'off'
-    this.film.visible = visible
     this.grid.visible = visible
     let rowsZ = 45
     let rowsX = 45
@@ -726,9 +715,9 @@ export class HoloBoard {
     }
     const hz = rowsZ === 45 ? 1 : (rowsZ + 0.5) * (GRID_SIZE / GRID_PX)
     const hx = rowsX === 45 ? 1 : (rowsX + 0.5) * (GRID_SIZE / GRID_PX)
+    // the chess coordinates span the whole field (FILM_SIZE): their fold clip in its own half extents
     const k = FILM_SIZE / GRID_SIZE
     this.materials.grid.uniforms.uClip.value.set(hx, hz)
-    this.materials.film.uniforms.uClip.value.set(hx === 1 ? 1 : hx * k, hz === 1 ? 1 : hz * k)
     this.materials.grid.uniforms.uBright.value = bright
     this.uAlpha.value = alpha
     const chessOn = this.game === 'chess'
@@ -944,6 +933,6 @@ export class HoloBoard {
     for (const m of Object.values(this.materials)) m.dispose()
     const tex = this.materials.grid.uniforms.uMap.value as DataTexture
     tex.dispose()
-    for (const o of [this.film, this.grid, this.glow, this.stones[1], this.stones[2], this.founts, this.marks, this.dots, this.overMarks, this.overDots]) o.geometry.dispose()
+    for (const o of [this.grid, this.glow, this.stones[1], this.stones[2], this.founts, this.marks, this.dots, this.overMarks, this.overDots]) o.geometry.dispose()
   }
 }

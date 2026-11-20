@@ -10,7 +10,6 @@
 
 import {
   Box3,
-  Color,
   CircleGeometry,
   InstancedMesh,
   Matrix4,
@@ -91,38 +90,6 @@ const ONE = new Vector3(1, 1, 1)
 /** the table tennis table the model has (pp_table extras size / net_h) with the engine's default reach */
 const dimsOf = (size: number[], netH: number): Dims => ({ L: size[0], W: size[1], netH, ballR: 0.02, reach: 0.25, floorY: -0.76 })
 /** the blade's centre above the paddle node's origin, along its y */
-/**
- * #538 a live neon of the projector (holo_panel, holo_turn_b / _w): its own copy of the material, its colour the bake's glow_color times k (0 dark,
- * 1 full); a node without glow_color keeps its own colour as full
- */
-function holoNeon(node: Object3D | undefined, dark = '#000000'): (k: number) => void {
-  const off = new Color(dark)
-  const parts: { mat: MeshBasicMaterial; base: Color }[] = []
-  const glow = (node?.userData as { glow_color?: string } | undefined)?.glow_color
-  node?.traverse((o) => {
-    const mesh = o as Mesh
-    if (!mesh.isMesh || !(mesh.material as MeshBasicMaterial)?.color) return
-    const mat = (mesh.material as MeshBasicMaterial).clone()
-    mat.toneMapped = false
-    mesh.material = mat
-    // under the film: drawn before it (the film is renderOrder -1 and writes no depth), so it only shows faintly through (hologram.md 1.4, #648:
-    // a transparent neon drawn after the film came out on top of it)
-    mesh.renderOrder = -2
-    parts.push({ mat, base: glow ? new Color(glow) : mat.color.clone() })
-  })
-  let last = -1
-  return (k: number) => {
-    if (k === last) return
-    last = k
-    // dark: its unlit face (the panel off is a dark glass, not a hole: #111317, designer #648), the light added over it
-    for (const p of parts) p.mat.color.copy(p.base).multiplyScalar(k).add(off)
-  }
-}
-/** #538 (hologram.md 1.5) the projector's panel while the board is on, and the turn lights: the side to move, the other, the board off */
-const HOLO_NEON = { panel: 0.1, turn: 1, idle: 0.15 } as const
-/** #538 the panel switched off: a dark glass that sits with the bezel (designer, #648), not pure black */
-const HOLO_PANEL_OFF = '#111317'
-
 /** #604 a chess glyph's height by kind (hologram.md 11.2: rows of 3.6 mm; pawn 8 … king 14), m */
 const CHESS_GLYPH_H = [0, 8, 12, 12, 10, 13, 14].map((rows) => rows * 0.0036)
 
@@ -285,8 +252,6 @@ export class PlayStage {
   /** #655 the match and its move count last frame (a check sounds only with the move that gives it) */
   private chessMoves: { key: string; n: number } | null = null
   /** #538 the projector's live neons (hologram.md 1.5) */
-  private holoPanel: (k: number) => void = () => {}
-  private holoTurn: Record<1 | 2, (k: number) => void> = { 1: () => {}, 2: () => {} }
   /** #538 the visitor's chair (the nav spot game_b), for its stone fount and turn line */
   private visitorChair: Vector3 | null = null
   /** the picks already sounded and flashed (seed:game:cell:pick) */
@@ -375,8 +340,6 @@ export class PlayStage {
       this.grid = { o: this.holo.cellPos(0), n: HOLO_N, cell: HOLO_CELL }
     }
     this.visitorChair = scene.getObjectByName('nav_game_b')?.getWorldPosition(new Vector3()) ?? null
-    this.holoPanel = holoNeon(scene.getObjectByName('holo_panel'), HOLO_PANEL_OFF)
-    this.holoTurn = { 1: holoNeon(scene.getObjectByName('holo_turn_b')), 2: holoNeon(scene.getObjectByName('holo_turn_w')) }
     // water for the can, and the book's two halves
     this.spout = nodes.prop_watering_can_spout
     this.plants = plantsFrom(scene)
@@ -863,7 +826,6 @@ export class PlayStage {
       pick: held?.pick,
     })
     this.holoPhase = phase
-    this.holoNeons(r.boardOn, view && playing ? view.toMove : null)
     if (r.boardOnStart) this.sounds.holoBoard(true, centre, inp.reduced)
     if (r.boardOffStart) this.sounds.holoBoard(false, centre, inp.reduced)
     if (!s || !view) return
@@ -1018,7 +980,6 @@ export class PlayStage {
     this.chessMoves = view && key !== null ? { key, n: view.moveIndex } : null
     const stepped = !!view && !!prevMoves && prevMoves.key === key && view.moveIndex === prevMoves.n + 1 && phase !== 'catching' && this.chessPhase !== 'catching'
     this.chessPhase = phase
-    this.holoNeons(r.boardOn, view && playing ? (view.toMove === 0 ? 2 : 1) : null)
     const centre = holo.squarePos(27).lerp(holo.squarePos(36), 0.5)
     if (r.boardOnStart) this.sounds.holoBoard(true, centre, inp.reduced)
     if (r.boardOffStart) this.sounds.holoBoard(false, centre, inp.reduced)
@@ -1060,15 +1021,6 @@ export class PlayStage {
         }
       }
     }
-  }
-
-  /**
-   * #538 (hologram.md 1.5) the projector's live neons for every game: the panel glows while the board is on; the turn light of the colour to
-   * move is lit, the other dim, both dark with the board off (#605: chess and alkkagi left the panel at its bake, bright through the film)
-   */
-  private holoNeons(lit: boolean, turn: 1 | 2 | null) {
-    this.holoPanel(lit ? HOLO_NEON.panel : 0)
-    for (const c of [1, 2] as const) this.holoTurn[c](!lit ? 0 : turn === c ? HOLO_NEON.turn : HOLO_NEON.idle)
   }
 
   /**
@@ -1130,7 +1082,6 @@ export class PlayStage {
         : undefined,
     })
     this.alkPhase = phase
-    this.holoNeons(r.boardOn, view && (phase === 'thinking' || phase === 'aim' || phase === 'moving' || phase === 'settle') ? (view.toMove === 0 ? 1 : 2) : null)
     const centre = holo.alkPos(0, 0)
     if (r.boardOnStart) this.sounds.holoBoard(true, centre, inp.reduced)
     if (r.boardOffStart) this.sounds.holoBoard(false, centre, inp.reduced)
