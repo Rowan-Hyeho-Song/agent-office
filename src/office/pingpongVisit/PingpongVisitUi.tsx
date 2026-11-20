@@ -7,6 +7,7 @@ import { WorkChip } from '../WorkChip'
 import {
   closePingpong, easyPingpong, getPingpongVisit, openPingpong, pingpongHelped, restartPingpong, spacePingpong, speedPingpong, usePingpongVisit,
 } from './store'
+import { setTagEl, useTagAway } from '../playHover'
 
 // The page side of the visitor's paddle (#137 ③, play.md 3.1 · 3.3 · 4 · 5.4): the "🏓 라켓 잡기" tag over the near end, the score at the top
 // (`당신 1 : 2 루프`, 24 px), the HUD at the bottom (what to do now, speed, 자동 따라가기, 다시 하기, 그만두기), the first-time help (4 s), Space
@@ -41,6 +42,8 @@ function ppLine(m: VisitorPP, name: string, touch: boolean, ready: boolean): str
 export function PingpongVisitUi({ world }: { world: OfficeWorld }) {
   const v = usePingpongVisit()
   const tagEl = useRef<HTMLButtonElement>(null)
+  // #670 (play.md 2.1.1) a mouse sees the tag only while it points at the play spot or the tag (styles.css: a touch screen and a focus always do)
+  const tagAway = useTagAway(!!v.tag?.hot)
   const [help, setHelp] = useState(false)
   const open = v.phase !== 'closed'
   const name = v.agent ? shortName(v.agent) : ''
@@ -97,7 +100,11 @@ export function PingpongVisitUi({ world }: { world: OfficeWorld }) {
         <button
           type="button"
           className="omok-tag pp-tag-btn"
-          ref={tagEl}
+          ref={(el) => {
+            tagEl.current = el
+            setTagEl('pingpong', el)
+          }}
+          data-away={tagAway || undefined}
           style={tagOnScreen(v.tag.x, v.tag.y, tagEl.current?.offsetWidth ?? 110, tagEl.current?.offsetHeight ?? 28, window.innerWidth)}
           aria-label={`라켓 잡기 · ${wa(shortName(v.tag.agent))} 탁구`}
           onClick={take}
