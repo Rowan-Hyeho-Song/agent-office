@@ -1050,7 +1050,9 @@ html[data-omok] .corner-dock, html[data-omok] .agent-list, html[data-omok] .tour
   .omok-hud { flex-wrap: wrap; width: 100vw; bottom: 0; padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px)); clip-path: none; }
   .omok-status { flex-basis: 100%; }
 }
-@media (prefers-reduced-motion: reduce) { .omok-tag { animation: none; transition: none !important; } }
+/* the site's own motion setting (html[data-motion]) goes before the OS's, as .new-dot */
+@media (prefers-reduced-motion: reduce) { :root:not([data-motion='full']) .omok-tag { animation: none; transition: none !important; } }
+:root[data-motion='reduce'] .omok-tag { animation: none; transition: none !important; }
 /* #603 the rule chooser over the HUD (play.md 11.2): the HUD's panel and cut corner, 340 px on a wide screen, a sheet the screen's width - 32 px on a phone */
 .omok-rules { position: fixed; z-index: 31; left: 50%; translate: -50% 0; bottom: calc(var(--space-4) + 56px + env(safe-area-inset-bottom, 0px)); width: 340px; box-sizing: border-box;
   padding: 10px 10px 12px; background: var(--color-surface-alpha); color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-line); font-family: var(--font-pixel);
