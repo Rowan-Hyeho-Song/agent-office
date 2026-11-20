@@ -96,13 +96,10 @@ Node contract (the app reads glTF extras):
                                    (2 . 2 . 1). extras size [w, h, t], spine "z", cover, shelf_row (the real shelf, 0 =
                                    bottom; not the binders' r), shelf_slot; children _grip_r, _contact_index|thumb|palm
   prop_watering_can_spout          empty, child of the can: the spout's end, local +z = the water's way out
-  holo_projector                   (#538, was the omok board + bowls + stones) the hologram projector on the game
-                                   table: two stepped graphite 16-gons (0.34 / 0.31 m, 3.2 cm), a square bezel (lounge)
-  holo_panel                       live "neon": the 0.19 m 16 x 16 pixel panel, one quad facing up (UV 0..1: u along +x,
-                                   v = 1 at the back -z edge) for the app's shader; extras glow_color, glow, w, h, grid
-  holo_turn_b|w                    live "neon": the turn lights on the low step facing each stool (b at -x = game_a,
-                                   w at +x = game_b); extras glow_color, glow, turn
-  surface_holo                     empty at the panel's centre, +y up, +x = columns, +z = rows (extras surface holo,
+  holo_projector                   (#538, #663) the hologram projector's window sunk into the game table's felt top: a
+                                   0.19 m square of dark glass in a 2 mm seam, 0.5 mm over the felt (lounge). #663
+                                   dropped the stepped body, holo_panel (neon) and holo_turn_b|w (neon)
+  surface_holo                     empty at the glass's centre (y 0.7405), +y up, +x = columns, +z = rows (extras surface holo,
                                    normal, lift 0.02 = the board over it, size 0.40 = the light board, field 0.44 = the
                                    projection field)
   pp_ball                          live "bot" (#135): the ball, the app moves it (not a prop); pivot = its center
@@ -2682,10 +2679,9 @@ VEIN_DENSITY = 4.0
 
 # ================================================================ LOUNGE (atlas: lounge)
 HOLO_NODES = []  # #538: the projector (holo_projector), its own baked node in the lounge atlas
-# hologram.md 3: two stepped 16-gons, graphite body, darker bezel, a 0.19 m 16 x 16 pixel panel, two turn lights
-HOLO = dict(r0=0.17, h0=0.020, r1=0.155, h1=0.012, bezel=0.205, panel=0.19, lift=0.02, size=0.40, field=0.44,
-            body="#32353b", side="#26282d", bezel_c="#24262b", glow_color="#4df3ff", glow=0.8, turn_b="#4df3ff", turn_w="#f2efe8", turn_glow=2.4)
-HOLO_LIVE = []  # (node, kind): holo_panel, holo_turn_b|w
+# hologram.md 1.4-1.5 (#663): the game table's top is dark felt; the projector is sunk in it, only a glass window shows
+HOLO = dict(panel=0.19, seam=0.002, glass="#111317", seam_c="#0e0f11", felt="#16181c", felt_rough=0.95,
+            lift=0.02, size=0.40, field=0.44)
 HOLO_DENSITY = 3.0  # like the omok board it replaces (#135)
 
 
@@ -2715,45 +2711,35 @@ def lathe(name, profile, center, material, group, seg=32):
 
 
 def build_holo(gx, gz, G):
-    """#538 (가) pixel projector on the game table (hologram.md 3, 6.1): two stepped 16-gons (graphite) and a darker
-    square bezel (baked: holo_projector), the pixel panel (holo_panel, live neon: a 0..1 UV quad the app shades), the
-    turn lights on the steps facing the two stools (holo_turn_b|w, live neon), surface_holo at the panel's centre"""
+    """#663 (hologram.md 1.5): the projector sunk into the game table's top. Only its window shows: a 0.19 m square of
+    dark glass flush with the felt (0.5 mm proud) in a 2 mm seam (baked: holo_projector). surface_holo at the glass's
+    centre. #538's stepped body, the pixel panel neon and the turn lights are gone (the app's turn bar does that)"""
     H = HOLO
-    table = 0.74
-    # designer (#643): one step darker (#3a3d44 -> #32353b) and rougher: up close it lifted to about #7a888e
-    body = plastic(H["body"], 0.78, 0, 0.15, "holo_body")
-    side = plastic(H["side"], 0.78, 0, 0.15, "holo_side")
-    parts = [cyl("holo_low", H["r0"], H["h0"], (gx, table + H["h0"] / 2, gz), body, G, 16),
-             cyl("holo_up", H["r1"], H["h1"], (gx, table + H["h0"] + H["h1"] / 2, gz), body, G, 16)]
-    for o in parts:  # a flat side (not a corner) faces each stool and the room
-        o.rotation_euler.z = math.pi / 16
-        # flat-shaded, no bevel (#643: a 1 to 1.5 mm bevel strip gets too few texels and bakes a jagged edge); the sides
-        # one step darker than the tops so the steps part by tone up close (designer: the top lighter)
-        o.data.materials.append(side)
-        for f in o.data.polygons:
-            f.use_smooth = False
-            if abs(f.normal.z) < 0.5:
-                f.material_index = 1
-    top = table + H["h0"] + H["h1"]
-    parts.append(box("holo_bezel", (H["bezel"], 0.002, H["bezel"]), (gx, top + 0.001, gz),
-                     plastic(H["bezel_c"], 0.5, 0, 0.1, "holo_bezel"), G, bev=0.0008, seg=1))
-    py = top + 0.002 + 0.0003
-    panel = quad("holo_panel", H["panel"], H["panel"], emitter(H["glow_color"], H["glow"], "holo_panel"), "export")
-    panel.matrix_world = Mx((gx, py, gz), rx=-math.pi / 2)  # facing up; u along +x, v = 1 at the back (-z) edge
-    panel["glow_color"], panel["glow"], panel["w"], panel["h"], panel["grid"] = H["glow_color"], H["glow"], H["panel"], H["panel"], 16
-    HOLO_LIVE.append((panel, "neon"))
-    # turn lights (hologram.md 3): on the low step's flat side facing each stool, black (cyan) at -x = game_a,
-    # white (ivory) at +x = game_b; the app lights the side to move
-    ax = H["r0"] * math.cos(math.pi / 16)
-    for side, sx in (("b", -1), ("w", 1)):
-        c = H["turn_" + side]
-        o = box(f"holo_turn_{side}", (0.0016, 0.006, 0.014), (gx + sx * (ax + 0.0006), table + H["h0"] / 2, gz),
-                emitter(c, H["turn_glow"], f"holo_turn_{side}"), "export")
-        o["glow_color"], o["glow"], o["turn"] = c, H["turn_glow"], side
-        HOLO_LIVE.append((o, "neon"))
+    table = 0.74  # the top's face (gt_top: 0.72 + 0.04 / 2)
+    seam_m = plastic(H["seam_c"], 0.6, 0, 0.0, "holo_seam")
+    seam_m.node_tree.nodes["Principled BSDF"].inputs["Specular IOR Level"].default_value = 0.0  # a dark line, not a lit rim
+    py = table + 0.0005  # the glass's face (designer: about 0.7405)
+    # the seam: a 2 mm frame round the glass on the glass's own plane (a full square under the glass sat 0.25 mm over
+    # the felt, which meshopt's quantization of the big lounge node brought within the coplanar tolerance)
+    o_, i_ = H["panel"] / 2 + H["seam"], H["panel"] / 2
+    me = bpy.data.meshes.new("holo_seam")
+    me.from_pydata([W(gx + a, py, gz + b) for a, b in ((-o_, -o_), (o_, -o_), (o_, o_), (-o_, o_), (-i_, -i_), (i_, -i_), (i_, i_), (-i_, i_))],
+                   [], [(0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)])
+    if me.polygons[0].normal.z < 0:  # face web +y (Blender +Z)
+        me.flip_normals()
+    me.materials.append(seam_m)
+    seam = bpy.data.objects.new("holo_seam", me)
+    coll(G).objects.link(seam)
+    glass_m = plastic(H["glass"], 0.2, 0, 0.0, "holo_glass")
+    # the bake freezes a gloss seen straight down: at the default specular the window baked as a pale grey mirror of
+    # the ceiling. A tenth of it keeps a faint sheen over the felt and leaves the glass reading as switched off
+    glass_m.node_tree.nodes["Principled BSDF"].inputs["Specular IOR Level"].default_value = 0.05
+    glass = quad("holo_glass", H["panel"], H["panel"], glass_m, G)
+    place(glass, Mx((gx, py, gz), rx=-math.pi / 2))  # facing up, inside the frame: they meet edge to edge, no overlap
+    parts = [seam, glass]
     s_ = bpy.data.objects.new("surface_holo", None)
     coll("export").objects.link(s_)
-    s_.matrix_world = Mx((gx, py, gz))  # the panel's centre; +x = columns, +z = rows, +y = up
+    s_.matrix_world = Mx((gx, py, gz))  # the glass's centre; +x = columns, +z = rows, +y = up
     s_["surface"], s_["normal"] = "holo", [0, 1, 0]
     s_["lift"], s_["size"], s_["field"] = H["lift"], H["size"], H["field"]  # board height, light board, projection field
     NODES.append({"obj": s_, "surface": "holo", "play": "board"})
@@ -2982,7 +2968,14 @@ def build_lounge():
     # board game table with two stools and a board
     mark = len(p)
     gx, gz = GAME_TABLE
-    p += [cyl("gt_top", 0.42, 0.04, (gx, 0.72, gz), plastic("#c9b89a", 0.55, 0, 0.35, "desk_top"), G, 40, bev=0.006),
+    top = cyl("gt_top", 0.42, 0.04, (gx, 0.72, gz), plastic("#c9b89a", 0.55, 0, 0.35, "desk_top"), G, 40, bev=0.006)
+    # #663 (hologram.md 1.4): the top face inside the bevel is dark felt (a card table); the 6 mm bevel and the 4 cm
+    # rim stay the cream of the other tables. The bevel's new faces keep the cream (material 0, not the felt's)
+    top.data.materials.append(plastic(HOLO["felt"], HOLO["felt_rough"], 0, 0.05, "gt_felt"))
+    for f in top.data.polygons:
+        f.material_index = int(f.normal.z > 0.9)
+    top.modifiers["bevel"].material = 0
+    p += [top,
           cyl("gt_col", 0.04, 0.68, (gx, 0.36, gz), metal, G, 14),
           cyl("gt_foot", 0.22, 0.03, (gx, 0.015, gz), metal, G, 32)]
     # #538: the hologram projector (build_holo) in place of the omok board and bowls (#135)
@@ -5495,8 +5488,6 @@ for o in PP_LIVE:  # #280 3: the ping-pong net lattice (baked in: its shadow lie
     live(o, "bot")
 for o in HOLO_NODES:  # #538: the projector, near-field at the game table (at 1x its dark body baked mottled)
     baked(o, "lounge", density=HOLO_DENSITY)
-for o, kind in HOLO_LIVE:
-    live(o, kind)
 for o in build_props():
     live(o, "prop")
 for o, kind in build_play_lives():
@@ -6022,7 +6013,7 @@ scene.render.bake.target = "IMAGE_TEXTURES"
 # shows only as many as there are files)
 for n in NODES:
     nm_ = n["obj"].name  # #280: shelf_r<digit> = the library binders (not shelf_records, baked in lounge2)
-    if nm_.startswith(("agent_", "clock_", "keyrack_key", "desk_0_hourglass", "prop_headphones_cup", "window_", "prop_book_", "prop_shelfbook_", "prop_paper_", "pp_ball", "holo_panel", "holo_turn_")) or n.get("live") == "prop" \
+    if nm_.startswith(("agent_", "clock_", "keyrack_key", "desk_0_hourglass", "prop_headphones_cup", "window_", "prop_book_", "prop_shelfbook_", "prop_paper_", "pp_ball")) or n.get("live") == "prop" \
             or (nm_.startswith("shelf_r") and nm_[7:8].isdigit()) \
             or (nm_.startswith("desk_") and "_mouse" in nm_) \
             or n["obj"].get("hidden_at_rest"):  # #305: the mouse moves on its pad; #370: hidden at rest (the calendar page)
