@@ -29,6 +29,7 @@ import {
 } from 'three'
 import { AlkkagiLayer, type AlkInput } from './holoAlkkagi'
 import { ChessLayer, type ChessInput, type HoloStage } from './holoChess'
+import { bloomExcluded } from './bloomExclude'
 
 export const N = 15
 export const CELL = 0.026
@@ -374,6 +375,8 @@ export class HoloBoard {
 
     this.root.add(this.grid, this.glow, this.stones[1], this.stones[2], this.founts, this.marks, this.dots, this.overMarks, this.overDots)
     scene.add(this.root)
+    // #663 its light does not bloom (hologram.md 1.2): the bloom subtracts it from its input (holoBloom.ts)
+    bloomExcluded.add(this.root)
     this.sync()
   }
 
@@ -928,6 +931,7 @@ export class HoloBoard {
 
   dispose() {
     this.root.removeFromParent()
+    bloomExcluded.delete(this.root)
     this.chess?.dispose()
     this.alk?.dispose()
     for (const m of Object.values(this.materials)) m.dispose()
