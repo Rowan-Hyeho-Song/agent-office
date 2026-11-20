@@ -19,6 +19,7 @@ import {
 } from './store'
 import { chessVisitorWon, visitorPieceAt } from '../../play/visitorChess'
 import { OMOK_VIEW, fitView, v3, visitPose, type V3 } from './pose'
+import { CHAIR_HALF_M, GAME_TOP_HALF_M, overSpot, spotBox, trackMouse } from '../playHover'
 
 /** #604 the promotion sheet's anchor: this far over the square (a queen's height, m) */
 const PROMO_ABOVE_M = 0.05
@@ -98,6 +99,9 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
       scene.remove(marks.preview, marks.cursor, marks.forbid)
     }
   }, [scene, marks])
+
+  // #670 (play.md 2.1.1) the mouse over the game table and its chairs shows the tag
+  useEffect(() => trackMouse(gl.domElement), [gl])
 
   const restore = useRef<() => void>(() => {})
   restore.current = () => {
@@ -278,7 +282,13 @@ export function OmokVisitRig({ world }: { world: OfficeWorld }) {
       if (alone && !opposite && (game === 'omok' || game === 'chess') && world.source.getSnapshot()[alone]?.state === 'idle') {
         camera.updateMatrixWorld(true)
         const p = new Vector3(seat.x, OMOK_VIEW.tagAboveM, seat.z).project(camera)
-        if (p.z < 1) tag = { x: ((p.x + 1) / 2) * live.current.size.width, y: ((1 - p.y) / 2) * live.current.size.height, agent: alone, orient: visitPose(center, seat, g!.n * g!.cell, camera.fov, camera.aspect).orient, kind: game }
+        const { width: w, height: h } = live.current.size
+        // the table top (round the board) and both chairs, from the floor up to the tag's place
+        const chair = (s?: { x: number; z: number }) => s && { x: s.x, z: s.z, hx: CHAIR_HALF_M, hz: CHAIR_HALF_M }
+        const top = { x: center.x, z: center.z, hx: GAME_TOP_HALF_M, hz: GAME_TOP_HALF_M }
+        const box = spotBox([top, chair(seat), chair(world.graph?.spots.game_a)], OMOK_VIEW.tagAboveM)
+        const hot = overSpot('omok', box, camera, w, h)
+        if (p.z < 1) tag = { x: ((p.x + 1) / 2) * w, y: ((1 - p.y) / 2) * h, agent: alone, orient: visitPose(center, seat, g!.n * g!.cell, camera.fov, camera.aspect).orient, kind: game, hot }
       }
     }
     setOmokTag(tag)

@@ -9,6 +9,7 @@ import { isBoardOpen } from '../boardView/store'
 import { isOmokActive } from '../omokVisit/store'
 import type { PlayStage } from '../playStage'
 import { isTouring, tour } from '../tourStore'
+import { overSpot, spotBox, trackMouse } from '../playHover'
 import { officeNow, prefersReducedMotion, type OfficeWorld } from '../world'
 import {
   drainPingpongEvents, getPingpongVisit, pingpongArrived, pingpongDone, pingpongLeft, pingpongWorkTold, servePingpong, setPaddle, setPingpongChip, setPingpongReady,
@@ -223,6 +224,9 @@ export function PingpongVisitRig({ world }: { world: OfficeWorld }) {
     }
   }, [gl])
 
+  // #670 (play.md 2.1.1) the mouse over the table shows the tag
+  useEffect(() => trackMouse(gl.domElement), [gl])
+
   const tmpM = useMemo(() => new Matrix4(), [])
   /** #601 the cap's line said for this wound-up match */
   const stopSaid = useRef(false)
@@ -242,7 +246,10 @@ export function PingpongVisitRig({ world }: { world: OfficeWorld }) {
       if (who) {
         camera.updateMatrixWorld(true)
         const p = new Vector3(nearX, PP_VIEW.tagAboveM, o.z).project(camera)
-        if (p.z < 1) tag = { x: ((p.x + 1) / 2) * live.current.size.width, y: ((1 - p.y) / 2) * live.current.size.height, ...who, dims }
+        const { width: w, height: h } = live.current.size
+        // the table, from the floor up to the tag's place over its near end
+        const hot = overSpot('pingpong', spotBox([{ x: o.x, z: o.z, hx: dims.L / 2, hz: dims.W / 2 }], PP_VIEW.tagAboveM), camera, w, h)
+        if (p.z < 1) tag = { x: ((p.x + 1) / 2) * w, y: ((1 - p.y) / 2) * h, ...who, dims, hot }
       }
     }
     setPingpongTag(tag)

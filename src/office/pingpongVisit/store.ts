@@ -22,7 +22,7 @@ export interface PingpongVisitState {
   /** the visitor's paddle (table-local, visitorPingpong.ts Paddle) */
   paddle: Paddle
   /** the tag's place on the screen (over the near end), and who it would play; null when nobody plays there */
-  tag: { x: number; y: number; agent: string; watcher: string | null; dims?: Dims } | null
+  tag: { x: number; y: number; agent: string; watcher: string | null; dims?: Dims; hot?: boolean } | null
   /** the first-time help (play.md 3.3) shown in this tab already */
   helped: boolean
   /** the agent stands at the far end: the match may go on (the serve waits for it) */
@@ -153,6 +153,6 @@ export function restartPingpong(seed: number) {
 /** where the tag stands on the screen (the rig, every frame) */
 export function setPingpongTag(tag: PingpongVisitState['tag']) {
   const t = state.tag
-  if (t === tag || (t && tag && t.agent === tag.agent && t.watcher === tag.watcher && Math.abs(t.x - tag.x) < 0.5 && Math.abs(t.y - tag.y) < 0.5)) return
+  if (t === tag || (t && tag && t.agent === tag.agent && t.watcher === tag.watcher && !!t.hot === !!tag.hot && Math.abs(t.x - tag.x) < 0.5 && Math.abs(t.y - tag.y) < 0.5)) return
   set({ ...state, tag })
 }
