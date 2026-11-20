@@ -10,7 +10,6 @@
 
 import {
   Box3,
-  Color,
   CircleGeometry,
   InstancedMesh,
   Matrix4,
@@ -32,6 +31,7 @@ import { CELL as HOLO_CELL, HoloBoard, N as HOLO_N, STONE_H as HOLO_STONE_H, STO
 import { chessPinch, flickHand, pinchSequence, pinchTimes, type Pinch } from '../play/holoPinch'
 import { ALK_HAND, alkkagiAt, type AlkView } from '../play/alkkagiTimeline'
 import { CHESS_HAND, chessAt, type ChessView } from '../play/chessTimeline'
+import type { ChessInput } from './holoChess'
 import { KING, QUEEN } from '../play/chess'
 import { fingerModelOf, type AgentRig, type PropBank } from './rig'
 import { LIFT, OPEN_ANGLE, halfAngle } from './bookGeom'
@@ -90,38 +90,6 @@ const ONE = new Vector3(1, 1, 1)
 /** the table tennis table the model has (pp_table extras size / net_h) with the engine's default reach */
 const dimsOf = (size: number[], netH: number): Dims => ({ L: size[0], W: size[1], netH, ballR: 0.02, reach: 0.25, floorY: -0.76 })
 /** the blade's centre above the paddle node's origin, along its y */
-/**
- * #538 a live neon of the projector (holo_panel, holo_turn_b / _w): its own copy of the material, its colour the bake's glow_color times k (0 dark,
- * 1 full); a node without glow_color keeps its own colour as full
- */
-function holoNeon(node: Object3D | undefined, dark = '#000000'): (k: number) => void {
-  const off = new Color(dark)
-  const parts: { mat: MeshBasicMaterial; base: Color }[] = []
-  const glow = (node?.userData as { glow_color?: string } | undefined)?.glow_color
-  node?.traverse((o) => {
-    const mesh = o as Mesh
-    if (!mesh.isMesh || !(mesh.material as MeshBasicMaterial)?.color) return
-    const mat = (mesh.material as MeshBasicMaterial).clone()
-    mat.toneMapped = false
-    mesh.material = mat
-    // under the film: drawn before it (the film is renderOrder -1 and writes no depth), so it only shows faintly through (hologram.md 1.4, #648:
-    // a transparent neon drawn after the film came out on top of it)
-    mesh.renderOrder = -2
-    parts.push({ mat, base: glow ? new Color(glow) : mat.color.clone() })
-  })
-  let last = -1
-  return (k: number) => {
-    if (k === last) return
-    last = k
-    // dark: its unlit face (the panel off is a dark glass, not a hole: #111317, designer #648), the light added over it
-    for (const p of parts) p.mat.color.copy(p.base).multiplyScalar(k).add(off)
-  }
-}
-/** #538 (hologram.md 1.5) the projector's panel while the board is on, and the turn lights: the side to move, the other, the board off */
-const HOLO_NEON = { panel: 0.1, turn: 1, idle: 0.15 } as const
-/** #538 the panel switched off: a dark glass that sits with the bezel (designer, #648), not pure black */
-const HOLO_PANEL_OFF = '#111317'
-
 /** #604 a chess glyph's height by kind (hologram.md 11.2: rows of 3.6 mm; pawn 8 … king 14), m */
 const CHESS_GLYPH_H = [0, 8, 12, 12, 10, 13, 14].map((rows) => rows * 0.0036)
 
@@ -186,6 +154,8 @@ export interface StageIn {
   forcedSessions?: PlaySession[]
   /** #137 ② a visitor's game with the agent at the board (omokVisit/store.ts): drawn instead of the board's own game, in this tab only */
   visitorOmok?: { agent: string; view: OmokView } | null
+  /** #604 the visitor's game of chess with the agent at the board (omokVisit/store.ts): its view (visitorChess.ts chessViewOf) and the visitor's marks, this tab only */
+  visitorChess?: { agent: string; view: ChessView; visitor?: ChessInput['visitor'] } | null
   /** #137 ③ the visitor's match with the agent at the far end (pingpong_b): its rally (visitorPingpong.ts rallyOf) on the match clock, this tab only */
   visitorPingpong?: { agent: string; rally: Rally; tMs: number } | null
   /** #455 the treats taken in a hand: which, and when it landed (office ms) */
@@ -275,9 +245,13 @@ export class PlayStage {
   private chessHold = new Map<string, { key: string; yaw: number; flip: boolean }>()
   /** #604 the chess phase last frame (a reset begins a new game) */
   private chessPhase: ChessView['phase'] | null = null
+  /** #604 the pieces taken as of the last chess frame (the visitor's own capture has no hand to read it from) */
+  private chessTaken = 0
+  /** #655 the match on the chess board last frame (seed, the visitor's or not, players): a change while on is a quiet jump */
+  private chessKey: string | null = null
+  /** #655 the match and its move count last frame (a check sounds only with the move that gives it) */
+  private chessMoves: { key: string; n: number } | null = null
   /** #538 the projector's live neons (hologram.md 1.5) */
-  private holoPanel: (k: number) => void = () => {}
-  private holoTurn: Record<1 | 2, (k: number) => void> = { 1: () => {}, 2: () => {} }
   /** #538 the visitor's chair (the nav spot game_b), for its stone fount and turn line */
   private visitorChair: Vector3 | null = null
   /** the picks already sounded and flashed (seed:game:cell:pick) */
@@ -366,8 +340,6 @@ export class PlayStage {
       this.grid = { o: this.holo.cellPos(0), n: HOLO_N, cell: HOLO_CELL }
     }
     this.visitorChair = scene.getObjectByName('nav_game_b')?.getWorldPosition(new Vector3()) ?? null
-    this.holoPanel = holoNeon(scene.getObjectByName('holo_panel'), HOLO_PANEL_OFF)
-    this.holoTurn = { 1: holoNeon(scene.getObjectByName('holo_turn_b')), 2: holoNeon(scene.getObjectByName('holo_turn_w')) }
     // water for the can, and the book's two halves
     this.spout = nodes.prop_watering_can_spout
     this.plants = plantsFrom(scene)
@@ -613,6 +585,8 @@ export class PlayStage {
     // visitor's moves before that were neither drawn nor heard (sound, #648). The agent's hand waits for its chair (omokHands)
     const vo = inp.visitorOmok
     if (vo) og = { kind: 'boardgame', spot: 'game_a', players: [vo.agent, VISITOR], seed: hash(`visitor|${vo.agent}`), startMs: 0, game: 'omok', visitor: vo.view }
+    const vc = inp.visitorChess
+    if (vc) og = { kind: 'boardgame', spot: 'game_a', players: [vc.agent, VISITOR], seed: hash(`visitor|chess|${vc.agent}`), startMs: 0, game: 'chess', visitorChess: vc.view }
     // #137 ③ the visitor holds the near paddle: their match, the agent at the far end (no hand at the near one)
     const vp = inp.visitorPingpong
     if (vp) pp = inp.rigs[vp.agent]?.arrived === 'pingpong_b' ? { kind: 'pingpong', spot: 'pingpong_a', players: [VISITOR, vp.agent], seed: hash(`visitor|pp|${vp.agent}`), startMs: 0 } : null
@@ -620,6 +594,7 @@ export class PlayStage {
     for (const e of this.stoneLetGo.values()) e.seen = false
     // #604 the board's game (hologram.md 10.2): chess or omok on the one projector; with nobody there, the last game's board goes off
     if (og) this.holoGame = og.game === 'chess' ? 'chess' : og.game === 'alkkagi' ? 'alkkagi' : 'omok'
+    if (this.holoGame !== 'chess') this.chessKey = null
     if (this.holoGame === 'chess') this.chess(og?.game === 'chess' ? og : null, inp)
     else if (this.holoGame === 'alkkagi') this.alkkagi(og?.game === 'alkkagi' ? og : null, inp)
     else this.omok(og, inp)
@@ -764,6 +739,17 @@ export class PlayStage {
     if (i < 0 || j < 0 || i >= g.n || j >= g.n) return null
     return Math.hypot(p.x - (g.o.x + i * g.cell), p.z - (g.o.z + j * g.cell)) <= g.cell / 2 + 1e-9 ? j * g.n + i : null
   }
+  /** #604 the game the board shows (omok, chess, alkkagi): the tag offers the one the agent plays */
+  get boardGame(): 'omok' | 'chess' | 'alkkagi' {
+    return this.holoGame
+  }
+  /** #604 chess: the square under a world point (-1: none), the square's place (the board as last turned), and the plane the pieces stand on */
+  chessSquareAt(p: Vector3): number {
+    return this.holo ? this.holo.squareAt(p) : -1
+  }
+  chessSquarePos(sq: number, out = new Vector3()): Vector3 | null {
+    return this.holo ? this.holo.squarePos(sq, out) : null
+  }
   /** a point's place on the board (world), or null before the model */
   omokPoint(cell: number, out = new Vector3()): Vector3 | null {
     return this.grid ? this.cellPos(cell, out) : null
@@ -840,7 +826,6 @@ export class PlayStage {
       pick: held?.pick,
     })
     this.holoPhase = phase
-    this.holoNeons(r.boardOn, view && playing ? view.toMove : null)
     if (r.boardOnStart) this.sounds.holoBoard(true, centre, inp.reduced)
     if (r.boardOffStart) this.sounds.holoBoard(false, centre, inp.reduced)
     if (!s || !view) return
@@ -914,10 +899,17 @@ export class PlayStage {
   private chess(s: PlaySession | null, inp: StageIn) {
     const holo = this.holo
     if (!holo) return
-    const snap = inp.t - this.holoT > 1 || inp.t < this.holoT
+    // #655 (sound) the board handed from one match to another while it stays on (the visitor's game closing onto the agents' going on, or
+    // the other way): that frame is a jump, quiet (no check, no move), not the end of one board and the start of another
+    const key = s ? `${s.seed}|${s.visitorChess ? 'visitor' : ''}|${s.players.join(',')}` : null
+    const handed = key !== null && this.chessKey !== null && key !== this.chessKey
+    this.chessKey = key
+    const snap = inp.t - this.holoT > 1 || inp.t < this.holoT || handed
     this.holoT = inp.t
-    const tMs = s ? sessionTime(s, inp.now) : -1
-    const view = s && tMs >= 0 ? chessAt(s.seed, s.players, tMs) : null
+    const tMs = s ? (s.visitorChess ? 0 : sessionTime(s, inp.now)) : -1
+    // #604 the visitor's game: its own view (the agent's hand rides on view.move, the visitor's moves have none)
+    const vis = s?.visitorChess ?? null
+    const view = s && tMs >= 0 ? (vis ?? chessAt(s.seed, s.players, tMs)) : null
     // the seated (white is the side holding view.white; a record alone: the colour to move)
     const seats: { seat: Vector3; color: 1 | 2; id: string }[] = []
     if (s) {
@@ -928,7 +920,15 @@ export class PlayStage {
         const white = s.solo ? view?.toMove === 0 : view ? view.white === i : i === 0
         seats.push({ seat: rig.parts.root.position.clone(), color: white ? 2 : 1, id })
       })
+      // the visitor sits from the start of its game, in the empty chair at game_b (as in omok)
+      if (vis) {
+        const centre = holo.squarePos(27).lerp(holo.squarePos(36), 0.5)
+        const chair = this.visitorChair ?? (seats[0] ? centre.clone().multiplyScalar(2).sub(seats[0].seat) : null)
+        if (chair) seats.push({ seat: chair.clone(), color: vis.white === 1 ? 2 : 1, id: VISITOR })
+      }
     }
+    // black visitor: the board is turned so their colour is near (hologram.md 11.5)
+    const flip = !!vis && vis.white === 0
     const on = !!s && seats.length > 0
     const phase = view?.phase ?? null
     const playing = phase === 'thinking' || phase === 'pick' || phase === 'place'
@@ -969,20 +969,42 @@ export class PlayStage {
                 : null,
             end: view.end ? { result: view.end.kind === 'win' ? ('mate' as const) : ('draw' as const), ...(view.end.kind === 'win' ? { loser: view.end.side === 0 ? (1 as const) : (2 as const) } : {}), since: inp.t - view.end.sinceMs / 1000 } : null,
             camera: inp.camera,
+            ...(flip ? { flip: true } : {}),
+            ...(s?.visitorChess ? { visitor: inp.visitorChess?.visitor } : {}),
           }
         : undefined,
     })
+    // #655 (sound) a check sounds with the move that gives it: the same match, its count one past last frame's, neither frame catching up. A
+    // check already standing when the board was handed over (or reached while catching up) shows on the board but is not heard
+    const prevMoves = this.chessMoves
+    this.chessMoves = view && key !== null ? { key, n: view.moveIndex } : null
+    const stepped = !!view && !!prevMoves && prevMoves.key === key && view.moveIndex === prevMoves.n + 1 && phase !== 'catching' && this.chessPhase !== 'catching'
     this.chessPhase = phase
-    this.holoNeons(r.boardOn, view && playing ? (view.toMove === 0 ? 2 : 1) : null)
     const centre = holo.squarePos(27).lerp(holo.squarePos(36), 0.5)
     if (r.boardOnStart) this.sounds.holoBoard(true, centre, inp.reduced)
     if (r.boardOffStart) this.sounds.holoBoard(false, centre, inp.reduced)
     if (!s || !view || !on) return
-    if (phase !== 'catching') this.sounds.chessPiece(s.seed, view.game, view.moveIndex, view.lastMove ? holo.squarePos(view.lastMove.to) : null, !!(mv && phase === 'place' && mv.capture))
-    if (r.checkStart && view.check !== null) this.sounds.chessCheck(s.seed, view.game, view.moveIndex, holo.squarePos(view.check))
+    // the visitor's own move: sounds as 'ui' (its piece is the visitor's colour); it has no hand, so what it took is read from the captured rows
+    const taken = view.takenByWhite.length + view.takenByBlack.length
+    const piece = view.lastMove ? view.board[view.lastMove.to] : 0
+    const visitorMove = !!vis && !!piece && piece > 0 === (view.white === 1)
+    const capture = visitorMove ? taken > this.chessTaken : !!(mv && phase === 'place' && mv.capture)
+    this.chessTaken = taken
+    if (phase !== 'catching') this.sounds.chessPiece(s.seed, view.game, view.moveIndex, view.lastMove ? holo.squarePos(view.lastMove.to) : null, capture, visitorMove)
+    if (r.checkStart && view.check !== null && stepped) this.sounds.chessCheck(s.seed, view.game, view.moveIndex, holo.squarePos(view.check))
     // the faces of the result, as in omok (play.md 2.5): the winner glad, the loser embarrassed; a draw has none; not a record alone
     const end = view.end
-    if (end && end.kind === 'win' && end.sinceMs > 500 && !s.solo) {
+    // against the visitor the faces and words come with the game (omokVisit/store.ts); the agent's clap / fist as in omok (play.md 2.5)
+    if (end && end.kind === 'win' && end.sinceMs > 500 && vis && !inp.reduced) {
+      const rk = `chess:${s.spot}:visitor:${view.game}`
+      const rig = inp.rigs[s.players[0]]
+      if (rig && this.reactedGame.get(rk) === undefined) {
+        this.reactedGame.set(rk, inp.t)
+        const agentWon = end.side === (view.white === 0 ? 0 : 1)
+        rig.reaction = agentWon ? { kind: 'fist', t0: inp.t, dur: 1.0 } : { kind: 'clap', t0: inp.t + 0.4, dur: 1.4 }
+      }
+    }
+    if (end && end.kind === 'win' && end.sinceMs > 500 && !s.solo && !vis) {
       const fk = `chess:${s.spot}:${view.game}`
       if (!this.faced.has(fk)) {
         this.faced.add(fk)
@@ -999,15 +1021,6 @@ export class PlayStage {
         }
       }
     }
-  }
-
-  /**
-   * #538 (hologram.md 1.5) the projector's live neons for every game: the panel glows while the board is on; the turn light of the colour to
-   * move is lit, the other dim, both dark with the board off (#605: chess and alkkagi left the panel at its bake, bright through the film)
-   */
-  private holoNeons(lit: boolean, turn: 1 | 2 | null) {
-    this.holoPanel(lit ? HOLO_NEON.panel : 0)
-    for (const c of [1, 2] as const) this.holoTurn[c](!lit ? 0 : turn === c ? HOLO_NEON.turn : HOLO_NEON.idle)
   }
 
   /**
@@ -1069,7 +1082,6 @@ export class PlayStage {
         : undefined,
     })
     this.alkPhase = phase
-    this.holoNeons(r.boardOn, view && (phase === 'thinking' || phase === 'aim' || phase === 'moving' || phase === 'settle') ? (view.toMove === 0 ? 1 : 2) : null)
     const centre = holo.alkPos(0, 0)
     if (r.boardOnStart) this.sounds.holoBoard(true, centre, inp.reduced)
     if (r.boardOffStart) this.sounds.holoBoard(false, centre, inp.reduced)

@@ -29,6 +29,7 @@ import {
 } from 'three'
 import { AlkkagiLayer, type AlkInput } from './holoAlkkagi'
 import { ChessLayer, type ChessInput, type HoloStage } from './holoChess'
+import { bloomExcluded } from './bloomExclude'
 
 export const N = 15
 export const CELL = 0.026
@@ -36,13 +37,11 @@ export const STONE_H = 0.0056
 export const VOXEL = 0.0028
 export const BOX = 0.92
 export const GRID_SIZE = 0.39
-export const FILM_SIZE = 0.44
-export const FILM_DROP = 0.001
 /**
- * #538 (hologram.md 1.4, #650) the film's opacity, set by what shows: over the cream table the screen reads about #1c1f24 (L 12–15), the projector's
- * disc and panel only faintly through. Blended in linear space, measured on the page: 0.62 read #a6a69d, 0.9 #5a5b56, 0.99 #1e2021
+ * the light field's extent (m): the area the board, its coordinates and the turn lines use. #663: no film is drawn there any more (the table top is
+ * baked dark instead: a dark sheet on the cream table read as a board laid on it), the light goes straight onto the top
  */
-export const FILM_OPACITY = 0.99
+export const FILM_SIZE = 0.44
 export const GRID_PX = 91
 export const CELL_PX = 6
 export const PX = CELL / CELL_PX // one board-texture pixel
@@ -255,14 +254,16 @@ void main() {
 
 export class HoloBoard {
   readonly root = new Group()
-  readonly film: Mesh
   readonly grid: Mesh
   readonly stones: { 1: InstancedMesh; 2: InstancedMesh }
   readonly glow: InstancedMesh
   readonly founts: InstancedMesh
   readonly marks: InstancedMesh // additive: ripple, win line, turn line
   readonly dots: InstancedMesh // normal blended: last move
-  readonly materials: Record<'film' | 'grid' | 'stone' | 'glow' | 'fount' | 'marks' | 'dot', ShaderMaterial>
+  /** #660 the visitor's chess marks drawn over the opaque pieces (no depth test): cursor ring and target dots (added), capture corners (normal) */
+  readonly overMarks: InstancedMesh
+  readonly overDots: InstancedMesh
+  readonly materials: Record<'grid' | 'stone' | 'glow' | 'fount' | 'marks' | 'dot' | 'overMarks' | 'overDots', ShaderMaterial>
 
   private readonly surface: Object3D
   private readonly scene: Object3D
@@ -317,8 +318,6 @@ export class HoloBoard {
       this.light(m, blending)
       return m
     }
-    // film: normal blended ink, unlit, no scanline needed (scan only dims colour that is already dark)
-    const film = flat(COLORS.ink, NormalBlending, null, FILM_OPACITY)
     const grid = flat(COLORS.grid, AdditiveBlending, gridTexture(), 1)
     this.flatMat = flat
     const quadMat = (blending: Blending, radial: boolean) => {
@@ -337,22 +336,23 @@ export class HoloBoard {
       return m
     }
     this.materials = {
-      film,
       grid,
       stone: voxMat(),
       glow: quadMat(AdditiveBlending, true),
       fount: voxMat(),
       marks: quadMat(AdditiveBlending, false),
       dot: quadMat(NormalBlending, false),
+      overMarks: quadMat(AdditiveBlending, false),
+      overDots: quadMat(NormalBlending, false),
     }
+    // #660 (hologram.md 11.3) the visitor's marks are not hidden by the opaque chess pieces: no depth test, drawn after them
+    this.materials.overMarks.depthTest = false
+    this.materials.overDots.depthTest = false
 
     const plane = (size: number) => new PlaneGeometry(size, size).rotateX(-Math.PI / 2)
-    this.film = new Mesh(plane(FILM_SIZE), film)
-    this.film.position.y = -FILM_DROP
-    this.film.renderOrder = -1
     this.grid = new Mesh(plane(GRID_SIZE), grid)
     this.grid.renderOrder = 0
-    for (const m of [this.film, this.grid]) {
+    for (const m of [this.grid]) {
       m.frustumCulled = false
       m.visible = false
       m.onBeforeRender = this.onRender
@@ -368,11 +368,15 @@ export class HoloBoard {
     const quads = (mat: ShaderMaterial, cap: number, order: number) =>
       this.inst(unit.clone(), mat, cap, { iPos: 3, iSize: 2, iRot: 1, iCol: 4 }, order)
     this.glow = quads(this.materials.glow, CAP, 1)
-    this.marks = quads(this.materials.marks, MAX_RIPPLES * 4 + 8, 3)
-    this.dots = quads(this.materials.dot, 48, 5)
+    this.marks = quads(this.materials.marks, MAX_RIPPLES * 4 + 8 + 32, 3)
+    this.dots = quads(this.materials.dot, 128, 5)
+    this.overMarks = quads(this.materials.overMarks, 96, 6)
+    this.overDots = quads(this.materials.overDots, 64, 7)
 
-    this.root.add(this.film, this.grid, this.glow, this.stones[1], this.stones[2], this.founts, this.marks, this.dots)
+    this.root.add(this.grid, this.glow, this.stones[1], this.stones[2], this.founts, this.marks, this.dots, this.overMarks, this.overDots)
     scene.add(this.root)
+    // #663 its light does not bloom (hologram.md 1.2): the bloom subtracts it from its input (holoBloom.ts)
+    bloomExcluded.add(this.root)
     this.sync()
   }
 
@@ -410,9 +414,8 @@ export class HoloBoard {
     this.surface.matrixWorld.decompose(this.sp, this.sq, this.ss)
     const l = this.surface.userData?.lift
     if (typeof l === 'number') this.lift = l
-    // the light plane is lift over the surface (the projector's panel); the film 1 mm under it (#648: both were left at the panel, under its top)
+    // the light plane is lift over the surface (the projector's panel) (#648: it was left at the panel, under its top)
     this.grid.position.y = this.lift
-    this.film.position.y = this.lift - FILM_DROP
     this.frame.compose(this.sp, this.sq, new Vector3(1, 1, 1))
     this.inv.copy(this.frame).invert()
     this.scene.updateWorldMatrix(true, false)
@@ -595,7 +598,7 @@ export class HoloBoard {
     }
     const chess = game === 'chess' ? this.ensureChess() : null
     const alk = game === 'alkkagi' ? this.ensureAlk() : null
-    chess?.prepare(inp.chess, inp.players)
+    chess?.prepare(inp.chess, inp.players, t, reduced)
     alk?.prepare(inp.players)
 
     // ---- phase machine
@@ -694,7 +697,6 @@ export class HoloBoard {
   private drawBoard(t: number, reduced: boolean) {
     const ph = this.phase
     const visible = ph !== 'off'
-    this.film.visible = visible
     this.grid.visible = visible
     let rowsZ = 45
     let rowsX = 45
@@ -716,9 +718,9 @@ export class HoloBoard {
     }
     const hz = rowsZ === 45 ? 1 : (rowsZ + 0.5) * (GRID_SIZE / GRID_PX)
     const hx = rowsX === 45 ? 1 : (rowsX + 0.5) * (GRID_SIZE / GRID_PX)
+    // the chess coordinates span the whole field (FILM_SIZE): their fold clip in its own half extents
     const k = FILM_SIZE / GRID_SIZE
     this.materials.grid.uniforms.uClip.value.set(hx, hz)
-    this.materials.film.uniforms.uClip.value.set(hx === 1 ? 1 : hx * k, hz === 1 ? 1 : hz * k)
     this.materials.grid.uniforms.uBright.value = bright
     this.uAlpha.value = alpha
     const chessOn = this.game === 'chess'
@@ -745,6 +747,8 @@ export class HoloBoard {
     let nGlow = 0
     let nMark = 0
     let nDot = 0
+    let nOverMark = 0
+    let nOverDot = 0
     let nFount = 0
     const p = new Vector3()
     const base = this.lift + STONE_Y
@@ -790,9 +794,24 @@ export class HoloBoard {
       this.put(this.dots, i, 'iRot', 0)
       this.put(this.dots, i, 'iCol', c.r, c.g, c.b, a)
     }
+    // #660 over the pieces (the visitor's chess marks)
+    const markOver = (x: number, y: number, z: number, sx: number, sz: number, rot: number, c: Color, bright: number, a = 1) => {
+      const i = nOverMark++
+      this.put(this.overMarks, i, 'iPos', x, y, z)
+      this.put(this.overMarks, i, 'iSize', sx, sz)
+      this.put(this.overMarks, i, 'iRot', rot)
+      this.put(this.overMarks, i, 'iCol', c.r * bright, c.g * bright, c.b * bright, a)
+    }
+    const dotOver = (x: number, y: number, z: number, sx: number, sz: number, c: Color, a: number) => {
+      const i = nOverDot++
+      this.put(this.overDots, i, 'iPos', x, y, z)
+      this.put(this.overDots, i, 'iSize', sx, sz)
+      this.put(this.overDots, i, 'iRot', 0)
+      this.put(this.overDots, i, 'iCol', c.r, c.g, c.b, a)
+    }
     // the chess layer always runs, so its instance counts drop to zero when it is not shown
     const chessOn = this.game === 'chess'
-    this.chess?.draw({ t, reduced, live: live && chessOn, on: on && chessOn, c: inp.chess, held: inp.held, glow, mark, dot })
+    this.chess?.draw({ t, reduced, live: live && chessOn, on: on && chessOn, c: inp.chess, held: inp.held, glow, mark, dot, markOver, dotOver })
     // likewise the alkkagi layer (no ripple, no founts, no red)
     const alkOn = this.game === 'alkkagi'
     this.alk?.draw({ t, reduced, live: live && alkOn, on: on && alkOn, a: inp.alkkagi, glow, mark })
@@ -904,17 +923,20 @@ export class HoloBoard {
     this.glow.count = nGlow
     this.marks.count = nMark
     this.dots.count = nDot
+    this.overMarks.count = nOverMark
+    this.overDots.count = nOverDot
     this.founts.count = nFount
-    this.flush(this.stones[1], this.stones[2], this.glow, this.marks, this.dots, this.founts)
+    this.flush(this.stones[1], this.stones[2], this.glow, this.marks, this.dots, this.overMarks, this.overDots, this.founts)
   }
 
   dispose() {
     this.root.removeFromParent()
+    bloomExcluded.delete(this.root)
     this.chess?.dispose()
     this.alk?.dispose()
     for (const m of Object.values(this.materials)) m.dispose()
     const tex = this.materials.grid.uniforms.uMap.value as DataTexture
     tex.dispose()
-    for (const o of [this.film, this.grid, this.glow, this.stones[1], this.stones[2], this.founts, this.marks, this.dots]) o.geometry.dispose()
+    for (const o of [this.grid, this.glow, this.stones[1], this.stones[2], this.founts, this.marks, this.dots, this.overMarks, this.overDots]) o.geometry.dispose()
   }
 }

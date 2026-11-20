@@ -1,14 +1,17 @@
 // Hologram chess layer (#604 stage 1a, hologram.md 11): board and coordinate pixels, glyphs, squares, instances, capture / castling /
 // promotion / check / end looks, held piece, determinism, reduced motion. No WebGL.
 import { describe, expect, it } from 'vitest'
-import { Euler, Group, Object3D, Vector3, type InstancedBufferAttribute, type InstancedMesh } from 'three'
+import { AdditiveBlending, Color, Euler, Group, NormalBlending, Object3D, Vector3, type InstancedBufferAttribute, type InstancedMesh } from 'three'
 import { HoloBoard, type HoloInput } from './holoBoard'
 import {
   BOARD_PX,
   CVOX,
   FILM_PX,
   GLYPHS,
+  INK_SHADE,
+  SHADE,
   SQ,
+  TILT_S,
   boardPixels,
   buildPieceGeometry,
   coordPixels,
@@ -130,9 +133,9 @@ describe('glyphs', () => {
     expect(glyphVoxels(4)).toBe(72)
     expect(glyphVoxels(6)).toBe(80)
   })
-  it('merge to visible faces, two layers deep, standing', () => {
+  it('merge to visible faces, two layers deep, standing (the glyph alone, without its ink rim)', () => {
     for (let k = 1; k <= 6; k++) {
-      const g = buildPieceGeometry(k)
+      const g = buildPieceGeometry(k, false)
       const pos = g.getAttribute('position')
       let top = 0
       let maxY = 0
@@ -145,19 +148,21 @@ describe('glyphs', () => {
       }
       const sh = g.getAttribute('aShade')
       const cap = g.getAttribute('aCap')
-      for (let i = 0; i < pos.count; i += 4) if (sh.getX(i) === 1 && cap.getX(i) === 0) top++
-      expect(maxY).toBeLessThanOrEqual(GLYPHS[k].length * CVOX + 1e-9)
+      for (let i = 0; i < pos.count; i += 4) if (Math.abs(sh.getX(i) - SHADE.top) < 1e-6 && cap.getX(i) === 0) top++
+      // solid glyphs (#658) reach the top exactly; positions are stored as Float32 (~1e-8 m at 4 cm)
+      expect(maxY).toBeLessThanOrEqual(GLYPHS[k].length * CVOX + 1e-7)
       expect(maxY).toBeGreaterThan((GLYPHS[k].length - 1) * CVOX)
-      expect(maxZ - minZ).toBeCloseTo(CVOX * 1.92 - CVOX * 0.92 + CVOX * 0.92 + 0, 4) // 2 layers (gap 8% inside a voxel)
+      expect(maxZ - minZ).toBeCloseTo(CVOX * 2, 6) // 2 layers, solid (#658: no gap between voxels)
       // exposed tops per layer: the voxels with nothing above
       let exposed = 0
       const rows = GLYPHS[k]
       rows.forEach((r, y) => [...r].forEach((ch, x) => ch === '#' && (y === 0 || rows[y - 1][x] !== '#') && exposed++))
       expect(top).toBe(exposed * 2)
     }
-    // face shades only 1.0 / 0.7 / 0.5
-    const sh = buildPieceGeometry(2).getAttribute('aShade')
-    for (let i = 0; i < sh.count; i++) expect([1, 0.7, 0.5].some((v) => Math.abs(v - sh.getX(i)) < 1e-6)).toBe(true)
+    // face shades only (#655, hologram.md 11.2): front/back 1.0, top 0.6, sides 0.5; the front the brightest
+    const sh = buildPieceGeometry(2, false).getAttribute('aShade')
+    for (let i = 0; i < sh.count; i++) expect([1, 0.6, 0.5].some((v) => Math.abs(v - sh.getX(i)) < 1e-6)).toBe(true)
+    expect(SHADE).toEqual({ front: 1, side: 0.5, top: 0.6 })
   })
 })
 
@@ -536,5 +541,227 @@ describe('reduced motion', () => {
     f(T + 0.15, c(sq('e8')))
     expect(black.count).toBe(1) // in the row now, half size
     expect(arr(black, 'iSt')[0]).toBeCloseTo(0.5)
+  })
+})
+
+describe('visitor marks (#604 stage 2)', () => {
+  const pos = mk({ e1: 6, e8: -6, e4: 1, d5: -1 })
+  const setup = () => {
+    const { holo, surface } = make()
+    const t = opened(holo)
+    holo.update(frame(t + 0.1, ci({ board: pos }))) // pieces grown in
+    return { holo, surface, T: t + 1 }
+  }
+  const sqLocal = (holo: HoloBoard, s: number) => holo.chessLayer!.squareLocal(s, new Vector3())
+  const inst = (m: InstancedMesh, name: string, n: number) => {
+    const size = name === 'iCol' ? 4 : name === 'iSize' ? 2 : name === 'iRot' ? 1 : 3
+    return Array.from(arr(m, name).slice(n * size, n * size + size))
+  }
+  const near = (p: Vector3, x: number, z: number) => Math.abs(p.x - x) < SQ / 2 && Math.abs(p.z - z) < SQ / 2
+  const visitor = (o: Partial<NonNullable<ChessInput['visitor']>> = {}) => ({ selected: null, targets: [], cursor: null, drag: null, ...o })
+
+  it('draws nothing extra without visitor', () => {
+    const { holo, T } = setup()
+    holo.update(frame(T, ci({ board: pos })))
+    expect(holo.marks.count).toBe(0)
+    expect(holo.dots.count).toBe(0)
+    expect(holo.overMarks.count).toBe(0)
+    expect(holo.overDots.count).toBe(0)
+  })
+
+  it('a 2x2 px dot at each legal square, a cyan ring at the cursor: over the pieces (#660: no depth test, after them)', () => {
+    const { holo, T } = setup()
+    holo.update(frame(T, ci({ board: pos, visitor: visitor({ selected: sq('e4'), targets: [{ sq: sq('e5'), capture: false }, { sq: sq('e6'), capture: false }], cursor: sq('e5') }) })))
+    const om = holo.overMarks
+    expect(holo.marks.count).toBe(0)
+    expect(om.count).toBe(2 + 4)
+    expect(om.material).toBe(holo.materials.overMarks)
+    expect(holo.materials.overMarks.depthTest).toBe(false)
+    expect(om.renderOrder).toBeGreaterThan(pm(holo, 1, 2).renderOrder)
+    const e5 = sqLocal(holo, sq('e5'))
+    const d0 = inst(om, 'iPos', 0)
+    expect(d0[0]).toBeCloseTo(e5.x)
+    expect(d0[2]).toBeCloseTo(e5.z)
+    const sz = inst(om, 'iSize', 0)
+    expect(sz[0]).toBeCloseTo((2 * SQ) / 11)
+    expect(sz[1]).toBeCloseTo((2 * SQ) / 11)
+    expect(inst(om, 'iCol', 0)[2]).toBeGreaterThan(inst(om, 'iCol', 0)[0]) // cyan: blue > red
+    // ring: four edge bars round e5
+    for (let i = 2; i < 6; i++) {
+      const p = inst(om, 'iPos', i)
+      expect(near(new Vector3(p[0], 0, p[2]), e5.x, e5.z)).toBe(true)
+    }
+    expect(holo.dots.count).toBe(0)
+    expect(holo.overDots.count).toBe(0)
+  })
+
+  it('the piece under the cursor has a cyan rim (#660), the others ink', () => {
+    const { holo, T } = setup()
+    const w = (sel: number | null) => {
+      holo.update(frame(T, ci({ board: pos, visitor: visitor({ cursor: sel }) })))
+      return [inst(pm(holo, 1, 2), 'iCol', 0)[3], inst(pm(holo, 6, 2), 'iCol', 0)[3]] // white pawn e4, white king e1
+    }
+    expect(w(sq('e4'))).toEqual([1, 0])
+    expect(w(sq('e1'))).toEqual([0, 1])
+    expect(w(sq('e5'))).toEqual([0, 0]) // an empty square: the ring alone
+    expect(holo.chessLayer!.materials.piece.vertexShader).toContain('iCol.w > 0.5 ? uRimCursor : uInk')
+  })
+
+  it('capture squares get cyan corners over the pieces (#660), the red last-move corners stay under them', () => {
+    const { holo, T } = setup()
+    holo.update(frame(T, ci({ board: pos, lastMove: { from: sq('e2'), to: sq('d5') }, visitor: visitor({ selected: sq('e4'), targets: [{ sq: sq('d5'), capture: true }] }) })))
+    expect(holo.marks.count + holo.overMarks.count).toBe(0) // no centre dot on a capture square
+    expect(holo.dots.count).toBe(16) // two red corner sets, depth tested (behind the pieces)
+    expect(holo.overDots.count).toBe(8) // one cyan set, over everything
+    expect(holo.materials.dot.depthTest).toBe(true)
+    expect(holo.materials.overDots.depthTest).toBe(false)
+    expect(holo.overDots.renderOrder).toBeGreaterThan(holo.dots.renderOrder)
+    for (let i = 0; i < 16; i++) expect(inst(holo.dots, 'iCol', i)[0]).toBeGreaterThan(inst(holo.dots, 'iCol', i)[2]) // red
+    // cyan corners sit exactly where the red ones of d5 are
+    const d5 = sqLocal(holo, sq('d5'))
+    for (let i = 0; i < 8; i++) {
+      expect(inst(holo.overDots, 'iCol', i)[2]).toBeGreaterThan(inst(holo.overDots, 'iCol', i)[0])
+      const p = inst(holo.overDots, 'iPos', i)
+      expect(near(new Vector3(p[0], 0, p[2]), d5.x, d5.z)).toBe(true)
+    }
+  })
+
+  it('the selected piece is 1.3 bright and 1 cm up; others stay at 1 and rest', () => {
+    const { holo, T } = setup()
+    holo.update(frame(T, ci({ board: pos })))
+    const rest = inst(pm(holo, 1, 2), 'iPos', 0)[1]
+    expect(inst(pm(holo, 1, 2), 'iSt', 0)[1]).toBe(1)
+    holo.update(frame(T + 0.01, ci({ board: pos, visitor: visitor({ selected: sq('e4') }) })))
+    expect(inst(pm(holo, 1, 2), 'iSt', 0)[1]).toBeCloseTo(1.3)
+    expect(inst(pm(holo, 1, 2), 'iPos', 0)[1]).toBeCloseTo(rest + 0.01) // immediate, also for reduced
+    expect(inst(pm(holo, 1, 1), 'iSt', 0)[1]).toBe(1)
+    holo.update(frame(T + 0.02, ci({ board: pos, visitor: visitor({ selected: sq('e4') }) }), { reduced: true }))
+    expect(inst(pm(holo, 1, 2), 'iPos', 0)[1]).toBeCloseTo(rest + 0.01)
+    expect(inst(pm(holo, 1, 2), 'iSt', 0)[1]).toBeCloseTo(1.3)
+  })
+
+  it('a dragged piece leaves its cell and floats 2 cm over the pointer', () => {
+    const { holo, surface, T } = setup()
+    const w = new Vector3(1.5 + 0.03, 0.74 + 0.5, -2 - 0.05) // world point over the board
+    holo.update(frame(T, ci({ board: pos, visitor: visitor({ selected: sq('e4'), drag: { pos: w } }) })))
+    const white = pm(holo, 1, 2)
+    expect(white.count).toBe(1)
+    const q = surface.worldToLocal(w.clone())
+    const p = inst(white, 'iPos', 0)
+    expect(p[0]).toBeCloseTo(q.x)
+    expect(p[2]).toBeCloseTo(q.z)
+    expect(p[1]).toBeCloseTo(0.02 + 0.02) // light plane lift 2 cm + 2 cm
+    expect(inst(white, 'iSt', 0)[1]).toBeCloseTo(1.3)
+  })
+})
+
+describe('the pieces face the visitor full on in their game view (#655, hologram.md 11.2)', () => {
+  const visitor = { selected: null, targets: [], cursor: null, drag: null }
+  const tilt = (holo: HoloBoard) => holo.chessLayer!.materials.piece.uniforms.uTilt.value as number
+  it('stand (yaw only) for the agents and the free camera; lean in over 0.3 s for the visitor, back out the same; the camera handed to the shader', () => {
+    const { holo } = make()
+    const t = opened(holo)
+    const b = startPosition().board
+    const cam = new Vector3(1.5, 1.6, -2 + 0.9)
+    holo.update(frame(t, ci({ board: b, camera: cam })))
+    expect(tilt(holo)).toBe(0)
+    holo.update(frame(t + 0.1, ci({ board: b, camera: cam, visitor })))
+    expect(tilt(holo)).toBe(0)
+    holo.update(frame(t + 0.1 + TILT_S / 2, ci({ board: b, camera: cam, visitor })))
+    expect(tilt(holo)).toBeCloseTo(0.5, 5)
+    holo.update(frame(t + 0.1 + TILT_S, ci({ board: b, camera: cam, visitor })))
+    expect(tilt(holo)).toBe(1)
+    // the shader's camera is in the board's frame (the surface at 1.5, 0.74, -2)
+    const u = holo.chessLayer!.materials.piece.uniforms.uCam.value as Vector3
+    expect([u.x, u.y, u.z].map((x) => +x.toFixed(6))).toEqual([0, +(1.6 - 0.74).toFixed(6), 0.9])
+    // the visitor leaves: back to standing over 0.3 s
+    holo.update(frame(t + 1, ci({ board: b, camera: cam })))
+    expect(tilt(holo)).toBe(1)
+    holo.update(frame(t + 1 + TILT_S, ci({ board: b, camera: cam })))
+    expect(tilt(holo)).toBe(0)
+  })
+  it('at once with reduced motion', () => {
+    const { holo } = make()
+    const t = opened(holo, true)
+    const b = startPosition().board
+    const cam = new Vector3(1.5, 1.6, -1.1)
+    holo.update(frame(t, ci({ board: b, camera: cam, visitor }), { reduced: true }))
+    expect(tilt(holo)).toBe(1)
+    holo.update(frame(t + 0.01, ci({ board: b, camera: cam }), { reduced: true }))
+    expect(tilt(holo)).toBe(0)
+  })
+  it('the pieces scanline is the weaker 0.85 (the board keeps 0.55)', () => {
+    const { holo } = make()
+    opened(holo)
+    expect(holo.chessLayer!.materials.piece.fragmentShader).toContain('? 0.85 : 1.0')
+    expect(holo.chessLayer!.materials.grid.fragmentShader).toContain('0.55')
+  })
+  it('the pieces are opaque voxels (normal blending, depth written); the board and its light stay added light (#657)', () => {
+    const { holo } = make()
+    opened(holo)
+    const m = holo.chessLayer!.materials
+    expect([m.piece.blending, m.piece.depthWrite]).toEqual([NormalBlending, true])
+    expect([m.grid.blending, m.grid.depthWrite]).toEqual([AdditiveBlending, false])
+  })
+  it('half the lean to facing the camera, and solid glyphs: the king exactly 14 voxels tall (#658)', () => {
+    const { holo } = make()
+    opened(holo)
+    expect(holo.chessLayer!.materials.piece.vertexShader).toContain('uTilt * 0.500 *')
+    const pos = buildPieceGeometry(6).getAttribute('position')
+    let minY = Infinity
+    let maxY = -Infinity
+    for (let i = 0; i < pos.count; i++) {
+      minY = Math.min(minY, pos.getY(i))
+      maxY = Math.max(maxY, pos.getY(i))
+    }
+    // with its ink rim (#659) one voxel more over the top, none under the foot
+    expect([minY, maxY].map((y) => +(y / CVOX).toFixed(6))).toEqual([0, 15])
+  })
+})
+
+describe('the ink rim round the opaque glyphs (#659, hologram.md 11.2)', () => {
+  it('one voxel round the glyph (8 ways), 2 layers deep, from the foot up to a row over the top; its faces marked ink; rows with the glyph', () => {
+    for (let k = 1; k <= 6; k++) {
+      const rows = GLYPHS[k]
+      const H = rows.length
+      const has = (c: number, rb: number) => rb >= 0 && rb < H && c >= 0 && c < 10 && rows[H - 1 - rb][c] === '#'
+      // the rim's cells from the mask
+      const want = new Set<string>()
+      for (let rb = 0; rb <= H; rb++)
+        for (let c = -1; c <= 10; c++) {
+          if (has(c, rb)) continue
+          let near = false
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) near ||= has(c + dx, rb + dy)
+          if (near) want.add(`${c},${rb}`)
+        }
+      // the rim's front faces (z at the front, ink) as cells
+      const g = buildPieceGeometry(k)
+      const pos = g.getAttribute('position')
+      const sh = g.getAttribute('aShade')
+      const row = g.getAttribute('aRow')
+      const got = new Set<string>()
+      let maxZ = -Infinity
+      for (let i = 0; i < pos.count; i++) maxZ = Math.max(maxZ, pos.getZ(i))
+      for (let i = 0; i < pos.count; i += 4) {
+        if (sh.getX(i) !== INK_SHADE) continue
+        expect(row.getX(i)).toBeLessThanOrEqual(H - 1)
+        const zs = [0, 1, 2, 3].map((j) => pos.getZ(i + j))
+        if (!zs.every((z) => Math.abs(z - maxZ) < 1e-7)) continue
+        const xs = [0, 1, 2, 3].map((j) => pos.getX(i + j))
+        const ys = [0, 1, 2, 3].map((j) => pos.getY(i + j))
+        got.add(`${Math.round((Math.min(...xs) + CVOX / 2) / CVOX + 4.5)},${Math.round(Math.min(...ys) / CVOX)}`)
+      }
+      expect([...got].sort()).toEqual([...want].sort())
+      // nothing under the board
+      for (let i = 0; i < pos.count; i++) expect(pos.getY(i)).toBeGreaterThanOrEqual(-1e-9)
+    }
+  })
+  it('drawn in ink, unlit, without scanline', () => {
+    const { holo } = make()
+    opened(holo)
+    const m = holo.chessLayer!.materials.piece
+    expect('#' + (m.uniforms.uInk.value as Color).getHexString()).toBe('#0b0e13')
+    expect(m.vertexShader).toContain('vInk > 0.5 ? (iCol.w > 0.5 ? uRimCursor : uInk)')
+    expect(m.fragmentShader).toContain('vInk > 0.5 ? 1.0')
   })
 })

@@ -8,9 +8,29 @@ import { WorkChip } from '../WorkChip'
 import { tagOnScreen } from './pose'
 import { cue, PROP_CLICK_DB } from '../../audio/cues'
 import {
-  chooseColorOmok, chooseRule, closeOmok, closeRulePicker, getOmokVisit, moveCursor, omokCanUndo, omokForbidAt, omokUndoOpening, openOmok, openRulePicker, placeOmok, restartOmok, selectRule,
-  setCursor, strengthOmok, touchOmok, undoOmok, useOmokVisit, viewName, visitorMayPlace,
+  canSwitchGame, cancelPromotion, chessCanUndo, chessDeselect, chessSelect, chooseColorOmok, choosePromotion, chooseRule, closeGameSheet, closeOmok, closeRulePicker, getOmokVisit, moveChessCursor,
+  moveCursor, omokCanUndo, omokForbidAt, omokUndoOpening, openGameSheet, openOmok, openRulePicker, placeOmok, restartOmok, selectRule, setCursor, strengthOmok, switchGame, touchOmok, undoOmok,
+  useOmokVisit, viewName, visitorMayPlace, type VisitKind,
 } from './store'
+import { PROMOTION_CHOICES, chessIdleLeft, chessLastMoveLine, chessStatusLine, legalTargets, visitorColor, visitorPieceAt } from '../../play/visitorChess'
+import { squareName } from '../../play/chess'
+
+/** #604 the games the sheet offers, in its order (designer decision: omok and chess only; alkkagi comes later) */
+// hologram.md 10.3: a line of what each game is about (alkkagi's row '상대 돌을 판 밖으로' comes with its visitor game, #605 ③)
+const GAME_ROWS: { kind: VisitKind; name: string; hint: string }[] = [
+  { kind: 'omok', name: '오목', hint: '다섯 줄 먼저' },
+  { kind: 'chess', name: '체스', hint: '킹을 잡기' },
+]
+/** #604 the promotion sheet over its square, kept 16 px inside the screen's edges (hologram.md 11.5) */
+const PROMO_W = 300
+const PROMO_EDGE = 16
+export function overSquare(p: { x: number; y: number } | null, screenW = window.innerWidth): Record<string, string | number> | undefined {
+  if (!p) return undefined
+  const left = Math.min(Math.max(p.x - PROMO_W / 2, PROMO_EDGE), Math.max(PROMO_EDGE, screenW - PROMO_EDGE - PROMO_W))
+  return { left, top: p.y, bottom: 'auto', translate: '0 calc(-100% - 8px)', maxWidth: `calc(100vw - ${2 * PROMO_EDGE}px)` }
+}
+const PIECE_WORD = ['', '폰', '나이트', '비숍', '룩', '퀸', '킹'] as const
+const PROMO_NAME: Record<number, string> = { 5: '퀸', 4: '룩', 3: '비숍', 2: '나이트' }
 
 /** 은/는 after a point's name, by how its number reads (H8은 팔, H9는 구, H10은 십) */
 export const eunNeun = (name: string) => {
@@ -56,6 +76,7 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
   /** #623 the dimmed [무르기]'s words: shown on hover, focus, a tap or a long press (a tap's for 2 s) */
   const [undoWhy, setUndoWhy] = useState<{ hover: boolean; focus: boolean; tapAt: number | null }>({ hover: false, focus: false, tapAt: null })
   const lastMoves = useRef(0)
+  const lastPlies = useRef(0)
   const open = v.phase !== 'closed'
   const name = v.agent ? shortName(v.agent) : ''
 
@@ -93,6 +114,19 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
     }
   }, [v.game, name])
 
+  // #604 the screen reader's words for each half-move (hologram.md 11.5): "백 폰 e2에서 e4. 메모가 생각 중" / "흑 나이트 g8에서 f6", a capture, a check
+  useEffect(() => {
+    const c = v.chess
+    if (!c) {
+      lastPlies.current = 0
+      return
+    }
+    if (c.plies.length !== lastPlies.current) {
+      if (c.plies.length > lastPlies.current) setSaid(chessLastMoveLine(c, name) ?? '')
+      lastPlies.current = c.plies.length
+    }
+  }, [v.chess, name])
+
   // Esc leaves; any key keeps the game alive (the 90 s count starts again, play.md 5.7). The arrows and Enter / Space play from anywhere but a
   // control (a click on the board leaves the focus on the canvas, and the keyboard still plays); on a button its own Enter stays
   useEffect(() => {
@@ -126,15 +160,43 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
           return
         }
       }
+      const cv = getOmokVisit()
+      // #604 chess: Esc goes back one layer at a time: the promotion question (the move is cancelled), the game sheet, the selection, then the board
       if (e.key === 'Escape') {
         e.preventDefault()
         e.stopPropagation()
+        if (cv.kind === 'chess') {
+          if (cv.promo) return void cancelPromotion()
+          if (cv.gameSheet) return void closeGameSheet()
+          if (cv.sel !== null) return void chessDeselect()
+        } else if (cv.gameSheet) return void closeGameSheet()
         closeOmok(now)
+        return
+      }
+      // the promotion sheet and the game sheet: ← → / ↑ ↓ move between their buttons (Enter is the button's own)
+      const sheet = cv.promo ? '.chess-promo button' : cv.gameSheet ? '.game-sheet button' : null
+      if (sheet && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        e.preventDefault()
+        const items = [...document.querySelectorAll<HTMLButtonElement>(sheet)]
+        const i = items.indexOf(document.activeElement as HTMLButtonElement)
+        const back = e.key === 'ArrowLeft' || e.key === 'ArrowUp'
+        items[(i + (back ? items.length - 1 : 1)) % items.length]?.focus()
         return
       }
       const t = e.target instanceof Element ? e.target : null
       if (t?.closest('button, input, select, textarea, a') || e.ctrlKey || e.altKey || e.metaKey) return
       const d = step[e.key]
+      if (cv.kind === 'chess') {
+        if (cv.promo || cv.gameSheet) return
+        if (d) {
+          e.preventDefault()
+          moveChessCursor(...d)
+        } else if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          chessSelect(cv.chessCursor, now)
+        }
+        return
+      }
       if (d) {
         e.preventDefault()
         moveCursor(...d)
@@ -149,15 +211,59 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
 
   const sit = () => {
     const t = getOmokVisit().tag
-    if (t) openOmok(t.agent, officeNow(world), Date.now() % 1_000_000, t.orient)
+    if (t) openOmok(t.agent, officeNow(world), Date.now() % 1_000_000, t.orient, t.kind)
   }
 
   const g = v.game
+  const c = v.chess
   const now = officeNow(world)
   const left = g ? idleLeft(g, now) : null
+  const cLeft = c ? chessIdleLeft(c, now) : null
   // #601 called to work: the HUD's word and the chip's (play.md 10.2)
-  const work = v.work && g && !g.end ? v.work : null
+  const cur = c ?? g
+  const work = v.work && cur && !cur.end ? v.work : null
   const status = g ? statusLine(g, name, now, work ? hudBit('omok', work, now) : undefined) : ''
+  const chessStatus = c ? chessStatusLine(c, name, now, work ? hudBit('omok', work, now) : undefined) : ''
+  const canSwitch = open && v.phase === 'open' && canSwitchGame()
+  // #604 the game sheet: the current row takes the focus as it opens; the promotion sheet's queen
+  useEffect(() => {
+    if (v.gameSheet) document.getElementById(`game-row-${getOmokVisit().kind}`)?.focus()
+  }, [v.gameSheet])
+  useEffect(() => {
+    if (v.promo) document.getElementById(`promo-${PROMOTION_CHOICES[0]}`)?.focus()
+    else if (v.phase === 'open' && !v.gameSheet && !v.picker) grid.current?.focus()
+  }, [v.promo, v.phase, v.kind, v.gameSheet, v.picker])
+  // a sheet whose game can no longer be switched (a move was made) goes away
+  useEffect(() => {
+    if (v.gameSheet && !canSwitch) closeGameSheet()
+  }, [v.gameSheet, canSwitch])
+  // the visitor's colour on the chip: chess white ○ / black ●; omok black ● unless the game gave them white
+  const chipMark = c ? (visitorColor(c) === 1 ? '●' : '○') : g && g.color === 2 ? '○' : '●'
+  // the HUD line without its head: the name chip says the game, and the rule chip (while it shows) the rule (hologram.md 10.3, play.md 11.2)
+  const ruleChip = !!g && !g.moves.length && !g.end
+  let omokLine = g ? status.replace(`${chipMark} 오목 · `, '') : ''
+  if (g && ruleChip) omokLine = omokLine.replace(`${RULE_BY_ID[g.rule].name} · `, '')
+  const chessLine = chessStatus.replace(`${chipMark} 체스 · `, '')
+  // #604 the name chip is the game's button: '○ 체스 ▾' opens the sheet while the game may still be switched (hologram.md 10.3); the circle is the visitor's colour
+  const gameChip = (
+    <button
+      type="button"
+      className="omok-rule-chip game-chip"
+      disabled={!canSwitch}
+      aria-haspopup="dialog"
+      aria-expanded={v.gameSheet}
+      aria-label={`게임 ${v.kind === 'chess' ? '체스' : '오목'}${canSwitch ? ', 바꾸기' : ''}`}
+      onClick={() => (v.gameSheet ? closeGameSheet() : openGameSheet())}
+    >
+      <span aria-hidden="true">{chipMark}</span> {v.kind === 'chess' ? '체스' : '오목'}{canSwitch ? ' ▾' : ''}
+    </button>
+  )
+  const chessCellWord = (sq: number) => {
+    if (!c) return ''
+    const p = visitorPieceAt(c, sq)
+    const target = v.sel !== null && legalTargets(c, v.sel).some((t) => t.to === sq)
+    return `${squareName(sq)}, ${p ? `${p.side === 0 ? '백' : '흑'} ${PIECE_WORD[p.kind]}` : '빈칸'}${v.sel === sq ? ', 선택됨' : ''}${target ? ', 이동 가능' : ''}`
+  }
   const cellWord = (cell: number) => {
     const c = g?.s.board[cell]
     // #603 an empty point black may not take says so (play.md 11.4)
@@ -197,11 +303,47 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
           className="omok-tag"
           ref={tagEl}
           style={tagOnScreen(v.tag.x, v.tag.y, tagEl.current?.offsetWidth ?? 96, tagEl.current?.offsetHeight ?? 28, window.innerWidth)}
-          aria-label={`같이 두기 · ${wa(shortName(v.tag.agent))} 오목`}
+          aria-label={`같이 두기 · ${wa(shortName(v.tag.agent))} ${v.tag.kind === 'chess' ? '체스' : '오목'}`}
           onClick={sit}
         >
           <span aria-hidden="true">●</span> 같이 두기
         </button>
+      )}
+      {open && v.gameSheet && canSwitch && (
+        <div className="omok-rules game-sheet" role="dialog" aria-label="게임 고르기" style={besideBoard(v.boardBox)}>
+          <h2>게임 고르기</h2>
+          <div role="radiogroup" aria-label="게임">
+            {GAME_ROWS.map((r) => (
+              <button
+                key={r.kind}
+                id={`game-row-${r.kind}`}
+                type="button"
+                role="radio"
+                aria-checked={v.kind === r.kind}
+                onClick={() => {
+                  choiceClick()
+                  if (v.kind === r.kind) closeGameSheet()
+                  else switchGame(r.kind, officeNow(world))
+                }}
+              >
+                <b>{v.kind === r.kind ? '● ' : ''}{r.name}</b>
+                <small>{r.hint}</small>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {open && c && v.promo && (
+        <div className="omok-rules chess-promo" role="dialog" aria-label="승진할 기물 고르기" style={overSquare(v.promoAt)}>
+          <h2>승진할 기물 <kbd>Esc 취소</kbd></h2>
+          <div>
+            {PROMOTION_CHOICES.map((k) => (
+              <button key={k} id={`promo-${k}`} type="button" onClick={() => choosePromotion(k, officeNow(world))}>
+                {PROMO_NAME[k]}
+              </button>
+            ))}
+          </div>
+        </div>
       )}
       {open && g && v.picker && (
         <div className="omok-rules" role="dialog" aria-label="오목 규칙 고르기" ref={pickerEl} style={besideBoard(v.boardBox)}>
@@ -246,6 +388,7 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
       )}
       {open && g && (
         <section className="omok-hud" aria-label="오목 대국">
+          {gameChip}
           {/* #603 the rule: a chip that reopens the chooser until the first stone, then its name alone (play.md 11.2) */}
           {!g.moves.length && !g.end ? (
             <button type="button" className="omok-rule-chip" aria-label={`규칙 ${RULE_BY_ID[g.rule].name}, 바꾸기`} onClick={() => openRulePicker()}>
@@ -253,7 +396,7 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
             </button>
           ) : null}
           <p className="omok-status" aria-live="polite">
-            {status}
+            {omokLine}
             {left !== null && <span className="omok-idle"> · {Math.ceil(left / 1000)}초 뒤 끝남</span>}
           </p>
           <span className="omok-cell" aria-hidden="true">{viewName(v.cursor)}</span>
@@ -344,6 +487,62 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
                 })}
               </div>
             ))}
+          </div>
+        </section>
+      )}
+      {open && c && (
+        <section className="omok-hud" aria-label="체스 대국">
+          {gameChip}
+          <p className="omok-status" aria-live="polite">
+            {chessLine}
+            {cLeft !== null && <span className="omok-idle"> · {Math.ceil(cLeft / 1000)}초 뒤 끝남</span>}
+          </p>
+          <span className="omok-cell" aria-hidden="true">{squareName(v.chessCursor)}</span>
+          <div className="omok-strength" role="radiogroup" aria-label="세기">
+            {STRENGTHS.map((s: Strength) => (
+              <button key={s} type="button" role="radio" aria-checked={c.strength === s} onClick={() => strengthOmok(s, officeNow(world))}>
+                {STRENGTH_NAME[s]}
+              </button>
+            ))}
+          </div>
+          <button type="button" disabled={!chessCanUndo()} onClick={() => undoOmok(officeNow(world))}>
+            무르기
+          </button>
+          {!v.work && (
+            <button type="button" onClick={() => restartOmok(officeNow(world))}>
+              다시 두기
+            </button>
+          )}
+          <button type="button" onClick={() => closeOmok(officeNow(world))}>
+            그만두기 <kbd>Esc</kbd>
+          </button>
+          <p className="sr-only" aria-live="polite">{said}</p>
+          <p className="sr-only" aria-live="polite">{v.work && v.agent ? momentSaid(name) : ''}</p>
+          <div
+            ref={grid}
+            className="omok-grid"
+            role="grid"
+            tabIndex={0}
+            aria-label="체스판 8×8, 화살표로 옮기고 Enter로 말을 고르고 한 번 더 Enter로 둡니다"
+            aria-activedescendant={`chess-cell-${v.chessCursor}`}
+          >
+            {Array.from({ length: 8 }, (_, r) => {
+              // the visitor's side is near: white sees rank 8 on top and file a on the left; black the other way round
+              const rank = visitorColor(c) === 0 ? 7 - r : r
+              return (
+                <div key={r} role="row">
+                  {Array.from({ length: 8 }, (_, f) => {
+                    const file = visitorColor(c) === 0 ? f : 7 - f
+                    const sq = rank * 8 + file
+                    return (
+                      <div key={f} id={`chess-cell-${sq}`} role="gridcell" aria-selected={sq === v.chessCursor} onClick={() => chessSelect(sq, officeNow(world))}>
+                        {chessCellWord(sq)}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
           </div>
         </section>
       )}

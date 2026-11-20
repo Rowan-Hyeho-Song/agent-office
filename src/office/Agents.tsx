@@ -39,7 +39,8 @@ import { STAMP_MS } from './props'
 import { ANXIOUS_AFTER_MS } from './faceMind'
 import { greetsOwner, questionFaceFor } from './liveFace'
 import { isLateHour } from './duty'
-import { getOmokVisit, omokHoldsAgent, workSignalOmok } from './omokVisit/store'
+import { chessTargets, getOmokVisit, omokHoldsAgent, workSignalOmok } from './omokVisit/store'
+import { chessViewOf, visitorChessTurn } from '../play/visitorChess'
 import { faceScreenRect } from './omokVisit/bubbleAnchor'
 import { getPingpongVisit, pingpongHoldsAgent, workSignalPingpong } from './pingpongVisit/store'
 import { rallyOf } from '../play/visitorPingpong'
@@ -57,6 +58,19 @@ function omokView(now: number | null) {
   const v = getOmokVisit()
   if (now === null || v.phase === 'closed' || !v.agent || !v.game) return null
   return { agent: v.agent, view: viewOf(v.game, now) }
+}
+
+/** #604 the visitor's game of chess as the stage draws it, with their marks (selection, targets, cursor, a dragged piece) */
+function chessVisitView(now: number | null) {
+  const v = getOmokVisit()
+  if (now === null || v.phase === 'closed' || !v.agent || !v.chess) return null
+  const mine = v.phase === 'open' && visitorChessTurn(v.chess)
+  const sel = mine ? v.sel : null
+  return {
+    agent: v.agent,
+    view: chessViewOf(v.chess, now),
+    visitor: { selected: sel, targets: sel !== null ? chessTargets() : [], cursor: v.phase === 'open' ? v.chessCursor : null, drag: sel !== null ? v.drag : null },
+  }
 }
 
 /** #137 ③ where the near end's player watches the visitor's match: beside the table at the net, on the window side (out of the view down the table) */
@@ -353,7 +367,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
       const s = status[visit.agent]
       workSignalOmok(!!s && (s.state !== 'idle' || s.night === 'duty'), now)
       if (omokHoldsAgent(now)) {
-        goals[visit.agent] = { spot: 'game_a', pose: 'boardgame', label: '오목 · 방문자와 대국' }
+        goals[visit.agent] = { spot: 'game_a', pose: 'boardgame', label: `${visit.kind === 'chess' ? '체스' : '오목'} · 방문자와 대국` }
         heldShown(visit.agent)
       }
     }
@@ -533,6 +547,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
       colors: AGENT_COLORS,
       forcedSessions: world.debug ? world.forcedSessions : undefined,
       visitorOmok: omokView(st ? null : now),
+      visitorChess: chessVisitView(st ? null : now),
       visitorPingpong: pingpongView(!st),
       // #455 the treats in a hand (not in the replay: a treat is a live visitor's)
       treats: st ? undefined : world.treats,

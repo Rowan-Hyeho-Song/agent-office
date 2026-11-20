@@ -1,8 +1,9 @@
 import { OrbitControls } from '@react-three/drei'
 import { Canvas } from '@react-three/fiber'
-import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing'
+import { EffectComposer, Vignette } from '@react-three/postprocessing'
 import { Suspense, lazy, useEffect, useState, type ReactNode } from 'react'
 import { afterFirstScreen } from './office/atlases'
+import { HoloFreeBloomEffect } from './office/holoBloom'
 import { AgentList } from './office/AgentList'
 import { ViewerCount } from './office/visit/ViewerCount'
 import { AgentBadge } from './office/badge/AgentBadge'
@@ -60,6 +61,8 @@ function Later({ on, children }: { on: boolean; children: ReactNode }) {
 const TOP: [number, number, number] = [0, 13, 0.01]
 
 export function App() {
+  // #663 the office bloom, leaving out the hologram board's light (hologram.md 1.2)
+  const [bloom] = useState(() => new HoloFreeBloomEffect({ mipmapBlur: true, intensity: 0.9, luminanceThreshold: 1, luminanceSmoothing: 0.3 }))
   const [{ world, top, close, camera, target }] = useState(() => {
     const q = new URLSearchParams(location.search)
     const debug = q.has('debug')
@@ -69,6 +72,10 @@ export function App() {
     // the default isometric-ish view from the front right (room.ts), or the portrait-phone one (portraitCamera.ts); only the start pose
     return { world: createWorld(debug, q), top: debug && q.get('view') === 'top', close, camera: HOME_POS.toArray(), target: HOME_TARGET.toArray() }
   })
+  useEffect(() => {
+    // ?debug: window.__bloom.subtract = false brings the hologram back into the bloom (comparisons)
+    if (world.debug) (window as unknown as { __bloom: HoloFreeBloomEffect }).__bloom = bloom
+  }, [bloom, world.debug])
   useEffect(() => {
     // debug only: lets screenshot scripts read the nav check and drive the fake source
     if (world.debug) (window as unknown as { __office: typeof world }).__office = world
@@ -95,7 +102,7 @@ export function App() {
           <pointLight position={[...LAMP_POS]} intensity={3} distance={5} decay={1.6} color="#ffcf8a" />
           <Office world={world} />
           <EffectComposer multisampling={0} stencilBuffer>
-            <Bloom mipmapBlur intensity={0.9} luminanceThreshold={1} luminanceSmoothing={0.3} />
+            <primitive object={bloom} dispose={null} />
             <Vignette offset={0.3} darkness={0.6} />
           </EffectComposer>
         </Suspense>
