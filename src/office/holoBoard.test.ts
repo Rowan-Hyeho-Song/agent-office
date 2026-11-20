@@ -1,6 +1,6 @@
 // HoloBoard (#538 hologram.md): geometry, grid pixels, stone meshes, on/off timing, snap, reduced motion, materials. No WebGL.
 import { describe, expect, it } from 'vitest'
-import { AdditiveBlending, Euler, Group, NormalBlending, Object3D, Vector3, type BufferGeometry } from 'three'
+import { AdditiveBlending, Euler, Group, NormalBlending, Object3D, Vector3, type BufferGeometry, type Mesh, type ShaderMaterial } from 'three'
 import { CELL, GRID_PX, HoloBoard, MASK, N, buildVoxelGeometry, gridPixels, type HoloInput } from './holoBoard'
 
 function make(rot?: Euler) {
@@ -241,11 +241,12 @@ describe('materials', () => {
     }
     expect(holo.materials.dot.blending).toBe(NormalBlending)
     expect(holo.materials.dot.toneMapped).toBe(false)
-    expect(holo.materials.film.toneMapped).toBe(false)
-    expect(holo.film.renderOrder).toBe(-1)
     expect(holo.dots.renderOrder).toBeGreaterThan(holo.stones[1].renderOrder)
-    // the film 1 mm under the light plane, which is lift over the surface; the grid on the plane
-    expect(holo.film.position.y).toBeCloseTo(0.02 - 0.001, 6)
+    // #663 no projection film: the light goes straight onto the (dark baked) table top; no normal-blended sheet under the light plane
+    expect('film' in holo.materials).toBe(false)
+    const under = holo.root.children.filter((o) => (o as Mesh).isMesh && ((o as Mesh).material as ShaderMaterial).blending === NormalBlending && o.renderOrder < 0)
+    expect(under).toEqual([])
+    // the grid on the light plane, lift over the surface
     expect(holo.grid.position.y).toBeCloseTo(0.02, 6)
   })
 })
