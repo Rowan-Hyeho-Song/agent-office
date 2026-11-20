@@ -35,7 +35,7 @@ export interface OmokVisitState {
   /** a touch's first tap: the point shown, the same point again places (play.md 2.3) */
   armed: number | null
   /** the screen point the "같이 두기" tag stands at (over the empty chair), or null when nobody is at the board alone */
-  tag: { x: number; y: number; agent: string; orient: Orient; kind?: VisitKind } | null
+  tag: { x: number; y: number; agent: string; orient: Orient; kind?: VisitKind; hot?: boolean } | null
   /** the board as the visitor sees it: the grid step (columns, rows) for one point to the right and one point up (away) on the screen */
   orient: Orient
   /** #603 the rule chooser is open (play.md 11.2), and the row selected in it (not yet started) */
@@ -447,6 +447,6 @@ export const armOmok = (cell: number | null) => state.armed !== cell && set({ ..
 /** where the tag stands on the screen (the rig, every frame) */
 export function setOmokTag(tag: OmokVisitState['tag']) {
   const t = state.tag
-  if (t === tag || (t && tag && t.agent === tag.agent && Math.abs(t.x - tag.x) < 0.5 && Math.abs(t.y - tag.y) < 0.5)) return
+  if (t === tag || (t && tag && t.agent === tag.agent && !!t.hot === !!tag.hot && Math.abs(t.x - tag.x) < 0.5 && Math.abs(t.y - tag.y) < 0.5)) return
   set({ ...state, tag })
 }

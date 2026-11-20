@@ -14,6 +14,7 @@ import {
 } from './store'
 import { PROMOTION_CHOICES, chessIdleLeft, chessLastMoveLine, chessStatusLine, legalTargets, visitorColor, visitorPieceAt } from '../../play/visitorChess'
 import { squareName } from '../../play/chess'
+import { setTagEl, useTagAway } from '../playHover'
 
 /** #604 the games the sheet offers, in its order (designer decision: omok and chess only; alkkagi comes later) */
 // hologram.md 10.3: a line of what each game is about (alkkagi's row '상대 돌을 판 밖으로' comes with its visitor game, #605 ③)
@@ -72,6 +73,8 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
   const [, tick] = useState(0)
   const grid = useRef<HTMLDivElement>(null)
   const tagEl = useRef<HTMLButtonElement>(null)
+  // #670 (play.md 2.1.1) a mouse sees the tag only while it points at the play spot or the tag (styles.css: a touch screen and a focus always do)
+  const tagAway = useTagAway(!!v.tag?.hot)
   const [said, setSaid] = useState('')
   /** #623 the dimmed [무르기]'s words: shown on hover, focus, a tap or a long press (a tap's for 2 s) */
   const [undoWhy, setUndoWhy] = useState<{ hover: boolean; focus: boolean; tapAt: number | null }>({ hover: false, focus: false, tapAt: null })
@@ -301,7 +304,11 @@ export function OmokVisitUi({ world }: { world: OfficeWorld }) {
         <button
           type="button"
           className="omok-tag"
-          ref={tagEl}
+          ref={(el) => {
+            tagEl.current = el
+            setTagEl('omok', el)
+          }}
+          data-away={tagAway || undefined}
           style={tagOnScreen(v.tag.x, v.tag.y, tagEl.current?.offsetWidth ?? 96, tagEl.current?.offsetHeight ?? 28, window.innerWidth)}
           aria-label={`같이 두기 · ${wa(shortName(v.tag.agent))} ${v.tag.kind === 'chess' ? '체스' : '오목'}`}
           onClick={sit}
