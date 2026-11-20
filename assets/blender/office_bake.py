@@ -2680,7 +2680,11 @@ VEIN_DENSITY = 4.0
 # ================================================================ LOUNGE (atlas: lounge)
 HOLO_NODES = []  # #538: the projector (holo_projector), its own baked node in the lounge atlas
 # hologram.md 1.4-1.5 (#663): the game table's top is dark felt; the projector is sunk in it, only a glass window shows
-HOLO = dict(panel=0.19, seam=0.002, glass="#111317", seam_c="#0e0f11", felt="#16181c", felt_rough=0.95,
+# the spec sets the visible value (L 11-16 over the 0.44 m field): with the felt's specular off (below) its base
+# #101217 (the spec's #16181c x 0.6 linear) bakes to about L 13 (#0e1014 baked to L 11). The glass takes the felt's own base (designer): a
+# darker glass showed as a board inside the board under the light grid; only its roughness differs, and the seam line
+# (#0e0f11 x 0.35) alone reads it as a window while the board is off
+HOLO = dict(panel=0.19, seam=0.002, glass="#101217", seam_c="#050507", felt="#101217", felt_rough=0.95,
             lift=0.02, size=0.40, field=0.44)
 HOLO_DENSITY = 3.0  # like the omok board it replaces (#135)
 
@@ -2716,27 +2720,30 @@ def build_holo(gx, gz, G):
     centre. #538's stepped body, the pixel panel neon and the turn lights are gone (the app's turn bar does that)"""
     H = HOLO
     table = 0.74  # the top's face (gt_top: 0.72 + 0.04 / 2)
+    py = table + 0.0005  # the glass's face (designer: about 0.7405)
     seam_m = plastic(H["seam_c"], 0.6, 0, 0.0, "holo_seam")
     seam_m.node_tree.nodes["Principled BSDF"].inputs["Specular IOR Level"].default_value = 0.0  # a dark line, not a lit rim
-    py = table + 0.0005  # the glass's face (designer: about 0.7405)
-    # the seam: a 2 mm frame round the glass on the glass's own plane (a full square under the glass sat 0.25 mm over
-    # the felt, which meshopt's quantization of the big lounge node brought within the coplanar tolerance)
-    o_, i_ = H["panel"] / 2 + H["seam"], H["panel"] / 2
-    me = bpy.data.meshes.new("holo_seam")
-    me.from_pydata([W(gx + a, py, gz + b) for a, b in ((-o_, -o_), (o_, -o_), (o_, o_), (-o_, o_), (-i_, -i_), (i_, -i_), (i_, i_), (-i_, i_))],
-                   [], [(0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)])
-    if me.polygons[0].normal.z < 0:  # face web +y (Blender +Z)
-        me.flip_normals()
-    me.materials.append(seam_m)
-    seam = bpy.data.objects.new("holo_seam", me)
-    coll(G).objects.link(seam)
     glass_m = plastic(H["glass"], 0.2, 0, 0.0, "holo_glass")
     # the bake freezes a gloss seen straight down: at the default specular the window baked as a pale grey mirror of
-    # the ceiling. A tenth of it keeps a faint sheen over the felt and leaves the glass reading as switched off
-    glass_m.node_tree.nodes["Principled BSDF"].inputs["Specular IOR Level"].default_value = 0.05
-    glass = quad("holo_glass", H["panel"], H["panel"], glass_m, G)
-    place(glass, Mx((gx, py, gz), rx=-math.pi / 2))  # facing up, inside the frame: they meet edge to edge, no overlap
-    parts = [seam, glass]
+    # the ceiling, and even a tenth of it baked the glass to L 22 over the felt's L 11. Off, like the felt: the two
+    # bake alike and only the seam line draws the window (a baked sheen cannot follow the eye anyway)
+    glass_m.node_tree.nodes["Principled BSDF"].inputs["Specular IOR Level"].default_value = 0.0
+    # one flat mesh on one plane: the glass square and the 2 mm seam frame round it, sharing their edges, so the bake
+    # unwraps them as one island (a separate 2 mm frame got ~1 px islands whose edges bled light). Not a square under
+    # the glass: 0.25 mm over the felt came within the coplanar tolerance after meshopt quantized the lounge node
+    o_, i_ = H["panel"] / 2 + H["seam"], H["panel"] / 2
+    me = bpy.data.meshes.new("holo_glass")
+    me.from_pydata([W(gx + a, py, gz + b) for a, b in ((-o_, -o_), (o_, -o_), (o_, o_), (-o_, o_), (-i_, -i_), (i_, -i_), (i_, i_), (-i_, i_))],
+                   [], [(4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)])
+    if me.polygons[0].normal.z < 0:  # face web +y (Blender +Z)
+        me.flip_normals()
+    me.materials.append(glass_m)
+    me.materials.append(seam_m)
+    for f in me.polygons[1:]:
+        f.material_index = 1
+    glass = bpy.data.objects.new("holo_glass", me)
+    coll(G).objects.link(glass)
+    parts = [glass]
     s_ = bpy.data.objects.new("surface_holo", None)
     coll("export").objects.link(s_)
     s_.matrix_world = Mx((gx, py, gz))  # the glass's centre; +x = columns, +z = rows, +y = up
@@ -2971,7 +2978,11 @@ def build_lounge():
     top = cyl("gt_top", 0.42, 0.04, (gx, 0.72, gz), plastic("#c9b89a", 0.55, 0, 0.35, "desk_top"), G, 40, bev=0.006)
     # #663 (hologram.md 1.4): the top face inside the bevel is dark felt (a card table); the 6 mm bevel and the 4 cm
     # rim stay the cream of the other tables. The bevel's new faces keep the cream (material 0, not the felt's)
-    top.data.materials.append(plastic(HOLO["felt"], HOLO["felt_rough"], 0, 0.05, "gt_felt"))
+    felt = plastic(HOLO["felt"], HOLO["felt_rough"], 0, 0.05, "gt_felt")
+    # felt does not reflect (spec 1.4): at the default specular a rough sheen of the bright room baked the felt to
+    # L 24 whatever its base (the glass with a tenth of it: L 8), and showed the glass as a darker board under the grid
+    felt.node_tree.nodes["Principled BSDF"].inputs["Specular IOR Level"].default_value = 0.0
+    top.data.materials.append(felt)
     for f in top.data.polygons:
         f.material_index = int(f.normal.z > 0.9)
     top.modifiers["bevel"].material = 0
