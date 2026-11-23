@@ -2,7 +2,7 @@
 // RGBA8 a webp expands to. Reads public/models/<name>.webp, decodes it in Chrome to a lossless PNG (no image library is installed; the same way
 // as atlas-lo.mjs), then KTX-Software's `ktx create` encodes it with mipmaps (a compressed texture cannot make its own on the GPU):
 //   node scripts/atlas-ktx2.mjs [uastc|etc1s] [dir] [name ...]   default uastc, dir public/models, names: all ten atlases
-// Writes <name>.ktx2 next to the webp. Needs `ktx` (KTX-Software 4.4+) on the PATH. The app loads them only with ?ktx2 (src/office/atlases.ts).
+// Writes <name>.ktx2 next to the webp. Needs `ktx` (KTX-Software 4.4+): $KTX_BIN, the PATH or its default install place. The app loads them only with ?ktx2 (src/office/atlases.ts).
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -20,10 +20,18 @@ const ENCODE = {
   etc1s: ['--encode', 'basis-lz', '--clevel', '4', '--qlevel', '192'],
 }[mode]
 
-try {
-  execFileSync('ktx', ['--version'], { stdio: 'ignore' })
-} catch {
-  console.error('ktx (KTX-Software 4.4+) is not on the PATH: install it first (#676 결재)')
+/** where `ktx` is: $KTX_BIN, else on the PATH, else the installer's default place under Program Files (Windows) */
+const KTX = [process.env.KTX_BIN, 'ktx', process.env.ProgramFiles && join(process.env.ProgramFiles, 'KTX-Software', 'bin', 'ktx.exe')].find((bin) => {
+  if (!bin) return false
+  try {
+    execFileSync(bin, ['--version'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+})
+if (!KTX) {
+  console.error('ktx (KTX-Software 4.4+) not found: install it, put it on the PATH or set KTX_BIN (#676)')
   process.exit(1)
 }
 
@@ -47,7 +55,7 @@ try {
     const pngPath = join(tmp, `${name}.png`)
     writeFileSync(pngPath, Buffer.from(png, 'base64'))
     const out = join(dir, `${name}.ktx2`)
-    execFileSync('ktx', ['create', '--format', 'R8G8B8A8_SRGB', '--assign-oetf', 'srgb', '--generate-mipmap', ...ENCODE, pngPath, out], { stdio: 'inherit' })
+    execFileSync(KTX, ['create', '--format', 'R8G8B8A8_SRGB', '--assign-tf', 'srgb', '--generate-mipmap', ...ENCODE, pngPath, out], { stdio: 'inherit' })
     console.log(`${name}: webp ${(statSync(src).size / 1024).toFixed(0)} KB → ${mode} ktx2 ${(statSync(out).size / 1024).toFixed(0)} KB`)
   }
 } finally {
