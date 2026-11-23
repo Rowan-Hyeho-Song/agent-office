@@ -6,6 +6,7 @@ import { openDocs } from './docs/panel'
 import { replay, useReplay } from '../replay/store'
 import { hitBox, useCanvasPick } from './pick'
 import { ShelfRig } from './shelfRig'
+import { batchRig } from './rigBatch'
 import type { OfficeWorld } from './world'
 
 // one snapshot object for good: useSyncExternalStore loops forever if getSnapshot returns a new object each call
@@ -31,6 +32,12 @@ export function Shelf({ world, scene, nodes }: { world: OfficeWorld; scene: Obje
     rig.apply(layout)
   }, [rig, layout])
   useEffect(() => rig.redrawWhenFontsReady(), [rig])
+  // #676 the binders' shared parts (rings, labels, stamps) drawn in one call each, every binder still shown, hidden and pulled on its own (rigBatch.ts);
+  // after the rig gave the labels their one material and each cover its own
+  useEffect(() => {
+    const b = batchRig(scene, Object.keys(nodes).filter((k) => /^shelf_r\d+_b\d+(_band|_label|_secret)?$/.test(k)).map((k) => nodes[k]), 'shelf', null)
+    return () => b?.dispose()
+  }, [scene, nodes, rig])
   // a replayed meeting is over: its minutes are filed, the binder lights up
   useEffect(
     () =>

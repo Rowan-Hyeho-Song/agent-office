@@ -16,6 +16,11 @@ import { hash } from './play'
 import type { StageIn } from './playStage'
 import type { AgentRig, PropBank } from './rig'
 
+/** #676 the fridge door's inner parts by their materials: the liner, the bins and what stands in them */
+const DOOR_INSIDE = /^(fridge_door_liner|fridge_bin|fridge_butter|sauce_|milk_|fridge_water|water_cap|juice)/
+/** shut: the inner side is out of sight below this opening, deg */
+const DOOR_SHUT_DEG = 0.5
+
 const DEG = Math.PI / 180
 const UP = new Vector3(0, 1, 0)
 const ONE = new Vector3(1, 1, 1)
@@ -142,6 +147,8 @@ export class LoungeActs {
   // the fridge
   private door?: Object3D
   private doorOpen = { axis: 'y' as 'x' | 'y' | 'z', sign: 1 }
+  /** #676 the door's inner side (liner, bins, bottles): it faces into the fridge while the door is shut, so it is drawn only while it is open */
+  private doorInside: Object3D[] = []
   private deg = 0
   // #457 the inside light (lounge-props.md 5.4): the point light, the LED strip, the floor spill; on (with hysteresis) and how far up (0 … 1)
   private light: PointLight | null = null
@@ -197,6 +204,10 @@ export class LoungeActs {
     this.door = nodes.fridge_door
     const open = this.door?.userData.open as { axis?: 'x' | 'y' | 'z'; sign?: number } | undefined
     this.doorOpen = { axis: open?.axis ?? 'y', sign: open?.sign ?? 1 }
+    this.door?.traverse((o) => {
+      const m = o as Mesh
+      if (m.isMesh && DOOR_INSIDE.test((m.material as Material).name ?? '')) this.doorInside.push(m)
+    })
     const handle = scene.getObjectByName('fridge_door_grip')
     if (handle) {
       handle.name = 'fridge_door_grip_r'
@@ -641,6 +652,7 @@ export class LoungeActs {
     if (doorTarget !== null) this.deg = doorTarget
     else this.deg = Math.max(0, this.deg - (FRIDGE.openDeg / FRIDGE.closeS) * dt)
     if (this.door) this.door.rotation[this.doorOpen.axis] = this.doorOpen.sign * this.deg * DEG
+    for (const m of this.doorInside) m.visible = this.deg > DOOR_SHUT_DEG
     this.fridgeLight(inp)
     // #457 the sips: drink.sip at the top of each lift (sound.md 4.4)
     for (const id in inp.rigs) {
