@@ -228,6 +228,7 @@ PLANTS = [  # name, species, x, z (#126: one species each, office-quality.md 3; 
     ("plant_corner", "fiddle_fig", *_c(4.8, 1.55)),  # #280: on the east wall, north of the sofa's short side
     ("plant_sofa", "monstera", *_c(1.6, 3.85)),  # #280: the lounge rug's west; 0.1 north of the table's 3.95 (its leaves crossed the south wall by 3 cm)
 ]
+PLANT_AT = {n: (x, z) for n, _, x, z in PLANTS}  # #676: the preview shots aim here
 CLOCK_AT, CLOCK_S = (-HX + 0.02, 1.85, _c(0, 1.6)[1]), 0.40  # wall clock face center (left wall, next to the door), size
 CLOCK_M = Mx((CLOCK_AT[0] + 0.01, CLOCK_AT[1], CLOCK_AT[2]), ry=math.pi / 2)  # the face front: local +z = web +x
 
@@ -1906,12 +1907,13 @@ UP = Vector((0.0, 1.0, 0.0))
 class Foliage:
     """the leaves of one plant in one mesh: a material per face, each surface doubled by a flipped back skin"""
 
-    def __init__(self, name, colors=GREENS, under=(1, 2, 2)):
+    def __init__(self, name, colors=GREENS, under=(1, 2, 2), back=True):
         self.name = name
         self.bm = bmesh.new()
         self.mats = [plastic(c, 0.85, 0, 0.1, f"leaf_{c[1:]}") for c in colors]  # matte: a glossy leaf hung upright
         # under the wall light went pale mint (grazing sheen)
         self.under = under  # the underside one green lighter, as real leaves are (two-tone up close)
+        self.back = back  # #676: vein strips lie 1 mm over the leaf: their back skin faces the leaf and is never seen
 
     def mat(self, m):
         if m not in self.mats:
@@ -1924,10 +1926,11 @@ class Foliage:
     def surface(self, pts, faces, mis, up):
         """pts: web Vectors; faces: index tuples, counter-clockwise seen from the front (up side)"""
         front = [self.bm.verts.new(W(*p)) for p in pts]
-        back = [self.bm.verts.new(W(*(p - up * 0.0008))) for p in pts]
+        back = [self.bm.verts.new(W(*(p - up * 0.0008))) for p in pts] if self.back else []
         for f, mi in zip(faces, mis):
             self.bm.faces.new([front[i] for i in f]).material_index = mi
-            self.bm.faces.new([back[i] for i in reversed(f)]).material_index = self.under[mi] if mi < len(self.under) else mi
+            if back:
+                self.bm.faces.new([back[i] for i in reversed(f)]).material_index = self.under[mi] if mi < len(self.under) else mi
 
     def obj(self, group):
         me = bpy.data.meshes.new(self.name)
@@ -2182,8 +2185,9 @@ def fig_outline(rng):
         w *= min(1.0, (1.0 - u) / 0.12) ** 0.55  # the blunt rounded tip
         return max(0.0, w)
     ph = rng.uniform(0, 6.28)
-    n = 28
-    us = [0.02 + 0.98 * k / n for k in range(n + 1)]
+    n = 8  # #676 (was 28): the waist and the broad top still read at 8 stations a side; three more round the tip
+    # (at 8 alone the last step 0.88 -> 1 made a long sharp tip that folded and baked black)
+    us = [0.02 + 0.98 * k / n for k in range(n)] + [0.93, 0.97, 0.99, 1.0]
     right = [Vector((u, half(u) * (1 + 0.04 * math.sin(u * 31 + ph)))) for u in us]
     left = [Vector((u, -half(u) * (1 + 0.04 * math.sin(u * 29 + ph + 1.7)))) for u in us]
     outer = [Vector((0.0, 0.0))] + right[:-1] + [Vector((1.0, 0.0))] + list(reversed(left[:-1]))
@@ -2245,7 +2249,7 @@ def fiddle_fig(name, x, z, group):
     fol.mats[0] = plastic(FIG_GREENS[0], 0.6, 0, 0.1, "fig_leaf_top")  # a little gloss (leathery)
     # vein colours (designer #210): a quiet step lighter than the leaf, the midrib a little more (not a variegated leaf)
     fol.vein = (plastic("#86ad6e", 0.85, 0, 0.1, "vein_fig_mid"), plastic("#6f9a5c", 0.85, 0, 0.1, "vein_fig_side"))
-    fol.vein_fol = Foliage(f"{name}_veins", colors=(), under=())
+    fol.vein_fol = Foliage(f"{name}_veins", colors=(), under=(), back=False)  # #676: front only
     golden = math.radians(137.5)
 
     def at_path(path, u):
@@ -2279,7 +2283,7 @@ def fiddle_fig(name, x, z, group):
             base = at + (along * math.cos(pa) + out * math.sin(pa)) * plen
             stems.append(petiole(f"{name}_petiole", at, base, stalk, group))
             laid_leaf(fol, base, out, -up, size, mi, fig_outline(PRNG), fold=PRNG.uniform(10, 15), droop=PRNG.uniform(8, 16),
-                      curve=0.3, sub=0.12, veins_w=((0.003, 0.003, 4), (0.002, 0.002, 2)))
+                      curve=0.3, sub=0.2, veins_w=((0.003, 0.003, 4), (0.002, 0.002, 2)))  # #676: sub was 0.12
     for path in (leader, br1, br2):  # the terminal bud: a pointed sheath (stipule) on every tip
         tip = path[-1]
         d = (path[-1] - path[-2]).normalized()
@@ -2363,7 +2367,7 @@ def leaf_outline(splits, holes, rng):
             return C + Vector((math.cos(th), sgn * math.sin(th) * 0.94)) * r  # length : width about 1.15
 
         loop = []
-        steps = 72
+        steps = 28  # #676 (was 72): the lobes and cuts keep their shape
         cut_at = {}
         for k in range(steps + 1):  # base notch (pi) to the tip (0)
             th = math.pi * (1 - k / steps)
@@ -2429,7 +2433,8 @@ def orient(pts, ids, up):
 def monstera_leaf(fol, attach, out, tilt, size, mi, splits=0, holes=False, fold=12.0, droop=20.0, rng=None):
     """a monstera leaf (#156): its 2D outline (leaf_outline) laid on a curved blade (laid_leaf); tilt = the blade's
     angle below the horizontal (the droop adds the last 8°)"""
-    laid_leaf(fol, attach, out, max(15.0, tilt - 8.0), size, mi, leaf_outline(splits, holes, rng or PRNG), fold, droop)
+    laid_leaf(fol, attach, out, max(15.0, tilt - 8.0), size, mi, leaf_outline(splits, holes, rng or PRNG), fold, droop,
+              sub=0.2)  # #676 (was the default 0.07)
 
 
 def laid_leaf(fol, attach, out, tilt, size, mi, outline, fold=12.0, droop=20.0, curve=0.55, sub=0.07, veins_w=((0.003, 0.003, 8), (0.002, 0.002, 4))):
@@ -2531,7 +2536,7 @@ def monstera(name, x, z, group):
     cam_a = math.atan2(cam.z, cam.x)
     fol = Foliage(f"{name}_leaves", colors=MONSTERA_GREENS, under=(1, 1, 2, 3))
     fol.vein = (plastic("#7aa56a", 0.85, 0, 0.1, "vein_monstera_mid"), plastic("#5f8d55", 0.85, 0, 0.1, "vein_monstera_side"))
-    fol.vein_fol = Foliage(f"{name}_veins", colors=(), under=())
+    fol.vein_fol = Foliage(f"{name}_veins", colors=(), under=(), back=False)  # #676: front only
     stems = []
     # (azimuth from the camera direction °, petiole length m, arc °, blade tilt °, size m, cuts, holes)
     LEAVES = [(-15, 0.52, 32, 38, 0.3, 6, True), (20, 0.44, 28, 45, 0.29, 7, True), (150, 0.58, 36, 34, 0.3, 5, True),
@@ -2557,7 +2562,7 @@ def monstera(name, x, z, group):
             pts.append(pts[-1] + (UP * math.cos(ak) + out * math.sin(ak) * reach) * (length * 0.38 / 3))
         r = 0.0075 * (size / 0.3) ** 0.5
         stem = rail(f"{name}_petiole", [tuple(q) for q in pts], r, stem_m, group)
-        stem.data.resolution_u, stem.data.bevel_resolution = 6, 2
+        stem.data.resolution_u, stem.data.bevel_resolution = 3, 1  # #676 (was 6, 2)
         for bp, rr in zip(stem.data.splines[0].bezier_points, (1.2, 1.1, 1.0, 0.92, 0.85, 0.8, 1.15)):  # tapering, a thicker knee
             bp.radius = rr
         stems.append(stem)
@@ -5725,11 +5730,11 @@ if PREVIEW:
     QUALITY = {
         # #126: the plants where #109 put them
         # (seen along the default camera, as the visitor does: the monstera faces it)
-        "q_plant_corner": ((2.7, 1.6, 1.9), (4.22, 0.95, 3.18)),
+        "q_plant_corner": ((PLANT_AT["plant_corner"][0] - 1.4, 1.55, PLANT_AT["plant_corner"][1] + 1.1), (PLANT_AT["plant_corner"][0], 0.95, PLANT_AT["plant_corner"][1])),  # #676: where the plant is since #280
         "q_fig_front": ((3.2, 1.25, 1.95), (4.15, 1.05, 3.05)),  # #156: level with the canopy
         "q_fig_high": ((2.75, 2.7, 1.55), (4.12, 1.1, 3.05)),  # #156: from above, as the default camera
         "q_plant_desk": ((0.95, 1.35, -1.85), (0.0, 0.75, -3.2)),
-        "q_plant_sofa": ((2.05, 1.35, 3.74), (0.925, 0.6, 2.75)),
+        "q_plant_sofa": ((PLANT_AT["plant_sofa"][0] + 1.0, 1.3, PLANT_AT["plant_sofa"][1] - 1.0), (PLANT_AT["plant_sofa"][0], 0.55, PLANT_AT["plant_sofa"][1])),  # #676: where the plant is since #280
         "q_monstera_top": ((1.25, 1.75, 3.45), (0.905, 0.6, 2.75)),  # #156: from above and in front
         "q_monstera_low": ((0.6, 0.85, 3.45), (0.925, 0.6, 2.75)),
         "q_vine": ((3.25, 2.25, -1.95), (4.0, 1.95, -3.2)),
@@ -6041,9 +6046,12 @@ for n in NODES:
 images = {}
 # #280 (designer: the floor >= 200 px/m): the floor atlas alone is 2560 square (84 m2 of floor at 2048 gave ~180 px/m)
 ATLAS_SIZE = {"floor": 2560, "desk_props": 2560, "lounge2": 2560, "fridge": 1024}  # #280 3 (room-280.md 9.4): the near-field two up too
+# #676: lounge stays at SIZE (2048). Its UV fill is ~21% (mostly island margins), so 1024 gave 116 px/m; 1824 kept the
+# density but its ~7 px gaps let thin bevel strips (lamp base, pot rims, counter edges) take the leaves' green in the app
 for name, entries in atlases.items():
     objs = [e["obj"] for e in entries]
-    unwrap(objs, {e["obj"].name: e["density"] for e in entries})
+    size = ATLAS_SIZE.get(name, SIZE)
+    unwrap(objs, {e["obj"].name: e["density"] for e in entries}, size)
     # the texel density this atlas really gets (#108 targets: objects >= 300, floor / walls >= 200 px/m)
     area = uv_area = 0.0
     for o in objs:
@@ -6052,7 +6060,6 @@ for name, entries in atlases.items():
             pts = [uv[li].uv for li in pl.loop_indices]
             uv_area += abs(sum(a.x * b.y - b.x * a.y for a, b in zip(pts, pts[1:] + pts[:1]))) / 2
             area += pl.area
-    size = ATLAS_SIZE.get(name, SIZE)
     print(f"texels {name}: {size * math.sqrt(uv_area / area):.0f} px/m, UV fill {uv_area * 100:.0f}%, {area:.1f} m2")
     img = bpy.data.images.new(name, size, size, float_buffer=True, alpha=False)
     bake_targets(objs, img)
