@@ -621,7 +621,7 @@ def drop_hidden_faces(o):
     bm.free()
 
 
-def unwrap(objs, density):
+def unwrap(objs, density, size=SIZE):
     """one UV atlas for objs. density[name] scales an object's texel density relative to the others."""
     scene.tool_settings.use_uv_select_sync = True  # mesh selection drives UV ops (no UV editor in background)
     for o in objs:
@@ -644,7 +644,7 @@ def unwrap(objs, density):
                 d.uv = d.uv * k
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
-    bpy.ops.uv.pack_islands(rotate=True, rotate_method="AXIS_ALIGNED", margin_method="FRACTION", margin=8 / SIZE, shape_method="CONCAVE")
+    bpy.ops.uv.pack_islands(rotate=True, rotate_method="AXIS_ALIGNED", margin_method="FRACTION", margin=8 / min(SIZE, size), shape_method="CONCAVE")  # #676: >= 8 px gaps on every atlas (KTX2 4x4 blocks)
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
