@@ -159,6 +159,8 @@ function Shell({ hasDocs }: { hasDocs: boolean }) {
 
   // ---- sheet handle (phones) ----
   const onHandleDown = (e: RPointerEvent<HTMLDivElement>) => {
+    // #677 (docs-ui.md 4): the head drags the sheet as a whole, but for its tab and close buttons
+    if ((e.target as Element).closest('button')) return
     e.currentTarget.setPointerCapture(e.pointerId)
     setDragH(screen.h * (sheet === 'full' ? SIDE.full : SIDE.half))
     e.preventDefault()
@@ -242,7 +244,10 @@ function Shell({ hasDocs }: { hasDocs: boolean }) {
           onKeyDown={onStripKey}
         />
       )}
-      <div className="side-head">
+      <div
+        className="side-head"
+        {...(phone ? { onPointerDown: onHandleDown, onPointerMove: onHandleMove, onPointerUp: onHandleUp, onPointerCancel: onHandleUp } : {})}
+      >
         <div className="side-tabs" role="tablist" aria-label="패널 탭" onKeyDown={onTabKey}>
           {tabs.map((t) => (
             <button

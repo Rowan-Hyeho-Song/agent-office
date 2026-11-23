@@ -638,11 +638,43 @@ html[data-side='panel'] .corner-dock { right: calc(var(--side-w) + var(--space-4
 html[data-side-drag] .corner-dock, html[data-side-drag] .cam-hint { transition: none; }
 html[data-side='sheet'] p.cam-hint { bottom: calc(55% + 14px); }
 @media (max-width: 640px) {
-  .side-panel { left: 0; top: auto; border-top: 1px solid var(--color-line); animation-name: side-up; transition: height var(--dur-base) var(--ease-out); }
+  .side-panel { left: 0; top: auto; animation-name: side-up; transition: height var(--dur-base) var(--ease-out); }
   .side-panel[data-dragging] { transition: none; }
   .side-panel[data-closing] { animation-name: side-down; }
   @keyframes side-up { from { translate: 0 100%; } }
   @keyframes side-down { to { translate: 0 100%; } }
+  /* #677 (docs-ui.md 4 · office-ui.md 11.7) one sheet, not a cut-off screen: a board with round top corners and a shadow over the 3D (no top line, no
+     dimming); one 60 px head (the handle's 16 px + the tabs' 44 px, one line under it); the tab text, the path, the rows and the cards on one 16 px
+     line; the close button without a box */
+  .side-panel { border-radius: 12px 12px 0 0; overflow: hidden; box-shadow: 0 -1px 0 var(--color-line), 0 -8px 24px rgb(0 0 0 / 0.5); }
+  .side-handle { height: 16px; place-items: start center; padding-top: 8px; box-sizing: border-box; }
+  .side-head { height: 44px; padding: 0; cursor: ns-resize; touch-action: none; }
+  .side-tabs { gap: 0; padding-left: calc(var(--space-4) - var(--space-3)); }
+  .side-tabs button { height: 44px; border-bottom: 0; margin-bottom: 0; touch-action: manipulation; }
+  .side-tabs button[aria-selected='true']::after { content: ''; position: absolute; left: var(--space-3); right: var(--space-3); bottom: -1px; height: 2px; background: var(--paper); }
+  .side-close { width: 44px; height: 44px; border: 0; font-size: 14px; touch-action: manipulation; }
+  /* the library's sticky head: its line only once the list is scrolled (with its shadow, #321); opened, the head's line is the only one */
+  .doc-nav > .doc-head { border-bottom-color: transparent; }
+  .doc-nav[data-scrolled='true'] > .doc-head { border-bottom-color: var(--color-line); }
+  /* the filter: the chips in one line scrolling to the screen's edge (16 px of end room inside it), a 24 px fade at the right only while more are
+     past it; only the chosen chip is boxed (1 px ivory, 24 px drawn in a 36 px press); 결재 대기만 the same; the sort a plain text button on the right line */
+  .doc-filter { flex-wrap: wrap; overflow: visible; padding-bottom: 0; gap: 0 var(--space-2); }
+  .doc-chips { flex: 0 0 calc(100% + var(--space-4)); margin-right: calc(-1 * var(--space-4)); padding-right: var(--space-4); box-sizing: border-box; overflow-x: auto; scrollbar-width: none; gap: var(--space-2); }
+  .doc-chips::-webkit-scrollbar { display: none; }
+  .doc-chips[data-more] { mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
+  .doc-chip { position: relative; height: 36px; padding: 0 var(--space-2); border: 0; background: none; line-height: 36px; }
+  .doc-chip:hover { background: none; }
+  .doc-chip[aria-checked='true'], .doc-chip.toggle[aria-pressed='true'] { background: none; }
+  .doc-chip[aria-checked='true']::before, .doc-chip.toggle[aria-pressed='true']::before { content: ''; position: absolute; inset: 6px 0; border: 1px solid var(--paper); pointer-events: none; }
+  .doc-chip[aria-checked='true'] { color: var(--color-text); }
+  .doc-chip.toggle[aria-pressed='true'] { color: var(--stage-pending); }
+  .doc-chip.toggle[aria-pressed='true']::before { border-color: var(--stage-pending); }
+  .doc-sort { position: relative; height: 36px; }
+  .doc-sort select { appearance: none; -webkit-appearance: none; height: 36px; border: 0; background: none; padding: 0 14px 0 0; color: var(--color-text); }
+  .doc-sort::after { content: '▾'; position: absolute; right: 0; pointer-events: none; color: var(--color-text-muted); }
+  /* every scroll area in the sheet keeps its scroll (no pull of the page behind) and ends above the home bar */
+  .doc-nav, .doc-stage, .approval-scroll { overscroll-behavior: contain; }
+  .doc-nav, .doc-stage, .approval-scroll { padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px)); }
 }
 @media (prefers-reduced-motion: reduce) { .side-panel, .side-body > *, .cam-hint, .corner-dock { animation: none; transition: none; } }
 html[data-motion='reduce'] .side-panel, html[data-motion='reduce'] .side-body > *, html[data-motion='reduce'] .cam-hint, html[data-motion='reduce'] .corner-dock { animation: none; transition: none; }
