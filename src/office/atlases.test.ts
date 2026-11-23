@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { BoxGeometry, Group, Mesh, MeshBasicMaterial, Texture } from 'three'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { ATLASES, DEFERRED_ATLASES, FIRST_URLS, _resetFirstScreen, afterFirstScreen, atlasLoUrl, atlasUrl, firstUrl, isDeferred, markFirstScreen, swapAtlas, upgradeAtlases } from './atlases'
+import { ATLASES, DEFERRED_ATLASES, FIRST_URLS, _resetFirstScreen, afterFirstScreen, atlasLoUrl, atlasUrl, firstUrl, isDeferred, markFirstScreen, swapAtlas, upgradeAtlases, usesKtx2 } from './atlases'
 
 describe('load order', () => {
   it('the close-up atlases and the floor (#402: the widest on the first screen) are deferred, and they are real atlases', () => {
@@ -20,6 +20,15 @@ describe('load order', () => {
       expect(firstUrl(a)).toMatch(isDeferred(a) ? /\.lo\.webp$/ : /[^o]\.webp$/)
     }
     for (const a of ['room', 'walls_nw', 'walls_se', 'work'] as const) expect(isDeferred(a)).toBe(false)
+  })
+  it('#676 KTX2 trial: off by default; ?ktx2 every full atlas, ?ktx2=late only the deferred ones (the first screen stays webp)', () => {
+    for (const a of ATLASES) {
+      expect(usesKtx2(a)).toBe(false)
+      expect(atlasUrl(a)).toMatch(/[^o]\.webp$/)
+      expect(usesKtx2(a, 'all')).toBe(true)
+      expect(usesKtx2(a, 'late')).toBe(isDeferred(a))
+    }
+    expect(ATLASES.filter((a) => !usesKtx2(a, 'late')).map(firstUrl).every((u) => /[^o]\.webp$/.test(u))).toBe(true)
   })
   it('every atlas has its file, every deferred one a stand-in far smaller than the full file', () => {
     const size = (f: string) => readFileSync(new URL(`../../public/models/${f}`, import.meta.url)).length

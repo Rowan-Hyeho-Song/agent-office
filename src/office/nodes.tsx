@@ -16,11 +16,11 @@ import {
   type Texture,
   type WebGLRenderer,
 } from 'three'
-import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
+import type { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { assetUrl } from '../room/base'
-import { ATLASES, ATLAS_KTX2, DEFERRED_ATLASES, FIRST_URLS, afterFirstScreen, upgradeAtlases } from './atlases'
+import { ATLASES, DEFERRED_ATLASES, FIRST_URLS, afterFirstScreen, upgradeAtlases } from './atlases'
 import type { NavKind, NavSpot } from './nav'
 import { rigMouseBodies } from './mouseBody'
 import { setRoomFromExtras } from './room'
@@ -207,9 +207,13 @@ export function useOffice() {
   return office
 }
 
-/** one KTX2 loader for the app (each one starts its own transcoder workers); the Basis transcoder is self-hosted in public/basis (three 0.187) */
-let ktx2: KTX2Loader | null = null
-const ktx2For = (gl: WebGLRenderer) => (ktx2 ??= new KTX2Loader().setTranscoderPath(assetUrl('basis/')).detectSupport(gl))
+/**
+ * one KTX2 loader for the app (each one starts its own transcoder workers). Its Basis transcoder is the one in the three package (the bundler
+ * emits it next to the code), so it always matches the three version. Imported on the first .ktx2 only, so with ?ktx2=late the loader's code
+ * (its own chunk, vite.config.ts) and the transcoder are fetched after the first screen.
+ */
+let ktx2: Promise<KTX2Loader> | null = null
+const ktx2For = (gl: WebGLRenderer) => (ktx2 ??= import('three/examples/jsm/loaders/KTX2Loader.js').then(({ KTX2Loader }) => new KTX2Loader().detectSupport(gl)))
 
 /** an atlas: a webp through the TextureLoader, a .ktx2 (#676 trial) through the shared KTX2 loader */
 class AtlasLoader extends Loader<Texture> {
@@ -220,7 +224,7 @@ class AtlasLoader extends Loader<Texture> {
     return this
   }
   load(url: string, onLoad: (t: Texture) => void, onProgress?: (e: ProgressEvent) => void, onError?: (e: unknown) => void) {
-    if (ATLAS_KTX2 && url.endsWith('.ktx2') && this.gl) ktx2For(this.gl).load(url, onLoad, onProgress, onError)
+    if (url.endsWith('.ktx2') && this.gl) ktx2For(this.gl).then((l) => l.load(url, onLoad, onProgress, onError), onError)
     else this.tex.load(url, onLoad, onProgress, onError)
   }
 }
