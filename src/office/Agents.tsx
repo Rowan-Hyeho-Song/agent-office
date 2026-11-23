@@ -834,7 +834,7 @@ function TagLabel({ el, at }: { el: { current: HTMLDivElement | null }; at: { cu
   return (
     <group ref={group}>
       <Html center zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
-        <div ref={el} className="play-tag" aria-hidden="true" style={{ opacity: 0, transition: 'opacity 0.2s', fontFamily: 'var(--font-pixel, monospace)', fontSize: 13, color: '#f3ead8', background: 'rgba(14,16,22,0.8)', padding: '2px 8px', border: '1px solid #f3ead8' }} />
+        <div ref={el} className="play-tag" aria-hidden="true" style={{ opacity: 0, transition: 'opacity 0.2s', fontFamily: 'var(--font-pixel, monospace)', fontSize: 13, color: '#f3ead8', background: 'rgba(14,16,22,0.8)', padding: '2px 8px', border: '1px solid #f3ead8', whiteSpace: 'nowrap' }} />
       </Html>
     </group>
   )
