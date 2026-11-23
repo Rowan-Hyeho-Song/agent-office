@@ -2683,8 +2683,9 @@ HOLO_NODES = []  # #538: the projector (holo_projector), its own baked node in t
 # the spec sets the visible value (L 11-16 over the 0.44 m field): with the felt's specular off (below) its base
 # #101217 (the spec's #16181c x 0.6 linear) bakes to about L 13 (#0e1014 baked to L 11). The glass takes the felt's own base (designer): a
 # darker glass showed as a board inside the board under the light grid; only its roughness differs, and the seam line
-# (#0e0f11 x 0.35) alone reads it as a window while the board is off
-HOLO = dict(panel=0.19, seam=0.002, glass="#101217", seam_c="#050507", felt="#101217", felt_rough=0.95,
+# alone reads it as a window while the board is off. #675 (designer): the seam #050507 (L 6) showed as a faint line
+# under the visitor's chess board; #0a0b0e (about L 9) keeps the window when off and sinks under a lit board
+HOLO = dict(panel=0.19, seam=0.002, glass="#101217", seam_c="#0a0b0e", felt="#101217", felt_rough=0.95,
             lift=0.02, size=0.40, field=0.44)
 HOLO_DENSITY = 3.0  # like the omok board it replaces (#135)
 
