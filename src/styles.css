@@ -663,12 +663,10 @@ html[data-side='sheet'] p.cam-hint { bottom: calc(55% + 14px); }
   .doc-chips::-webkit-scrollbar { display: none; }
   .doc-chips[data-more] { mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
   .doc-chip { position: relative; height: 36px; padding: 0 var(--space-2); border: 0; background: none; line-height: 36px; }
-  .doc-chip:first-child { padding-left: 0; }
   .doc-chip:hover { background: none; }
-  .doc-chip[aria-checked='true'], .doc-chip.toggle[aria-pressed='true'] { background: none; padding: 0 var(--space-2); }
+  .doc-chip[aria-checked='true'], .doc-chip.toggle[aria-pressed='true'] { background: none; }
   .doc-chip[aria-checked='true']::before, .doc-chip.toggle[aria-pressed='true']::before { content: ''; position: absolute; inset: 6px 0; border: 1px solid var(--paper); pointer-events: none; }
   .doc-chip[aria-checked='true'] { color: var(--color-text); }
-  .doc-chip.toggle { padding-left: 0; }
   .doc-chip.toggle[aria-pressed='true'] { color: var(--stage-pending); }
   .doc-chip.toggle[aria-pressed='true']::before { border-color: var(--stage-pending); }
   .doc-sort { position: relative; height: 36px; }
