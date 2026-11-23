@@ -12,7 +12,13 @@ export type AtlasName = (typeof ATLASES)[number]
 export const DEFERRED_ATLASES: readonly AtlasName[] = ['floor', 'wall_items', 'lounge', 'lounge2', 'desk_props', 'fridge']
 export const isDeferred = (a: AtlasName) => DEFERRED_ATLASES.includes(a)
 
-export const atlasUrl = (a: AtlasName) => assetUrl(`models/${a}.webp`)
+/**
+ * #676 3단계 (trial): with ?ktx2 the full atlases are the KTX2 files (scripts/atlas-ktx2.mjs), which stay compressed on the GPU; the 512 px
+ * stand-ins stay webp. Off by default until the designer has judged them.
+ */
+export const ATLAS_KTX2 = typeof location !== 'undefined' && new URLSearchParams(location.search).has('ktx2')
+export const atlasKtx2Url = (a: AtlasName) => assetUrl(`models/${a}.ktx2`)
+export const atlasUrl = (a: AtlasName) => (ATLAS_KTX2 ? atlasKtx2Url(a) : assetUrl(`models/${a}.webp`))
 export const atlasLoUrl = (a: AtlasName) => assetUrl(`models/${a}.lo.webp`)
 
 /** what the first screen downloads for each atlas: the full file, or the small stand-in for a deferred one */

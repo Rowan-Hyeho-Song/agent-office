@@ -1,4 +1,4 @@
-import { useLoader } from '@react-three/fiber'
+import { useLoader, useThree } from '@react-three/fiber'
 import { useEffect, useMemo } from 'react'
 import {
   BufferAttribute,
@@ -6,6 +6,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   Quaternion,
+  Loader,
   SRGBColorSpace,
   TextureLoader,
   Vector3,
@@ -13,11 +14,13 @@ import {
   type MeshStandardMaterial,
   type Object3D,
   type Texture,
+  type WebGLRenderer,
 } from 'three'
+import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { assetUrl } from '../room/base'
-import { ATLASES, DEFERRED_ATLASES, FIRST_URLS, afterFirstScreen, upgradeAtlases } from './atlases'
+import { ATLASES, ATLAS_KTX2, DEFERRED_ATLASES, FIRST_URLS, afterFirstScreen, upgradeAtlases } from './atlases'
 import type { NavKind, NavSpot } from './nav'
 import { rigMouseBodies } from './mouseBody'
 import { setRoomFromExtras } from './room'
@@ -177,7 +180,9 @@ function navSpots(scene: Object3D): NavSpot[] {
 /** the loaded office: the glb scene with baked / live materials applied, its meshes by name, its nav spots */
 export function useOffice() {
   const { scene } = useLoader(GLTFLoader, MODEL_URL, withMeshopt)
-  const atlases = useLoader(TextureLoader, FIRST_URLS) // the deferred ones are their 512 px stand-ins (atlases.ts)
+  const gl = useThree((s) => s.gl)
+  // the deferred ones are their 512 px stand-ins (atlases.ts); a .ktx2 (the #676 trial, ?ktx2) goes to the KTX2 loader
+  const atlases = useLoader(AtlasLoader, FIRST_URLS, (l) => l.use(gl))
   const office = useMemo(() => {
     for (const t of atlases) prepareAtlas(t)
     setRoomFromExtras(scene.getObjectByName('room')?.userData.room) // the room's size comes from the model (room.ts)
@@ -194,12 +199,30 @@ export function useOffice() {
         if (scene.userData.atlasUpgrade) return
         scene.userData.atlasUpgrade = true
         const stands = Object.fromEntries(DEFERRED_ATLASES.map((a) => [a, atlases[ATLASES.indexOf(a)]]))
-        const loader = new TextureLoader()
+        const loader = new AtlasLoader().use(gl)
         void upgradeAtlases(scene, stands, (url) => loader.loadAsync(url), prepareAtlas)
       }),
     [scene, atlases],
   )
   return office
+}
+
+/** one KTX2 loader for the app (each one starts its own transcoder workers); the Basis transcoder is self-hosted in public/basis (three 0.187) */
+let ktx2: KTX2Loader | null = null
+const ktx2For = (gl: WebGLRenderer) => (ktx2 ??= new KTX2Loader().setTranscoderPath(assetUrl('basis/')).detectSupport(gl))
+
+/** an atlas: a webp through the TextureLoader, a .ktx2 (#676 trial) through the shared KTX2 loader */
+class AtlasLoader extends Loader<Texture> {
+  private gl: WebGLRenderer | null = null
+  private tex = new TextureLoader(this.manager)
+  use(gl: WebGLRenderer) {
+    this.gl = gl
+    return this
+  }
+  load(url: string, onLoad: (t: Texture) => void, onProgress?: (e: ProgressEvent) => void, onError?: (e: unknown) => void) {
+    if (ATLAS_KTX2 && url.endsWith('.ktx2') && this.gl) ktx2For(this.gl).load(url, onLoad, onProgress, onError)
+    else this.tex.load(url, onLoad, onProgress, onError)
+  }
 }
 
 function prepareAtlas(t: Texture) {
