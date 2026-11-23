@@ -6036,37 +6036,12 @@ for n in NODES:
             or n["obj"].get("hidden_at_rest"):  # #305: the mouse moves on its pad; #370: hidden at rest (the calendar page)
         n["obj"].hide_render = True
 
-def drop_wall_backs(o, gap=0.015):
-    """#676: faces inside the room that face a wall from within `gap` of it (the backs of things hung on or pushed
-    against a wall) are never seen; don't spend atlas space on them. The walls' own outer faces are kept: the camera
-    goes all the way round and a lowered wall still shows its outside."""
-    M = o.matrix_world
-    R = M.to_3x3()
-    bm = bmesh.new()
-    bm.from_mesh(o.data)
-    gone = []
-    for f in bm.faces:
-        nw = (R @ f.normal).normalized()
-        c = M @ f.calc_center_median()  # Blender (x, -z, y) of web
-        if (nw.x < -0.95 and -HX - 0.001 < c.x < -HX + gap) or (nw.x > 0.95 and HX - gap < c.x < HX + 0.001) \
-                or (nw.y > 0.95 and HZ - gap < c.y < HZ + 0.001) or (nw.y < -0.95 and -HZ - 0.001 < c.y < -HZ + gap):
-            gone.append(f)
-    if gone:
-        bmesh.ops.delete(bm, geom=gone, context="FACES")
-        bm.to_mesh(o.data)
-    bm.free()
-    return len(gone)
-
-
 atlases = {}
-wall_backs = 0
 for n in NODES:
     if "atlas" in n:
         atlases.setdefault(n["atlas"], []).append(n)
         if n["drop"]:
             drop_hidden_faces(n["obj"])
-            wall_backs += drop_wall_backs(n["obj"])
-print("wall backs dropped (#676):", wall_backs)
 
 images = {}
 # #280 (designer: the floor >= 200 px/m): the floor atlas alone is 2560 square (84 m2 of floor at 2048 gave ~180 px/m)
