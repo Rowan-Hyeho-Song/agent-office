@@ -3,7 +3,7 @@
 // (props stay home unless a hand has them; nothing jumps; the body can reach what it holds). The sounds are the cues the stage fires (the audio graph itself is not built here).
 import { playAt } from './play'
 import { describe, expect, it } from 'vitest'
-import { Vector3 } from 'three'
+import { Vector3, type Material, type Mesh } from 'three'
 import { LIE_POSE } from './lie.data'
 import { stubCanvas } from './glbLoad'
 import { Guard, IDS, Walk, expectCleanAll, world, type World } from './errandWorld.fixture'
@@ -11,7 +11,7 @@ import { GRAPH } from './navSpots.fixture'
 import { ACT_PLACE, DISPENSER, FRIDGE, FRIDGE_T, RECORD_T, recordBeats, sweptDistance, type ActKind, type RecordMode } from './lounge'
 import { deckNow, resetDeck } from '../audio/speaker'
 import type { Goal } from './director'
-import { MAT_STEP_S } from './loungeActs'
+import { DOOR_INSIDE, MAT_STEP_S } from './loungeActs'
 import { DOOR_ROUND } from './doorRound'
 
 stubCanvas()
@@ -116,6 +116,16 @@ describe('the fridge', () => {
     expect(r.maxDoor, 'open').toBeCloseTo(FRIDGE.openDeg, 0)
     expect(r.doorEnd, 'shut again').toBe(0)
     expect(w.nodes.fridge_door.rotation.y).toBe(0)
+    // #676 shut again: the door's inner side (liner, bins, bottles) is not drawn, its outside is
+    const inside: boolean[] = []
+    const outside: boolean[] = []
+    w.nodes.fridge_door.traverse((o) => {
+      const m = o as Mesh
+      if (m.isMesh) (DOOR_INSIDE.test((m.material as Material).name) ? inside : outside).push(m.visible)
+    })
+    expect(inside.length, 'the inner parts').toBeGreaterThan(8)
+    expect(inside.every((v) => !v), 'the inner side hidden').toBe(true)
+    expect(outside.every((v) => v), 'the outside drawn').toBe(true)
     expect(r.handFrames.r, 'the right hand was driven').toBeGreaterThan(40)
     expectCleanAll('fridge', w, r.guard)
     // the agent stood off the swept area while it worked

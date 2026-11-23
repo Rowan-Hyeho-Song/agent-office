@@ -17,7 +17,7 @@ import type { StageIn } from './playStage'
 import type { AgentRig, PropBank } from './rig'
 
 /** #676 the fridge door's inner parts by their materials: the liner, the bins and what stands in them */
-const DOOR_INSIDE = /^(fridge_door_liner|fridge_bin|fridge_butter|sauce_|milk_|fridge_water|water_cap|juice)/
+export const DOOR_INSIDE = /^(fridge_door_liner|fridge_bin|fridge_butter|sauce_|milk_|fridge_water|water_cap|juice)/
 /** shut: the inner side is out of sight below this opening, deg */
 const DOOR_SHUT_DEG = 0.5
 
