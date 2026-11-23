@@ -255,7 +255,6 @@ if (overlap) {
 // mm², under a pixel at the default camera). COPLANAR_KNOWN: faces never seen from outside, each with its issue and
 // why it is hidden; any other pair of SMALL or more fails the check
 const COPLANAR_KNOWN = [
-  [/^prop_(shelf)?book(_\d+)?_l · prop_(shelf)?book(_\d+)?_page$/, '#281', 'a closed book: the left half\'s inner paper rests on the turning page\'s underside text lines (y = 0) and parts from them when it opens (the halves\' own inner faces no longer meet: #281 2)'],
 ]
 if (overlap) {
   const TOL = 0.00015 // 0.15 mm: meshopt moves a vertex by up to ~0.04 mm; deliberate decal offsets are >= 0.3 mm

@@ -131,8 +131,8 @@ Node contract (the app reads glTF extras):
                                    on its x axis, _grip_r 5 cm in front, all its children (turned over about x);
                                    prop_headphones_cup (live bot, out of the bake: the -x cup + cushion + cable; extras
                                    cup_of prop_headphones, swivel_axis y, swivel_deg [0, 90]; pivot = the yoke line);
-                                   prop_headphones_grip_r + _contact_palm on the band's middle (unused now);
-                                   prop_headphones_cup_grip_r + _contact_palm: the palm on its outer shell (DJ hold)
+                                   prop_headphones_grip_r on the band's middle: the C2 lift's grip target (cupHand then sets the hand from the cup);
+                                   prop_headphones_cup_grip_r: the palm on its outer shell (DJ hold); each with _contact_palm (check-glb #164 hand fit; the app does not read palms)
   pp_net                           live "bot" (#280 3): the net's navy 1 cm lattice (static; the posts, clamps and white
                                    band are in the lounge atlas)
   nav_<id>                         empties: where agents go and which way they face (navigation); nav_meet_center_*
@@ -3169,14 +3169,14 @@ def build_book(G):
 def turning_page(name, W_, H_, H, paper, G):
     """#231: one page to turn, live bot <book>_page in the book frame (pivot = the spine axis, turned about local z
     like the _l half): two sheets back to back 0.1 mm apart with opposite normals (the back has its own UV, mirrored
-    in u, for the next page's text), 0.3-0.4 mm over the lower half's inner face (hidden inside the closed book).
+    in u, for the next page's text), 0.6-0.7 mm over the lower half's inner face (#675: was 0.3-0.4; its underside lines then lay on the _l paper plane) (hidden inside the closed book).
     16 x 4 quads so the app can bend it; point attributes _PAGE_U (spine 0 -> fore-edge 1), _PAGE_V (bottom 0 -> top 1)"""
     pw, ph = W_ - 0.008, H_ - 0.012
     NU, NV = 16, 4
     bm = bmesh.new()
     lu, lv = bm.verts.layers.float.new("_PAGE_U"), bm.verts.layers.float.new("_PAGE_V")
     uvl = bm.loops.layers.uv.new("UVMap")
-    for y, up in ((0.0004, True), (0.0003, False)):
+    for y, up in ((0.0007, True), (0.0006, False)):  # #675: +0.3 mm
         g = [[None] * (NV + 1) for _ in range(NU + 1)]
         for a in range(NU + 1):
             for b in range(NV + 1):
@@ -3194,7 +3194,7 @@ def turning_page(name, W_, H_, H, paper, G):
     # mesh, cut at the 16 columns and carrying _PAGE_U / _PAGE_V like the page, so they bend with it; 0.3 mm off each
     # face (#263), the second material (book_ink)
     lines = []
-    for y, up in ((0.0007, True), (0.0, False)):
+    for y, up in ((0.0010, True), (0.0003, False)):  # #675: +0.3 mm, the underside lines off the _l paper (y = 0)
         for k in range(8):
             vc, dv = 0.15 + k * 0.1, 0.00125 / ph
             last = 14 if k % 3 != 2 else 10  # every third line ends short, like a paragraph
@@ -3217,8 +3217,8 @@ def turning_page(name, W_, H_, H, paper, G):
     # #231 (grips.md 2 "한 장 넘기기"): where the right thumb (on top) and index (under it) pinch the page: its top
     # outer corner, 1.2 cm in from both edges
     cx, cz = 0.003 + pw - 0.012, ph / 2 - 0.012
-    contact(o, "thumb", (cx, 0.0004, cz), (0, 1, 0))
-    contact(o, "index", (cx, 0.0003, cz), (0, -1, 0))
+    contact(o, "thumb", (cx, 0.0007, cz), (0, 1, 0))
+    contact(o, "index", (cx, 0.0006, cz), (0, -1, 0))
     return live(o, "bot")
 
 
@@ -3749,10 +3749,10 @@ def build_hands():
             yc = sgn * T / 2
             child_empty(o, f"{book}_{hs}_grip", o.matrix_world @ grip_frame((W_ - 0.035, yc, zl), (-1, 0, 0), (0, -sgn, 0), hs),
                         {"grip_for": hs, "pose": "open_book"})
-            # the thumb on the paper (_r: just over the turning page, 0.3-0.4 mm up; _l: on its text lines' level)
+            # the thumb on the paper (_r: just over the turning page, 0.6-0.7 mm up since #675; _l: on its text lines' level)
             # #231 (grips.md, #381): 25 mm in from the cover's outer edge (19.5 mm from the paper's): at 15 mm the hand
             # could not reach it within 3 mm without going through the book
-            contact(o, "thumb", (W_ - 0.025, 0.0005 if sgn < 0 else -0.0003, zl), (0, -sgn, 0))
+            contact(o, "thumb", (W_ - 0.025, 0.0008 if sgn < 0 else -0.0003, zl), (0, -sgn, 0))
             for part, dz in zip(("index", "middle", "ring", "little"), (-0.027, -0.009, 0.009, 0.027)):
                 contact(o, part, (W_ * 0.55, yc, min(zl + dz, H_ / 2 - 0.01)), (0, sgn, 0))  # flat on the cover
     # stamp: grip over the knob's head, fingers level, palm down
@@ -3771,7 +3771,7 @@ def build_hands():
     # arc's apex), the fingers wrapping the band front to back (-z), the grip 1 cm over the palm (was 3 cm; the #187
     # palm on the +x cup's back is gone: unused)
     grip_at(O["prop_headphones"], R, (0, 0.019, 0), (0, 0, -1), (0, -1, 0))
-    contact(O["prop_headphones"], "palm", (0, 0.009, 0), (0, 1, 0))
+    contact(O["prop_headphones"], "palm", (0, 0.009, 0), (0, 1, 0))  # the app never reads palms; check-glb #164 measures the hand against them
     # #370 (designer, DJ hold): the right palm cups the held cup's outer shell and presses it to the ear (the band's
     # middle sat 13 cm over the ear: the arm near upright, the wrist turned 140 deg). In the cup's frame (origin = the
     # yoke line, the headphones' axes): its outer face is at x -0.028 (the cup -0.097 +- 0.015, the pivot -0.084);
