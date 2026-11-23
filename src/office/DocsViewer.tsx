@@ -452,6 +452,25 @@ function FileHead({ file }: { file: DocFile }) {
 function ListControls({ files, value, onChange }: { files: readonly DocFile[]; value: ListView; onChange: (patch: Partial<ListView>) => void }) {
   const counts = stageCounts(files, value)
   const group = useRef<HTMLDivElement>(null)
+  // #677 (docs-ui.md 4) a phone's chip row scrolls in one line: a fade at its right end only while more chips are past it
+  useLayoutEffect(() => {
+    const g = group.current
+    if (!g) return
+    const mark = () => {
+      const more = g.scrollWidth - g.clientWidth - g.scrollLeft > 1
+      if (more) g.dataset.more = ''
+      else delete g.dataset.more
+    }
+    mark()
+    g.addEventListener('scroll', mark, { passive: true })
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(mark) : null
+    ro?.observe(g)
+    return () => {
+      g.removeEventListener('scroll', mark)
+      ro?.disconnect()
+    }
+    // every render: the counts change the chips' widths
+  })
   const label = (f: StageFilter) => (f === 'all' ? '전체' : STAGE_NAME[f])
   const onKey = (e: KeyboardEvent) => {
     const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
