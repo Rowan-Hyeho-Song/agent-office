@@ -19,8 +19,9 @@ const smooth = (a: number, b: number, x: number) => {
   return k * k * (3 - 2 * k)
 }
 
-/** how far the landed leaf is lifted off where the bake puts it: 0.4 mm under the left paper → 1 mm over it, m */
-export const LAND_LIFT = 0.0014
+/** how far the landed leaf is lifted off where the bake puts it: 0.7 mm under the left paper → 1 mm over it, m (#675: the leaf baked 0.3 mm
+ * higher off the right page lands 0.3 mm deeper) */
+export const LAND_LIFT = 0.0017
 
 /** the leaf's angle about the spine, from the right page's face (φ = 0; the node itself is turned LIFT + φ), at `tau` s from the start of the turn proper (tau < 0: the corner being lifted for the pinch) */
 export function leafAngle(tau: number, dur = TURN_S, lead = 0.2): number {
