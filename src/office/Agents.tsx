@@ -2,6 +2,7 @@ import { Html } from '@react-three/drei'
 import { setDoorMessage } from '../room/doorMessage'
 import { BubbleLayer, type Anchor, type TagItem } from './bubbleLayer'
 import { BUBBLE, replayTag, statusTag, zRises, type BubbleItem } from './bubbles'
+import { batchRig } from './rigBatch'
 import { openDocs } from './docs/panel'
 import { seatName } from './meeting'
 import { captionOf } from './minutes'
@@ -156,6 +157,13 @@ export function Agents({ world }: { world: OfficeWorld }) {
   // what the hands do with things: play in 3D, grips (#135, #164); once per loaded scene
   const playStage = useMemo(() => (scene.userData.playStage ??= new PlayStage(scene, nodes, props)) as PlayStage, [scene, nodes, props])
   if (world.debug && !world.typing) world.typing = makeTypingTools(world, playStage.typist)
+  // #676 each robot (body and both hands) drawn in one call per material, its nodes moving, showing and hiding as before (rigBatch.ts)
+  useEffect(() => {
+    const made = Object.values(rigs).flatMap((r) => batchRig(scene, [r.parts.root, r.parts.hands.l.node, r.parts.hands.r.node], r.id) ?? [])
+    return () => {
+      for (const b of made) b.dispose()
+    }
+  }, [scene, rigs])
   const tagEl = useRef<HTMLDivElement | null>(null)
   const tagAt = useRef<[number, number, number]>([0, 0, 0])
   // the LIVE desk props (#44): what each desk shows about its agent
