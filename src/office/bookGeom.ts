@@ -118,8 +118,8 @@ const FINGER_PITCH = 0.02
 const REACH = [0, 0.004, -0.003, -0.012]
 /** the thumb lands 25 mm in from the cover's outer edge, i.e. this far inside the paper block's fore-edge (cover edge − 4 mm), m (grips.md, designer 2026-11-10: contact at x = W − 0.025) */
 const THUMB_IN = 0.021
-/** how far above the paper's top the right thumb rests when a leaf lies there (its two sheets stand 0.4 mm proud), m */
-const LEAF_ON_PAGE = 0.0004
+/** how far above the paper's top the right thumb rests when a leaf lies there (its two sheets stand 0.7 mm proud since #675), m */
+export const LEAF_ON_PAGE = 0.0007
 /** every pad is aimed this far off its surface (0.5 mm; the fit adds its own 0.3 mm skin): well inside the spec's "within 1 mm", and a joint that dips a fraction of a millimetre is still not inside the book */
 const HOVER = 0.0005
 
