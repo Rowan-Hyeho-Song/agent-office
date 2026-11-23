@@ -13,22 +13,29 @@ export const DEFERRED_ATLASES: readonly AtlasName[] = ['floor', 'wall_items', 'l
 export const isDeferred = (a: AtlasName) => DEFERRED_ATLASES.includes(a)
 
 /**
- * #676 3단계 (trial): KTX2 files (scripts/atlas-ktx2.mjs) stay compressed on the GPU. ?ktx2 — every full atlas is one; ?ktx2=late — only the
- * deferred ones, so the first screen stays webp and the KTX2 loader and its transcoder are fetched after it. The 512 px stand-ins stay webp.
- * Off by default until the designer has judged them.
+ * #676 3단계 (trial): KTX2 files (scripts/atlas-ktx2.mjs) stay compressed on the GPU. The 512 px stand-ins stay webp. Off by default until the
+ * designer has judged them.
+ * - ?ktx2: every full atlas is KTX2 from the start
+ * - ?ktx2=late: only the deferred ones; the first screen stays webp, the KTX2 loader and its transcoder come after it
+ * - ?ktx2=swap: the first screen as today (webp), then every atlas is swapped for its KTX2 file (the webp one disposed); a failed fetch keeps
+ *   what is shown
  */
-export type Ktx2Mode = 'all' | 'late' | null
+export type Ktx2Mode = 'all' | 'late' | 'swap' | null
 const ktx2Param = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('ktx2') : null
-export const ATLAS_KTX2: Ktx2Mode = ktx2Param === null ? null : ktx2Param === 'late' ? 'late' : 'all'
-/** whether atlas `a`'s full file is the KTX2 one */
-export const usesKtx2 = (a: AtlasName, mode: Ktx2Mode = ATLAS_KTX2) => mode === 'all' || (mode === 'late' && isDeferred(a))
+export const ATLAS_KTX2: Ktx2Mode = ktx2Param === null ? null : ktx2Param === 'late' || ktx2Param === 'swap' ? ktx2Param : 'all'
+/** whether atlas `a`'s final full file is the KTX2 one */
+export const usesKtx2 = (a: AtlasName, mode: Ktx2Mode = ATLAS_KTX2) => mode === 'all' || mode === 'swap' || (mode === 'late' && isDeferred(a))
 export const atlasKtx2Url = (a: AtlasName) => assetUrl(`models/${a}.ktx2`)
-export const atlasUrl = (a: AtlasName) => (usesKtx2(a) ? atlasKtx2Url(a) : assetUrl(`models/${a}.webp`))
+const atlasWebpUrl = (a: AtlasName) => assetUrl(`models/${a}.webp`)
+/** the final full file of atlas `a` */
+export const atlasUrl = (a: AtlasName, mode: Ktx2Mode = ATLAS_KTX2) => (usesKtx2(a, mode) ? atlasKtx2Url(a) : atlasWebpUrl(a))
 export const atlasLoUrl = (a: AtlasName) => assetUrl(`models/${a}.lo.webp`)
 
-/** what the first screen downloads for each atlas: the full file, or the small stand-in for a deferred one */
-export const firstUrl = (a: AtlasName) => (isDeferred(a) ? atlasLoUrl(a) : atlasUrl(a))
-export const FIRST_URLS = ATLASES.map(firstUrl)
+/** what the first screen downloads for each atlas: the full file (webp with ?ktx2=swap), or the small stand-in for a deferred one */
+export const firstUrl = (a: AtlasName, mode: Ktx2Mode = ATLAS_KTX2) => (isDeferred(a) ? atlasLoUrl(a) : mode === 'swap' ? atlasWebpUrl(a) : atlasUrl(a, mode))
+export const FIRST_URLS = ATLASES.map((a) => firstUrl(a))
+/** the atlases fetched again after the first screen: the deferred ones, and with ?ktx2=swap all of them */
+export const upgradedAtlases = (mode: Ktx2Mode = ATLAS_KTX2): readonly AtlasName[] => (mode === 'swap' ? ATLASES : DEFERRED_ATLASES)
 
 /** the first rendered frame with the room visible: set by ReadyPing; `window.__officeFirstScreen` is the time (ms) for measuring */
 let firstScreen = false
@@ -80,8 +87,9 @@ export function swapAtlas(root: Object3D, stand: Texture, full: Texture): number
 }
 
 /**
- * Fetches the full version of each deferred atlas (one after the other would only slow it: all at once) and swaps it in
- * as it arrives. `prepareTexture` sets the texture's flags; `load` is injectable for tests. A failed fetch keeps the stand-in.
+ * Fetches the full version of each atlas in `stands` (the deferred ones; with ?ktx2=swap all of them: upgradedAtlases) — one after the other
+ * would only slow it: all at once — and swaps it in as it arrives. `prepareTexture` sets the texture's flags; `load` is injectable for tests.
+ * A failed fetch keeps the stand-in.
  */
 export async function upgradeAtlases(
   root: Object3D,
@@ -92,7 +100,7 @@ export async function upgradeAtlases(
 ): Promise<AtlasName[]> {
   const done: AtlasName[] = []
   await Promise.all(
-    DEFERRED_ATLASES.map(async (a) => {
+    ATLASES.map(async (a) => {
       const stand = stands[a]
       if (!stand) return
       try {

@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { BoxGeometry, Group, Mesh, MeshBasicMaterial, Texture } from 'three'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { ATLASES, DEFERRED_ATLASES, FIRST_URLS, _resetFirstScreen, afterFirstScreen, atlasLoUrl, atlasUrl, firstUrl, isDeferred, markFirstScreen, swapAtlas, upgradeAtlases, usesKtx2 } from './atlases'
+import { ATLASES, DEFERRED_ATLASES, FIRST_URLS, _resetFirstScreen, afterFirstScreen, atlasLoUrl, atlasUrl, firstUrl, isDeferred, markFirstScreen, swapAtlas, upgradeAtlases, upgradedAtlases, usesKtx2 } from './atlases'
 
 describe('load order', () => {
   it('the close-up atlases and the floor (#402: the widest on the first screen) are deferred, and they are real atlases', () => {
@@ -28,7 +28,16 @@ describe('load order', () => {
       expect(usesKtx2(a, 'all')).toBe(true)
       expect(usesKtx2(a, 'late')).toBe(isDeferred(a))
     }
-    expect(ATLASES.filter((a) => !usesKtx2(a, 'late')).map(firstUrl).every((u) => /[^o]\.webp$/.test(u))).toBe(true)
+    expect(ATLASES.filter((a) => !usesKtx2(a, 'late')).map((a) => firstUrl(a)).every((u) => /[^o]\.webp$/.test(u))).toBe(true)
+    expect(upgradedAtlases()).toEqual(DEFERRED_ATLASES)
+    expect(upgradedAtlases('late')).toEqual(DEFERRED_ATLASES)
+  })
+  it('#676 ?ktx2=swap: the first screen exactly as today (webp + stand-ins), then every atlas fetched again as KTX2', () => {
+    for (const a of ATLASES) {
+      expect(firstUrl(a, 'swap')).toBe(firstUrl(a, null))
+      expect(atlasUrl(a, 'swap')).toMatch(/\.ktx2$/)
+    }
+    expect(upgradedAtlases('swap')).toEqual(ATLASES)
   })
   it('every atlas has its file, every deferred one a stand-in far smaller than the full file', () => {
     const size = (f: string) => readFileSync(new URL(`../../public/models/${f}`, import.meta.url)).length
@@ -95,13 +104,25 @@ describe('swap to the full atlas', () => {
       },
       (t) => prepared.push(t),
     )
-    expect(asked.sort()).toEqual(DEFERRED_ATLASES.map(atlasUrl).sort())
+    expect(asked.sort()).toEqual(DEFERRED_ATLASES.map((a) => atlasUrl(a)).sort())
     expect(done.sort()).toEqual(DEFERRED_ATLASES.filter((a) => a !== 'lounge2').sort())
     expect(prepared).toHaveLength(DEFERRED_ATLASES.length - 1)
     const maps = g.children.map((m) => ((m as Mesh).material as MeshBasicMaterial).map)
     expect(maps).toContain(stands.lounge2) // kept
     expect(maps).not.toContain(stands.desk_props)
     expect(maps).not.toContain(stands.wall_items)
+  })
+  it('#676 ?ktx2=swap: given every atlas, it fetches and swaps every one (the first-screen ones too, their old texture disposed)', async () => {
+    const stands = Object.fromEntries(ATLASES.map((a) => [a, new Texture()]))
+    let disposed = 0
+    for (const t of Object.values(stands)) t.addEventListener('dispose', () => disposed++)
+    const g = new Group()
+    for (const t of Object.values(stands)) g.add(new Mesh(new BoxGeometry(), new MeshBasicMaterial({ map: t })))
+    const asked: string[] = []
+    const done = await upgradeAtlases(g, stands, async (url) => (asked.push(url), new Texture()), () => {})
+    expect(asked.sort()).toEqual(ATLASES.map((a) => atlasUrl(a)).sort())
+    expect(done.sort()).toEqual([...ATLASES].sort())
+    expect(disposed).toBe(ATLASES.length)
   })
   it('a texture that arrives after the scene is gone is dropped, not swapped', async () => {
     const stands = { desk_props: new Texture() }

@@ -20,7 +20,7 @@ import type { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { assetUrl } from '../room/base'
-import { ATLASES, DEFERRED_ATLASES, FIRST_URLS, afterFirstScreen, upgradeAtlases } from './atlases'
+import { ATLASES, FIRST_URLS, afterFirstScreen, upgradeAtlases, upgradedAtlases } from './atlases'
 import type { NavKind, NavSpot } from './nav'
 import { rigMouseBodies } from './mouseBody'
 import { setRoomFromExtras } from './room'
@@ -198,7 +198,7 @@ export function useOffice() {
       afterFirstScreen(() => {
         if (scene.userData.atlasUpgrade) return
         scene.userData.atlasUpgrade = true
-        const stands = Object.fromEntries(DEFERRED_ATLASES.map((a) => [a, atlases[ATLASES.indexOf(a)]]))
+        const stands = Object.fromEntries(upgradedAtlases().map((a) => [a, atlases[ATLASES.indexOf(a)]]))
         const loader = new AtlasLoader().use(gl)
         void upgradeAtlases(scene, stands, (url) => loader.loadAsync(url), prepareAtlas)
       }),
