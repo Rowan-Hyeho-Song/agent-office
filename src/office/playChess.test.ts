@@ -7,7 +7,7 @@ import { sessionTime, type PlaySession } from '../play/session'
 import { chessAt, resetChessCache } from '../play/chessTimeline'
 import { KING, QUEEN } from '../play/chess'
 import { loadOffice, stubCanvas } from './glbLoad'
-import { CHESS_CARD_T, CHESS_TRIPOD_HALF } from './gripTargets'
+import { CHESS_CARD_T, chessQueenTarget, chessTripodTarget } from './gripTargets'
 import { PlayStage, type StageIn } from './playStage'
 import { AgentRig, PropBank, buildRig } from './rig'
 import type { Goal } from './director'
@@ -101,13 +101,16 @@ describe('hologram chess on the stage (#604)', () => {
           held++
           const th = tipWorld(rig, 'thumb')
           const ix = tipWorld(rig, 0)
-          // the king and the queen: three fingers, the index and the middle 1 cm each side of the middle of the front face
+          // the king and the queen: three fingers; the king's index and middle 1 cm each side of the middle of the front face, the queen's one over
+          // the other on her bead pillar (#689): the tips as far apart as the target's contacts
           const big = v.move.kind === KING || v.move.kind === QUEEN
-          const want = big ? Math.hypot(CHESS_CARD_T, CHESS_TRIPOD_HALF) : CHESS_CARD_T
+          const [ct, ci, cm] = (v.move.kind === QUEEN ? chessQueenTarget(false) : chessTripodTarget(false)).contacts.map((c) => c.p)
+          const want = big ? ct.distanceTo(ci) : CHESS_CARD_T
           worstGap = Math.max(worstGap, Math.abs(th.distanceTo(ix) - want))
           if (big) {
             tripods++
-            worstGap = Math.max(worstGap, Math.abs(th.distanceTo(tipWorld(rig, 1)) - want), Math.abs(ix.distanceTo(tipWorld(rig, 1)) - 2 * CHESS_TRIPOD_HALF))
+            const mi = tipWorld(rig, 1)
+            worstGap = Math.max(worstGap, Math.abs(th.distanceTo(mi) - ct.distanceTo(cm)), Math.abs(ix.distanceTo(mi) - ci.distanceTo(cm)))
           }
           palmMax = Math.max(palmMax, new Vector3(0, 0, 1).transformDirection(d!.target!).y)
           // the pick frame: the pinch over the piece's own square

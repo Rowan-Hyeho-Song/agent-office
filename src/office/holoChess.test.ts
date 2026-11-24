@@ -19,6 +19,7 @@ import {
   type ChessInput,
 } from './holoChess'
 import { startPosition } from '../play/chess'
+import { chessGripH, chessQueenTarget, chessTripodTarget } from './gripTargets'
 
 function make(rot?: Euler) {
   const scene = new Group()
@@ -131,7 +132,21 @@ describe('glyphs', () => {
     for (let k = 1; k <= 6; k++) expect(glyphVoxels(k)).toBe(counts[k])
     expect(glyphVoxels(1)).toBe(38)
     expect(glyphVoxels(4)).toBe(72)
+    expect(glyphVoxels(5)).toBe(74) // #689 the queen's crown (the old three-tooth queen had 72, like the rook)
     expect(glyphVoxels(6)).toBe(80)
+  })
+  it('the three fingers on the king and the queen touch the glyph, on the queen only her bead pillar (#689, hologram.md 11.4)', () => {
+    for (const [k, tgt] of [[6, chessTripodTarget], [5, chessQueenTarget]] as const) {
+      const rows = GLYPHS[k]
+      const H = rows.length
+      for (const flip of [false, true])
+        for (const c of tgt(flip).contacts) {
+          const rb = Math.floor((chessGripH(H, true) + c.p.y) / CVOX) // voxel row from the foot
+          const col = Math.floor(c.p.x / CVOX + 5)
+          expect(rows[H - 1 - rb][col], `${k} ${c.finger} flip ${flip}: row ${H - 1 - rb} col ${col}`).toBe('#')
+          if (k === 5) expect([4, 5], `queen ${c.finger}: the bead pillar, not the tips`).toContain(col)
+        }
+    }
   })
   it('merge to visible faces, two layers deep, standing (the glyph alone, without its ink rim)', () => {
     for (let k = 1; k <= 6; k++) {

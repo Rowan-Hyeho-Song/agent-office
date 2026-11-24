@@ -7,11 +7,11 @@ import { describe, expect, it } from 'vitest'
 import { Euler, Quaternion, Vector3 } from 'three'
 import { loadOffice, stubCanvas } from './glbLoad'
 import { HOLO_GRIP_OFFSETS } from './holoGrip.data'
-import { chessCardTarget, chessTripodTarget, composeOffset, fitFingers, holoFlickTarget, holoPinchTarget, solveTarget } from './gripTargets'
+import { chessCardTarget, chessQueenTarget, chessTripodTarget, composeOffset, fitFingers, holoFlickTarget, holoPinchTarget, solveTarget } from './gripTargets'
 import { AgentRig, buildRig } from './rig'
 
 stubCanvas()
-export const HOLO_TARGETS = () => [holoPinchTarget(), chessCardTarget(false), chessCardTarget(true), chessTripodTarget(false), chessTripodTarget(true), holoFlickTarget()]
+export const HOLO_TARGETS = () => [holoPinchTarget(), chessCardTarget(false), chessCardTarget(true), chessTripodTarget(false), chessTripodTarget(true), chessQueenTarget(false), chessQueenTarget(true), holoFlickTarget()]
 /** HOLO_FIT_ONLY=holo_flick: solve again only the targets whose key starts with one of these (comma separated); the others keep their stored offsets */
 const ONLY = (process.env.HOLO_FIT_ONLY ?? '').split(',').filter(Boolean)
 
