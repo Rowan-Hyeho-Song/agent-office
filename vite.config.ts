@@ -15,7 +15,8 @@ export default defineConfig({
       output: {
         // #402: the lazy panels share modules with the main bundle; left alone the bundler cuts shared chunks out of the middle of
         // three/react and the pieces compress ~25 KB worse (brotli) than one file. The libraries get one chunk of their own.
-        codeSplitting: { groups: [{ name: 'vendor', test: /node_modules/ }] },
+        // #676: except the KTX2 loader and what only it uses, imported after the first screen (src/office/nodes.tsx), so they stay out of it
+        codeSplitting: { groups: [{ name: 'vendor', test: /node_modules(?!.*three[\\/]examples[\\/]jsm[\\/](loaders[\\/]KTX2Loader|utils[\\/]WorkerPool|libs[\\/]ktx-parse|libs[\\/]zstddec))/ }] },
       },
     },
   },
