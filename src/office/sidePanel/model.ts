@@ -16,10 +16,13 @@ export const SIDE = {
   /** open / close / re-centre time (--dur-base) and the fade between the two tabs */
   ms: 240,
   fadeMs: 120,
-  /** phones (<= 640px): the sheet has two heights, as a share of the screen; the 3D keeps the top 1 - half */
+  /** phones (<= 640px): the sheet has two heights, as a share of the screen; the 3D keeps the top 1 - half. #694: full is the
+   *  whole screen (the 92% left a strip of 3D and "← 책상으로" over it, so it read as not quite open); drags go up to it too */
   phoneMaxScreen: 640,
   half: 0.55,
-  full: 0.92,
+  full: 1,
+  /** #694 a press on the sheet's head that moves less than this (px) is a tap: half <-> full; more is a drag */
+  tap: 6,
   /** the room keeps this much air in the left area when it is scaled to fit (designer, #175) */
   fitMargin: 48,
 } as const
@@ -94,6 +97,11 @@ export function snapSheet(heightPx: number, screenH: number): Sheet | 'close' {
   if (f < 0.4) return 'close'
   return f >= (SIDE.half + SIDE.full) / 2 ? 'full' : 'half'
 }
+
+/** #694 the head pressed and let go: a tap (under 6 px of movement) swaps half and full, anything more was a drag */
+export const isTap = (dx: number, dy: number) => Math.hypot(dx, dy) < SIDE.tap
+
+export const otherSheet = (s: Sheet): Sheet => (s === 'full' ? 'half' : 'full')
 
 /** CSS cubic-bezier(x1, y1, x2, y2): progress for a time share k in 0..1 (the same curve the panel's slide uses) */
 export function bezier(x1: number, y1: number, x2: number, y2: number, k: number): number {

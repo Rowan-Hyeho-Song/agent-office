@@ -194,6 +194,32 @@ export const chessTripodTarget = (flip: boolean): GripTarget => ({
   ],
 })
 
+/**
+ * #689 (hologram.md 11.2 · 11.4) the queen's crown: one voxel under its top only the bead pillar (2 voxels, 7.2 mm) is solid, the tips 1 cm out
+ * are air. The index and the middle side by side on the pillar do not fit (±2.5–3.5 mm apart: 4.6–5.8 mm off for every agent), so they go one over
+ * the other on it, slightly across: one on the bead (1 voxel over the grip point), the other on the band under the crown (3.5 voxels under it), the
+ * index on the pillar's −x column and the middle on its +x one (3 mm out), the thumb behind them half way; all three on the middle 2 columns.
+ * Which one goes up keeps the palm down: B the index (y of the palm's normal −0.72 … −0.75), A the middle (−0.65 … −0.73); straight one over the
+ * other the palm turned to the side (−0.31 … −0.63, playChess.test wants ≤ −0.6). 0.7–1.3 mm off. The same frames as the card pinch (A / B)
+ */
+export const CHESS_QUEEN_TRIPOD = { up: 0.0036, down: -0.0126, x: 0.003 } as const
+export const chessQueenTarget = (flip: boolean): GripTarget => {
+  const { up, down, x } = CHESS_QUEEN_TRIPOD
+  return {
+    ...chessCardTarget(flip),
+    key: `chess_queen_${flip ? 'b' : 'a'}:r`,
+    kind: 'holo_tripod',
+    contacts: [
+      { finger: 'thumb', p: new Vector3(0, (up + down) / 2, -CHESS_CARD_T / 2), n: new Vector3(0, 0, -1) },
+      { finger: 'index', p: new Vector3(-x, flip ? up : down, CHESS_CARD_T / 2), n: new Vector3(0, 0, 1) },
+      { finger: 'middle', p: new Vector3(x, flip ? down : up, CHESS_CARD_T / 2), n: new Vector3(0, 0, 1) },
+    ],
+  }
+}
+
+/** the grip point over a chess piece's foot, m (hologram.md 11.4): the king and the queen one voxel under the top (the middle of the second row), the others at 70% of the height */
+export const chessGripH = (rows: number, big: boolean) => (big ? (rows - 1.5) * 0.0036 : rows * 0.0036 * 0.7)
+
 /** #605 an alkkagi stone's radius on the board, m (the engine's 0.46 lines of 2 cm, hologram.md 12.2) */
 export const ALK_STONE_R = 0.0092
 

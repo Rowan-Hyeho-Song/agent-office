@@ -638,7 +638,7 @@ html[data-side='panel'] .corner-dock { right: calc(var(--side-w) + var(--space-4
 html[data-side-drag] .corner-dock, html[data-side-drag] .cam-hint { transition: none; }
 html[data-side='sheet'] p.cam-hint { bottom: calc(55% + 14px); }
 @media (max-width: 640px) {
-  .side-panel { left: 0; top: auto; animation-name: side-up; transition: height var(--dur-base) var(--ease-out); }
+  .side-panel { left: 0; top: auto; animation-name: side-up; transition: height var(--dur-base) var(--ease-out), border-radius var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out); }
   .side-panel[data-dragging] { transition: none; }
   .side-panel[data-closing] { animation-name: side-down; }
   @keyframes side-up { from { translate: 0 100%; } }
@@ -653,6 +653,14 @@ html[data-side='sheet'] p.cam-hint { bottom: calc(55% + 14px); }
   .side-tabs button { height: 44px; border-bottom: 0; margin-bottom: 0; touch-action: manipulation; }
   .side-tabs button[aria-selected='true']::after { content: ''; position: absolute; left: var(--space-3); right: var(--space-3); bottom: -1px; height: 2px; background: var(--paper); }
   .side-close { width: 44px; height: 44px; border: 0; font-size: 14px; touch-action: manipulation; }
+  /* #694 (docs-ui.md 4 "전체 단계") full is the whole screen: no 3D is left to float over, so no corners or shadow; the handle row takes the top
+     safe area so the head sits under a notch. The expand button (chevron up / down) sits just left of ✕, both 44 × 44 with nothing between */
+  .side-panel[data-sheet='full'] { border-radius: 0; box-shadow: none; }
+  .side-panel[data-sheet='full'] .side-handle { height: calc(16px + env(safe-area-inset-top, 0px)); padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
+  .side-head { gap: 0; }
+  .side-expand { flex: none; align-self: center; display: grid; place-items: center; width: 44px; height: 44px; margin-left: auto; padding: 0; background: none; border: 0; color: var(--color-text-muted); cursor: pointer; touch-action: manipulation; }
+  .side-expand:hover { color: var(--color-text); }
+  .side-expand:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: -2px; }
   /* the library's sticky head: its line only once the list is scrolled (with its shadow, #321); opened, the head's line is the only one */
   .doc-nav > .doc-head { border-bottom-color: transparent; }
   .doc-nav[data-scrolled='true'] > .doc-head { border-bottom-color: var(--color-line); }
@@ -709,6 +717,8 @@ html[data-motion='reduce'] .dock-btn.sound-toggle.flash { animation: none; box-s
 /* ?debug=1 sound panel (#194): top left, scrolls on its own */
 .sound-debug { position: fixed; z-index: 40; left: var(--space-4); top: 56px; width: min(380px, calc(100vw - 32px)); max-height: 72vh; overflow: auto;
   padding: var(--space-2) var(--space-3); background: var(--color-surface-alpha); color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-line); font-size: 12px; }
+/* #694 the phone sheet's full stage is the whole screen: like the other floating UI, this debug panel goes under the sheet while it is open */
+html[data-side='sheet'] .sound-debug { z-index: 29; }
 .sound-debug summary { cursor: pointer; font-family: var(--font-pixel); }
 .sound-debug section, .sound-debug fieldset { margin: var(--space-2) 0; }
 .sound-debug fieldset { border: 1px solid var(--color-line); padding: var(--space-1) var(--space-2); }
