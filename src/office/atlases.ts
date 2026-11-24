@@ -13,29 +13,30 @@ export const DEFERRED_ATLASES: readonly AtlasName[] = ['floor', 'wall_items', 'l
 export const isDeferred = (a: AtlasName) => DEFERRED_ATLASES.includes(a)
 
 /**
- * #676 3단계 (trial): KTX2 files (scripts/atlas-ktx2.mjs) stay compressed on the GPU. The 512 px stand-ins stay webp. Off by default until the
- * designer has judged them.
- * - ?ktx2: every full atlas is KTX2 from the start
- * - ?ktx2=late: only the deferred ones; the first screen stays webp, the KTX2 loader and its transcoder come after it
- * - ?ktx2=swap: the first screen as today (webp), then every atlas is swapped for its KTX2 file (the webp one disposed); a failed fetch keeps
- *   what is shown
+ * #676 KTX2: a webp atlas expands to RGBA8 on the GPU (~233 MB for the ten); a KTX2 one (scripts/atlas-ktx2.mjs) stays compressed (BC7 /
+ * ETC / ASTC, a quarter to an eighth of that). The first screen is unchanged: the full webp of the first-screen four and the 512 px stand-ins
+ * of the deferred six, so it fetches nothing more. After it, the KTX2 loader and its transcoder come, every atlas with a KTX2 is fetched again
+ * as .ktx2 and swapped in (the old texture disposed before the new one is drawn, so the GPU never holds both). A failed fetch keeps what is
+ * shown. The deferred six have no full webp (the bake prunes them), so ?ktx2=off (for comparing) leaves them at 512 px.
  */
-export type Ktx2Mode = 'all' | 'late' | 'swap' | null
-const ktx2Param = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('ktx2') : null
-export const ATLAS_KTX2: Ktx2Mode = ktx2Param === null ? null : ktx2Param === 'late' || ktx2Param === 'swap' ? ktx2Param : 'all'
-/** whether atlas `a`'s final full file is the KTX2 one */
-export const usesKtx2 = (a: AtlasName, mode: Ktx2Mode = ATLAS_KTX2) => mode === 'all' || mode === 'swap' || (mode === 'late' && isDeferred(a))
+export const KTX2_OFF = typeof location !== 'undefined' && new URLSearchParams(location.search).get('ktx2') === 'off'
+/**
+ * the atlases with no KTX2, kept as webp (designer #685: the walls' smooth light gradients show ETC1S's 4×4 blocks). Keep in step with
+ * ENCODING in scripts/atlas-ktx2.mjs (atlases.test.ts checks).
+ */
+export const WEBP_ATLASES: readonly AtlasName[] = ['walls_nw', 'walls_se']
+export const usesKtx2 = (a: AtlasName, off = KTX2_OFF) => !off && !WEBP_ATLASES.includes(a)
 export const atlasKtx2Url = (a: AtlasName) => assetUrl(`models/${a}.ktx2`)
 const atlasWebpUrl = (a: AtlasName) => assetUrl(`models/${a}.webp`)
-/** the final full file of atlas `a` */
-export const atlasUrl = (a: AtlasName, mode: Ktx2Mode = ATLAS_KTX2) => (usesKtx2(a, mode) ? atlasKtx2Url(a) : atlasWebpUrl(a))
+/** the full file of atlas `a` once the first screen is up */
+export const atlasUrl = (a: AtlasName, off = KTX2_OFF) => (usesKtx2(a, off) ? atlasKtx2Url(a) : atlasWebpUrl(a))
 export const atlasLoUrl = (a: AtlasName) => assetUrl(`models/${a}.lo.webp`)
 
-/** what the first screen downloads for each atlas: the full file (webp with ?ktx2=swap), or the small stand-in for a deferred one */
-export const firstUrl = (a: AtlasName, mode: Ktx2Mode = ATLAS_KTX2) => (isDeferred(a) ? atlasLoUrl(a) : mode === 'swap' ? atlasWebpUrl(a) : atlasUrl(a, mode))
-export const FIRST_URLS = ATLASES.map((a) => firstUrl(a))
-/** the atlases fetched again after the first screen: the deferred ones, and with ?ktx2=swap all of them */
-export const upgradedAtlases = (mode: Ktx2Mode = ATLAS_KTX2): readonly AtlasName[] => (mode === 'swap' ? ATLASES : DEFERRED_ATLASES)
+/** what the first screen downloads for each atlas: the full webp, or the small stand-in for a deferred one */
+export const firstUrl = (a: AtlasName) => (isDeferred(a) ? atlasLoUrl(a) : atlasWebpUrl(a))
+export const FIRST_URLS = ATLASES.map(firstUrl)
+/** the atlases fetched again after the first screen: the deferred ones, and every one with a KTX2 (?ktx2=off: the deferred ones, as before #676) */
+export const upgradedAtlases = (off = KTX2_OFF): readonly AtlasName[] => ATLASES.filter((a) => isDeferred(a) || usesKtx2(a, off))
 
 /** the first rendered frame with the room visible: set by ReadyPing; `window.__officeFirstScreen` is the time (ms) for measuring */
 let firstScreen = false

@@ -27,6 +27,7 @@ BLENDER="/c/Program Files/Blender Foundation/Blender 5.2/blender.exe" ./build-of
 ```
 
 - 마지막 줄에 `DONE`과 `ls public/models`가 나와야 끝난 것이다.
+- **아틀라스 설치 순서(#676): webp 복사 → `atlas-lo.mjs`(512 px 대역) → `atlas-ktx2.mjs --prune`(10장 KTX2, 그 뒤 첫 화면 뒤 6장의 전체 webp 삭제).** `ktx`(KTX-Software 4.4+)가 있어야 한다(`KTX_BIN`, PATH, 기본 설치 위치 순). 없거나 변환이 실패하면 굽기가 실패로 끝나고 아무것도 지우지 않는다. 처음 만든 작업 폴더는 `pnpm install`부터 한다.
 - **`MSYS_NO_PATHCONV=1`을 붙이지 않는다.** 붙이면 `/c/Repo/...`가 Blender에 그대로 넘어가 저장에 실패한다.
 - **남은 `office.blend@`가 있으면 "Version backup failed"로 스크립트가 glb 내보내기 전에 멈춘다.** 그래도 빌드 스크립트는 계속 돌아서 **옛 glb를 최적화해 설치**한다. 그래서 굽기 전에 지우고, 로그에서 `DONE`을 확인한다.
 - Blender는 한 번에 하나만 돌린다(굽기 둘을 동시에 하지 않는다). 시간이 걸리면 백그라운드로 돌리고 끝나기를 기다린다.
@@ -130,8 +131,8 @@ node .claude/skills/office-bake/check-glb.mjs --want hit_library,neon_approval -
   - `--prune-attributes false`: glb에 텍스처가 없어 UV가 "안 쓰임"으로 지워지는 것을 막는다.
   - `--flatten false --prune false`: `nav_*`, `hit_*` 같은 빈 노드를 지키는 것이다.
 - **`export_apply=True`가 맞다.** 외부 글은 Array 모디파이어 때문에 False를 권하지만, 우리는 Array가 없고 solidify·bevel을 적용해 내보내야 한다.
-- **WebP는 내려받는 크기만 줄이고 GPU 메모리는 줄이지 않는다.** 2048 아틀라스 하나가 밉맵까지 약 21 MB다. #109부터 여섯 장(room · walls_nw · walls_se · work · wall_items · lounge)이라 약 127 MB다. GPU 메모리를 줄이는 길은 크기 축소나 KTX2(#83에서 따로 다룸)다.
-- 아틀라스를 더하면 `build-office.sh`의 webp 복사 목록과 앱 `src/office/nodes.tsx`의 `ATLASES`를 같이 고친다(코더).
+- **WebP는 내려받는 크기만 줄이고 GPU 메모리는 줄이지 않는다.** 2048 아틀라스 하나가 밉맵까지 약 21 MB다. #109부터 여섯 장(room · walls_nw · walls_se · work · wall_items · lounge)이라 약 127 MB다. GPU 메모리를 줄이는 길은 크기 축소나 KTX2다. #676부터 앱은 첫 화면 뒤에 10장 모두 KTX2(ETC1S, GPU에서 BC7 · ETC로 압축된 채)로 바꿔 끼운다.
+- 아틀라스를 더하면 `build-office.sh`의 webp 복사 목록, `scripts/atlas-ktx2.mjs`(`ATLASES` · `DEFERRED`) · `scripts/atlas-lo.mjs`(`DEFERRED`), 앱 `src/office/atlases.ts`의 `ATLASES` · `DEFERRED_ATLASES`를 같이 고친다(코더). 맞지 않으면 `atlases.test.ts`가 실패한다.
 - 들여다보기: `pnpm dlx @gltf-transform/cli@4 inspect public/models/office.glb`
 
 ## 7. 크기와 예산

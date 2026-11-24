@@ -1,48 +1,76 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { BoxGeometry, Group, Mesh, MeshBasicMaterial, Texture } from 'three'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { ATLASES, DEFERRED_ATLASES, FIRST_URLS, _resetFirstScreen, afterFirstScreen, atlasLoUrl, atlasUrl, firstUrl, isDeferred, markFirstScreen, swapAtlas, upgradeAtlases, upgradedAtlases, usesKtx2 } from './atlases'
+import { ATLASES, DEFERRED_ATLASES, FIRST_URLS, KTX2_OFF, WEBP_ATLASES, _resetFirstScreen, afterFirstScreen, atlasLoUrl, atlasUrl, firstUrl, isDeferred, markFirstScreen, swapAtlas, upgradeAtlases, upgradedAtlases } from './atlases'
 
 describe('load order', () => {
   it('the close-up atlases and the floor (#402: the widest on the first screen) are deferred, and they are real atlases', () => {
     expect([...DEFERRED_ATLASES].sort()).toEqual(['desk_props', 'floor', 'fridge', 'lounge', 'lounge2', 'wall_items'])
     for (const a of DEFERRED_ATLASES) expect(ATLASES).toContain(a)
   })
-  it('scripts/atlas-lo.mjs makes stand-ins for exactly the deferred atlases', () => {
-    const src = readFileSync(new URL('../../scripts/atlas-lo.mjs', import.meta.url), 'utf8')
-    const list = /const DEFERRED = \[(.*?)\]/.exec(src)![1].split(',').map((x) => x.trim().replace(/'/g, ''))
-    expect(list.sort()).toEqual([...DEFERRED_ATLASES].sort())
-  })
-  it('the first screen fetches full files for the rest and stand-ins for the deferred ones', () => {
-    expect(FIRST_URLS).toHaveLength(ATLASES.length)
-    for (const a of ATLASES) {
-      expect(firstUrl(a)).toBe(isDeferred(a) ? atlasLoUrl(a) : atlasUrl(a))
-      expect(firstUrl(a)).toMatch(isDeferred(a) ? /\.lo\.webp$/ : /[^o]\.webp$/)
+  it('the bake scripts (atlas-lo.mjs, atlas-ktx2.mjs) list the same atlases as the app', () => {
+    const list = (file: string, name: string) => {
+      const src = readFileSync(new URL(`../../scripts/${file}`, import.meta.url), 'utf8')
+      return new RegExp(`const ${name} = \\[(.*?)\\]`).exec(src)![1].split(',').map((x) => x.trim().replace(/'/g, '')).sort()
     }
+    expect(list('atlas-lo.mjs', 'DEFERRED')).toEqual([...DEFERRED_ATLASES].sort())
+    expect(list('atlas-ktx2.mjs', 'DEFERRED')).toEqual([...DEFERRED_ATLASES].sort())
+    expect(list('atlas-ktx2.mjs', 'ATLASES')).toEqual([...ATLASES].sort())
+    // the encoding table: one entry per atlas, and the webp ones are the app's WEBP_ATLASES
+    const src = readFileSync(new URL('../../scripts/atlas-ktx2.mjs', import.meta.url), 'utf8')
+    const enc = Object.fromEntries([...(/const ENCODING = \{(.*?)\}/.exec(src)![1].matchAll(/(\w+): '(etc1s|uastc|webp)'/g))].map((m) => [m[1], m[2]]))
+    expect(Object.keys(enc).sort()).toEqual([...ATLASES].sort())
+    expect(ATLASES.filter((a) => enc[a] === 'webp')).toEqual([...WEBP_ATLASES])
+  })
+  it('the first screen fetches the full webp of the rest and stand-ins for the deferred ones (no KTX2 before it, #676)', () => {
+    expect(FIRST_URLS).toHaveLength(ATLASES.length)
+    for (const a of ATLASES) expect(firstUrl(a)).toMatch(isDeferred(a) ? /\.lo\.webp$/ : /[^o]\.webp$/)
+    for (const a of DEFERRED_ATLASES) expect(firstUrl(a)).toBe(atlasLoUrl(a))
     for (const a of ['room', 'walls_nw', 'walls_se', 'work'] as const) expect(isDeferred(a)).toBe(false)
   })
-  it('#676 KTX2 trial: off by default; ?ktx2 every full atlas, ?ktx2=late only the deferred ones (the first screen stays webp)', () => {
-    for (const a of ATLASES) {
-      expect(usesKtx2(a)).toBe(false)
-      expect(atlasUrl(a)).toMatch(/[^o]\.webp$/)
-      expect(usesKtx2(a, 'all')).toBe(true)
-      expect(usesKtx2(a, 'late')).toBe(isDeferred(a))
-    }
-    expect(ATLASES.filter((a) => !usesKtx2(a, 'late')).map((a) => firstUrl(a)).every((u) => /[^o]\.webp$/.test(u))).toBe(true)
-    expect(upgradedAtlases()).toEqual(DEFERRED_ATLASES)
-    expect(upgradedAtlases('late')).toEqual(DEFERRED_ATLASES)
+  it('#676 after the first screen every atlas with a KTX2 is fetched again as one; ?ktx2=off: only the deferred ones, as webp', () => {
+    expect(KTX2_OFF).toBe(false)
+    expect(upgradedAtlases()).toEqual(ATLASES.filter((a) => isDeferred(a) || !WEBP_ATLASES.includes(a)))
+    for (const a of ATLASES) expect(atlasUrl(a)).toMatch(WEBP_ATLASES.includes(a) ? /[^o]\.webp$/ : /\.ktx2$/)
+    expect(upgradedAtlases(true)).toEqual(DEFERRED_ATLASES)
+    for (const a of ATLASES) expect(atlasUrl(a, true)).toMatch(/[^o]\.webp$/)
   })
-  it('#676 ?ktx2=swap: the first screen exactly as today (webp + stand-ins), then every atlas fetched again as KTX2', () => {
-    for (const a of ATLASES) {
-      expect(firstUrl(a, 'swap')).toBe(firstUrl(a, null))
-      expect(atlasUrl(a, 'swap')).toMatch(/\.ktx2$/)
+  it('the files: a KTX2 of its size for each atlas but the webp ones; full webp for the first screen, stand-ins for the deferred (their webp pruned)', () => {
+    const file = (f: string) => new URL(`../../public/models/${f}`, import.meta.url)
+    const bytes = (f: string) => readFileSync(file(f))
+    // level-0 size from the headers: KTX2 pixelWidth / pixelHeight at 20 / 24; webp from its VP8 / VP8L / VP8X chunk
+    const ktx2Size = (f: string) => {
+      const b = bytes(f)
+      expect(b.subarray(0, 12).toString('latin1')).toBe('«KTX 20»\r\n\x1a\n')
+      return [b.readUInt32LE(20), b.readUInt32LE(24)]
     }
-    expect(upgradedAtlases('swap')).toEqual(ATLASES)
-  })
-  it('every atlas has its file, every deferred one a stand-in far smaller than the full file', () => {
-    const size = (f: string) => readFileSync(new URL(`../../public/models/${f}`, import.meta.url)).length
-    for (const a of ATLASES) expect(existsSync(new URL(`../../public/models/${a}.webp`, import.meta.url))).toBe(true)
-    for (const a of DEFERRED_ATLASES) expect(size(`${a}.lo.webp`)).toBeLessThan(size(`${a}.webp`) / 2)
+    const webpSize = (f: string) => {
+      const b = bytes(f)
+      const kind = b.subarray(12, 16).toString('latin1')
+      if (kind === 'VP8X') return [1 + b.readUIntLE(24, 3), 1 + b.readUIntLE(27, 3)]
+      if (kind === 'VP8L') {
+        const v = b.readUInt32LE(21)
+        return [(v & 0x3fff) + 1, ((v >>> 14) & 0x3fff) + 1]
+      }
+      return [b.readUInt16LE(26) & 0x3fff, b.readUInt16LE(28) & 0x3fff]
+    }
+    for (const a of ATLASES) {
+      if (WEBP_ATLASES.includes(a)) {
+        expect(existsSync(file(`${a}.ktx2`))).toBe(false) // no stale one left
+        expect(existsSync(file(`${a}.webp`))).toBe(true)
+        continue
+      }
+      const [w, h] = ktx2Size(`${a}.ktx2`)
+      if (!isDeferred(a)) {
+        expect(webpSize(`${a}.webp`)).toEqual([w, h])
+        continue
+      }
+      // the stand-in was made from the same full atlas: 512 px on its long side (scripts/atlas-lo.mjs)
+      const s = 512 / Math.max(w, h)
+      expect(webpSize(`${a}.lo.webp`)).toEqual([Math.max(1, Math.round(w * s)), Math.max(1, Math.round(h * s))])
+      expect(bytes(`${a}.lo.webp`).length).toBeLessThan(bytes(`${a}.ktx2`).length / 2)
+      expect(existsSync(file(`${a}.webp`))).toBe(false)
+    }
   })
 })
 
@@ -112,7 +140,7 @@ describe('swap to the full atlas', () => {
     expect(maps).not.toContain(stands.desk_props)
     expect(maps).not.toContain(stands.wall_items)
   })
-  it('#676 ?ktx2=swap: given every atlas, it fetches and swaps every one (the first-screen ones too, their old texture disposed)', async () => {
+  it('#676 given every atlas, it fetches and swaps every one (the first-screen ones too, their old texture disposed)', async () => {
     const stands = Object.fromEntries(ATLASES.map((a) => [a, new Texture()]))
     let disposed = 0
     for (const t of Object.values(stands)) t.addEventListener('dispose', () => disposed++)

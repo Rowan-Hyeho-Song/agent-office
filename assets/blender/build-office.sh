@@ -20,4 +20,7 @@ cp "$OUT/office.opt.glb" ../../public/models/office.glb
 cp "$OUT"/{room,floor,walls_nw,walls_se,work,wall_items,lounge,lounge2,desk_props,fridge}.webp ../../public/models/
 # the 512 px stand-ins the first screen shows while the close-up atlases load (#280)
 node ../../scripts/atlas-lo.mjs ../../public/models
+# #676 the ten atlases as KTX2 (ETC1S, compressed on the GPU), then the deferred six lose their full webp (the app shows .lo.webp, then .ktx2).
+# Needs ktx (KTX-Software 4.4+); anything wrong fails the bake here and deletes nothing.
+node ../../scripts/atlas-ktx2.mjs ../../public/models --prune
 ls -la ../../public/models/
