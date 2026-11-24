@@ -8,7 +8,7 @@ OUT="$PWD/out/office"
 # the SECRET stamp's lettering (#67): Galmuri11 Bold, the app's UI font (SIL OFL), fetched once, not kept in the repo
 FONT="$PWD/out/fonts/Galmuri11-Bold.ttf"
 [ -f "$FONT" ] || curl -sSfL --create-dirs -o "$FONT" https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/Galmuri11-Bold.ttf
-"$BLENDER" --background --factory-startup --python office_bake.py -- "$OUT" "$@" | grep -E "cycles device|baked|saved|denoise|Error|DONE"
+"$BLENDER" --background --factory-startup --python office_bake.py -- "$OUT" "$@" | grep -E "cycles device|baked|saved|denoise|texels|Error|DONE"
 # --prune-attributes false keeps TEXCOORD_0: the glb has no textures (the app binds the atlases),
 # so the default prune would drop the UVs as "unused". --flatten false --prune false keep the empty nodes
 # (nav_* waypoints, surface_* slots): flattening dropped them; the nodes are already flat in the export.
@@ -20,4 +20,7 @@ cp "$OUT/office.opt.glb" ../../public/models/office.glb
 cp "$OUT"/{room,floor,walls_nw,walls_se,work,wall_items,lounge,lounge2,desk_props,fridge}.webp ../../public/models/
 # the 512 px stand-ins the first screen shows while the close-up atlases load (#280)
 node ../../scripts/atlas-lo.mjs ../../public/models
+# #676 the ten atlases as KTX2 (ETC1S, compressed on the GPU), then the deferred six lose their full webp (the app shows .lo.webp, then .ktx2).
+# Needs ktx (KTX-Software 4.4+); anything wrong fails the bake here and deletes nothing.
+node ../../scripts/atlas-ktx2.mjs ../../public/models --prune
 ls -la ../../public/models/

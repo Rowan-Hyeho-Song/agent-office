@@ -15,7 +15,7 @@ import { loadOffice, stubCanvas } from './glbLoad'
 import { buildRig, fingerModelOf } from './rig'
 import { GRIPS, pointsAtJoints, tableJoints } from './grip'
 import { fingerPenetration, fitFingers, handInObject, offsetOf, resolveTarget } from './gripTargets'
-import { COVER_T, LIFT, OPEN_ANGLE, bookBoxes, bookDimsOf, distToBook, halfAngle, readingContacts } from './bookGeom'
+import { COVER_T, LEAF_ON_PAGE, LIFT, OPEN_ANGLE, bookBoxes, bookDimsOf, distToBook, halfAngle, readingContacts } from './bookGeom'
 import { LeafBend, PINCH_LET_GO, PINCH_LIFT, TURN_S, cornerOf, fingerWeight, lagAt, leafAngle, pinchArc, poseWeight } from './bookLeaf'
 
 stubCanvas()
@@ -138,7 +138,9 @@ describe('the open book as geometry', () => {
         expect(cs.map((c) => c.finger)).toEqual(['index', 'middle', 'ring', 'little', 'thumb'])
         for (const c of cs) {
           const { d: dist, box } = distToBook(c.p, boxes)
-          expect(Math.abs(dist), `${name} ${side} ${c.finger} on a surface`).toBeLessThan(1e-3)
+          // the right thumb rests on the leaf lying on the right paper (#675: its sheets 0.7 mm proud): its surface is the leaf's top, not the paper's
+          const onLeaf = c.finger === 'thumb' && side === 'r' ? LEAF_ON_PAGE : 0
+          expect(Math.abs(dist - onLeaf), `${name} ${side} ${c.finger} on a surface`).toBeLessThan(1e-3)
           const nb = c.n.clone().transformDirection(box.toBox)
           if (c.finger === 'thumb') {
             expect(box.name.startsWith('paper'), `${name} ${side} thumb on the paper`).toBe(true)
@@ -324,7 +326,7 @@ describe('the leaf', () => {
     }
   })
 
-  it('the landed leaf rests about 1 mm above the left paper, not under it (grips.md); it is on the right page, 0.3 mm over it, before the turn', async () => {
+  it('the landed leaf rests about 1 mm above the left paper, not under it (grips.md); it is on the right page, 0.6 mm over it, before the turn (#675: the leaf 0.3 mm higher, off the _l paper)', async () => {
     const { scene } = await loadOffice()
     for (const name of BOOKS) {
       const lf = new LeafBend(scene.getObjectByName(name + '_page')!)
@@ -343,8 +345,8 @@ describe('the leaf', () => {
       lf.node.rotation.set(0, 0, 0)
       lf.set(0)
       lf.node.updateMatrixWorld(true)
-      expect(lowest('r'), `${name} before the turn`).toBeGreaterThan(0.0002)
-      expect(lowest('r')).toBeLessThan(0.0005)
+      expect(lowest('r'), `${name} before the turn`).toBeGreaterThan(0.0005)
+      expect(lowest('r')).toBeLessThan(0.0008)
       lf.set(OPEN_ANGLE)
       lf.node.updateMatrixWorld(true)
       expect(lowest('l'), `${name} landed`).toBeGreaterThan(0.0009)
