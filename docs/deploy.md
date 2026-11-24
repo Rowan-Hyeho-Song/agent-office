@@ -85,7 +85,7 @@ SQL Editor에서 **이 순서로** 한 번씩 실행합니다. 모두 다시 실
   { "endpoint": "<사무실 주소>/api/events", "token": "<OFFICE_HOOK_TOKEN>", "log": true }
   ```
 - [ ] `~/.claude/settings.json`의 `hooks`에 등록(`hooks/README.md` 설치 2단계): 신호 훅 일곱 이벤트(`async`, PostToolUse·PostToolUseFailure는 `Bash|PowerShell`만, #44), 결재 훅 두 이벤트(`async` 아님, timeout 5). 경로는 agent-office를 받아 둔 위치
-- [ ] 네 세션의 이름에 역할 낱말이 있는지 확인: 기획 · Blender · 디자이너 · 코더
+- [ ] 다섯 세션의 이름에 역할 낱말이 있는지 확인: 기획 · 3D(또는 Blender) · 디자이너 · 코더 · 사운드(`hooks/README.md` 자리 표)
 
 확인:
 - 각 세션에서 도구를 한 번 쓰고 `~/.agent-office/hook.log`를 봄: `titled=true … → 200`
