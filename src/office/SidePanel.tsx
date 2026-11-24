@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useReplay } from '../replay/store'
 import { closeApprovalBox, openApprovalBox, useApprovalBoxOpen } from './approval/panel'
 import { closeDocs, openDocs, useDocsPanel } from './docs/panel'
-import { SIDE, isPhone, panelWidth, snapSheet, stepWidth, widthAt, clampWidth, maxWidth, type Sheet } from './sidePanel/model'
+import { SIDE, isPhone, isTap, otherSheet, panelWidth, snapSheet, stepWidth, widthAt, clampWidth, maxWidth, type Sheet } from './sidePanel/model'
 import { getSideBack, loadWidth, saveWidth, setSideLayout, useSideLayout, type Tab } from './sidePanel/store'
 import type { OfficeWorld } from './world'
 
@@ -158,26 +158,37 @@ function Shell({ hasDocs }: { hasDocs: boolean }) {
   }
 
   // ---- sheet handle (phones) ----
+  // #694 a press that moves under 6 px is a tap (half <-> full); the sheet follows the finger only once it has moved that far
+  const press = useRef<{ x: number; y: number; moved: boolean } | null>(null)
   const onHandleDown = (e: RPointerEvent<HTMLDivElement>) => {
     // #677 (docs-ui.md 4): the head drags the sheet as a whole, but for its tab and close buttons
     if ((e.target as Element).closest('button')) return
     e.currentTarget.setPointerCapture(e.pointerId)
+    press.current = { x: e.clientX, y: e.clientY, moved: false }
     setDragH(screen.h * (sheet === 'full' ? SIDE.full : SIDE.half))
     e.preventDefault()
   }
   const onHandleMove = (e: RPointerEvent<HTMLDivElement>) => {
-    if (dragH !== null) setDragH(Math.min(screen.h * 0.97, Math.max(screen.h * 0.15, screen.h - e.clientY)))
+    const p = press.current
+    if (!p || dragH === null) return
+    if (!p.moved && isTap(e.clientX - p.x, e.clientY - p.y)) return
+    p.moved = true
+    setDragH(Math.min(screen.h * SIDE.full, Math.max(screen.h * 0.15, screen.h - e.clientY)))
   }
   const onHandleUp = () => {
+    const p = press.current
+    press.current = null
     if (dragH === null) return
-    const to = snapSheet(dragH, screen.h)
     setDragH(null)
+    if (!p?.moved) return setSheet(otherSheet(sheet))
+    const to = snapSheet(dragH, screen.h)
     if (to === 'close') close()
     else setSheet(to)
   }
   const onHandleKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'ArrowUp') setSheet('full')
     else if (e.key === 'ArrowDown') setSheet('half')
+    else if (e.key === 'Enter' || e.key === ' ') setSheet(otherSheet(sheet))
     else return
     e.preventDefault()
   }
@@ -196,6 +207,8 @@ function Shell({ hasDocs }: { hasDocs: boolean }) {
 
   if (!present) return null
   const sheetH = dragH ?? screen.h * (sheet === 'full' ? SIDE.full : SIDE.half)
+  // #694 the look follows the height: a full sheet pulled down off the top is a floating board again (corners, shadow)
+  const look: Sheet = dragH === null ? sheet : dragH >= screen.h * SIDE.full ? 'full' : 'half'
   const count = L.count
   return (
     <aside
@@ -205,7 +218,7 @@ function Shell({ hasDocs }: { hasDocs: boolean }) {
       aria-label="서재와 결재함"
       data-tab={present}
       data-closing={!tab ? '' : undefined}
-      data-sheet={phone ? sheet : undefined}
+      data-sheet={phone ? look : undefined}
       data-dragging={dragging || dragH !== null ? '' : undefined}
       style={phone ? { height: sheetH } : { width }}
     >
@@ -273,6 +286,20 @@ function Shell({ hasDocs }: { hasDocs: boolean }) {
             </button>
           ))}
         </div>
+        {/* #694 the way up for those who do not know the drag: chevron up = whole screen, down = back to half, just left of ✕ */}
+        {phone && (
+          <button
+            type="button"
+            className="side-expand"
+            aria-label={sheet === 'full' ? '반으로 접기' : '화면 전체로 펼치기'}
+            aria-expanded={sheet === 'full'}
+            onClick={() => setSheet(otherSheet(sheet))}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+              <path d={sheet === 'full' ? 'M2.5 5 7 9.5 11.5 5' : 'M2.5 9 7 4.5 11.5 9'} fill="none" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
+          </button>
+        )}
         <button type="button" className="side-close" aria-label="닫기 Esc" onClick={close}>
           ✕
         </button>
