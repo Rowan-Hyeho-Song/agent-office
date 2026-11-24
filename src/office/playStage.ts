@@ -25,7 +25,7 @@ import type { Goal } from './director'
 import type { GripDemo } from './debugPlay'
 import { GRIPS, GripClock, curlOf, handFor, objectFor, tipAt } from './grip'
 import { DIP_K } from './handPose'
-import { contactNormal, fitFingers, handGripMatrix, chessCardTarget, chessTripodTarget, composeOffset, holoFlickTarget, holoPinchTarget, offsetOf, resolveTarget, solveTarget, type GripTarget } from './gripTargets'
+import { contactNormal, fitFingers, handGripMatrix, chessCardTarget, chessGripH, chessQueenTarget, chessTripodTarget, composeOffset, holoFlickTarget, holoPinchTarget, offsetOf, resolveTarget, solveTarget, type GripTarget } from './gripTargets'
 import { HOLO_GRIP_OFFSETS } from './holoGrip.data'
 import { CELL as HOLO_CELL, HoloBoard, N as HOLO_N, STONE_H as HOLO_STONE_H, STONE_Y as HOLO_STONE_Y } from './holoBoard'
 import { chessPinch, flickHand, pinchSequence, pinchTimes, type Pinch } from '../play/holoPinch'
@@ -90,8 +90,8 @@ const ONE = new Vector3(1, 1, 1)
 /** the table tennis table the model has (pp_table extras size / net_h) with the engine's default reach */
 const dimsOf = (size: number[], netH: number): Dims => ({ L: size[0], W: size[1], netH, ballR: 0.02, reach: 0.25, floorY: -0.76 })
 /** the blade's centre above the paddle node's origin, along its y */
-/** #604 a chess glyph's height by kind (hologram.md 11.2: rows of 3.6 mm; pawn 8 … king 14), m */
-const CHESS_GLYPH_H = [0, 8, 12, 12, 10, 13, 14].map((rows) => rows * 0.0036)
+/** #604 a chess glyph's rows by kind (hologram.md 11.2: rows of 3.6 mm; pawn 8 … king 14; holoChess.ts GLYPHS, kept out of this chunk) */
+const CHESS_GLYPH_ROWS = [0, 8, 12, 12, 10, 13, 14]
 
 /** #538 the thumb and index opened over the fount before the pinch (2.4 cm between their tips, hologram.md 4.3) */
 const PINCH_WIDE = curlOf([0.02, 0.25, 0.3, 0.35], [0, 0.1])
@@ -1197,9 +1197,9 @@ export class PlayStage {
     const fwd = new Vector3(mid.x - at.x, 0, mid.z - at.z).normalize()
     if (!isFinite(fwd.x)) fwd.set(1, 0, 0)
     // the grip point: 70% of the glyph's height over the piece's foot
-    // the king and the queen: three fingers just under the top (one voxel down); the others: the card pinch at 70% of the height
+    // the king and the queen: three fingers just under the top (one voxel down; the queen's one over the other on her bead pillar, #689); the others: the card pinch at 70% of the height
     const big = mv.kind === KING || mv.kind === QUEEN
-    const gripH = big ? CHESS_GLYPH_H[mv.kind] - 0.0036 * 1.5 : CHESS_GLYPH_H[mv.kind] * 0.7
+    const gripH = chessGripH(CHESS_GLYPH_ROWS[mv.kind], big)
     const from = holo.squarePos(mv.from)
     const to = holo.squarePos(mv.to)
     const edge = mid.clone().addScaledVector(fwd, -0.18)
@@ -1220,7 +1220,7 @@ export class PlayStage {
     const over = Math.min(LEAN_MAX_M, Math.max(0, Math.hypot(foot.x - at.x, foot.z - at.z) - STONE_COMFORT_M))
     if (over > 0) rig.leanOver(fwd.x * over, fwd.z * over)
     if (mv.sinceMs < mv.thinkMs && view.lastMove) rig.glance = { at: holo.squarePos(view.lastMove.to), max: 10 * DEG }
-    const fit = this.cardFit(rig, hold.flip, big)
+    const fit = this.cardFit(rig, hold.flip, mv.kind === QUEEN ? 'queen' : big ? 'tripod' : 'card')
     const hand = handFor(pieceWorld, fit.tgt.pg, handGripMatrix(rig.parts.hands.r)).multiply(fit.offset)
     hand.elements[12] -= fwd.x * p.pull
     hand.elements[13] += p.rise
@@ -1254,13 +1254,13 @@ export class PlayStage {
     return v ? composeOffset(v) : solveTarget(tgt, rig.parts.hands.r).offset
   }
 
-  /** #604 the card pinch on a chess glyph for this agent, solved once per side choice (gripTargets.ts chessCardTarget) */
-  private cardFit(rig: AgentRig, flip: boolean, tripod = false) {
-    const key = `${rig.id}:${tripod ? 'tripod' : 'card'}:${flip ? 'b' : 'a'}`
+  /** #604 the card pinch on a chess glyph for this agent, solved once per side choice (gripTargets.ts chessCardTarget; the king's tripod, the queen's, #689) */
+  private cardFit(rig: AgentRig, flip: boolean, grip: 'card' | 'tripod' | 'queen' = 'card') {
+    const key = `${rig.id}:${grip}:${flip ? 'b' : 'a'}`
     let f = this.pinchFits.get(key)
     if (!f) {
       const hand = rig.parts.hands.r
-      const tgt = tripod ? chessTripodTarget(flip) : chessCardTarget(flip)
+      const tgt = grip === 'queen' ? chessQueenTarget(flip) : grip === 'tripod' ? chessTripodTarget(flip) : chessCardTarget(flip)
       const offset = this.holoOffset(tgt, rig)
       const hold = rig.curlVec('r', GRIPS[tgt.kind].r!.hold)
       for (const fit of fitFingers(tgt, hand, offset)) {
