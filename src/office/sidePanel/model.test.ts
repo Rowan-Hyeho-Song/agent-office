@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SIDE, bezier, clampWidth, defaultWidth, easeOut, fitKey, fitScale, isPhone, leftArea, maxWidth, panelWidth, snapSheet, stepWidth, viewOffset, widthAt } from './model'
+import { SIDE, bezier, clampWidth, defaultWidth, easeOut, fitKey, fitScale, isPhone, isTap, leftArea, maxWidth, otherSheet, panelWidth, snapSheet, stepWidth, viewOffset, widthAt } from './model'
 
 describe('side panel width', () => {
   it('starts at 480 on a desktop screen', () => {
@@ -66,6 +66,21 @@ describe('sheet snap and curve', () => {
     expect(snapSheet(200, 800)).toBe('close')
     expect(snapSheet(440, 800)).toBe('half')
     expect(snapSheet(700, 800)).toBe('full')
+  })
+  it('full is the whole screen; the line between the two heights stays their middle, 77.5% (#694)', () => {
+    expect(SIDE.full).toBe(1)
+    expect(SIDE.half).toBe(0.55)
+    expect(snapSheet(619, 800)).toBe('half')
+    expect(snapSheet(620, 800)).toBe('full')
+    expect(snapSheet(800, 800)).toBe('full')
+  })
+  it('a press on the head that moves under 6 px is a tap, which swaps half and full (#694)', () => {
+    expect(isTap(0, 0)).toBe(true)
+    expect(isTap(3, -5)).toBe(true)
+    expect(isTap(0, 6)).toBe(false)
+    expect(isTap(-5, 4)).toBe(false)
+    expect(otherSheet('half')).toBe('full')
+    expect(otherSheet('full')).toBe('half')
   })
   it('--ease-out runs from 0 to 1 and leads a linear ramp', () => {
     expect(easeOut(0)).toBe(0)
