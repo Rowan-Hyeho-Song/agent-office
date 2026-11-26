@@ -74,8 +74,8 @@ export interface TaskConfig {
   publicRepos: string[]
 }
 export const DEFAULT_TASK_CONFIG: TaskConfig = {
-  repos: ['Rowan-Hyeho-Song/agent-office', 'Rowan-Hyeho-Song/rowansong.dev'],
-  publicRepos: ['Rowan-Hyeho-Song/agent-office', 'Rowan-Hyeho-Song/rowansong.dev'],
+  repos: ['Rowan-Hyeho-Song/agent-office', 'Rowan-Hyeho-Song/rowansong.dev', 'Rowan-Hyeho-Song/jank-lab'],
+  publicRepos: ['Rowan-Hyeho-Song/agent-office', 'Rowan-Hyeho-Song/rowansong.dev', 'Rowan-Hyeho-Song/jank-lab'],
 }
 export const MAX_ISSUE = 1_000_000
 

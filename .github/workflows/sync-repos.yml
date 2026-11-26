@@ -1,0 +1,68 @@
+# Other public repos → the office's documents and timelapse (#706). The docs and timeline workflows only see this
+# repo's own events, so a public repo without a workflow of its own (jank-lab) is backfilled from here instead:
+# every 30 minutes, and by hand. Same scripts and the same filters as the backfill jobs of docs.yml / timeline.yml
+# (strangers' writing is skipped, the server filters again), and the keys are stable, so a run only rewrites the
+# same rows. The other repo is read with this run's GITHUB_TOKEN (public data); writing uses the existing docs
+# secrets, nothing new. Without them the job does nothing and succeeds.
+name: office sync repos
+
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  # by hand (needs write access); dry_run (default on) only prints the counts
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'dry run (send nothing, print the counts)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: office-sync-repos
+  cancel-in-progress: false
+
+env:
+  # comma separated "owner/name"; public repos only (a private one is not readable with this token)
+  OFFICE_SYNC_REPOS: Rowan-Hyeho-Song/jank-lab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # always the default branch's scripts
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: |
+            scripts/docs
+            scripts/timeline
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: backfill each repo (documents, then timelapse points)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OFFICE_DOCS_URL: ${{ secrets.OFFICE_DOCS_URL }}
+          OFFICE_DOCS_TOKEN: ${{ secrets.OFFICE_DOCS_TOKEN }}
+          # a scheduled run has no inputs: it sends
+          DRY: ${{ inputs.dry_run && 'yes' || '' }}
+        run: |
+          if [ -z "$DRY" ] && { [ -z "$OFFICE_DOCS_URL" ] || [ -z "$OFFICE_DOCS_TOKEN" ]; }; then
+            echo "no OFFICE_DOCS_URL / OFFICE_DOCS_TOKEN: nothing to send"
+            exit 0
+          fi
+          for repo in ${OFFICE_SYNC_REPOS//,/ }; do
+            echo "::group::$repo"
+            if [ -n "$DRY" ]; then
+              node scripts/docs/backfill.mjs "$repo" --dry-run
+              node scripts/timeline/backfill.mjs "$repo" --dry-run
+            else
+              node scripts/docs/backfill.mjs "$repo"
+              node scripts/timeline/backfill.mjs "$repo" --send
+            fi
+            echo "::endgroup::"
+          done

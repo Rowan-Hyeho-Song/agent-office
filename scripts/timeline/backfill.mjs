@@ -2,7 +2,7 @@
 //
 //   GITHUB_TOKEN=$(gh auth token) node scripts/timeline/backfill.mjs <owner/name> [--dry-run] [--out file | --send]
 //   env  GITHUB_TOKEN (or the gh CLI's login; never printed or written)
-//        OFFICE_PUBLIC_REPOS   comma separated public repos (default: this one and rowansong.dev, #424); everything else is review
+//        OFFICE_PUBLIC_REPOS   comma separated public repos (default: this one, rowansong.dev (#424) and jank-lab (#706)); everything else is review
 //        OFFICE_PRIVATE_REPOS  comma separated private repos: nothing is collected
 //        OFFICE_BANNED_WORDS   words to hide, same as /api/docs
 //   --dry-run  only the summary (points per kind, attribution), no file
@@ -17,7 +17,7 @@
 import { execFileSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { github } from '../docs/build.mjs'
-import { POINT_KINDS, build, collect, serialize, tierFor } from './build.mjs'
+import { POINT_KINDS, branchesFor, build, collect, serialize, tierFor } from './build.mjs'
 import { acceptable, sendPoints, timelineUrl, whyNot } from './send.mjs'
 
 const args = process.argv.slice(2)
@@ -31,7 +31,7 @@ if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo) || (args.includes('--out') && !out
 }
 const list = (v) => (v ?? '').split(',').map((s) => s.trim()).filter(Boolean)
 const cfg = {
-  publicRepos: list(process.env.OFFICE_PUBLIC_REPOS ?? 'Rowan-Hyeho-Song/agent-office,Rowan-Hyeho-Song/rowansong.dev'),
+  publicRepos: list(process.env.OFFICE_PUBLIC_REPOS ?? 'Rowan-Hyeho-Song/agent-office,Rowan-Hyeho-Song/rowansong.dev,Rowan-Hyeho-Song/jank-lab'),
   privateRepos: list(process.env.OFFICE_PRIVATE_REPOS),
   banned: list(process.env.OFFICE_BANNED_WORDS),
 }
@@ -67,8 +67,10 @@ const branch = async (name) => {
     return []
   }
 }
-const devList = await branch('dev')
-const mainList = await branch('main')
+// #706: a repo without dev (jank-lab) has only its deploy branch, so every commit there is a deploy
+const { devBranch, deployBranch } = branchesFor(repo)
+const devList = devBranch ? await branch(devBranch) : []
+const mainList = await branch(deployBranch)
 const devShas = new Set(devList.map((c) => c.sha))
 // per-commit details (line and file counts), only for the commits that become points: not merges on dev, main-only on main
 const detail = async (c) => gh.get(`/repos/${repo}/commits/${c.sha}`)
@@ -80,13 +82,13 @@ for (const c of mainList) mainCommits.push(devShas.has(c.sha) ? c : await detail
 // decision tables in docs/**.md on dev (read as text here, only the table rows leave this script)
 const docs = []
 try {
-  const tree = await gh.get(`/repos/${repo}/git/trees/dev?recursive=1`)
+  const tree = await gh.get(`/repos/${repo}/git/trees/${devBranch ?? deployBranch}?recursive=1`)
   for (const f of tree.tree.filter((t) => t.type === 'blob' && /^docs\/.+\.md$/.test(t.path)).sort((a, b) => (a.path < b.path ? -1 : 1))) {
     const blob = await gh.get(`/repos/${repo}/git/blobs/${f.sha}`)
     docs.push(Buffer.from(blob.content, 'base64').toString('utf8'))
   }
 } catch {
-  log('no docs read from dev')
+  log(`no docs read from ${devBranch ?? deployBranch}`)
 }
 
 const data = { repo, owner, issues, comments, pulls, devCommits, mainCommits, docs, logins }

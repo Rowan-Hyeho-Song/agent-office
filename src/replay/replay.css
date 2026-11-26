@@ -38,6 +38,15 @@
 .replay-seg button + button { border-left: 1px solid var(--color-line); }
 .replay-seg button[aria-checked='true'] { background: var(--color-text); color: var(--color-ink); }
 .replay-seg button:hover:not([aria-checked='true']) { color: var(--color-cyan); }
+/* #706 the project buttons are the band's legend: a 16 x 4 sample in the band's colour and pattern (barDraw.drawBand) */
+.replay-swatch { display: inline-block; width: 16px; height: 4px; margin-right: 6px; vertical-align: middle; image-rendering: pixelated; }
+.replay-swatch[data-p='office'] { background: var(--replay-project-office); }
+.replay-swatch[data-p='hub'] { background: repeating-linear-gradient(90deg, rgb(0 0 0 / 0.45) 0 1px, transparent 1px 3px), var(--replay-project-hub); }
+.replay-swatch[data-p='lab'] {
+  /* 1 px dark dots every 2 px on the 2nd and 4th rows, staggered: one 2 x 4 tile */
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='1' width='1' height='1' fill-opacity='.45'/%3E%3Crect x='1' y='3' width='1' height='1' fill-opacity='.45'/%3E%3C/svg%3E") 0 0 / 2px 4px repeat, var(--replay-project-lab);
+}
+.replay-swatch[data-p='other'] { background: var(--replay-project-other); }
 
 .replay-subtitle { position: absolute; left: 50%; bottom: calc(var(--replay-bottom-h) + 16px); transform: translateX(-50%); max-width: min(720px, 90%); background: rgb(5 7 10 / 0.82); border: 1px solid var(--color-line); padding: 6px 14px; font-size: 14px; line-height: 1.5; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none !important; }
 .replay-subtitle.tipping { opacity: 0; }

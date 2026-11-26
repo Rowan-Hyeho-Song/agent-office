@@ -98,8 +98,8 @@ describe('mergePoints', () => {
 describe('committed copies (src/timeline/fixtures)', () => {
   const raw = import.meta.glob('./fixtures/*.json', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
   const files = Object.keys(raw).map((k) => k.replace('./fixtures/', ''))
-  it('exist for both repos', () => {
-    expect(files.sort()).toEqual(['agent-office.json', 'rowansong.dev.json'])
+  it('exist for the three repos (#706: jank-lab)', () => {
+    expect(files.sort()).toEqual(['agent-office.json', 'jank-lab.json', 'rowansong.dev.json'])
   })
   it.each(files)('%s is a clean public copy', (f) => {
     const text = raw[`./fixtures/${f}`]

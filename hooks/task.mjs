@@ -20,7 +20,7 @@ import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { HOME, readConfig, readJson } from './session.mjs'
 
-export const DEFAULT_REPOS = ['agent-office', 'rowansong.dev']
+export const DEFAULT_REPOS = ['agent-office', 'rowansong.dev', 'jank-lab']
 export const MAX_ISSUE = 1_000_000
 export const TASKS_FILE = () => join(HOME, 'tasks.json')
 
