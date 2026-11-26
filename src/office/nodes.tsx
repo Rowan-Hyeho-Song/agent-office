@@ -162,6 +162,8 @@ export function prepare(scene: Object3D, atlases: Texture[]): OfficeNodes {
     })
     for (const o of gone) o.removeFromParent()
   }
+  // #718 (3D #730): the plain empties the stage reads by name (no atlas / live): the tidied ping-pong places and the second bookshelf's rows
+  for (const o of scene.children) if (!nodes[o.name] && /^(pp_tidy_|spines_row_\d)/.test(o.name)) nodes[o.name] = o
   rigMouseBodies(scene, nodes) // the mouse bodies take their buttons, wheel, contacts and shadow (#305)
   return nodes
 }

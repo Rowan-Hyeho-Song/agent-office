@@ -1,5 +1,6 @@
 // ?debug=1 tools for close-ups (#184): put an agent into a play / prop scene right now, or loop the three grip stages in place.
 //   window.__office.play.force(agent, kind, plant?, reduced?)   kind: water | books | coffee | pingpong | boardgame (a pair game takes the next agent too);
+//                                             spines (#718): looking over the second bookshelf's spines row by row, as the look-around does;
 //                                             water sends the agent for the can (the whole errand, waterRun.ts); plant: plant_corner | plant_sofa | plant_desk
 //                                             the lounge (#280): fridge | dispenser | record (put a record on, or lift the arm when the needle is down) | record-lift |
 //                                             fridge-can | fridge-milk | fridge-peek (#457: the fridge with that drink taken out, or none) |
@@ -20,7 +21,7 @@ import { ALL_POSES, type AnyPoseId } from './handPose'
 import { setStoneVariant, type StoneVariant } from './grip'
 import { CAN_HOME, WATER_PLANTS, canStand } from './water'
 import type { HabitKind } from './waterFx'
-import { hash } from './play'
+import { SPINES, hash } from './play'
 import { isAct } from './lounge'
 import { SETTLE_MS, type PlaySession } from '../play/session'
 import { officeNow, type OfficeWorld } from './world'
@@ -198,6 +199,8 @@ export function makePlayTools(world: OfficeWorld) {
         door: { spot: 'door', pose: 'idle' },
         coffee: { spot: 'coffee', pose: 'coffee' },
         'books-stand': { spot: 'shelf', pose: 'books', face: BOOK.face, ...standSlot(BOOK) }, // the old standing pick, for the close-up
+        // #718 (play.md 9.7): the look-around's spines, at once (the chain seldom gets that far)
+        spines: { spot: SPINES.spot, pose: 'idle', gap: 'spines', browse: true, face: SPINES.face, ...standSlot(SPINES) },
       }
       if (goals[kind]) world.forceGoal[agent] = goals[kind]
     },

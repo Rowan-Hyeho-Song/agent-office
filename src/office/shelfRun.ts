@@ -94,8 +94,67 @@ export const BROWSE = { yawDeg: 12, periodS: 6, label: '책장 책 읽기 · 책
  */
 export const SPINE_SWEEP = { rowS: 8, backS: 0.8, yawDeg: 14, rowPitchDeg: [10, 0, -10, -22] } as const
 
-/** the head over the spines at `u` s into the browse (rad); reduced motion: still, looking at the shelf */
-export function spineLook(u: number, reduced: boolean): { pitch: number; yaw: number; roll: 0 } {
+/**
+ * #718 (3D #730): the second bookshelf's rows, top (shelf 4) to bottom (shelf 1), from the `spines_row_<k>` empties: the middle of the spines' face (y, centre x),
+ * the width, and the stretches with no spine (a pot), as x from the centre. The face is at SPINE_FACE_Z; the agent stands at SPINES (play.ts) facing −z
+ */
+export const SPINE_ROWS = [
+  { y: 1.913, cx: 4.29, w: 0.372, gaps: [] as [number, number][] },
+  { y: 1.492, cx: 4.41, w: 0.612, gaps: [[-0.13, 0.13]] as [number, number][] },
+  { y: 1.072, cx: 4.41, w: 0.612, gaps: [] as [number, number][] },
+  { y: 0.652, cx: 4.41, w: 0.612, gaps: [] as [number, number][] },
+] as const
+export const SPINE_FACE_Z = -3.764
+
+/** the point of the spines the head is on at `u` s into the browse: the row, and the x along it (left end → right end, then back to the next row's left end) */
+export function spineAt(u: number): { row: number; x: number; y: number; z: number } {
+  const k = Math.floor(Math.max(0, u) / SPINE_SWEEP.rowS)
+  const f = Math.max(0, u) - k * SPINE_SWEEP.rowS
+  const ease = (x: number) => x * x * (3 - 2 * x)
+  const sweep = SPINE_SWEEP.rowS - SPINE_SWEEP.backS
+  const row = k % SPINE_ROWS.length
+  const r = SPINE_ROWS[row]
+  const x0 = r.cx - r.w / 2
+  if (f < sweep) return { row, x: x0 + r.w * ease(f / sweep), y: r.y, z: SPINE_FACE_Z }
+  const n = SPINE_ROWS[(row + 1) % SPINE_ROWS.length]
+  const b = ease((f - sweep) / SPINE_SWEEP.backS)
+  const from = { x: x0 + r.w, y: r.y }
+  const to = { x: n.cx - n.w / 2, y: n.y }
+  return { row, x: from.x + (to.x - from.x) * b, y: from.y + (to.y - from.y) * b, z: SPINE_FACE_Z }
+}
+
+/** #718: the index finger points at a spine every SPINE_POINT.everyS s (the first `firstS` in), for `holdS`; at the row looked at (the middle two rows only: within reach) */
+export const SPINE_POINT = { everyS: 20, firstS: 6, holdS: 1.8, offM: 0.05, rows: [1, 2] } as const
+
+/** whether the hand points now, and at what: the spine looked at when the pointing began (out of any gap), SPINE_POINT.offM off the face */
+export function spinePoint(u: number, reduced: boolean): { x: number; y: number; z: number } | null {
+  if (reduced || u < SPINE_POINT.firstS) return null
+  const k = Math.floor((u - SPINE_POINT.firstS) / SPINE_POINT.everyS)
+  const t0 = SPINE_POINT.firstS + k * SPINE_POINT.everyS
+  if (u - t0 > SPINE_POINT.holdS) return null
+  const at = spineAt(t0)
+  const row = (SPINE_POINT.rows as readonly number[]).includes(at.row) ? at.row : SPINE_POINT.rows[k % SPINE_POINT.rows.length]
+  const r = SPINE_ROWS[row]
+  let dx = Math.min(r.w / 2 - 0.03, Math.max(-r.w / 2 + 0.03, at.x - r.cx))
+  // out of a pot's stretch: to its nearer end
+  for (const [a, b] of r.gaps) if (dx > a && dx < b) dx = dx - a < b - dx ? a - 0.03 : b + 0.03
+  return { x: r.cx + dx, y: r.y, z: SPINE_FACE_Z + SPINE_POINT.offM }
+}
+
+/**
+ * The head over the spines at `u` s into the browse (rad); reduced motion: still, looking at the shelf. With the head's place (`eye`: where it is, its
+ * height, the body's heading) it looks at the real spine (spineAt), within the head's reach (yaw ±1.2, pitch −0.6…0.3, as rig.ts propLook)
+ */
+export function spineLook(u: number, reduced: boolean, eye?: { x: number; y: number; z: number; heading: number }): { pitch: number; yaw: number; roll: 0 } {
+  if (eye && !reduced && u >= 0) {
+    const p = spineAt(u)
+    const dx = p.x - eye.x
+    const dz = p.z - eye.z
+    const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a))
+    const yaw = Math.max(-1.2, Math.min(1.2, wrap(Math.atan2(-dx, -dz) - eye.heading)))
+    const pitch = Math.max(-0.6, Math.min(0.3, Math.atan2(p.y - eye.y, Math.hypot(dx, dz))))
+    return { pitch, yaw, roll: 0 }
+  }
   const D = Math.PI / 180
   const rows = SPINE_SWEEP.rowPitchDeg
   if (reduced || u < 0) return { pitch: rows[1] * D, yaw: 0, roll: 0 }
