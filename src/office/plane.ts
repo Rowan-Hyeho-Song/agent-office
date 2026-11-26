@@ -268,6 +268,9 @@ export class PaperPlanes {
       return
     }
     const plane = this.plane
+    // #726 (timelapse.md 12.3): a paper lying on the desk (the receiver's hands were busy, or it was out) gives way to the next one waiting: it is gone and
+    // the next row's paper sets off now. Before, it held the one plane for up to LAY_MAX_S and the rows after it never got theirs
+    if (this.flight?.phase === 'landed' && this.queue.length && this.nextIndex(rigs, reduced) >= 0) this.finish()
     const idx = !this.flight && this.queue.length ? this.nextIndex(rigs, reduced) : -1
     if (idx >= 0 && this.passes.paper) {
       const next = this.queue[idx]
