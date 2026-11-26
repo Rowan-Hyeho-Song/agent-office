@@ -346,7 +346,14 @@ export function collect(data) {
     })
   }
   for (const c of devCommits) if ((c.parents?.length ?? 0) <= 1) out.push(commitPoint(c, 'work'))
-  for (const c of mainCommits) if (!devShas.has(c.sha)) out.push(commitPoint(c, 'deploy'))
+  if (branchesFor(repo).devBranch === null) {
+    // #706 a repo without dev (jank-lab): a pull request merged into main is both the work and its Pages deploy, so each
+    // main commit makes two points, the work and then the deploy (same time; the deploy's key sorts after the work's)
+    for (const c of mainCommits) {
+      out.push(commitPoint(c, 'work'))
+      out.push({ ...commitPoint(c, 'deploy'), key: `${c.html_url}#deploy` })
+    }
+  } else for (const c of mainCommits) if (!devShas.has(c.sha)) out.push(commitPoint(c, 'deploy'))
   return out
 }
 
