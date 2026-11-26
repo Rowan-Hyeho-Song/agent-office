@@ -21,7 +21,7 @@ import { ALL_POSES, type AnyPoseId } from './handPose'
 import { setStoneVariant, type StoneVariant } from './grip'
 import { CAN_HOME, WATER_PLANTS, canStand } from './water'
 import type { HabitKind } from './waterFx'
-import { SPINES, hash } from './play'
+import { GAP_LABEL, SPINES, hash } from './play'
 import { isAct } from './lounge'
 import { SETTLE_MS, type PlaySession } from '../play/session'
 import { officeNow, type OfficeWorld } from './world'
@@ -200,7 +200,7 @@ export function makePlayTools(world: OfficeWorld) {
         coffee: { spot: 'coffee', pose: 'coffee' },
         'books-stand': { spot: 'shelf', pose: 'books', face: BOOK.face, ...standSlot(BOOK) }, // the old standing pick, for the close-up
         // #718 (play.md 9.7): the look-around's spines, at once (the chain seldom gets that far)
-        spines: { spot: SPINES.spot, pose: 'idle', gap: 'spines', browse: true, face: SPINES.face, ...standSlot(SPINES) },
+        spines: { spot: SPINES.spot, pose: 'idle', gap: 'spines', browse: true, label: GAP_LABEL.spines, face: SPINES.face, ...standSlot(SPINES) },
       }
       if (goals[kind]) world.forceGoal[agent] = goals[kind]
     },

@@ -186,6 +186,8 @@ export interface PlayAssignment {
   game?: BoardGameKind
   /** #718 (play.md 9.7 ②): a face shown once as this begins (a watcher whose game broke: 의문 for 1 s); `key` says which time */
   cue?: { expr: 'question'; key: string; dur: number }
+  /** #718 ②-b a tidy-up: the end the agent played from (its own paddle) */
+  paddle?: 'a' | 'b'
 }
 
 /** one stretch of an agent's day in the plan */
@@ -604,7 +606,7 @@ export function aloneChain(ms: number, agents: string[], agent: string, from: nu
   const used = usedIn(plan, -1)
   const table = spotsAt.pingpong_a
   const dist = (h: string) => (table ? Math.hypot(spotsAt[h].x - table.x, spotsAt[h].z - table.z) : 0)
-  if (ms < from + TIDY_MS) return tidyAt('pingpong_a', -1, from)
+  if (ms < from + TIDY_MS) return tidyAt('pingpong_a', -1, from, 'a')
   const walk = from + TIDY_MS
   if (ms < walk + ALONE_GAP_MS) {
     const spot = Object.keys(spotsAt).filter((h) => h.startsWith('hall_') && !WINDOW_SPOTS.includes(h) && dist(h) >= WANDER_M[0] && !used(h, walk, walk + ALONE_GAP_MS)).sort((x, y) => dist(x) - dist(y))[0] ?? 'hall_back'
@@ -730,8 +732,8 @@ const tableMid = () => {
 export const TIDY_SPOT = 'pp_side'
 
 /** #718: the tidy-up at the table: at TIDY_SPOT when the layout has it (else at the end the agent played from, facing the middle) */
-function tidyAt(spot: string, stay: number, from: number): PlayAssignment {
-  const base = { kind: 'gap' as const, gap: 'tidy' as const, label: GAP_LABEL.tidy, stay, since: from, until: from + TIDY_MS }
+function tidyAt(spot: string, stay: number, from: number, paddle: 'a' | 'b'): PlayAssignment {
+  const base = { kind: 'gap' as const, gap: 'tidy' as const, label: GAP_LABEL.tidy, stay, since: from, until: from + TIDY_MS, paddle }
   if (spotsAt[TIDY_SPOT]) return { ...base, spot: TIDY_SPOT }
   const mid = tableMid()
   return { ...base, spot, ...(mid ? { face: mid } : {}) }
@@ -751,7 +753,7 @@ function aloneAt(plan: Seg[][], roster: string[], agent: string, s: Seg, own: nu
   const n = second ? 1 : 0
   // #718 (play.md 9.7 ①): the one left when the game broke tidies the table first (the one back from work finds it tidied)
   const start = tidies ? own + TIDY_MS : own
-  if (tidies && ms < start && own < s.end) return tidyAt(s.spot, s.stay, own)
+  if (tidies && ms < start && own < s.end) return tidyAt(s.spot, s.stay, own, s.spot.endsWith('_b') ? 'b' : 'a')
   const since = start + ALONE_GAP_MS
   const stroll = (from: number, until: number): PlayAssignment => {
     const spot = halls.filter((h) => !used(h, from, until) && !skip(h))[n] ?? halls[0] ?? s.spot

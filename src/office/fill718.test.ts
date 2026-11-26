@@ -95,7 +95,8 @@ describe('?debug=1: one left at a forced ping-pong game (#718)', () => {
     const idle: StatusMap = Object.fromEntries(FIVE.map((a) => [a, { state: 'idle' as const, since: 0 }]))
     d.forceAlone('agent_1', T, 2)
     const g = d.goals(T + 5_000, Math.floor(T / 60000), idle, () => null).agent_1
-    expect(g).toMatchObject({ pose: 'idle', gap: 'tidy', spot: aloneChain(T + 5_000, FIVE, 'agent_1', T, T + 120_000).spot })
+    // the tidy-up (tidyRun.ts): the paddle taken at its own end first
+    expect(g).toMatchObject({ pose: 'idle', label: '탁구 · 정리하는 중', tidy: { stage: 'take', own: 'a' } })
     // over: forgotten, the schedule again
     d.goals(T + 130_000, Math.floor(T / 60000) + 2, idle, () => null)
     expect((d as unknown as { forcedAlone: unknown }).forcedAlone).toBeNull()
