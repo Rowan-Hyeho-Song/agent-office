@@ -1672,7 +1672,7 @@ export class PlayStage {
       if (r.u >= dur + 0.06) want = false
     }
     // how far the book is open: 0 closed (every stage but reading), 1 open (the middle of the reading)
-    const closeFrom = READ_S.read - READ_S.close
+    const closeFrom = (r.len ?? READ_S.read) - READ_S.close
     const w = r.stage !== 'read' ? 0 : r.u < READ_S.open ? ease(r.u / READ_S.open) : r.u > closeFrom ? 1 - ease((r.u - closeFrom) / READ_S.close) : 1
     // the left hand: the closed grip, and (while the book is open at all) the reading grip mixed in by w
     const attached = this.grip(rig, 'l', 'bookclosed', name, want, held, inp)
