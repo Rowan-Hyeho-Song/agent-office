@@ -105,7 +105,10 @@ Node contract (the app reads glTF extras):
   pp_ball                          live "bot" (#135): the ball, the app moves it (not a prop); pivot = its center
   pp_tidy_paddle_a|_b, pp_tidy_ball  (#718) empties: where the paddles (their home frame, extras pose {pos, rot}) and the
                                    ball (its centre) lie once the table is tidied; pp_ball_grip_r + _contact_thumb|index
-                                   (a pinch, children of pp_ball); nav_pp_side (stand, the north long side by the net)
+                                   (a pinch, children of pp_ball); nav_pp_side (stand, the north long side by the net);
+                                   prop_paddle_a|b_grip_l + _contact_index|thumb_l (the left-hand tray carry, blade flat,
+                                   red up) and prop_paddle_a|b_ball (the ball's centre carried on the blade), children
+                                   of the paddle; pp_ball's home by the net, 0.14 m in from the north edge
   spines_row_0..3                  (#718) the second bookcase's spine rows, top shelf first: front, mid height, centred on
                                    the spines; extras w (span), shelf (4..1), gaps (local x ranges without spines)
   pp_table                         empty at the table top center, +x = the long side (extras size [l, w], net_h)
@@ -2771,7 +2774,7 @@ def build_play_lives():
     # ping-pong: the ball moves by the app (not a prop: PropBank must not pick it up); pp_table = the playing surface
     tx, tz = PINGPONG
     th = 0.76
-    M = Mx((tx + 0.25, th + 0.02, tz - 0.1))
+    M = Mx((tx + 0.10, th + 0.02, tz - 0.43))  # #718 (designer, #732 (가)): by the net, 0.14 m in from the north edge (was 0.47: out of reach)
     # the seam: a flush colour band on the ball (a ring standing proud read as Saturn and flickered, designer)
     # #280 3 (room-280.md 6.2): 200 triangles (was 1,088): 10 x 8, the seam band, three small stars printed on one face
     ball = sphere("ball", 0.02, (0, 0, 0), plastic("#f7f7f2", 0.8, 0, 0, "ball"), G, seg=10, rings=8)
@@ -3693,6 +3696,13 @@ def build_hands():
         grip_at(o, R, (0, 0.05, 0), (0, 0, -1), (-1, 0, 0))
         contact(o, "index", (0.02, 0.115, -0.003), (0, 0, -1))  # the black face, low on the blade
         contact(o, "thumb", (-0.01, 0.1, 0.003), (0, 0, 1))  # the red face where blade meets handle
+        # #718 (play.md 9.7, #732): the left hand carries it like a tray, the blade flat and red side up: the right
+        # shakehand mirrored (the neutral wrist already lays the blade flat, fingers toward the black face = down)
+        grip_at(o, L, (0, 0.05, 0), (0, 0, -1), (1, 0, 0))
+        contact(o, "index", (-0.02, 0.115, -0.003), (0, 0, -1), L)
+        contact(o, "thumb", (0.01, 0.1, 0.003), (0, 0, 1), L)
+        # the ball carried on it: its centre over the blade's middle, a radius over the red face (z 0.003)
+        child_empty(o, f"prop_paddle_{e}_ball", o.matrix_world @ Matrix.Translation(W(0, 0.17, 0.023)))
     # book (both hands, open): left palm under the spine, right palm under the right page; left thumb on the left
     # page, the right index turns the top right corner. Book frame: spine on z, pages +x, open pages at y = 0
     o = O["prop_book"]
@@ -5806,7 +5816,7 @@ if PREVIEW:
         "pp_under": ((2.75, 0.4, 1.95), (2.1, 0.25, 0.7)),
         "pp_net": ((1.98, 0.98, 1.3), (1.6, 0.82, 1.0)),
         "pp_props": ((2.05, 0.9, 0.78), (2.05, 0.77, 0.5)),  # #280 3: a paddle
-        "pp_ball": ((1.92, 0.83, 0.68), (1.85, 0.78, 0.6)),
+        "pp_ball": ((1.80, 0.86, 0.40), (1.70, 0.78, 0.27)),  # #718: its new home (0.18 m off: closer cut into the ball at the near clip)
         "lib_close": ((2.75, 1.5, -2.9), (3.45, 1.2, -3.95)),  # #280 3: the bookshelf
         "lib_top": ((2.85, 2.15, -3.25), (3.2, 1.9, -3.95)),
         "lib_side": ((3.6, 1.15, -3.35), (2.93, 1.05, -3.85)),
