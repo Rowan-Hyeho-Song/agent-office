@@ -1463,7 +1463,7 @@ export class AgentRig {
     const idle = { pitch: 0, yaw: reduced ? 0 : s(0.35) * 0.25, roll: 0 }
     // #450 browsing the second bookshelf's spines: the head along the rows, ±12° in 6 s; reduced motion: still
     // #718 (play.md 9.7): row by row, left to right, top to bottom (shelfRun.ts spineLook); reduced motion: still
-    if (pose === 'idle' && this.goal?.browse) return spineLook(this.restKey ? t - this.restT0 : -1, reduced)
+    if (pose === 'idle' && this.goal?.browse) return spineLook(this.restKey ? t - this.restT0 : -1, reduced, { x: this.x, z: this.z, y: this.parts.headRestY + this.seat, heading: this.heading })
     // #490 B a gap (play.md 9.3): the head back with the stretch, breathing at the window, one look left and right after a stroll
     // #451 at the door with the lever: the head straight at the door's screen (0°), no idle glance
     if (pose === 'idle' && (this.goal?.door?.u ?? -1) >= 0) return { pitch: 0, yaw: 0, roll: 0 }

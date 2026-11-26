@@ -71,7 +71,7 @@ export const PILE_TIDY = { lift: 0.04, standDeg: 70, tap: 0.012, out: 0.002, pal
 import { HEADPHONES, KEYCAP_ROLL, cupSwivel, LEAF_STROKE, MIXER, PAPER_READ, SHAPE_TURN, SNAP, SWATCH, leafAt, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, type Touch } from './deskTouch'
 import { SIP_TOP_S, TREAT_HOLD, TREAT_LOOK, TREAT_PROP, takeSounds, treatPhase, type SnackKind } from './treatHold'
 import { handsOf } from './paperRun'
-import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, pageTau, rowOf } from './shelfRun'
+import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, pageTau, rowOf, spinePoint } from './shelfRun'
 import { cue, cue as treatCue } from '../audio/cues'
 import { ease } from '../play/choreo'
 import { STEP, stepAt, strokeAt } from '../play/stroke'
@@ -1465,6 +1465,12 @@ export class PlayStage {
         const held = new Matrix4().compose(local(0.17, 0.98 + 0.08 * sipping, -0.26), q, ONE)
         this.grip(rig, 'r', 'cup', cup.node.name, true, held, inp)
       }
+      return
+    }
+    // #718 (play.md 9.7 둘러보기): at the spines, every SPINE_POINT.everyS s the right index points at one (shelfRun.ts spinePoint), 5 cm off its face
+    if (goal.pose === 'idle' && goal.browse && resting) {
+      const at = spinePoint(u, inp.reduced)
+      if (at) this.indexOn(rig, new Vector3(at.x, at.y, at.z), new Vector3(0, 0, 1), 0, false, inp, true)
       return
     }
     // the reading errand (readRun.ts): the book from the low table to the sofa seat and back
