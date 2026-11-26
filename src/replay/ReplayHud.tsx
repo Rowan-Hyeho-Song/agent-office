@@ -3,7 +3,7 @@ import { isApprovalBoxOpen } from '../office/approval/panel'
 import { isDocsOpen } from '../office/docs/panel'
 import { AGENT_INFO, type OfficeWorld } from '../office/world'
 import type { Point } from '../timeline/types'
-import { drawBar, nearest, type BarLayout } from './barDraw'
+import { drawBar, nearest, projectKind, type BarLayout } from './barDraw'
 import { boardDistance, pointWaitMs } from './walk'
 import { ALL, LANES, LANE_NAME, SECRET_NOTE, SPEEDS, atMs, describe, dayLabel, laneOf, remainingMs, shortName, stepMs, valueText, whenText, kst, type Lane } from './engine'
 import { replay, useReplay } from './store'
@@ -230,6 +230,8 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
           <div className="replay-seg" role="radiogroup" aria-label="프로젝트">
             {[ALL, ...s.projects].map((pr) => (
               <button key={pr} type="button" role="radio" aria-checked={s.project === pr && !s.issue} onClick={() => void replay.setProject(pr)}>
+                {/* #706 the buttons are the band's legend: a 16 x 4 sample of the project's colour and pattern */}
+                {pr !== ALL && <span className="replay-swatch" data-p={projectKind(pr)} aria-hidden="true" />}
                 {pr === ALL ? '전체' : shortName(pr)}
               </button>
             ))}

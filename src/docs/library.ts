@@ -189,8 +189,17 @@ export function groupLibrary(metas: DocMeta[]): DocFolder[] {
     folders.set(fk, folder)
   }
   for (const f of folders.values()) f.files.sort((a, b) => b.date.localeCompare(a.date) || (b.n ?? 0) - (a.n ?? 0))
-  return [...folders.values()].sort((a, b) => b.latest.localeCompare(a.latest))
+  // #706 (docs-ui.md): the public folders by their latest change, the private folder always last
+  return [...folders.values()].sort((a, b) => Number(a.repo === null) - Number(b.repo === null) || b.latest.localeCompare(a.latest))
 }
+
+/** #706 (docs-ui.md): a few words after a folder's name, so a first-time visitor knows what each project is */
+export const PROJECT_NOTES: Readonly<Record<string, string>> = {
+  'agent-office': '이 사무실',
+  'rowansong.dev': '책상 방',
+  'jank-lab': '성능 실험실',
+}
+export const projectNote = (folder: Pick<DocFolder, 'repo' | 'label'>): string | null => (folder.repo === null ? null : (PROJECT_NOTES[folder.label] ?? null))
 
 // ---- the bookshelf (Blender #67 node table; three rows of 21, one row per project, #280, docs/design/room-280.md 9.2) -------------------
 

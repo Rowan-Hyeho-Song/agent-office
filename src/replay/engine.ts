@@ -373,10 +373,13 @@ export const sizeText = (p: Point) => (p.kind === 'work' && p.additions !== null
 /** a deploy is the owner merging dev into main: no agent, not "before roles" */
 export const isDeploy = (p: Point) => p.kind === 'deploy'
 
+/** where a project's deploy goes; most merge dev into main, jank-lab has no dev and every push to main deploys its Pages (#706) */
+const DEPLOY_ROUTE: Readonly<Record<string, string>> = { 'Rowan-Hyeho-Song/jank-lab': 'main → Pages' }
+
 /** `#106 · dev → main` from the merge commit's title; `dev → main` when it names no PR (the kind already says 배포) */
 export function deployTitle(p: Point): string {
   const pr = /#(\d+)/.exec(p.title)?.[1] ?? (p.pr === null ? null : String(p.pr))
-  return `${pr ? `#${pr} · ` : ''}dev → main`
+  return `${pr ? `#${pr} · ` : ''}${DEPLOY_ROUTE[p.project] ?? 'dev → main'}`
 }
 
 /** who did it: an agent's name, the owner's mark, or "▲ 배포" for a deploy (no kind word after it) */

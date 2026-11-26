@@ -13,6 +13,7 @@ type Row = CoverSource & { body: string; data: Record<string, unknown>; source_u
 
 const AO = 'Rowan-Hyeho-Song/agent-office'
 const RD = 'Rowan-Hyeho-Song/rowansong.dev'
+const JL = 'Rowan-Hyeho-Song/jank-lab'
 const at = (day: number, h: number, m = 0) => new Date(2026, 10, day, h, m).toISOString()
 let nextId = 1
 
@@ -137,6 +138,10 @@ export const sampleRows = (): Row[] => {
     row({ kind: 'plan', folder: 45, title: '[문서] 배포 순서 정리', labels: ['docs'], agents: [0], created_at: at(9, 10), progress: P('waiting') }),
     row({ kind: 'plan', folder: 46, title: '[버그] 말풍선이 모니터 화면과 겹쳐 보임', labels: ['bug'], agents: [3], created_at: at(9, 11), progress: P('doing', [1, 3], 2), body: CHECKS3 }),
     row({ kind: 'plan', folder: 12, title: '[접근성] 키보드로 서재 열기', labels: ['accessibility'], agents: [3, 2], created_at: at(4, 15), progress: P('done'), body: '## 범위\n- 서재 열기 키' }),
+    // #706 the third project: pull requests without an issue, each its own file (folder = the PR number). Dated before
+    // agent-office's newest, so the fake's folder order (and docs.open(n) without a repo, the first folder) stays as it was
+    row({ repo: JL, kind: 'report', folder: 1, title: 'jank-lab 시작 — 사례 2 무한 스크롤 목록 재현 · 측정 · 결과', agents: [3], created_at: at(6, 10), body: '## 무엇을 했나\n재현 앱 · 측정 스크립트 · 결과 JSON을 올렸다.' }),
+    row({ repo: JL, kind: 'report', folder: 8, title: '사례 1 — 상세 화면 transition 재현 · 측정', agents: [3, 2], created_at: at(7, 9), body: '## 무엇을 했나\nUI thread를 막는 mount를 transition 뒤로 미뤘다.' }),
     // private: no project, no number, no title, no body
     row({ repo: 'private/x', kind: 'minutes', folder: 9, title: '비공개 회의', agents: [0, 3], grade: 'private', approved: false, created_at: at(6, 20), body: 'never sent' }),
     row({ repo: 'private/x', kind: 'plan', folder: 8, title: '비공개 계획', agents: [3], grade: 'private', approved: false, created_at: at(6, 21), progress: P('doing', [1, 4], 1), body: 'never sent' }),

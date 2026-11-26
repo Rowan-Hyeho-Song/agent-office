@@ -19,6 +19,8 @@ export interface Tokens {
   futureAlpha: number
   office: string
   hub: string
+  lab: string
+  other: string
   laneH: number
   laneHCompact: number
   step: number
@@ -43,11 +45,37 @@ export function tokens(): Tokens {
     futureAlpha: num('--replay-future-alpha', 0.35),
     office: v('--replay-project-office', '#3a4250'),
     hub: v('--replay-project-hub', 'rgb(255 179 71 / 0.45)'),
+    lab: v('--replay-project-lab', 'rgb(127 200 169 / 0.5)'),
+    other: v('--replay-project-other', 'rgb(111 106 96 / 0.45)'),
     laneH: num('--replay-lane-h', 14),
     laneHCompact: num('--replay-lane-h-compact', 6),
     step: num('--replay-pt-step', 8),
   }
   return cached
+}
+
+/** the project band's kind (timelapse.md, #706): agent-office plain, the desk room scanlines, jank-lab dots, the rest plain faint */
+export type ProjectKind = 'office' | 'hub' | 'lab' | 'other'
+export function projectKind(project: string): ProjectKind {
+  if (project.endsWith('/agent-office')) return 'office'
+  if (project.endsWith('/rowansong.dev')) return 'hub'
+  if (project.endsWith('/jank-lab')) return 'lab'
+  return 'other'
+}
+
+/** one stretch of the 4 px project band, from x0 to x1 */
+export function drawBand(ctx: CanvasRenderingContext2D, kind: ProjectKind, x0: number, x1: number, y: number, t: Pick<Tokens, ProjectKind>) {
+  ctx.fillStyle = t[kind]
+  ctx.fillRect(x0, y, x1 - x0, 4)
+  ctx.fillStyle = 'rgba(0,0,0,.45)'
+  // the desk room: a dark 1 px line every 3 px
+  if (kind === 'hub') for (let x = Math.ceil(x0); x < x1; x += 3) ctx.fillRect(x, y, 1, 4)
+  // jank-lab: 1 px dots every 2 px on the 2nd and 4th rows, staggered
+  if (kind === 'lab')
+    for (let x = Math.ceil(x0); x < x1; x++) {
+      if (x % 2 === 0) ctx.fillRect(x, y + 1, 1, 1)
+      else ctx.fillRect(x, y + 3, 1, 1)
+    }
 }
 
 /** a point's shape on a 12 px cell; `scale` shrinks it (phone) */
@@ -194,17 +222,11 @@ export function drawBar(ctx: CanvasRenderingContext2D, v: BarView): BarLayout {
     ctx.fillStyle = t.muted
     ctx.fillText(lbl, scroll + 4, axisY)
   }
-  // project band: office plain, the desk room striped (readable without colour)
+  // project band: a colour and a pattern each, readable without colour (timelapse.md, #706)
   points.forEach((p, k) => {
-    const hub = p.project.endsWith('/rowansong.dev')
     const x0 = L.xs[k] - L.step / 2
     const x1 = (L.xs[k + 1] ?? L.xs[k] + L.step) - L.step / 2
-    ctx.fillStyle = hub ? t.hub : t.office
-    ctx.fillRect(x0, bandY, x1 - x0, 4)
-    if (hub) {
-      ctx.fillStyle = 'rgba(0,0,0,.45)'
-      for (let x = Math.ceil(x0); x < x1; x += 3) ctx.fillRect(x, bandY, 1, 4)
-    }
+    drawBand(ctx, projectKind(p.project), x0, x1, bandY, t)
   })
   // deploy: a line through every lane
   points.forEach((p, k) => {
