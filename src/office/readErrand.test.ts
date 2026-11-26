@@ -13,7 +13,8 @@ import { playAt } from './play'
 import { Guard, IDS, REACH, expectClean, runRead, world } from './errandWorld.fixture'
 import { GRAPH } from './navSpots.fixture'
 import { bookBoxes, bookDimsOf, distToBook, halfAngle, OPEN_ANGLE } from './bookGeom'
-import { BOOK_AT, READ_HOLD, READ_LABEL, READ_S, READ_STANDS, callAway, chooseSeat, holding, pickSpot, placeOf, seatSpot, startRead, stepRead, type ReadRun } from './readRun'
+import { BOOK_AT, READ_HOLD, READ_LABEL, READ_S, READ_STANDS, callAway, chooseSeat, holding, pickSpot, placeOf, readLen, seatSpot, startRead, stepRead, type ReadRun } from './readRun'
+import { SHELF_LABEL, SHELF_STAND } from './shelfRun'
 import type { StatusMap } from './status'
 
 stubCanvas()
@@ -125,6 +126,18 @@ describe('stepRead: the errand in stages', () => {
     expect(r.seen).toEqual(['pick', 'carry', 'read', 'return', 'put'])
   })
 
+  it('#715: given the stay end, the reading lasts until READ_S.back s before it (counted as it starts), never under READ_S.read', () => {
+    // seated at 3 s; the stay ends at 600 s: read until 600 - back
+    const at = (t: number) => (t < 1 ? pickSpot(0) : t < 3 ? null : seatSpot(0))
+    const long = drive(startRead(0, 0, 0, 600_000), at, 700)
+    expect(readLen(long.run)).toBeCloseTo(600 - 3 - READ_S.back, 0)
+    // a stay that ends soon still reads its minute
+    const short = drive(startRead(0, 0, 0, 20_000), at, 200)
+    expect(readLen(short.run)).toBe(READ_S.read)
+    // no stay end (the debug panel's reading): READ_S.read
+    expect(readLen(drive(startRead(0, 0, 0), at, 200).run)).toBe(READ_S.read)
+  })
+
   it('the pick is under 1.5 s at the table (seat 1 stops in the east entrance only that long) and the hand has the time to reach, close and lift', () => {
     expect(READ_S.pick).toBeLessThan(1.5)
     expect(READ_S.pick).toBeGreaterThanOrEqual(0.3 + 0.12 + 0.35)
@@ -211,16 +224,42 @@ describe('the Director sends a reader (#280)', () => {
     expect(g[reader].slot).toMatchObject({ x: 3.12, z: 2.72 })
   })
 
-  it('both seats taken: this reading is skipped, nobody goes to the table, and the agent rests near the shelf for the stay, not at its desk (#517)', () => {
-    const { d, g } = goalsWith(['sofa_0', 'sofa_1'])
+  it('both seats taken: the second bookshelf instead, when nobody is at it (#715: not the whole stay standing about)', () => {
+    const { g } = goalsWith(['sofa_0', 'sofa_1'])
     expect(g[reader].read).toBeUndefined()
-    expect(g[reader]).toMatchObject({ pose: 'idle' })
+    expect(g[reader].spot).toBe(SHELF_STAND.spot)
+    expect(g[reader].label).toContain(SHELF_LABEL.fetch)
+  })
+
+  it('both seats and the shelf taken: this reading is skipped, and the rest of the stay is a fill (coffee, watching, the window), never the desk (#517, #715)', () => {
+    const d = new Director(FIVE)
+    d.forceShelf(others[2], T)
+    const at = new Map<string, string>([
+      [others[0], 'sofa_0'],
+      [others[1], 'sofa_1'],
+    ])
+    const g = d.goals(T, minute, idle(), (a) => at.get(a) ?? null)
+    expect(g[reader].read).toBeUndefined()
     expect(g[reader].spot.startsWith('work_'), 'not at the desk').toBe(false)
-    expect(g[reader].gap, 'a gap').toBeDefined()
-    expect(g[reader].label.startsWith('쉬는 중'), g[reader].label).toBe(true)
-    // and it does not try again later in the block, even when a seat is free by then
+    const fill = g[reader].pose === 'coffee' || !!g[reader].watching || g[reader].gap === 'window'
+    expect(fill, JSON.stringify(g[reader])).toBe(true)
+    // the same fill frame after frame, and no reading later in the stay even when a seat is free by then
     const later = d.goals(T + 30_000, minute, idle(), () => null)
     expect(later[reader].read).toBeUndefined()
+    expect(later[reader].spot).toBe(g[reader].spot)
+  })
+
+  it('a reading given up on the way, before the book is taken (called to work), is taken up again back in the same stay (#715)', () => {
+    const d = new Director(FIVE)
+    const st = idle()
+    const go = (now: number) => d.goals(now, minute, st, () => null)
+    expect(go(T)[reader].read?.stage).toBe('fetch')
+    st[reader] = { state: 'working', activity: 'test', since: 0 }
+    expect(go(T + 1000)[reader].read).toBeUndefined()
+    st[reader] = { state: 'idle', since: 0 }
+    // at the low table or the second bookshelf (both sofa seats are some other agent's plan now)
+    const back = go(T + 2000)[reader]
+    expect(back.read?.stage ?? back.shelf?.stage, 'it reads after all').toBe('fetch')
   })
 
   it('the goal follows the stage: the stand until the book is in the hand, the seat while it is read (no slot), the stand again to put it back', () => {
@@ -241,7 +280,12 @@ describe('the Director sends a reader (#280)', () => {
     const read = step(0.1)[reader]
     expect(read.read?.stage).toBe('read')
     expect(read.label).toContain(READ_LABEL.read)
-    expect(step(READ_S.read - 5)[reader].spot).toBe('sofa_0')
+    // #715: read for the rest of the stay (READ_S.back kept to stand up and put it back), never under READ_S.read
+    const len = read.read!.len
+    const stay = playAt(T, FIVE)[reader]
+    expect(len).toBeGreaterThanOrEqual(READ_S.read)
+    expect(len).toBeCloseTo(Math.max(READ_S.read, (stay.until - now) / 1000 - READ_S.back), 0)
+    expect(step(len - 5)[reader].spot).toBe('sofa_0')
     expect(step(6)[reader]).toMatchObject({ spot: pickSpot(0), read: { stage: 'return' } })
     at.set(reader, pickSpot(0))
     expect(step(0.1)[reader].read?.stage).toBe('put')

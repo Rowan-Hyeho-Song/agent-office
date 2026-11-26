@@ -29,8 +29,10 @@ export const READ_LABEL: Record<ReadStage, string> = {
 export const READ_S = {
   /** the hand reaches (0.3 s), closes (0.12 s) and the book rises into the carrying hold (0.35 s): at the table's east end the stop is under 1.5 s (lounge-props.md 3) */
   pick: 1.0,
-  /** seated and reading, to the end of the last leaf that fits (a leaf every 6 s) */
+  /** seated and reading, to the end of the last leaf that fits (a leaf every 6 s): at least this long; a stay's reading goes on until `back` s before the stay ends (#715) */
   read: 60,
+  /** kept at the end of the stay for standing up, the walk back to the stand and the put (#715) */
+  back: 6,
   /** seated: it opens (and the right hand comes to it) in `open` s; `close` s before the end of the reading it closes again; then lowering it to where it rests, and the hand opens and lets go */
   open: 0.5,
   close: 0.5,
@@ -68,14 +70,21 @@ export interface ReadRun {
   stage: ReadStage
   /** office ms the stage began */
   t0: number
+  /** #715: office ms the stay ends (the schedule's `until`): the reading lasts until `READ_S.back` s before it, never less than READ_S.read */
+  until?: number
+  /** the seated reading's length, s: fixed as the reading starts (readLen) */
+  len?: number
 }
+
+/** #715: how long the seated reading lasts, s (READ_S.read when it has no stay end, as the debug panel's reading) */
+export const readLen = (run: Pick<ReadRun, 'len'>) => run.len ?? READ_S.read
 
 /** seat 0 when nobody has it (rests on it or is on the way), else seat 1, else none: this reading is skipped */
 export function chooseSeat(taken: (spot: string) => boolean): ReadSeat | null {
   return READ_SEATS.find((s) => !taken(seatSpot(s))) ?? null
 }
 
-export const startRead = (seat: ReadSeat, block: number, now: number): ReadRun => ({ seat, block, stage: 'fetch', t0: now })
+export const startRead = (seat: ReadSeat, block: number, now: number, until?: number): ReadRun => ({ seat, block, stage: 'fetch', t0: now, ...(until !== undefined ? { until } : {}) })
 
 /** the book is in the hand in these stages (an agent called away in one of them first brings it back) */
 export const holding = (run: ReadRun) => run.stage !== 'fetch'
@@ -101,9 +110,13 @@ export function stepRead(run: ReadRun, inp: { now: number; at: (spot: string) =>
       if (!inp.at(seatSpot(r.seat))) {
         if (el <= READ_S.carryMax) break
         r.stage = 'return'
-      } else r.stage = 'read'
+      } else {
+        r.stage = 'read'
+        // #715: read for the rest of the stay (a books stay is 6–14 min, play.md 9.1), not one minute and then standing about till it ends
+        r.len = r.until === undefined ? READ_S.read : Math.max(READ_S.read, (r.until - inp.now) / 1000 - READ_S.back)
+      }
     } else if (r.stage === 'read') {
-      if (el < READ_S.read) break
+      if (el < readLen(r)) break
       r.stage = 'return'
     } else if (r.stage === 'return') {
       if (!inp.at(pickSpot(r.seat))) break

@@ -330,3 +330,21 @@ describe("#634 a work point is on its PR's seat", () => {
     expect(seatOf(noTable, '2026-11-07T10:00:00Z')).toBeNull()
   })
 })
+
+describe('a repo without dev (#706, jank-lab)', () => {
+  it('each main commit is the work and its deploy: two points, the work first', () => {
+    const LAB = 'Rowan-Hyeho-Song/jank-lab'
+    const c = { ...commit('j1', 'feat(case-1): 재현 (#8)'), html_url: `${URL(LAB)}/commit/j1` }
+    const points = build(data({ repo: LAB, issues: [], comments: [], pulls: [pull(8, '작성 세션: 코더', 'j1')], devCommits: [], mainCommits: [c], docs: [] }), { publicRepos: [LAB] })
+    const mine = points.filter((p) => p.pr === 8)
+    expect(mine.map((p) => [p.kind, p.key])).toEqual([
+      ['work', `${URL(LAB)}/commit/j1`],
+      ['deploy', `${URL(LAB)}/commit/j1#deploy`],
+    ])
+    expect(mine[0].at).toBe(mine[1].at)
+  })
+  it('agent-office keeps dev = work, main-only = deploy', () => {
+    const points = build(data(), cfg)
+    expect(points.filter((p) => p.kind === 'deploy').map((p) => p.key)).toEqual([`${URL(PUB)}/commit/d1`])
+  })
+})

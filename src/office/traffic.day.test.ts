@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { TRAFFIC } from './traffic'
-import { simulateDay } from './traffic.sim'
+import { IDLE_RUN_S, simulateDay } from './traffic.sim'
+
+/**
+ * #715: the most of free time spent standing about with no goal, %: all of it, and in runs over IDLE_RUN_S. Under the level before #525 (21 · 10, the same rule over 09–18 h); the fixed day
+ * measures 16.2 · 6.2, and 23.6 · 14.5 before #715
+ */
+const IDLE_MAX_PCT = { all: 19, long: 9 }
 
 // 24 h of the real schedule through the planner: the smallest centre distance over every pair and every 50 ms the
 // agents move must stay >= 2R (except two agents resting on a designed sofa pair).
@@ -73,6 +79,16 @@ describe('a whole day through the planner', () => {
     expect(r.errands.fetch, 'errands started').toBeGreaterThan(5)
     expect(r.errands.done, 'errands finished').toBeGreaterThanOrEqual(r.errands.fetch - 4) // a few are called away at the day's end or give up on a taken stand
     expect(r.errandsAtOnce, 'one can').toBeLessThanOrEqual(1)
+  }, 120_000)
+
+  // #715: free time is spent doing something. Standing about with no goal (or idle at the desk) was 21% of it before #525 (10% in runs over 90 s), 25% after
+  // (16% in long runs: a reading of one minute in a 6–14 minute stay, then one hall spot for the rest; a reading cut short by a call never taken up again)
+  it('free time standing about with no goal stays under its share, and long runs of it rare (#715)', () => {
+    const { idle } = wholeDay()
+    const pct = (s: number) => (100 * s) / idle.restS
+    console.log(`day sim (#715): free time ${Math.round(idle.restS)} s; standing about ${pct(idle.idleS).toFixed(1)}%, in runs over ${IDLE_RUN_S} s ${pct(idle.longS).toFixed(1)}%; longest ${Math.round(idle.longest.s)} s (${idle.longest.who} from ${Math.round(idle.longest.at)} s)`)
+    expect(pct(idle.idleS)).toBeLessThan(IDLE_MAX_PCT.all)
+    expect(pct(idle.longS)).toBeLessThan(IDLE_MAX_PCT.long)
   }, 120_000)
 })
 

@@ -595,6 +595,38 @@ export function restNear(ms: number, agents: string[], p: PlayAssignment): PlayA
   return gapsFrom(plan, { kind: 'gap', start: p.since, end: p.until, spot: p.spot, stay: p.stay }, p.spot, p.since, p.until, ms)
 }
 
+/** #715: an errand over at least this long before its stay ends is followed by a fill (restAfter), not one place for all of it */
+export const FILL_MIN_MS = 60_000
+
+/**
+ * #715: the rest of an errand stay once the errand is over (`from`: when it ended, or was skipped). With under FILL_MIN_MS left it is restNear's one place
+ * (a gap's length); with more, the first of these that nobody's plan uses from then on and `skip` does not rule out (the director's own picks for the
+ * others): coffee; watching a pair game with WATCH_LEFT_MS or more left (gone WATCH_LEAVE_MS before it ends, the window after); the window. Standing at one
+ * hall spot for minutes (a books stay is 6–14 min, its reading at the low table was one) read as staring into space.
+ */
+export function restAfter(ms: number, agents: string[], p: PlayAssignment, from: number, skip: (spot: string) => boolean = () => false): PlayAssignment {
+  if (p.until - from < FILL_MIN_MS) return restNear(ms, agents, p)
+  const plan = dayPlan(planDay(ms).day, [...agents].sort())
+  const used = usedIn(plan, p.stay)
+  const free = (spot: string, a: number, b: number) => !used(spot, a, b) && !skip(spot)
+  const base = { stay: p.stay, since: from }
+  const window = (at: number): PlayAssignment | null => {
+    const spot = WINDOW_SPOTS.find((h) => free(h, at, p.until))
+    return spot ? { kind: 'gap', gap: 'window', label: GAP_LABEL.window, spot, ...base, since: at, until: p.until, face: { x: spotsAt[spot].x, z: WINDOW_FACE_Z } } : null
+  }
+  const coffee = PLAYS.find((x) => x.kind === 'coffee')!
+  if (free(coffee.spots[0], from, p.until)) return { kind: 'coffee', label: coffee.label, spot: coffee.spots[0], ...base, until: p.until }
+  for (const kind of ['pingpong', 'boardgame'] as const) {
+    const game = plan.flat().find((x) => x.kind === kind && x.partner && x.pairAt !== undefined && x.pairAt <= from && x.end >= from + WATCH_LEFT_MS)
+    if (!game) continue
+    const until = Math.min(p.until, game.end - WATCH_LEAVE_MS)
+    if (!free(WATCH[kind].spot, from, until)) continue
+    if (ms < until) return { kind: 'watch', watch: kind, label: kind === 'boardgame' && game.game ? BOARD_LABEL[game.game].watch : WATCH[kind].label, spot: WATCH[kind].spot, face: WATCH[kind].face, ...base, until, ...(game.game ? { game: game.game } : {}) }
+    return window(until) ?? restNear(ms, agents, p)
+  }
+  return window(from) ?? restNear(ms, agents, p)
+}
+
 /**
  * #516: ping-pong pairs broken by a partner gone to work, for playAt (the Director keeps them): the stay → when it broke (the partner's work began, or the
  * game, the later), and per agent when it came back from work (its idle state's start). Kept from the status timeline, so the timelapse and seeking show
