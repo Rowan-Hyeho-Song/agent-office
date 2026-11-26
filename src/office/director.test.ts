@@ -3,7 +3,7 @@ import { conversations, type DocMeta } from '../docs/library'
 import { buildScript } from './meeting'
 import { MEET_WORDS, MeetingRunner } from './meetingRun'
 import { BUBBLE_ASK, BUBBLE_REPLY, Director } from './director'
-import { TIDY_MS, dayPlan, planDay, playAt, schedulePose } from './play'
+import { TIDY_MS, TIDY_SPOT, dayPlan, planDay, playAt, schedulePose } from './play'
 import { startWrap, totalOf, TOUCH_LABEL, WRAP, WRAP_LABEL } from './wrap'
 import type { AgentStatus, OfficeMessage, StatusMap } from './status'
 
@@ -618,8 +618,8 @@ describe('a ping-pong partner goes to work (#516)', () => {
     const { seen, off } = run()
     for (const x of seen) {
       if (x.t < off) expect(x.mine).toBe('pingpong_a|pingpong')
-      // #718 (play.md 9.7 ①): the tidy-up at its end of the table (standing, not playing), then away from the table
-      else if (x.t >= off + 1000 && x.t < off + TIDY_MS) expect(x.mine, `${x.t - off} ms after`).toBe('pingpong_a|idle')
+      // #718 (play.md 9.7 ①): the tidy-up at the table's side by the net (standing, not playing), then away from the table
+      else if (x.t >= off + 1000 && x.t < off + TIDY_MS) expect(x.mine, `${x.t - off} ms after`).toBe(`${TIDY_SPOT}|idle`)
       else if (x.t >= off + TIDY_MS + 1000) expect(x.mine, `${x.t - off} ms after`).not.toContain('pingpong')
       if (x.theirs) expect(x.theirs, 'back from work').not.toContain('pingpong')
     }

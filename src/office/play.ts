@@ -726,10 +726,15 @@ const tableMid = () => {
   return a && b ? { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 } : undefined
 }
 
-/** #718: the tidy-up at the table: at the end the agent played from until the tidy stand node (nav_pp_side, #718 3D) is baked, facing the middle */
+/** #718 (3D #730): where the tidy-up is done: the table's north side by the net, facing the table (the spot's own direction) */
+export const TIDY_SPOT = 'pp_side'
+
+/** #718: the tidy-up at the table: at TIDY_SPOT when the layout has it (else at the end the agent played from, facing the middle) */
 function tidyAt(spot: string, stay: number, from: number): PlayAssignment {
+  const base = { kind: 'gap' as const, gap: 'tidy' as const, label: GAP_LABEL.tidy, stay, since: from, until: from + TIDY_MS }
+  if (spotsAt[TIDY_SPOT]) return { ...base, spot: TIDY_SPOT }
   const mid = tableMid()
-  return { kind: 'gap', gap: 'tidy', label: GAP_LABEL.tidy, spot, stay, since: from, until: from + TIDY_MS, ...(mid ? { face: mid } : {}) }
+  return { ...base, spot, ...(mid ? { face: mid } : {}) }
 }
 
 /**
