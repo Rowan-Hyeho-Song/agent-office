@@ -151,6 +151,15 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
   // #715: free time (shown as rest) spent with no goal: standing still (pose idle: not watching a game, at a door, browsing the shelf) or idle at the desk, s; and the part of it in
   // unbroken runs over IDLE_RUN_S (one standing about for minutes reads as staring into space)
   const idle = { restS: 0, idleS: 0, longS: 0, longest: { s: 0, who: '', at: 0 } }
+  // #718 (play.md 9.7): standing at one place in free time (a gap, a wait, the window, the look-around's spines; not watching, a door, or the shelf after a book):
+  // every run at one spot, and the label it had (never empty)
+  const place = { runs: [] as { s: number; who: string; spot: string; label: string; at: number }[], unlabeled: 0 }
+  const placeFrom: Record<string, { spot: string; label: string; t: number } | undefined> = {}
+  const endPlace = (a: string, at: number) => {
+    const f = placeFrom[a]
+    if (f) place.runs.push({ s: at - f.t, who: a, spot: f.spot, label: f.label, at: f.t })
+    placeFrom[a] = undefined
+  }
   const idleFrom: Record<string, number | undefined> = {}
   const endIdle = (a: string, at: number) => {
     const from = idleFrom[a]
@@ -280,6 +289,10 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
       const g = goals[a]
       const resting = director.shown[a]?.kind === 'rest'
       const still = resting && g.pose === 'idle' && !g.watching && !g.door && !g.browse
+      const standing = resting && g.pose === 'idle' && !g.watching && !g.door && (!g.browse || g.gap === 'spines')
+      if (standing && !g.label) place.unlabeled += step
+      if (placeFrom[a] && (!standing || placeFrom[a]!.spot !== g.spot)) endPlace(a, t)
+      if (standing) placeFrom[a] ??= { spot: g.spot, label: g.label, t }
       if (resting) idle.restS += step
       if (still) {
         idle.idleS += step
@@ -317,7 +330,10 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
     }
     t += step
   }
-  for (const a of AGENTS) endIdle(a, t)
+  for (const a of AGENTS) {
+    endIdle(a, t)
+    endPlace(a, t)
+  }
   planMs.sort((a, b) => a - b)
-  return { idle, min, minExempt, minSeated, minSeatRest, maxSeatDrift, seatPassM: planner.seatPassM, replans, worst, samples, planMs, maxSpeed, fast, stats: planner.stats, mismatch: mism, frames, maxWait, longWaits, errands, errandsAtOnce, reads, readCancels, readsAtOnce, acts, actsAtOnce, sweptBreaches }
+  return { idle, place, min, minExempt, minSeated, minSeatRest, maxSeatDrift, seatPassM: planner.seatPassM, replans, worst, samples, planMs, maxSpeed, fast, stats: planner.stats, mismatch: mism, frames, maxWait, longWaits, errands, errandsAtOnce, reads, readCancels, readsAtOnce, acts, actsAtOnce, sweptBreaches }
 }

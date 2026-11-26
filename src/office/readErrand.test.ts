@@ -231,7 +231,7 @@ describe('the Director sends a reader (#280)', () => {
     expect(g[reader].label).toContain(SHELF_LABEL.fetch)
   })
 
-  it('both seats and the shelf taken: this reading is skipped, and the rest of the stay is a fill (coffee, watching, the window), never the desk (#517, #715)', () => {
+  it('both seats and the shelf taken: this reading is skipped, and the rest of the stay is the fill chain, never the desk (#517, #715, #718)', () => {
     const d = new Director(FIVE)
     d.forceShelf(others[2], T)
     const at = new Map<string, string>([
@@ -241,7 +241,8 @@ describe('the Director sends a reader (#280)', () => {
     const g = d.goals(T, minute, idle(), (a) => at.get(a) ?? null)
     expect(g[reader].read).toBeUndefined()
     expect(g[reader].spot.startsWith('work_'), 'not at the desk').toBe(false)
-    const fill = g[reader].pose === 'coffee' || !!g[reader].watching || g[reader].gap === 'window'
+    // #718: the fill chain (play.md 9.7): coffee, a sofa seat, watching, or the look-around (the window, the spines); books are left out of a books stay
+    const fill = ['coffee', 'sofa'].includes(g[reader].pose) || !!g[reader].watching || g[reader].gap === 'window' || g[reader].gap === 'spines' || g[reader].gap === 'wander'
     expect(fill, JSON.stringify(g[reader])).toBe(true)
     // the same fill frame after frame, and no reading later in the stay even when a seat is free by then
     const later = d.goals(T + 30_000, minute, idle(), () => null)
