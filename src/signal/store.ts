@@ -58,5 +58,9 @@ export function createSupabaseStore(rest: Rest): Store {
     async prune(before) {
       await rest(`agent_events?created_at=lt.${encodeURIComponent(before)}`, { method: 'DELETE', headers: { prefer: 'return=minimal' } })
     },
+    // #710: the first signal of the half hour stays (ignore-duplicates on the unique key); timeline.sql takes it as an opaque review point
+    async hiddenPoint(p) {
+      await rest('timeline?on_conflict=key', { method: 'POST', headers: { prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(p) })
+    },
   }
 }

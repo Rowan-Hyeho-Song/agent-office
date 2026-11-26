@@ -131,6 +131,8 @@ export interface DocFolder {
   files: DocFile[]
   /** newest file's time */
   latest: string
+  /** #710 (docs-ui.md 2.1, C안): the private projects' activity, and nothing else: the KST days of the last HIDDEN_DAYS with work, and the latest work's time */
+  hidden?: { days: string[]; last: string }
 }
 
 const shortRepo = (repo: string) => repo.split('/').pop() ?? repo
@@ -199,7 +201,30 @@ export const PROJECT_NOTES: Readonly<Record<string, string>> = {
   'rowansong.dev': '책상 방',
   'jank-lab': '성능 실험실',
 }
-export const projectNote = (folder: Pick<DocFolder, 'repo' | 'label'>): string | null => (folder.repo === null ? null : (PROJECT_NOTES[folder.label] ?? null))
+export const projectNote = (folder: Pick<DocFolder, 'repo' | 'label' | 'hidden'>): string | null =>
+  folder.repo === null ? (folder.hidden ? HIDDEN_NOTE : null) : (PROJECT_NOTES[folder.label] ?? null)
+
+/** #710 (docs-ui.md 2.1): the private folder's note, and how many days its activity calendar shows */
+export const HIDDEN_NOTE = '진행 중인 것만 보여요'
+export const HIDDEN_DAYS = 14
+const KST_MS = 9 * 3_600_000
+/** the KST day of a time, YYYY-MM-DD */
+export const kstDayOf = (ms: number) => new Date(ms + KST_MS).toISOString().slice(0, 10)
+
+/**
+ * #710 (C안): the private projects' work (the times of their contentless timelapse points) on the private folder: the KST days of the last HIDDEN_DAYS
+ * that had any, and the latest. No work in those days: no folder of its own (a folder of private documents stays as it was). Always the last folder.
+ */
+export function withHidden(folders: DocFolder[], ats: readonly string[], now: number): DocFolder[] {
+  const from = kstDayOf(now - (HIDDEN_DAYS - 1) * 86_400_000)
+  const times = ats.map((a) => Date.parse(a)).filter((t) => Number.isFinite(t) && t <= now && kstDayOf(t) >= from)
+  if (!times.length) return folders
+  const last = new Date(Math.max(...times)).toISOString()
+  const hidden = { days: [...new Set(times.map(kstDayOf))].sort(), last }
+  const had = folders.find((f) => f.key === PRIVATE_KEY)
+  const folder: DocFolder = had ? { ...had, hidden } : { key: PRIVATE_KEY, repo: null, label: PRIVATE_LABEL, files: [], latest: last, hidden }
+  return [...folders.filter((f) => f !== had), folder]
+}
 
 // ---- the bookshelf (Blender #67 node table; three rows of 21, one row per project, #280, docs/design/room-280.md 9.2) -------------------
 

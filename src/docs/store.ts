@@ -2,7 +2,7 @@
 // bodies fetched so far. A tiny external store like the approval panel's; React reads it with useSyncExternalStore.
 
 import type { Role } from '../approvals/source.js'
-import { groupLibrary, shelfLayout, type DocBody, type DocFolder, type DocMeta, type ShelfLayout } from './library.js'
+import { HIDDEN_DAYS, groupLibrary, shelfLayout, withHidden, type DocBody, type DocFolder, type DocMeta, type ShelfLayout } from './library.js'
 import type { DocsSource } from './source.js'
 
 export interface Library {
@@ -80,7 +80,12 @@ export class LibraryStore {
           if (had && m.readable && old && old.updated_at === m.updated_at) bodies[m.id] = had
         }
       }
-      const folders = groupLibrary(metas)
+      // #710: the private projects' activity days; a failed read leaves them out, it never fails the library
+      const now = Date.now()
+      const since = new Date(now - (HIDDEN_DAYS + 1) * 86_400_000).toISOString()
+      const hidden = this.src.hiddenDays ? await this.src.hiddenDays(since).catch(() => [] as string[]) : []
+      if (seq !== this.seq) return
+      const folders = withHidden(groupLibrary(metas), hidden, now)
       this.set({ metas, folders, layout: shelfLayout(folders), bodies, error: false })
       if (published.length) this.publishers.forEach((p) => p(published))
     } catch {

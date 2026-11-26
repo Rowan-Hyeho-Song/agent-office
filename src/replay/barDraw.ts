@@ -2,6 +2,7 @@
 // lines, minimap, playhead. One canvas for hundreds of points; the slider element above it takes the input.
 // Ported from the design mock's Timeline(): same shapes, sizes and token names.
 
+import { HIDDEN_PROJECT } from '../signal/events'
 import type { Point } from '../timeline/types'
 import { hourTicks } from './days'
 import { LANES, atMs, dayKey, dayLabel, laneOf, layoutX, sizeClass, type Lane } from './engine'
@@ -21,6 +22,7 @@ export interface Tokens {
   hub: string
   lab: string
   other: string
+  private: string
   laneH: number
   laneHCompact: number
   step: number
@@ -47,6 +49,7 @@ export function tokens(): Tokens {
     hub: v('--replay-project-hub', 'rgb(255 179 71 / 0.45)'),
     lab: v('--replay-project-lab', 'rgb(127 200 169 / 0.5)'),
     other: v('--replay-project-other', 'rgb(111 106 96 / 0.45)'),
+    private: v('--replay-project-private', 'rgb(111 106 96 / 0.45)'),
     laneH: num('--replay-lane-h', 14),
     laneHCompact: num('--replay-lane-h-compact', 6),
     step: num('--replay-pt-step', 8),
@@ -54,9 +57,10 @@ export function tokens(): Tokens {
   return cached
 }
 
-/** the project band's kind (timelapse.md, #706): agent-office plain, the desk room scanlines, jank-lab dots, the rest plain faint */
-export type ProjectKind = 'office' | 'hub' | 'lab' | 'other'
+/** the project band's kind (timelapse.md, #706): agent-office plain, the desk room scanlines, jank-lab dots, private projects diagonal (#710), the rest plain faint */
+export type ProjectKind = 'office' | 'hub' | 'lab' | 'private' | 'other'
 export function projectKind(project: string): ProjectKind {
+  if (project === HIDDEN_PROJECT) return 'private'
   if (project.endsWith('/agent-office')) return 'office'
   if (project.endsWith('/rowansong.dev')) return 'hub'
   if (project.endsWith('/jank-lab')) return 'lab'
@@ -70,6 +74,10 @@ export function drawBand(ctx: CanvasRenderingContext2D, kind: ProjectKind, x0: n
   ctx.fillStyle = 'rgba(0,0,0,.45)'
   // the desk room: a dark 1 px line every 3 px
   if (kind === 'hub') for (let x = Math.ceil(x0); x < x1; x += 3) ctx.fillRect(x, y, 1, 4)
+  // #710 private: a diagonal (/), a dark 1 px line every 3 px, as the seat's "비공개 작업 중"
+  if (kind === 'private')
+    for (let x = Math.floor(x0); x < x1; x++)
+      for (let r = 0; r < 4; r++) if ((x + r) % 3 === 0 && x >= x0) ctx.fillRect(x, y + 3 - r, 1, 1)
   // jank-lab: 1 px dots every 2 px on the 2nd and 4th rows, staggered
   if (kind === 'lab')
     for (let x = Math.ceil(x0); x < x1; x++) {
@@ -79,11 +87,31 @@ export function drawBand(ctx: CanvasRenderingContext2D, kind: ProjectKind, x0: n
 }
 
 /** a point's shape on a 12 px cell; `scale` shrinks it (phone) */
-export function glyph(ctx: CanvasRenderingContext2D, p: Pick<Point, 'kind' | 'secret' | 'additions' | 'deletions' | 'result'>, x: number, y: number, col: string, future: boolean, t: Tokens, scale = 1) {
+export function glyph(ctx: CanvasRenderingContext2D, p: Pick<Point, 'kind' | 'secret' | 'additions' | 'deletions' | 'result'> & { project?: string }, x: number, y: number, col: string, future: boolean, t: Tokens, scale = 1) {
   ctx.save()
   ctx.globalAlpha = future ? t.futureAlpha : 1
   ctx.translate(Math.round(x), Math.round(y))
   ctx.scale(scale, scale)
+  // #710 (timelapse.md 14): a private project's point: a square as big as a work point, the private band's diagonal inside, the agent's colour round it
+  if (p.project === HIDDEN_PROJECT) {
+    const h = 4.5
+    ctx.fillStyle = t.private
+    ctx.fillRect(-h, -h, 2 * h, 2 * h)
+    ctx.fillStyle = 'rgba(0,0,0,.45)'
+    for (let i = -2 * h; i < 2 * h; i += 3) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(-h, -h, 2 * h, 2 * h)
+      ctx.clip()
+      ctx.fillRect(i, -h, 1, 2 * h)
+      ctx.restore()
+    }
+    ctx.strokeStyle = col
+    ctx.lineWidth = 1.5
+    ctx.strokeRect(-h, -h, 2 * h, 2 * h)
+    ctx.restore()
+    return
+  }
   ctx.fillStyle = p.secret ? t.manila : col
   ctx.strokeStyle = col
   ctx.lineWidth = 1.5
