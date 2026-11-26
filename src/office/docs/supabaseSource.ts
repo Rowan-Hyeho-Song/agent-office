@@ -3,6 +3,7 @@ import type { Role } from '../../approvals/source'
 import { sanitizeProgress } from '../../docs/progress'
 import { ownerMeta, stringsOnly, type CoverSource, type DocBody, type DocMeta } from '../../docs/library'
 import type { DocsSource } from '../../docs/source'
+import { HIDDEN_PROJECT } from '../../signal/events'
 
 const COLS = 'id, kind, repo, folder, title, agents, grade, approved, created_at, updated_at'
 /** the issue's labels live in the document's `data` (the Action stores them for a plan); the view hands them out as `labels` */
@@ -27,6 +28,12 @@ export function supabaseDocsSource(supabase: SupabaseClient): DocsSource {
       const { data, error } = await supabase.from('docs_cover').select('*').order('created_at').limit(LIMIT)
       if (error) throw error
       return (data as DocMeta[]).map((d) => ({ ...d, labels: stringsOnly(d.labels), progress: sanitizeProgress(d.progress) }))
+    },
+    // #710: the private projects' points are review points (no title, no address): only their times are read
+    async hiddenDays(since: string): Promise<string[]> {
+      const { data, error } = await supabase.from('timeline').select('at').eq('project', HIDDEN_PROJECT).gte('at', since).order('at').limit(LIMIT)
+      if (error) throw error
+      return (data as { at: string }[]).map((r) => r.at)
     },
     async read(ids: number[]): Promise<DocBody[]> {
       if (!ids.length) return []

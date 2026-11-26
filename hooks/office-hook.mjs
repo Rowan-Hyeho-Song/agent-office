@@ -15,6 +15,9 @@
 //     "keepaliveSeconds": 30,                          optional
 //     "projects": ["**/agent-office*", …],          optional: folders that may report (default in classify.mjs)
 //     "outside": "private",                         optional: outside them, say only "비공개 작업 중"
+//     "privateProjects": ["**/<folder>*"],            optional (#710): private projects. Their sessions say only "비공개 작업 중" and
+//                                                    leave contentless timelapse points; no names, results, planes or tasks. Kept in
+//                                                    this local file only, never in the repo
 //     "repos": ["agent-office", "rowansong.dev"],   optional: repos a declared task may name (#182)
 //     "log": true,                                     optional: one line per event in ~/.agent-office/hook.log
 //                                                    (event, seat, what was sent; no titles or content)
@@ -79,11 +82,13 @@ async function main() {
     appendFileSync(join(HOME, 'hook.log'), `${new Date().toISOString()} ${input.hook_event_name} titled=${Boolean(input.session_title)} seat=${seat} ${what}\n`)
   // only sessions working inside the office's own repositories report (#34); the cwd is not logged or sent
   const inside = insideProjects(input.cwd, config.projects ?? DEFAULT_PROJECTS)
+  // #710: a private project's folder (listed only in the local config)
+  const hidden = !inside && Array.isArray(config.privateProjects) && config.privateProjects.length > 0 && insideProjects(input.cwd, config.privateProjects)
   if (!inside) {
-    if (config.outside !== 'private') return log('skip: outside projects')
+    if (config.outside !== 'private' && !hidden) return log('skip: outside projects')
     // a private session says only that it works: no test / build outcomes, no paper planes
     if (signal.kind === 'result' || signal.kind === 'handoff') return log(`skip: private ${signal.kind}`)
-    if (signal.kind === 'activity') signal = { kind: 'activity', activity: 'private' }
+    if (signal.kind === 'activity') signal = { kind: 'activity', activity: 'private', ...(hidden ? { hidden: true } : {}) }
   }
   if (seat === null) return log('skip: no seat') // a session that isn't one of the four agents: say nothing
   // remember the seat as soon as the title gives it, whether or not the send below works: a failed send (the endpoint
@@ -116,6 +121,12 @@ async function main() {
   if (res.status === 400 && task) {
     log(`task dropped → ${res.status}`)
     res = await send(false)
+  }
+  // #710: a server from before #710 answers 400 to `hidden`: say it as a plain private activity ("비공개 작업 중", no point), once
+  if (res.status === 400 && signal.hidden) {
+    log(`hidden → ${res.status}, said without it`)
+    signal = { kind: 'activity', activity: 'private' }
+    res = await send(true)
   }
   // #535: a server from before #535 does not know the background waits and answers 400: say the turn's end as it was said before (stop), once,
   // so taking this hook before that deploy never loses the end of a turn

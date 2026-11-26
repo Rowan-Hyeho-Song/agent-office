@@ -10,6 +10,8 @@ export interface DocsSource {
   list(role: Role): Promise<DocMeta[]>
   /** bodies of readable documents; others are simply not in the answer */
   read(ids: number[], role: Role): Promise<DocBody[]>
+  /** #710 (C안): when the private projects were worked on in the last days (their contentless timelapse points' times); nothing else of them is read */
+  hiddenDays?(since: string): Promise<string[]>
   /** something changed (debug fake only; the real source is polled) */
   subscribe?(cb: () => void): () => void
 }
