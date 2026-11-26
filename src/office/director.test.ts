@@ -3,7 +3,7 @@ import { conversations, type DocMeta } from '../docs/library'
 import { buildScript } from './meeting'
 import { MEET_WORDS, MeetingRunner } from './meetingRun'
 import { BUBBLE_ASK, BUBBLE_REPLY, Director } from './director'
-import { dayPlan, planDay, playAt, schedulePose } from './play'
+import { TIDY_MS, dayPlan, planDay, playAt, schedulePose } from './play'
 import { startWrap, totalOf, TOUCH_LABEL, WRAP, WRAP_LABEL } from './wrap'
 import type { AgentStatus, OfficeMessage, StatusMap } from './status'
 
@@ -595,7 +595,7 @@ describe('Director start rule: not just before the night changes', () => {
 // #516 (play.md 9.2): a ping-pong partner goes to work: the one left is off the table at once (a gap, then a solo play); back from work, neither goes back to
 // the table for that stay; the timeline's own times decide it, so a second Director run over the same statuses does the same
 describe('a ping-pong partner goes to work (#516)', () => {
-  it('the one left leaves the table within a second; the partner back from work plays on alone too', () => {
+  it('the one left stops playing within a second and tidies the table (#718), then leaves it; the partner back from work plays on alone too', () => {
     const plan = dayPlan(planDay(5_000_000_000_000).day, AGENTS)
     const pair = plan.flatMap((segs, i) => segs.filter((s) => s.kind === 'pingpong' && s.spot === 'pingpong_a' && s.end - s.start > 4 * 60_000).map((s) => ({ s, a: [...AGENTS].sort()[i] })))[0]
     expect(pair, 'a ping-pong game that day').toBeDefined()
@@ -618,10 +618,12 @@ describe('a ping-pong partner goes to work (#516)', () => {
     const { seen, off } = run()
     for (const x of seen) {
       if (x.t < off) expect(x.mine).toBe('pingpong_a|pingpong')
-      else if (x.t >= off + 1000) expect(x.mine, `${x.t - off} ms after`).not.toContain('pingpong')
+      // #718 (play.md 9.7 ①): the tidy-up at its end of the table (standing, not playing), then away from the table
+      else if (x.t >= off + 1000 && x.t < off + TIDY_MS) expect(x.mine, `${x.t - off} ms after`).toBe('pingpong_a|idle')
+      else if (x.t >= off + TIDY_MS + 1000) expect(x.mine, `${x.t - off} ms after`).not.toContain('pingpong')
       if (x.theirs) expect(x.theirs, 'back from work').not.toContain('pingpong')
     }
-    expect(seen.some((x) => x.t >= off + 31_000 && !x.mine.includes('|idle')), 'a solo play after the stroll').toBe(true)
+    expect(seen.some((x) => x.t >= off + TIDY_MS + 31_000 && !x.mine.includes('|idle')), 'a solo play after the stroll').toBe(true)
     // the same over the same statuses
     expect(run().seen).toEqual(seen)
   })

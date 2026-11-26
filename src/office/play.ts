@@ -141,8 +141,8 @@ export const WATCH_LEFT_MS = 2 * MIN
 export const WATCH_LEAVE_MS = MIN
 /** the gap between two stays (play.md 9.3), s */
 export const GAP_S: readonly [number, number] = [20, 50]
-export type GapKind = 'stretch' | 'wander' | 'window' | 'spines'
-export const GAP_LABEL: Record<GapKind, string> = { stretch: '쉬는 중 · 기지개', wander: '쉬는 중 · 서성이는 중', window: '쉬는 중 · 창밖 보는 중', spines: '쉬는 중 · 책등 보는 중' }
+export type GapKind = 'stretch' | 'wander' | 'window' | 'spines' | 'tidy'
+export const GAP_LABEL: Record<GapKind, string> = { stretch: '쉬는 중 · 기지개', wander: '쉬는 중 · 서성이는 중', window: '쉬는 중 · 창밖 보는 중', spines: '쉬는 중 · 책등 보는 중', tidy: '탁구 · 정리하는 중' }
 /** a pair's partner is whoever finishes its stay or gap first within this long after a pair game is drawn; the one that drew it goes on with its gap till then (play.md 9.2 ②, #516) */
 export const PAIR_SOON_MS = 30_000
 /** at most this many agents leave their play in any one minute; a stay is stretched up to EXTEND_MAX_MS to keep to it (play.md 9.4) */
@@ -543,7 +543,7 @@ export function playAt(ms: number, agents: string[], busy: ReadonlySet<string> =
       const broke = alone?.broken.get(s.stay) ?? s.pairAt
       // never after now (the debug clock moves the office time; the statuses keep the real one, #524)
       const own = Math.min(ms, Math.max(broke, alone?.back?.[a] ?? -Infinity))
-      made.set(a, { from: own, make: (skip) => aloneAt(plan, roster, a, s, own, ms, skip) })
+      made.set(a, { from: own, make: (skip) => aloneAt(plan, roster, a, s, own, ms, skip, own === broke) })
       return
     }
     // a watcher of a game broken by a player gone to work leaves it at once (#517): gaps near where it stood, for the rest of the watch
@@ -597,18 +597,20 @@ const CUE_WINDOW_MS = 5_000
 
 /**
  * #718 (?debug=1, play.md 9.2 · 9.7): one left at the ping-pong table from `from` to `until` outside the plan (a forced game whose partner was sent to work): the
- * stroll near the table for ALONE_GAP_MS, then the fill chain. The schedule's own broken games go through aloneAt
+ * tidy-up (TIDY_MS), the stroll near the table for ALONE_GAP_MS, then the fill chain. The schedule's own broken games go through aloneAt
  */
 export function aloneChain(ms: number, agents: string[], agent: string, from: number, until: number): PlayAssignment {
   const plan = dayPlan(planDay(ms).day, [...agents].sort())
   const used = usedIn(plan, -1)
   const table = spotsAt.pingpong_a
   const dist = (h: string) => (table ? Math.hypot(spotsAt[h].x - table.x, spotsAt[h].z - table.z) : 0)
-  if (ms < from + ALONE_GAP_MS) {
-    const spot = Object.keys(spotsAt).filter((h) => h.startsWith('hall_') && !WINDOW_SPOTS.includes(h) && dist(h) >= WANDER_M[0] && !used(h, from, from + ALONE_GAP_MS)).sort((x, y) => dist(x) - dist(y))[0] ?? 'hall_back'
-    return { kind: 'gap', gap: 'wander', label: GAP_LABEL.wander, spot, stay: -1, since: from, until: from + ALONE_GAP_MS }
+  if (ms < from + TIDY_MS) return tidyAt('pingpong_a', -1, from)
+  const walk = from + TIDY_MS
+  if (ms < walk + ALONE_GAP_MS) {
+    const spot = Object.keys(spotsAt).filter((h) => h.startsWith('hall_') && !WINDOW_SPOTS.includes(h) && dist(h) >= WANDER_M[0] && !used(h, walk, walk + ALONE_GAP_MS)).sort((x, y) => dist(x) - dist(y))[0] ?? 'hall_back'
+    return { kind: 'gap', gap: 'wander', label: GAP_LABEL.wander, spot, stay: -1, since: walk, until: walk + ALONE_GAP_MS }
   }
-  return fillChain(plan, ms, from + ALONE_GAP_MS, until, { agent, own: -1 })
+  return fillChain(plan, ms, walk + ALONE_GAP_MS, until, { agent, own: -1 })
 }
 
 /** #715: an errand over at least this long before its stay ends is followed by the fill chain (fillChain), not one place for all of it */
@@ -714,24 +716,43 @@ export interface Alone {
 
 /** the stroll after the paddle is put down (play.md 9.2) */
 const ALONE_GAP_MS = 30_000
+/** #718 (play.md 9.7 ①): the one left first tidies the table (the ball picked up, the paddles side by side by the net), this long with the walk, ms */
+export const TIDY_MS = 10_000
+
+/** the ping-pong table's middle (between the two ends' spots): the tidy-up faces it */
+const tableMid = () => {
+  const a = spotsAt.pingpong_a
+  const b = spotsAt.pingpong_b
+  return a && b ? { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 } : undefined
+}
+
+/** #718: the tidy-up at the table: at the end the agent played from until the tidy stand node (nav_pp_side, #718 3D) is baked, facing the middle */
+function tidyAt(spot: string, stay: number, from: number): PlayAssignment {
+  const mid = tableMid()
+  return { kind: 'gap', gap: 'tidy', label: GAP_LABEL.tidy, spot, stay, since: from, until: from + TIDY_MS, ...(mid ? { face: mid } : {}) }
+}
 
 /**
- * One left at the ping-pong table (or back from work to a broken game), from `own`: a stroll (to a free hall spot near the table), then the fill chain for
+ * One left at the ping-pong table (or back from work to a broken game), from `own`: the one left when it broke tidies the table first (TIDY_MS), then a
+ * stroll (to a free hall spot near the table), then the fill chain for
  * the rest (#718, play.md 9.7; the two in roster order, the second taking the next one). From the plan only: the same in every browser.
  */
-function aloneAt(plan: Seg[][], roster: string[], agent: string, s: Seg, own: number, ms: number, skip: (spot: string) => boolean = () => false): PlayAssignment {
+function aloneAt(plan: Seg[][], roster: string[], agent: string, s: Seg, own: number, ms: number, skip: (spot: string) => boolean = () => false, tidies = false): PlayAssignment {
   const used = (spot: string, a: number, b: number) => plan.some((segs) => segs.some((x) => x.spot === spot && x.stay !== s.stay && x.start < b && a < x.end))
   const table = spotsAt[s.spot]
   const dist = (h: string) => (table ? Math.hypot(spotsAt[h].x - table.x, spotsAt[h].z - table.z) : 0)
   const halls = Object.keys(spotsAt).filter((h) => h.startsWith('hall_') && !WINDOW_SPOTS.includes(h) && dist(h) >= WANDER_M[0]).sort((x, y) => dist(x) - dist(y))
   const second = roster.indexOf(agent) > roster.indexOf(s.partner!)
   const n = second ? 1 : 0
-  const since = own + ALONE_GAP_MS
+  // #718 (play.md 9.7 ①): the one left when the game broke tidies the table first (the one back from work finds it tidied)
+  const start = tidies ? own + TIDY_MS : own
+  if (tidies && ms < start && own < s.end) return tidyAt(s.spot, s.stay, own)
+  const since = start + ALONE_GAP_MS
   const stroll = (from: number, until: number): PlayAssignment => {
     const spot = halls.filter((h) => !used(h, from, until) && !skip(h))[n] ?? halls[0] ?? s.spot
     return { kind: 'gap', gap: 'wander', label: GAP_LABEL.wander, spot, stay: s.stay, since: from, until }
   }
-  if (ms < since || since >= s.end) return stroll(own, Math.min(since, s.end))
+  if (ms < since || since >= s.end) return stroll(start, Math.min(since, s.end))
   // #718 (play.md 9.7): the fill chain for the rest; the second of the two left takes the next one
   return fillChain(plan, ms, since, s.end, { agent, own: s.stay, n, skip })
 }
