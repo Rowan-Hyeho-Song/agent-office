@@ -47,6 +47,8 @@
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='1' width='1' height='1' fill-opacity='.45'/%3E%3Crect x='1' y='3' width='1' height='1' fill-opacity='.45'/%3E%3C/svg%3E") 0 0 / 2px 4px repeat, var(--replay-project-lab);
 }
 .replay-swatch[data-p='other'] { background: var(--replay-project-other); }
+/* #710 the private projects: the diagonal of the seat's "비공개 작업 중" */
+.replay-swatch[data-p='private'] { background: repeating-linear-gradient(135deg, rgb(0 0 0 / 0.45) 0 1px, transparent 1px 3px), var(--replay-project-private); }
 
 .replay-subtitle { position: absolute; left: 50%; bottom: calc(var(--replay-bottom-h) + 16px); transform: translateX(-50%); max-width: min(720px, 90%); background: rgb(5 7 10 / 0.82); border: 1px solid var(--color-line); padding: 6px 14px; font-size: 14px; line-height: 1.5; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none !important; }
 .replay-subtitle.tipping { opacity: 0; }

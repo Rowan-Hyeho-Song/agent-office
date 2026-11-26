@@ -5,7 +5,7 @@ import { AGENT_INFO, type OfficeWorld } from '../office/world'
 import type { Point } from '../timeline/types'
 import { drawBar, nearest, projectKind, type BarLayout } from './barDraw'
 import { boardDistance, pointWaitMs } from './walk'
-import { ALL, LANES, LANE_NAME, SECRET_NOTE, SPEEDS, atMs, describe, dayLabel, laneOf, remainingMs, shortName, stepMs, valueText, whenText, kst, type Lane } from './engine'
+import { ALL, LANES, LANE_NAME, SECRET_NOTE, isHidden, SPEEDS, atMs, describe, dayLabel, laneOf, remainingMs, shortName, stepMs, valueText, whenText, kst, type Lane } from './engine'
 import { replay, useReplay } from './store'
 import { useLineSub } from './lineSub'
 import { minutesExtraMs, progressText, useMinutesProgress, useMinutesVersion } from './minutesInfo'
@@ -265,7 +265,7 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
       ) : (
         <div className={`replay-subtitle${hp ? ' tipping' : ''}`} data-seat={String(lane)} aria-hidden="true">
           <span className="who">{d.head}</span>
-          {p.secret ? <><span className="replay-redact" /><span className="replay-secret-chip">SECRET · 결재 전</span></> : d.title}
+          {isHidden(p) ? null : p.secret ? <><span className="replay-redact" /><span className="replay-secret-chip">SECRET · 결재 전</span></> : d.title}
           {d.size && <span className="meta">{d.size}</span>}
         </div>
       )}
@@ -327,15 +327,15 @@ function Tip({ point: p, x, wrap }: { point: Point; x: number; wrap: HTMLDivElem
   const left = r ? Math.max(8, Math.min(window.innerWidth - 288, r.left + x - 20)) : 8
   return (
     <div className="replay-tip" data-seat={String(lane)} style={{ left, bottom: r ? window.innerHeight - r.top + 14 : 0 }} aria-hidden="true">
-      <span className={`tab${p.secret ? ' secret' : ''}`}>{d.head}{p.secret ? ' · SECRET' : ''}</span>
+      <span className={`tab${p.secret && !isHidden(p) ? ' secret' : ''}`}>{d.head}{p.secret && !isHidden(p) ? ' · SECRET' : ''}</span>
       <div className="body">
-        {p.secret ? <span className="replay-redact wide" /> : d.title || '(제목 없음)'}
+        {isHidden(p) ? null : p.secret ? <span className="replay-redact wide" /> : d.title || '(제목 없음)'}
         <span className="meta">
           {`${p2(k.m)}.${p2(k.d)} ${k.w} ${p2(k.h)}:${p2(k.mi)}`}
           {d.size ? ` · ${d.size}` : ''}
           {p.issue !== null && !p.secret ? ` · #${p.issue}` : ''}
         </span>
-        {p.secret && <span className="meta">{SECRET_NOTE}</span>}
+        {p.secret && !isHidden(p) && <span className="meta">{SECRET_NOTE}</span>}
       </div>
     </div>
   )

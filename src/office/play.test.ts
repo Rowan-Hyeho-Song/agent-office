@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  BOARD_LABEL, BOARD_STAY, EXTEND_MAX_MS, LOOK_MS, SPINES, GAME_WEIGHTS, GAP_S, LEAVE_CAP, LEAVE_WINDOW_MS, NIGHT_PLAYS, PAIR_SOON_MS, PLAYS, STAY_MIN, WATCH_LEAVE_MS, WATCH_LEFT_MS, chooseGame, dayPlan, nextChange, planDay, playAt, fillChain, restNear, soloAt, stayRange, type FillKind, type PlayAssignment, type Seg,
+  BOARD_LABEL, BOARD_STAY, EXTEND_MAX_MS, LOOK_MS, SPINES, TIDY_MS, GAME_WEIGHTS, GAP_S, LEAVE_CAP, LEAVE_WINDOW_MS, NIGHT_PLAYS, PAIR_SOON_MS, PLAYS, STAY_MIN, WATCH_LEAVE_MS, WATCH_LEFT_MS, chooseGame, dayPlan, nextChange, planDay, playAt, fillChain, restNear, soloAt, stayRange, type FillKind, type PlayAssignment, type Seg,
 } from './play'
 
 // #490 (docs/design/play.md 9): no blocks; each agent has its own run of stays and gaps, laid out once a day from KST 04:00, the same for every visitor.
@@ -259,7 +259,9 @@ describe('a ping-pong pair broken by work (#516)', () => {
       for (let t = from; t < s.end; t += 5_000) {
         const o = playAt(t, FIVE, busy, alone)[a]
         expect(o.kind, `${new Date(t).toISOString()}`).not.toBe('pingpong')
-        if (t < from + 30_000) expect(o).toMatchObject({ kind: 'gap', gap: 'wander' })
+        // #718 (play.md 9.7 ①): the tidy-up at its end of the table, then the stroll
+        if (t < from + TIDY_MS) expect(o).toMatchObject({ kind: 'gap', gap: 'tidy', label: '탁구 · 정리하는 중', spot: s.spot })
+        else if (t < from + TIDY_MS + 30_000) expect(o).toMatchObject({ kind: 'gap', gap: 'wander' })
         else {
           if (o.kind !== 'gap') {
             expect(['coffee', 'books', 'boardgame_solo', 'watch', 'sofa']).toContain(o.kind)

@@ -6,6 +6,7 @@ import { IssueReplayButton } from '../replay/IssueReplayButton'
 import { replay, useReplayPoints } from '../replay/store'
 import { groupFiles, groupOf, listedFiles, loadFolds, parseDeploy, saveFolds, type Folds } from '../docs/deployGroups'
 import { FileGroups } from './docs/FileGroups'
+import { HiddenPanel } from './docs/HiddenPanel'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
 import { fmtDay as fmtShortDay } from '../approvals/view'
 import {
@@ -87,6 +88,11 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
   const [live, setLive] = useState('')
   const [peeling, setPeeling] = useState<ReadonlySet<number>>(new Set())
   const [stage, setStage] = useState<Stage>('files')
+  /** #710: the files stage shows the private folder's activity panel */
+  const [hiddenOpen, setHiddenOpen] = useState(false)
+  useEffect(() => {
+    if (stage !== 'files') setHiddenOpen(false)
+  }, [stage])
   // the file list's filter and sort (#241), remembered in the browser
   const [listView, setListView] = useState<ListView>(loadView)
   const changeView = useCallback((patch: Partial<ListView>) => {
@@ -160,7 +166,9 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
   const kinds = file ? TOC.filter((t) => file.docs.some((d) => d.kind === t.kind)) : []
   const kind = kinds.find((t) => t.kind === sel.kind)?.kind ?? kinds[0]?.kind ?? null
   const docs = useMemo(() => (file && kind ? file.docs.filter((d) => d.kind === kind) : []), [file, kind])
-  const view: Stage = stage === 'paper' && file && folder ? 'paper' : stage === 'files' && folder ? 'files' : 'folders'
+  // #710 (docs-ui.md 2.1): the private folder opened: its activity panel instead of a file list (it has no files to show)
+  const hiddenFolder = hiddenOpen && stage === 'files' ? (snap.folders.find((f) => f.hidden) ?? null) : null
+  const view: Stage = stage === 'paper' && file && folder ? 'paper' : stage === 'files' && (folder || hiddenFolder) ? 'files' : 'folders'
   // the deploy PRs' own files are left out of the list and its counts: their group's header is the PR (#462 designer)
   const listed = useMemo(() => (folder ? listedFiles(folder.files, deploys, folder.repo) : []), [folder, deploys])
   const grouped = useMemo(() => (folder ? groupFiles(listed, deploys, folder.repo, listView) : null), [folder, listed, deploys, listView])
@@ -238,6 +246,8 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
     setStage('paper')
   }
   const goFolder = (fo: DocFolder) => {
+    setHiddenOpen(!!fo.hidden)
+    if (fo.hidden) return setStage('files')
     if (!fo.files[0]) return
     pick({ fileKey: fo.files[0].key, kind: null })
     setStage('files')
@@ -338,7 +348,13 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
               </div>
             ) : (
               <nav className="doc-nav" aria-label="서재 목록" onScroll={markScrolled}>
-                {view === 'files' && folder && (
+                {view === 'files' && hiddenFolder && (
+                  <div className="doc-head">
+                    <DocPath folder={hiddenFolder} file={null} onRoot={() => setStage('folders')} onFolder={() => setStage('files')} />
+                  </div>
+                )}
+                {view === 'files' && hiddenFolder?.hidden && <HiddenPanel hidden={hiddenFolder.hidden} />}
+                {view === 'files' && folder && !hiddenFolder && (
                   // the path, the heading and the filter / sort rows stay on top as one block while the files scroll (#319)
                   <div className="doc-head">
                     <DocPath folder={folder} file={null} onRoot={() => setStage('folders')} onFolder={() => setStage('files')} />
@@ -367,12 +383,13 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
                   ))}
                 {view === 'files' &&
                   folder &&
+                  !hiddenFolder &&
                   (grouped ? (
                     <FileGroups grouped={grouped} folds={folds} repo={folder.repo} onFold={fold} row={fileRow} unread={(f) => unreadFile(f, seen)} />
                   ) : (
                     viewFiles(listed, listView).map(fileRow)
                   ))}
-                {view === 'files' && folder && listed.length > 0 && viewFiles(listed, listView).length === 0 && (
+                {view === 'files' && folder && !hiddenFolder && listed.length > 0 && viewFiles(listed, listView).length === 0 && (
                   <p className="doc-note">
                     이 조건에 맞는 파일철이 없어요.{' '}
                     <button type="button" className="btn-ghost" onClick={() => changeView({ stage: 'all', pendingOnly: false })}>
