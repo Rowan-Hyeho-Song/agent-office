@@ -167,6 +167,12 @@ export class FakeDocsSource implements DocsSource {
     return this.rows.map((r) => (role === 'owner' ? ownerMeta(r) : coverOf(r)))
   }
 
+  /** #710: a private project worked on 0, 1, 3, 4, 8 and 12 days ago (made up; only the times exist) */
+  async hiddenDays(since: string): Promise<string[]> {
+    const now = Date.now()
+    return [12, 8, 4, 3, 1, 0].map((d) => new Date(now - d * 86_400_000 - 2 * 3_600_000).toISOString()).filter((a) => a >= since)
+  }
+
   async read(ids: number[], role: Role): Promise<DocBody[]> {
     return this.rows
       .filter((r) => ids.includes(r.id) && (role === 'owner' ? r.grade !== 'private' : r.grade === 'public' && r.approved))

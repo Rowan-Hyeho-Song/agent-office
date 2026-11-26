@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "project": "private",
+  "tier": "review",
+  "points": [
+    {"key":"review:private:0-997510","project":"private","at":"2026-11-24T11:12:00Z","kind":"work","agent":0,"title":"","secret":true,"additions":null,"deletions":null,"files":null,"issue":null,"pr":null,"tier":"review"},
+    {"key":"review:private:0-997511","project":"private","at":"2026-11-24T11:47:00Z","kind":"work","agent":0,"title":"","secret":true,"additions":null,"deletions":null,"files":null,"issue":null,"pr":null,"tier":"review"},
+    {"key":"review:private:3-997540","project":"private","at":"2026-11-25T02:05:00Z","kind":"work","agent":3,"title":"","secret":true,"additions":null,"deletions":null,"files":null,"issue":null,"pr":null,"tier":"review"},
+    {"key":"review:private:3-997541","project":"private","at":"2026-11-25T02:41:00Z","kind":"work","agent":3,"title":"","secret":true,"additions":null,"deletions":null,"files":null,"issue":null,"pr":null,"tier":"review"},
+    {"key":"review:private:2-997546","project":"private","at":"2026-11-25T05:20:00Z","kind":"work","agent":2,"title":"","secret":true,"additions":null,"deletions":null,"files":null,"issue":null,"pr":null,"tier":"review"},
+    {"key":"review:private:0-997587","project":"private","at":"2026-11-26T01:33:00Z","kind":"work","agent":0,"title":"","secret":true,"additions":null,"deletions":null,"files":null,"issue":null,"pr":null,"tier":"review"},
+    {"key":"review:private:3-997588","project":"private","at":"2026-11-26T02:02:00Z","kind":"work","agent":3,"title":"","secret":true,"additions":null,"deletions":null,"files":null,"issue":null,"pr":null,"tier":"review"},
+    {"key":"review:private:1-997600","project":"private","at":"2026-11-26T08:15:00Z","kind":"work","agent":1,"title":"","secret":true,"additions":null,"deletions":null,"files":null,"issue":null,"pr":null,"tier":"review"}
+  ]
+}

@@ -21,6 +21,11 @@ import {
   shelfLayout,
   spineColor,
   PRIVATE_LABEL,
+  HIDDEN_DAYS,
+  HIDDEN_NOTE,
+  kstDayOf,
+  projectNote,
+  withHidden,
   type CoverSource,
   type DocMeta,
 } from './library'
@@ -419,5 +424,37 @@ describe('landOn', () => {
   })
   it('reaches a private document by id', () => {
     expect(landOn(folders, { id: 3 })).toEqual({ fileKey: 'private:3', kind: 'report', row: null })
+  })
+})
+
+// #710 (C안, docs-ui.md 2.1): the private projects show only that they are worked on: the KST days of the last two weeks with work, on one folder, last
+describe('the private projects activity (#710)', () => {
+  const NOW = Date.parse('2026-11-26T12:00:00Z') // 21:00 KST
+  const pub = groupLibrary([meta({ id: 1 }), meta({ id: 2, repo: 'o/rowansong.dev' })])
+
+  it('no work in the last 14 days: no folder of its own', () => {
+    expect(withHidden(pub, [], NOW)).toEqual(pub)
+    expect(withHidden(pub, ['2026-11-01T00:00:00Z'], NOW)).toEqual(pub)
+  })
+
+  it('work: one folder, last, with the KST days and the latest time, the note, no files; never on the shelf', () => {
+    const out = withHidden(pub, ['2026-11-25T16:30:00Z', '2026-11-26T01:00:00Z', '2026-11-20T03:00:00Z', '2026-11-26T02:00:00Z'], NOW)
+    const f = out[out.length - 1]
+    expect(out.slice(0, -1)).toEqual(pub)
+    // 11-25 16:30 UTC is the 26th in Seoul
+    expect(f).toMatchObject({ key: 'private', repo: null, label: PRIVATE_LABEL, files: [], hidden: { days: ['2026-11-20', '2026-11-26'], last: '2026-11-26T02:00:00.000Z' } })
+    expect(projectNote(f)).toBe(HIDDEN_NOTE)
+    expect(kstDayOf(Date.parse('2026-11-25T16:30:00Z'))).toBe('2026-11-26')
+    expect(shelfLayout(out)).toEqual(shelfLayout(pub))
+  })
+
+  it('a folder of private documents keeps its files and takes the activity too; the 14 days are counted in KST', () => {
+    const withPriv = groupLibrary([meta({ id: 1 }), meta({ id: 3, grade: 'private', approved: false, repo: 'private/example', folder: 2 })])
+    const out = withHidden(withPriv, ['2026-11-13T00:00:00Z', '2026-11-12T00:00:00Z'], NOW)
+    const f = out.find((x) => x.key === 'private')!
+    expect(f.files).toHaveLength(1)
+    // the 13th (KST) is the first of the 14 days to the 26th; the 12th is not
+    expect(f.hidden!.days).toEqual(['2026-11-13'])
+    expect(HIDDEN_DAYS).toBe(14)
   })
 })

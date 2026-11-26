@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Point, PointKind } from '../timeline/types'
 import { dayId } from './days'
-import { ALL, AGENT_NAME, KIND_NAME, SECRET_NOTE, atMs, dayKey, describe, isDeploy, kindWord, kst, laneOf, prepare, whoName, shortName, sizeText, type Lane } from './engine'
+import { ALL, AGENT_NAME, KIND_NAME, SECRET_NOTE, atMs, isHidden, dayKey, describe, isDeploy, kindWord, kst, laneOf, prepare, whoName, shortName, sizeText, type Lane } from './engine'
 import { Glyph } from './Glyph'
 import { replay, useReplay } from './store'
 import { projectKind, tokens } from './barDraw'
@@ -71,7 +71,8 @@ export function ReplayList() {
           {[ALL, ...s.projects].map((pr) => (
             <button key={pr} type="button" className="chip" aria-pressed={project === pr} onClick={() => setProject(pr)}>
               {pr !== ALL && <span className="replay-swatch" data-p={projectKind(pr)} aria-hidden="true" />}
-              {pr === ALL ? '전체' : shortName(pr)} {prepare(everything, pr).length}
+              {/* #710 (timelapse.md 2): the private project's chip carries no count (no amount of work as a number) */}
+              {pr === ALL ? '전체' : shortName(pr)}{isHidden({ project: pr }) ? '' : ` ${prepare(everything, pr).length}`}
             </button>
           ))}
         </div>
@@ -131,7 +132,7 @@ function Row({ p }: { p: Point }) {
         {kindWord(p) && <span className="kind">{kindWord(p)}</span>}
       </div>
       <div className="ttl">
-        {p.secret ? (
+        {isHidden(p) ? null : p.secret ? (
           <>
             <span className="replay-redact wide" role="img" aria-label={SECRET_NOTE} />
             <span className="replay-secret-chip">SECRET</span>
