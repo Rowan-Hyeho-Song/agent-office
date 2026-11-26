@@ -103,6 +103,11 @@ Node contract (the app reads glTF extras):
                                    normal, lift 0.02 = the board over it, size 0.40 = the light board, field 0.44 = the
                                    projection field)
   pp_ball                          live "bot" (#135): the ball, the app moves it (not a prop); pivot = its center
+  pp_tidy_paddle_a|_b, pp_tidy_ball  (#718) empties: where the paddles (their home frame, extras pose {pos, rot}) and the
+                                   ball (its centre) lie once the table is tidied; pp_ball_grip_r + _contact_thumb|index
+                                   (a pinch, children of pp_ball); nav_pp_side (stand, the north long side by the net)
+  spines_row_0..3                  (#718) the second bookcase's spine rows, top shelf first: front, mid height, centred on
+                                   the spines; extras w (span), shelf (4..1), gaps (local x ranges without spines)
   pp_table                         empty at the table top center, +x = the long side (extras size [l, w], net_h)
   door_lever                       live "bot" (#280 3): the door's lever, pivot on its axle (local z = out of the
                                    door); extras press {axis z, sign -1, deg 30, press_s, release_s}; child empty
@@ -5490,6 +5495,60 @@ for o, kind in lib:
 print(f"library: {sum(len(p.vertices) - 2 for o, _ in lib for p in o.data.polygons)} triangles, {len(lib)} nodes")
 lounge, shade, lamp_pos = build_lounge()
 baked(lounge, "lounge")
+
+
+def build_tidy_nodes():
+    """#718 2-b (coder's table on #718, play.md 9.7): the empties for tidying the ping-pong table and for reading the
+    second bookcase's spines. No mesh.
+    - pp_tidy_paddle_a|b: where the two paddles lie once tidied: the props' own home frame (origin = the handle's end,
+      laid flat, the same face up as at home), turned so the handles point at the north long side and the blades
+      run along the net; both on the west half, blades 2 cm apart (b nearer the net, 2.5 cm off it). extras pose {pos, rot}
+    - pp_tidy_ball: the ball's centre, resting on paddle a's blade
+    - pp_ball_grip_r (+ _contact_thumb|index): the ball pinched by thumb and index (like the keycap), a child of pp_ball
+    - nav_pp_side (stand): outside the north long side, 0.35 m off its edge, by the net, facing the table (+z)
+    - spines_row_0..3: the second bookcase's spine rows, top shelf (4) first, down to shelf 1 (the coder's head angles
+      +10 / 0 / -10 / -22 deg run that way); the node faces out of the bookcase (+z), at the spines' front and mid
+      height, centred on the span of spines; extras w (the span), shelf, and gaps (local x ranges with no spines)"""
+    O = bpy.data.objects
+    tx, tz = PINGPONG
+    th = 0.76
+    north = tz - 1.14 / 2  # the table's north long edge (z 0.13)
+    H = O["prop_paddle_a"].matrix_world.to_3x3().to_4x4()  # its home rotation: blade toward +x, handle west
+    R = Matrix.Rotation(-math.pi / 2, 4, "Z") @ H  # about the vertical: the blade now toward +z (handle north)
+    hz = north + 0.02  # the handle's end 2 cm inside the edge; the blade's centre 0.17 m on (z 0.32)
+    for name, bx in (("a", tx - 0.10 - 0.17), ("b", tx - 0.10)):
+        e = bpy.data.objects.new(f"pp_tidy_paddle_{name}", None)
+        coll("export").objects.link(e)
+        e.matrix_world = Matrix.Translation(W(bx, th + 0.003, hz)) @ R
+        pos, rot = web_pose(e.matrix_world)
+        e["pose"] = {"pos": [round(v, 4) for v in pos], "rot": [round(v, 4) for v in rot]}
+        NODES.append({"obj": e})
+    bx_a = tx - 0.10 - 0.17
+    e = bpy.data.objects.new("pp_tidy_ball", None)
+    coll("export").objects.link(e)
+    e.matrix_world = Mx((bx_a, th + 0.006 + 0.02, hz + 0.17))  # on paddle a's top rubber (3 mm over its centre plane)
+    NODES.append({"obj": e})
+    ball = O["pp_ball"]
+    grip_at(ball, "r", (0, 0.021, 0), (0, -0.3, -1), (0, -1, 0))  # over the ball, as the keycap pinch
+    contact(ball, "thumb", (0, 0, 0.02), (0, 0, 1))
+    contact(ball, "index", (0, 0, -0.02), (0, 0, -1))
+    nav("pp_side", tx - 0.10, north - 0.35, math.pi, "stand")
+    sz = -HZ + SHELF_D / 2 + 0.01
+    xl, xr = SHELF2_X - SHELF2_W / 2 + 0.021, SHELF2_X + SHELF2_W / 2 - 0.021
+    rows = (  # (shelf, x0, x1, gaps): what build_bookcase2 puts there
+        (4, xl, xr - 0.24, []),  # books; three lie flat at the right
+        (3, xl, xr, [(SHELF2_X - 0.13, SHELF2_X + 0.13)]),  # books either side of the pothos
+        (2, xl, xr, []),  # records at the left, books at the right
+        (1, xl, xr, []),  # books; prop_shelfbook_0..2 at the right end
+    )
+    for k, (s, x0, x1, gaps) in enumerate(rows):
+        cx = (x0 + x1) / 2
+        e = bpy.data.objects.new(f"spines_row_{k}", None)
+        coll("export").objects.link(e)
+        e.matrix_world = Mx((cx, shelf_top(s) + 0.14, sz + 0.156))  # the spines' front (z -3.764), mid height
+        e["w"], e["shelf"] = round(x1 - x0, 4), s
+        e["gaps"] = [[round(a - cx, 4), round(b - cx, 4)] for a, b in gaps]
+        NODES.append({"obj": e})
 build_lounge2()  # #280 PR 2
 build_treats()  # #455
 for o in FRIDGE_NODES:  # #457: the fridge's inside, baked with its door open and its light on
@@ -5524,6 +5583,7 @@ for i, a in enumerate(AGENTS):
             if o.type == "MESH":
                 print("   ", o.name, sum(len(p.vertices) - 2 for p in o.data.polygons))
 build_hands()  # #164: after every prop and agent
+build_tidy_nodes()  # #718 2-b: after build_hands (pp_ball, prop_paddle_a)
 build_nav()
 build_surfaces()
 build_hits()
@@ -5851,6 +5911,18 @@ if PREVIEW:
     shoot("hold_cup", (1.15, 1.05, -2.6), (0.6, 0.86, -2.1))
     for n, M in saved.items():
         bpy.data.objects[n].matrix_world = M
+    # #718: the tidied table (the app lays the paddles on pp_tidy_paddle_a|b and the ball on pp_tidy_ball)
+    if not want or "pp_tidy" in want:
+        names = ("prop_paddle_a", "prop_paddle_b", "pp_ball")
+        saved = {n: bpy.data.objects[n].matrix_world.copy() for n in names}
+        for n, e in (("prop_paddle_a", "pp_tidy_paddle_a"), ("prop_paddle_b", "pp_tidy_paddle_b"), ("pp_ball", "pp_tidy_ball")):
+            bpy.data.objects[n].matrix_world = bpy.data.objects[e].matrix_world.copy()
+        bpy.context.view_layer.update()
+        shoot("pp_tidy", (1.0, 1.25, -0.55), (1.45, 0.76, 0.3))
+        shoot("pp_tidy_side", (2.05, 0.95, 0.15), (1.45, 0.77, 0.28))
+        for n, M in saved.items():
+            bpy.data.objects[n].matrix_world = M
+        bpy.context.view_layer.update()
     # #135: the book (its halves follow the spine), the watering can, a stone pinched (agents.md 2.7 "집기")
     if not want or any(n in want for n in ("hold_book", "hold_can")):
         names = ("prop_book", "prop_book_l", "prop_book_r", "prop_watering_can")
