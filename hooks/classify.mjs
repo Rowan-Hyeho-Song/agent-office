@@ -179,7 +179,7 @@ export const DEFAULT_SEATS = [
  * within one folder name, `**` = any number of folders. A match also covers everything below it.
  * The defaults match these two repositories and their worktrees wherever they are checked out.
  */
-export const DEFAULT_PROJECTS = ['**/agent-office*', '**/rowansong.dev*']
+export const DEFAULT_PROJECTS = ['**/agent-office*', '**/rowansong.dev*', '**/jank-lab*']
 
 const norm = (p) => String(p ?? '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
 

@@ -16,6 +16,7 @@ import {
   formatRef,
   landOn,
   paperText,
+  projectNote,
   sections,
   type Sel,
   type DocBody,
@@ -360,7 +361,8 @@ function Viewer({ world, lib }: { world: OfficeWorld; lib: LibraryStore }) {
                     <button key={fo.key} type="button" className="doc-folder" aria-current={fo === folder} onClick={() => goFolder(fo)}>
                       <Icon name={fo.repo === null ? 'lock' : 'publish'} />
                       {unreadFolder(fo, seen) && <NewMark />}
-                      {fo.label}
+                      <span className="doc-folder-name">{fo.label}</span>
+                      {projectNote(fo) && <span className="doc-folder-note">· {projectNote(fo)}</span>}
                     </button>
                   ))}
                 {view === 'files' &&

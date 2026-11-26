@@ -4,7 +4,7 @@ import { dayId } from './days'
 import { ALL, AGENT_NAME, KIND_NAME, SECRET_NOTE, atMs, dayKey, describe, isDeploy, kindWord, kst, laneOf, prepare, whoName, shortName, sizeText, type Lane } from './engine'
 import { Glyph } from './Glyph'
 import { replay, useReplay } from './store'
-import { tokens } from './barDraw'
+import { projectKind, tokens } from './barDraw'
 
 const PER_DAY = 14
 const p2 = (n: number) => String(n).padStart(2, '0')
@@ -70,6 +70,7 @@ export function ReplayList() {
         <div className="chips" role="group" aria-label="프로젝트">
           {[ALL, ...s.projects].map((pr) => (
             <button key={pr} type="button" className="chip" aria-pressed={project === pr} onClick={() => setProject(pr)}>
+              {pr !== ALL && <span className="replay-swatch" data-p={projectKind(pr)} aria-hidden="true" />}
               {pr === ALL ? '전체' : shortName(pr)} {prepare(everything, pr).length}
             </button>
           ))}

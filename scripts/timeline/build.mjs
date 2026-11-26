@@ -19,6 +19,16 @@ import { redact } from './filter.mjs'
 
 export const POINT_KINDS = ['plan', 'work', 'minutes', 'approval', 'decision', 'deploy']
 
+/**
+ * Which branches a repo works on (#706). Most land work on `dev` and release to `main`, so a commit on dev is work and
+ * one that reached main without being on dev is a deploy. jank-lab has no dev: pull requests merge straight into main
+ * and every push to main is a GitHub Pages deploy, so all of its main commits are deploys.
+ */
+export const REPO_BRANCHES = {
+  'Rowan-Hyeho-Song/jank-lab': { devBranch: null, deployBranch: 'main' },
+}
+export const branchesFor = (repo) => REPO_BRANCHES[repo] ?? { devBranch: 'dev', deployBranch: 'main' }
+
 // role words -> seat; same list as src/docs/parse.ts (a test compares them)
 export const SEAT_WORDS = [
   [0, ['기획', '메모', 'MEMO']],

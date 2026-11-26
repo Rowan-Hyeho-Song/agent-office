@@ -172,6 +172,8 @@
   --replay-future-alpha: 0.35; /* 아직 재생 안 된 점 */
   --replay-project-office: #3a4250; /* 프로젝트 띠: agent-office */
   --replay-project-hub: rgb(255 179 71 / 0.45); /* 프로젝트 띠: rowansong.dev(책상 방 호박 + 스캔라인 무늬) */
+  --replay-project-lab: rgb(127 200 169 / 0.5); /* 프로젝트 띠: jank-lab(세이지 + 점무늬, #706) */
+  --replay-project-other: rgb(111 106 96 / 0.45); /* 프로젝트 띠: 목록에 없는 공개 저장소(--color-text-faint 45%, 민무늬) */
   --replay-grain: 0.05; /* 필름 그레인 세기 */
   --replay-live: #ff5a5f; /* 재생 중 실시간 신호 알림의 LIVE 점 */
   --replay-step-ms: 3000; /* ×1에서 점 하나 */

@@ -62,6 +62,21 @@ export const HOLD_CAP_MS = 45_000
 /** a minutes point plays all its table rows: it may hold the next point this long (timelapse.md 11.4; src/office/minutes.ts plans the rows to fit) */
 export const MINUTES_HOLD_CAP_MS = 60_000
 
+/**
+ * The project buttons' order (timelapse.md, #706): fixed, so a button keeps its place as projects come and go. The three
+ * known ones in the design's order (agent-office → rowansong.dev → jank-lab); any other after them by its first point.
+ * `points` are in play order (prepare: time first).
+ */
+const PROJECT_ORDER = ['agent-office', 'rowansong.dev', 'jank-lab']
+export const byFirstPoint = (points: readonly Point[]): string[] => {
+  const seen = [...new Set(points.map((p) => p.project))]
+  const rank = (p: string) => {
+    const i = PROJECT_ORDER.indexOf(shortName(p))
+    return i < 0 ? PROJECT_ORDER.length : i
+  }
+  return seen.map((p, i) => ({ p, i })).sort((a, b) => rank(a.p) - rank(b.p) || a.i - b.i).map((x) => x.p)
+}
+
 const INITIAL: ReplayState = { mode: 'off', project: ALL, projects: [], i: 0, count: 0, playing: false, speed: 1, rate: 1, night: null, flip: null, ended: false, loaded: false, issue: null, day: null, fade: false }
 
 export type PointVia = 'play' | 'seek'
@@ -147,7 +162,7 @@ export class ReplayStore {
     if (this.all) return this.all
     this.loading ??= this.source().then((points) => {
       this.all = prepare(points)
-      this.set({ loaded: true, projects: [...new Set(this.all.map((p) => p.project))].sort() })
+      this.set({ loaded: true, projects: byFirstPoint(this.all) })
       return this.all
     })
     return this.loading
@@ -543,8 +558,13 @@ export class ReplayStore {
 const narrow = () => typeof matchMedia === 'function' && matchMedia('(max-width: 640px)').matches
 
 async function loadFixtures(): Promise<Point[]> {
-  const [office, hub] = await Promise.all([import('../timeline/fixtures/agent-office.json'), import('../timeline/fixtures/rowansong.dev.json')])
-  return [...(office.default.points as unknown as Point[]), ...(hub.default.points as unknown as Point[])]
+  // #706 jank-lab: a public copy like rowansong.dev's (#424); the scheduled sync (sync-repos.yml) adds the newer points
+  const [office, hub, lab] = await Promise.all([
+    import('../timeline/fixtures/agent-office.json'),
+    import('../timeline/fixtures/rowansong.dev.json'),
+    import('../timeline/fixtures/jank-lab.json'),
+  ])
+  return [office, hub, lab].flatMap((f) => f.default.points as unknown as Point[])
 }
 
 /** one store per page */

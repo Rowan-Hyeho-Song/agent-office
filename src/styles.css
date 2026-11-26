@@ -431,6 +431,10 @@ html[data-motion='reduce'] .doc-nav .doc-head h4 { transition: none; }
 .doc-folder:hover, .doc-file:hover { background: var(--surface-raised); }
 .doc-folder[aria-current='true'] { background: var(--surface-raised); color: var(--color-amber); }
 .doc-folder svg, .doc-file svg { width: 12px; height: 12px; flex: none; }
+/* #706 the name never shrinks; the note after it (muted 13) is cut with an ellipsis on a narrow sheet */
+.doc-folder-name { flex: none; }
+.doc-folder-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-text); font-size: 13px; color: var(--color-text-muted); }
+.doc-folder[aria-current='true'] .doc-folder-note { color: var(--color-text-muted); }
 .doc-file { flex-direction: column; align-items: stretch; gap: var(--space-1); container: docfile / inline-size; font-size: 13px; line-height: 1.4; border-left: var(--bubble-stripe) solid transparent; }
 .doc-file .l1 { display: flex; gap: var(--space-2); align-items: baseline; min-width: 0; } /* number · title · SECRET on the title's first line, however many lines it wraps to (#319) */
 .doc-file .l1 .doc-dot { align-self: flex-start; margin-top: calc((1.4em - 6px) / 2); }
