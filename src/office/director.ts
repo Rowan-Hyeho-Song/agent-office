@@ -159,7 +159,7 @@ export class Director {
   /** #718 ②-b the tidy-ups under way (tidyRun.ts), the stay each agent has tidied in already, and whether the table lies tidied (until a game takes the paddles up) */
   private tidies: Record<string, TidyRun> = {}
   private tidyDone: Record<string, number> = {}
-  private tidied = false
+  private tidied: Side | null = null
   /** the lounge acts in progress (actRun.ts; the fridge and the dispenser share one bar, the turntable has its own) and the block each agent has acted in already */
   private acts: Record<string, ActRun> = {}
   private actDone: Record<string, number> = {}
@@ -593,11 +593,11 @@ export class Director {
       const r = stepTidy(run, { now, arrived: (place) => arrivedAt(a) === tidySpot(run, place) })
       if (r.done) {
         delete this.tidies[a]
-        this.tidied = true
+        this.tidied = run.own
       } else this.tidies[a] = r.run
     }
     // a game at the table takes the tidied paddles up again
-    if (this.agents.some((a) => play[a]?.kind === 'pingpong' && !!play[a]?.partner && play[a]?.pairAt !== undefined && now >= play[a]!.pairAt!)) this.tidied = false
+    if (this.agents.some((a) => play[a]?.kind === 'pingpong' && !!play[a]?.partner && play[a]?.pairAt !== undefined && now >= play[a]!.pairAt!)) this.tidied = null
     // #450 (lounge-props.md 6): the book from the second bookshelf, read standing before it and put back in its slot. Called away with it out, it is put
     // back first; on the way, nothing is out
     if (this.shelf) {

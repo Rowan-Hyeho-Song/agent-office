@@ -504,6 +504,9 @@ const toMatrix = (t: { pos?: number[]; rot?: number[] } | undefined) => {
   )
 }
 
+/** what a hand wants to hold this frame */
+type Want = { kind: string; side: 'l' | 'r'; prefer?: string; attached?: boolean }
+
 /** every prop in the office, who holds it, and how it moves between its home and a hand */
 export class PropBank {
   private props: Prop[] = []
@@ -537,17 +540,35 @@ export class PropBank {
     return free.find((p) => p.node.name === prefer) ?? free[0]
   }
 
-  /** set what each agent holds this frame: one prop per agent, everything else goes home */
-  hold(wants: Map<AgentRig, { kind: string; side: 'l' | 'r'; prefer?: string; attached?: boolean } | null>) {
+  /** set what each agent holds this frame: a prop per hand (#718 ②-b: two at most), everything else goes home */
+  hold(wants: Map<AgentRig, Want | readonly (Want | null)[] | null>) {
     const taken = new Set<Prop>()
-    for (const [rig, want] of wants) {
-      if (!want) continue
-      const p = this.pick(rig, want.kind, want.prefer)
-      if (!p || taken.has(p)) continue
-      p.holder = { rig, side: want.side, attached: want.attached ?? true }
-      taken.add(p)
+    for (const [rig, w] of wants) {
+      // a hand that has its prop goes first (two hands on one book, #450: the holding one, not the one still reaching)
+      const list = (Array.isArray(w) ? w : [w]).filter((x): x is Want => !!x).sort((x, y) => Number(y.attached ?? true) - Number(x.attached ?? true))
+      for (const want of list) {
+        const p = this.pickFree(rig, want.kind, want.prefer, taken)
+        if (!p) continue
+        p.holder = { rig, side: want.side, attached: want.attached ?? true }
+        taken.add(p)
+      }
     }
     for (const p of this.props) if (!taken.has(p)) p.holder = null
+  }
+
+  /** pick, but never a prop this frame has given out already (two of a kind in two hands: each its own) */
+  private pickFree(rig: AgentRig, kind: string, prefer: string | undefined, taken: ReadonlySet<Prop>) {
+    const named = prefer ? this.props.find((p) => p.node.name === prefer && p.kind === kind && !taken.has(p) && (!p.holder || p.holder.rig === rig) && !p.hidden) : undefined
+    if (named) return named
+    // the one asked for by name is in this rig's other hand already: not another of the kind
+    if (prefer && this.props.some((p) => p.node.name === prefer && taken.has(p))) return undefined
+    const p = this.pick(rig, kind, prefer)
+    return p && !taken.has(p) ? p : undefined
+  }
+
+  /** #718 ②-b whether the prop called `name` is in a hand now */
+  held(name: string) {
+    return !!this.props.find((x) => x.node.name === name)?.holder?.attached
   }
 
   /** the prop a rig would take for this kind (the one it holds, else a free one, preferring `prefer`) */
@@ -843,6 +864,8 @@ export class AgentRig {
   }
   /** what it is holding this frame (read by the PropBank) */
   want: { kind: string; side: 'l' | 'r'; prefer?: string; attached?: boolean } | null = null
+  /** #718 ②-b a second prop, in the other hand (PlayStage sets it when both hands hold one) */
+  want2: { kind: string; side: 'l' | 'r'; prefer?: string; attached?: boolean } | null = null
   /** the meeting reaction in progress (#141): when it started on the scene clock, whether a hand lifts with it; the key it answered last */
   private nod: { t0: number; hand: boolean } | null = null
   private nodKey = ''

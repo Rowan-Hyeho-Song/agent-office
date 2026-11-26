@@ -98,6 +98,8 @@ export const GRIPS: Record<string, GripSpec> = {
   // taken by the thumb and the fingertips
   duck: { r: { pre: all(0.3, [0.2, 0.5]), hold: curlOf([0.6, 0.65, 0.7, 0.7], [0.3, 0.7]), after: REST, contacts: ['palm', 'index', 'thumb'] } },
   keycap: { r: { pre: curlOf([0.3, 0.35, 0.6, 0.65], [0.2, 0.5]), hold: curlOf([0.75, 0.3, 0.3, 0.3], [0.2, 0.85]), after: REST, contacts: ['thumb', 'index'] } },
+  // #718 ②-b the ping-pong ball picked up in a tidy-up (3D #735: pp_ball_grip_r, the keycap's pinch)
+  ball: { r: { pre: curlOf([0.3, 0.35, 0.6, 0.65], [0.2, 0.5]), hold: curlOf([0.75, 0.3, 0.3, 0.3], [0.2, 0.85]), after: REST, contacts: ['thumb', 'index'] } },
   shape: { r: { pre: all(0.3, [0.2, 0.5]), hold: curlOf([0.55, 0.6, 0.62, 0.65], [0.35, 0.85]), after: REST, contacts: ['thumb', 'index', 'middle'] } },
   // #370 B2 the swatch fan's stand held in the left hand (no contacts: the hand closed round the pin)
   swatch: { l: { pre: all(0.3, [0.2, 0.5]), hold: curlOf([0.6, 0.6, 0.6, 0.6], [0.3, 0.8]), after: REST, contacts: [] } },

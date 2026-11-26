@@ -71,6 +71,8 @@ export const PILE_TIDY = { lift: 0.04, standDeg: 70, tap: 0.012, out: 0.002, pal
 import { HEADPHONES, KEYCAP_ROLL, cupSwivel, LEAF_STROKE, MIXER, PAPER_READ, SHAPE_TURN, SNAP, SWATCH, leafAt, TOUCH_PROP, TOUCH_S, TURNTABLE_PUSH, type Touch } from './deskTouch'
 import { SIP_TOP_S, TREAT_HOLD, TREAT_LOOK, TREAT_PROP, takeSounds, treatPhase, type SnackKind } from './treatHold'
 import { handsOf } from './paperRun'
+import { TIDY_S, ballOnBlade, tidyHands } from './tidyRun'
+import { TIDY_SPOT as TIDY_SPOT_ID } from './play'
 import { SHELF_BOOKS, SHELF_PULL_M, SHELF_S, SHELF_SINK_M, pageTau, rowOf, spinePoint } from './shelfRun'
 import { cue, cue as treatCue } from '../audio/cues'
 import { ease } from '../play/choreo'
@@ -128,6 +130,12 @@ const CAN_FADE_MS = 120
 /** watering.md 1: over the monstera it leans 2° more (12° instead of 10°: the lean's 5 cm scaled the same way, #397) */
 const LEAN_MORE: Record<string, number> = { plant_sofa: 12 / 10 }
 
+/** a hand's prop for PropBank.hold: the first one this frame is the rig's want, one in the other hand its want2 (#718 ②-b) */
+function setWant(rig: AgentRig, w: NonNullable<AgentRig['want']>) {
+  if (rig.want && rig.want.side !== w.side) rig.want2 = w
+  else rig.want = w
+}
+
 export interface StageIn {
   /** #370 B3b sheets in the planner's IN pile now (props.ts inbox) */
   inbox?: number
@@ -158,6 +166,8 @@ export interface StageIn {
   visitorChess?: { agent: string; view: ChessView; visitor?: ChessInput['visitor'] } | null
   /** #137 ③ the visitor's match with the agent at the far end (pingpong_b): its rally (visitorPingpong.ts rallyOf) on the match clock, this tab only */
   visitorPingpong?: { agent: string; rally: Rally; tMs: number } | null
+  /** #718 ②-b the ping-pong table lies tidied: the paddle the ball rides on (Director.tableTidied), null when not */
+  tidied?: 'a' | 'b' | null
   /** #455 the treats taken in a hand: which, and when it landed (office ms) */
   treats?: Record<string, { kind: SnackKind; at: number }>
   gripDemo?: GripDemo | null
@@ -444,7 +454,7 @@ export class PlayStage {
     const out = clock.step(inp.t, want && rig.visible, o)
     if (!spec || !tgt) {
       // a model without the grip empties: the old way, the prop in the hand's grip
-      if (out.attached && !tgt) rig.want = { kind, side, prefer }
+      if (out.attached && !tgt) setWant(rig, { kind, side, prefer })
       return false
     }
     const hand = rig.parts.hands[side]
@@ -487,7 +497,7 @@ export class PlayStage {
     const fit = this.holdFit(rig, side, tgt)
     rig.drive[side] = { target, w, curl: null, angles: mixVec(rig.curlVec(side, spec.pre), fit.hold, rig.curlVec(side, spec.after), out.mix), wc: out.wCurl, spread: null, reach: REACH_KINDS.has(kind) }
     if (tgt.obj && info && !body) {
-      rig.want = { kind: propKind, side, prefer: prefer ?? objName, attached: out.attached }
+      setWant(rig, { kind: propKind, side, prefer: prefer ?? objName, attached: out.attached })
       if (out.attached) {
         this.props.force(tgt.obj, pose)
         this.forced.add(tgt.obj)
@@ -557,6 +567,7 @@ export class PlayStage {
       r.headExtra = { pitch: 0, yaw: 0, roll: 0 }
       r.chin = false
       r.want = null
+      r.want2 = null
       const g = inp.goals[id]
       if (r.arrived && g && r.arrived === g.spot) {
         if (!this.arrivedAt.has(id)) this.arrivedAt.set(id, inp.t)
@@ -590,6 +601,7 @@ export class PlayStage {
     // #137 ③ the visitor holds the near paddle: their match, the agent at the far end (no hand at the near one)
     const vp = inp.visitorPingpong
     if (vp) pp = inp.rigs[vp.agent]?.arrived === 'pingpong_b' ? { kind: 'pingpong', spot: 'pingpong_a', players: [VISITOR, vp.agent], seed: hash(`visitor|pp|${vp.agent}`), startMs: 0 } : null
+    this.tidyRest(inp.tidied ?? null)
     this.pingpong(pp, inp)
     for (const e of this.stoneLetGo.values()) e.seen = false
     // #604 the board's game (hologram.md 10.2): chess or omok on the one projector; with nobody there, the last game's board goes off
@@ -632,10 +644,13 @@ export class PlayStage {
     if (!s || !this.tableNode) {
       if (ball) {
         ball.visible = true
+        // #718 ②-b home, unless a tidy-up has it (lateUpdate: in a hand, on a paddle)
         ball.position.copy(this.ballHome)
       }
+      this.ballFree = true
       return
     }
+    this.ballFree = false
     const vp = s.players[0] === VISITOR ? inp.visitorPingpong : null
     const tMs = vp ? vp.tMs : sessionTime(s, inp.now)
     const d = this.dims
@@ -656,6 +671,7 @@ export class PlayStage {
       } else {
         ball.visible = !playing || inp.reduced // between points the ball is in somebody's pocket; at the start it waits on the table
         ball.position.copy(this.ballHome)
+        this.ballFree = !playing
       }
     }
     for (const side of [0, 1] as const) {
@@ -1473,6 +1489,8 @@ export class PlayStage {
       if (at) this.indexOn(rig, new Vector3(at.x, at.y, at.z), new Vector3(0, 0, 1), 0, false, inp, true)
       return
     }
+    // #718 ②-b the tidy-up of the ping-pong table (tidyRun.ts)
+    if (goal.tidy) return this.tidyHands(rig, goal.tidy, inp)
     // the reading errand (readRun.ts): the book from the low table to the sofa seat and back
     if (goal.pose === 'books' && goal.read) return this.readErrand(rig, goal.read, inp)
     // #450 the shelf book (shelfRun.ts): out of its slot, read standing, back in the same slot
@@ -2429,6 +2447,126 @@ export class PlayStage {
     const pressed = u > 0.5 && u < 0.5 + holdS
     const tap = pressed && !inp.reduced && u - 0.5 < PRESS_TAP.s ? PRESS_TAP.m * Math.sin((Math.PI * (u - 0.5)) / PRESS_TAP.s) : 0
     this.indexOn(rig, P, n, pressed ? (BUTTON_TRAVEL[name] ?? 0) + tap : 0, pressed, inp, want)
+  }
+
+  /** #718 ②-b no rally moves the ball now (pingpong): a tidy-up may (lateUpdate) */
+  private ballFree = true
+  /** the ball in a tidy-up's hand this frame (tidyHands), or riding a paddle's blade (that paddle's side) */
+  private ballHeld: Vector3 | null = null
+  private ballOn: 'a' | 'b' | null = null
+  /** the paddles PlayStage rests at the tidy places */
+  private tidyRests = new Set<string>()
+
+  /**
+   * #718 ②-b the tidied table (Director.tableTidied): the paddles rest at pp_tidy_paddle_a / _b and the ball on the one it rode, until a hand takes a
+   * paddle again (the next game picks them up from there); then that paddle's home is its own again
+   */
+  private tidyRest(tidied: 'a' | 'b' | null) {
+    for (const s of ['a', 'b'] as const) {
+      const name = `prop_paddle_${s}`
+      const at = this.nodes[`pp_tidy_paddle_${s}`]
+      if (tidied && at && this.tidyRests.has(name)) {
+        at.updateWorldMatrix(true, false)
+        this.props.setRest(name, at.matrixWorld)
+      } else if (!tidied && this.tidyRests.has(name) && this.props.held(name)) {
+        this.props.setRest(name, null)
+        this.tidyRests.delete(name)
+      }
+    }
+    // the ball rides its paddle while that one still lies tidied (or is carried in a tidy-up: tidyHands keeps it)
+    if (this.ballOn && !this.tidying && !this.tidyRests.has(`prop_paddle_${this.ballOn}`)) this.ballOn = null
+    this.ballHeld = null
+    this.tidying = false
+  }
+
+  /** a tidy-up is drawn this frame */
+  private tidying = false
+  /** per agent: what its tidy-up has in hand so far (the ball picked, the partner's paddle taken) */
+  private tidyGot = new Map<string, { ball: boolean; oth: boolean }>()
+
+  /**
+   * #718 ②-b after the prop bank has moved the props (Agents.tsx, after props.update): the ball where a tidy-up has it, in the hand or on the blade
+   * of the paddle it rides, this very frame (set before, it trailed a turning body by two frames)
+   */
+  lateUpdate() {
+    const ball = this.ball
+    if (!ball || !this.ballFree) return
+    if (this.ballHeld) ball.position.copy(this.ballHeld)
+    else if (this.ballOn) {
+      const n = this.nodes[`prop_paddle_${this.ballOn}_ball`]
+      if (n) {
+        n.updateWorldMatrix(true, false)
+        n.getWorldPosition(ball.position)
+      }
+    }
+  }
+
+  /**
+   * #718 ②-b (play.md 9.7 ①, #732) the tidy-up's hands, by stage (tidyRun.ts):
+   *   the left holds its own paddle like a tray, blade up, from `take` to the end of `put`
+   *   the right pinches the ball (pick), lays it on the left blade (lay), takes the partner's paddle by the handle (grip on)
+   *   put: both lowered onto pp_tidy_paddle_a / _b, then let go; the ball stays on the blade
+   */
+  private tidyHands(rig: AgentRig, g: NonNullable<Goal['tidy']>, inp: StageIn) {
+    const own = `prop_paddle_${g.own}`
+    const oth = `prop_paddle_${g.own === 'a' ? 'b' : 'a'}`
+    const root = rig.parts.root
+    const right = new Vector3(Math.cos(rig.heading), 0, -Math.sin(rig.heading))
+    const fwd = new Vector3(-Math.sin(rig.heading), 0, -Math.cos(rig.heading))
+    // the paddle's blade runs along its +y from the handle, the red face along +z (3D #735): blade away from the body, face up
+    const flat = (x: number, y: number, z: number) => new Matrix4().makeBasis(right, fwd, UP).setPosition(root.localToWorld(new Vector3(x, y, z)))
+    const tray = flat(-0.1, 0.9, -0.3)
+    const carry = flat(0.2, 0.82, -0.22)
+    const tidyAt = (name: string) => {
+      const n = this.nodes[`pp_tidy_${name.slice(5)}`]
+      if (!n) return null
+      n.updateWorldMatrix(true, false)
+      return n.matrixWorld.clone()
+    }
+    const putting = g.stage === 'put'
+    const down = putting ? ease(Math.min(1, g.u / (TIDY_S.put * 0.7))) : 0
+    const letGo = putting && g.u > TIDY_S.put * 0.85
+    // what this tidy-up has got so far (a walk given up after walkMax leaves the ball or the partner's paddle where they are: never reached for from afar)
+    const got = this.tidyGot.get(rig.id) ?? { ball: false, oth: false }
+    if (g.stage === 'take') got.ball = got.oth = false
+    this.tidyGot.set(rig.id, got)
+    if (putting) {
+      // from now on a paddle in a hand rests at its tidy place: let go, it stays there
+      for (const name of [own, oth]) {
+        const at = tidyAt(name)
+        if (at && this.props.held(name)) {
+          this.props.setRest(name, at)
+          this.tidyRests.add(name)
+        }
+      }
+    }
+    this.tidying = true
+    const ownAt = tidyAt(own)
+    const othAt = tidyAt(oth)
+    this.grip(rig, 'l', 'paddle', own, !letGo, putting && ownAt ? blend(tray, ownAt, down) : tray, inp, own)
+    const hands = tidyHands(g.stage)
+    const ball = this.ball
+    const atBall = rig.arrived === TIDY_SPOT_ID
+    if (hands.right === 'ball' && ball && (got.ball || (g.stage === 'pick' && atBall))) {
+      // pinched where it lies and lifted 8 cm (pick), then laid on the left blade (lay, let go at 80%)
+      const at = this.ballHome
+      const lift = new Matrix4().makeTranslation(at.x, at.y + 0.08, at.z)
+      const blade = this.nodes[`${own}_ball`]
+      const onBlade = blade ? new Matrix4().makeTranslation(...blade.getWorldPosition(new Vector3()).toArray()) : lift
+      const k = g.stage === 'lay' ? ease(Math.min(1, g.u / (TIDY_S.lay * 0.8))) : 0
+      const held = g.stage === 'lay' ? blend(lift, onBlade, k) : lift
+      const has = this.grip(rig, 'r', 'ball', 'pp_ball', !(g.stage === 'lay' && g.u > TIDY_S.lay * 0.8), held, inp)
+      if (has) {
+        this.ballHeld = new Vector3().setFromMatrixPosition(this.lastObjPose)
+        got.ball = true
+      }
+      // let go on the blade: it rides there from this frame on
+      else if (g.stage === 'lay' && got.ball) this.ballOn = g.own
+    } else if (ballOnBlade(g.stage) && got.ball) this.ballOn = g.own
+    const atPartner = rig.arrived === `pingpong_${g.own === 'a' ? 'b' : 'a'}`
+    if (hands.right === 'paddle' && (got.oth || (g.stage === 'grip' && atPartner))) {
+      if (this.grip(rig, 'r', 'paddle', oth, !letGo, putting && othAt ? blend(carry, othAt, down) : carry, inp, oth)) got.oth = true
+    }
   }
 
   /**
