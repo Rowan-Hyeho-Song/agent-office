@@ -6,8 +6,9 @@ import { DESK_SIDES } from './nav'
 import { DOOR_LABEL, DOOR_ROUND, LEVER, doorAgent, doorDue, doorU, stepDoor, type DoorKind, type DoorRun } from './doorRound'
 import { nightDuty } from './duty'
 import { BROWSE, SHELF_MORE, nextShelf, SHELF_LABEL, SHELF_STAND, shelfTurn, callAway as shelfCallAway, holding as shelfHolding, startShelf, stepShelf, type ShelfRun, type ShelfStage } from './shelfRun'
-import { dayPlan, FILL_MIN_MS, fillChain, hallNear, planDay, playAt, PLAYS, restNear, schedulePose, soloAt, type FillKind, type GapKind, type PlayKind } from './play'
+import { aloneChain, dayPlan, FILL_MIN_MS, fillChain, hallNear, planDay, playAt, PLAYS, restNear, schedulePose, soloAt, type FillKind, type GapKind, type PlayKind } from './play'
 import { gapPace } from './gapMotion'
+import type { Expression } from './faceModel'
 import { activityLabel, type AgentStatus, type OfficeMessage, type StatusMap } from './status'
 import type { Request } from './traffic'
 import { actLength, actSpot, actU, deckAfter, startAct, stepAct, type ActRun } from './actRun'
@@ -37,6 +38,8 @@ export interface Goal {
   depart?: number
   /** an agent to turn only the head toward (the body keeps the spot's / slot's direction) */
   gaze?: string
+  /** #718: a face shown once when `key` changes (rig.faceEvent): a watcher puzzled as its game breaks */
+  faceCue?: { expr: Expression; key: string; dur: number }
   /** a short reaction, started once when `key` changes: a 5° nod, with a slight hand lift (skipped with reduced motion) */
   gesture?: { key: string; hand: boolean }
   /** placeholder speech bubble text (bubble design comes later) */
@@ -155,6 +158,8 @@ export class Director {
    * thing frame after frame)
    */
   private leftOf: Record<string, { stay: number; from: number; held: string[] }> = {}
+  /** #718 ?debug=1: one left at a forced ping-pong game whose partner was sent to work (debugPlay.ts typing.force): play.md 9.2's busy rule from `from` */
+  private forcedAlone: { agent: string; from: number; until: number } | null = null
   /** #457 the drink each agent has in hand from the fridge (fridgeDrink.ts), and what it took out on which KST day (not the same one twice a day) */
   private drinks: Record<string, Drink> = {}
   private drank: Record<string, { day: number; kinds: DrinkKind[] }> = {}
@@ -291,6 +296,15 @@ export class Director {
 
   clearReads() {
     for (const k of Object.keys(this.reads)) delete this.reads[k]
+  }
+
+  /** #718 ?debug=1: `agent` is left alone at the ping-pong table now (its forced partner went to work): the stroll, then the fill chain, for `minutes` */
+  forceAlone(agent: string, now: number, minutes = 6) {
+    this.forcedAlone = { agent, from: now, until: now + minutes * 60_000 }
+  }
+
+  clearAlone() {
+    this.forcedAlone = null
   }
 
   /** ?debug=1: send an agent to read right now, on `seat` (0 when not said); the schedule's own readings take the first free seat */
@@ -455,6 +469,15 @@ export class Director {
       }
     }
     fillLeft()
+    // #718 ?debug=1: the one left at a forced ping-pong game: the stroll, then the fill chain, as the schedule's own (play.ts aloneChain)
+    const fa = this.forcedAlone
+    const alonePlay = () => {
+      if (fa && now >= fa.from && now < fa.until && play[fa.agent]) play[fa.agent] = aloneChain(now, this.agents, fa.agent, fa.from, fa.until)
+    }
+    if (fa && now >= fa.until) this.forcedAlone = null
+    alonePlay()
+    // #718: the plan's face cues, kept before an errand takes its agent out of the schedule below
+    const cues = Object.fromEntries(this.agents.map((a) => [a, play[a]?.cue] as const))
     // #490: no blocks; each agent's errands count "done" per stay of its own plan (play.ts), the minute when it has none
     const stayOf = (a: string) => play[a]?.stay ?? minute
 
@@ -677,6 +700,7 @@ export class Director {
     if (away.length) {
       play = playAt(now, this.agents, new Set([...busy, ...away]), alone)
       fillLeft()
+      alonePlay()
     }
     const out: Record<string, Goal> = {}
     const shown: Record<string, Shown> = {}
@@ -853,6 +877,11 @@ export class Director {
       out[a] = p ? { spot: p.spot, pose: schedulePose(p.kind), face: p.face, ...standSlot(p), ...(p.gap ? { gap: p.gap } : {}), ...(p.gap === 'spines' ? { browse: true } : {}), ...(p.watch ? { watching: p.watch } : {}), ...(p.kind === 'pingpong' && p.partner && arrivedAt(p.partner) !== play[p.partner]?.spot ? { partnerWait: true } : {}), label: p.label } : deskIdle(desk)
     }
     this.settle(out, playing, deskIdle)
+    // #718 (play.md 9.7 ②): a face cue of the plan (a watcher whose game broke: 의문) whatever its fill is run as (an errand builds its own goal)
+    for (const a of this.agents) {
+      const cue = cues[a] ?? play[a]?.cue
+      if (cue && out[a]) out[a] = { ...out[a], faceCue: cue }
+    }
     this.putAway(now, out)
     this.drinkStep(now, out, shown, arrivedAt, !!opts.reduced)
     this.baseShown = shown

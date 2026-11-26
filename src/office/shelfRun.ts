@@ -87,6 +87,30 @@ export interface ShelfRun {
  */
 export const SHELF_MORE = { minLeftS: 150, max: 3 } as const
 export const BROWSE = { yawDeg: 12, periodS: 6, label: '책장 책 읽기 · 책등 보는 중' } as const
+
+/**
+ * #718 (play.md 9.7 둘러보기): looking over the spines, row by row: the head goes from a row's left end to its right end in `rowS` s (the last `backS` of
+ * it back to the next row's left end), top row to bottom and round again. Degrees: + is up / left
+ */
+export const SPINE_SWEEP = { rowS: 8, backS: 0.8, yawDeg: 14, rowPitchDeg: [10, 0, -10, -22] } as const
+
+/** the head over the spines at `u` s into the browse (rad); reduced motion: still, looking at the shelf */
+export function spineLook(u: number, reduced: boolean): { pitch: number; yaw: number; roll: 0 } {
+  const D = Math.PI / 180
+  const rows = SPINE_SWEEP.rowPitchDeg
+  if (reduced || u < 0) return { pitch: rows[1] * D, yaw: 0, roll: 0 }
+  const k = Math.floor(u / SPINE_SWEEP.rowS)
+  const f = u - k * SPINE_SWEEP.rowS
+  const ease = (x: number) => x * x * (3 - 2 * x)
+  const sweep = SPINE_SWEEP.rowS - SPINE_SWEEP.backS
+  const row = rows[k % rows.length]
+  if (f < sweep) return { pitch: row * D, yaw: (1 - 2 * ease(f / sweep)) * SPINE_SWEEP.yawDeg * D, roll: 0 }
+  // back to the left end, down to the next row
+  const b = ease((f - sweep) / SPINE_SWEEP.backS)
+  const next = rows[(k + 1) % rows.length]
+  return { pitch: (row + (next - row) * b) * D, yaw: (-1 + 2 * b) * SPINE_SWEEP.yawDeg * D, roll: 0 }
+}
+
 /** the time a book takes besides its reading: out, open, close, back in */
 export const SHELF_HANDS_S = SHELF_S.pull + SHELF_S.open + SHELF_S.close + SHELF_S.put
 

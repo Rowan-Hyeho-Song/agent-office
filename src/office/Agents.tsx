@@ -484,7 +484,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
           r.drawAt = tk ? drawn.follow(id, tk.x, tk.z, replay.getSnapshot().playing && tauTotal > 0 ? (realDt * step.dt) / tauTotal : realDt) : null
           r.pace = REPLAY_PACE
           r.traffic = step.goals[id].pose !== 'leave'
-          r.setGoal(step.goals[id], graph)
+          // #428 (timelapse.md 12.4): the replay's faces come from its points, never from a live cue
+          r.setGoal(step.goals[id].faceCue ? { ...step.goals[id], faceCue: undefined } : step.goals[id], graph)
           r.track = step.tracks[id]
           r.update(step.dt, step.anim, graph, rigs, reduced, status[id])
         }

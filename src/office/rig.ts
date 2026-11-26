@@ -27,7 +27,7 @@ import { baseExpression, CallTracker, FaceMind, newInput, type FaceInput } from 
 import { WRITE_CARD, wrapBack, wrapHand, wrapHead, type HandSpec } from './wrapPose'
 import { WRAP } from './wrap'
 import { DOOR_ROUND, LEVER } from './doorRound'
-import { BROWSE } from './shelfRun'
+import { spineLook } from './shelfRun'
 import { isWaiting } from './screens'
 import type { Expression } from './faceModel'
 import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
@@ -846,6 +846,8 @@ export class AgentRig {
   /** the meeting reaction in progress (#141): when it started on the scene clock, whether a hand lifts with it; the key it answered last */
   private nod: { t0: number; hand: boolean } | null = null
   private nodKey = ''
+  /** #718: the last goal face cue shown */
+  private faceCueKey = ''
   /** #490 B: the goal it rests at (spot | pose | gap; empty on the way) and since when (scene clock, s) */
   private restKey = ''
   private restT0 = 0
@@ -1254,6 +1256,12 @@ export class AgentRig {
     const pl = this.propLookAt(t, pose)
     if (pl) Object.assign(lookTarget, pl)
     lookTarget.pitch -= this.nodDip(goal, t, reduced)
+    // #718: a goal's face cue, once per key (a watcher's game broke: 의문)
+    const fc = goal.faceCue
+    if (fc && fc.key !== this.faceCueKey) {
+      this.faceCueKey = fc.key
+      this.faceEvent(fc.expr, t, fc.dur)
+    }
     if (this.glance && pose !== 'move') {
       const dx = this.glance.at.x - this.x
       const dz = this.glance.at.z - this.z
@@ -1454,7 +1462,8 @@ export class AgentRig {
     const s = (f: number, o = 0) => Math.sin(t * f + this.phase + o) * m
     const idle = { pitch: 0, yaw: reduced ? 0 : s(0.35) * 0.25, roll: 0 }
     // #450 browsing the second bookshelf's spines: the head along the rows, ±12° in 6 s; reduced motion: still
-    if (pose === 'idle' && this.goal?.browse) return { pitch: 0.04, yaw: reduced ? 0 : Math.sin((t / BROWSE.periodS) * Math.PI * 2) * BROWSE.yawDeg * (Math.PI / 180), roll: 0 }
+    // #718 (play.md 9.7): row by row, left to right, top to bottom (shelfRun.ts spineLook); reduced motion: still
+    if (pose === 'idle' && this.goal?.browse) return spineLook(this.restKey ? t - this.restT0 : -1, reduced)
     // #490 B a gap (play.md 9.3): the head back with the stretch, breathing at the window, one look left and right after a stroll
     // #451 at the door with the lever: the head straight at the door's screen (0°), no idle glance
     if (pose === 'idle' && (this.goal?.door?.u ?? -1) >= 0) return { pitch: 0, yaw: 0, roll: 0 }
