@@ -25,7 +25,9 @@ export function ReplayList() {
   useEffect(() => root.current?.focus({ preventScroll: true }), [])
 
   const inProject = useMemo(() => prepare(everything, project), [everything, project])
-  const shown = useMemo(() => inProject.filter((p) => (!kinds.size || kinds.has(p.kind)) && (!agents.size || (!isDeploy(p) && agents.has(laneOf(p))))), [inProject, kinds, agents])
+  // #710 (timelapse.md 2, #729): the private projects alone: no number anywhere (a point is a half hour of work), and nothing to filter by
+  const hidden = isHidden({ project })
+  const shown = useMemo(() => (hidden ? inProject : inProject.filter((p) => (!kinds.size || kinds.has(p.kind)) && (!agents.size || (!isDeploy(p) && agents.has(laneOf(p)))))), [inProject, kinds, agents, hidden])
   const days = useMemo(() => {
     const map = new Map<string, Point[]>()
     for (const p of shown) map.set(dayKey(p), [...(map.get(dayKey(p)) ?? []), p])
@@ -76,21 +78,25 @@ export function ReplayList() {
             </button>
           ))}
         </div>
-        <Spark days={perDay} />
-        <div className="sum">{range} · 점 {shown.length}개 · 최근이 위</div>
+        <Spark days={perDay} presence={hidden} />
+        <div className="sum">{hidden ? `${range} · 최근이 위` : `${range} · 점 ${shown.length}개 · 최근이 위`}</div>
         <div className="chips">
           <button type="button" className="chip" onClick={() => watch(null)}>▶ 사무실에서 보기</button>
         </div>
-        <div className="chips" role="group" aria-label="종류 거르기">
-          {KINDS.map((k) => (
-            <button key={k} type="button" className="chip" aria-pressed={kinds.has(k)} onClick={() => toggle(kinds, k, setKinds)}>{KIND_NAME[k]}</button>
-          ))}
-        </div>
-        <div className="chips" role="group" aria-label="에이전트 거르기">
-          {lanes.map((l) => (
-            <button key={String(l)} type="button" className="chip" aria-pressed={agents.has(l)} onClick={() => toggle(agents, l, setAgents)}>{AGENT_NAME[l]}</button>
-          ))}
-        </div>
+        {!hidden && (
+          <div className="chips" role="group" aria-label="종류 거르기">
+            {KINDS.map((k) => (
+              <button key={k} type="button" className="chip" aria-pressed={kinds.has(k)} onClick={() => toggle(kinds, k, setKinds)}>{KIND_NAME[k]}</button>
+            ))}
+          </div>
+        )}
+        {!hidden && (
+          <div className="chips" role="group" aria-label="에이전트 거르기">
+            {lanes.map((l) => (
+              <button key={String(l)} type="button" className="chip" aria-pressed={agents.has(l)} onClick={() => toggle(agents, l, setAgents)}>{AGENT_NAME[l]}</button>
+            ))}
+          </div>
+        )}
       </header>
       {days.map(([day, list]) => {
         const k = kst(atMs(list[0]))
@@ -100,7 +106,7 @@ export function ReplayList() {
         return (
           <section key={day} className={`day${mark === id ? ' mark' : ''}`} data-day={id} aria-label={`${k.m}월 ${k.d}일 ${k.w}요일`}>
             <div className="day-head">
-              <h3>{k.m}월 {k.d}일 {k.w}요일 · {list.length}개</h3>
+              <h3>{k.m}월 {k.d}일 {k.w}요일{hidden ? '' : ` · ${list.length}개`}</h3>
               <button type="button" className="watch" onClick={() => watch(id)}>▶ 이 날 보기</button>
             </div>
             <ol>
@@ -109,7 +115,7 @@ export function ReplayList() {
               ))}
             </ol>
             {!all && rows.length > PER_DAY && (
-              <button type="button" className="chip more" onClick={() => setOpen(new Set(open).add(day))}>{rows.length - PER_DAY}개 더 보기</button>
+              <button type="button" className="chip more" onClick={() => setOpen(new Set(open).add(day))}>{hidden ? '더 보기' : `${rows.length - PER_DAY}개 더 보기`}</button>
             )}
           </section>
         )
@@ -152,7 +158,7 @@ function Row({ p }: { p: Point }) {
 }
 
 /** a bar per day (role=img, the numbers in the label) */
-function Spark({ days }: { days: [string, number][] }) {
+function Spark({ days, presence = false }: { days: [string, number][]; presence?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const c = ref.current
@@ -168,17 +174,19 @@ function Spark({ days }: { days: [string, number][] }) {
     g.textBaseline = 'alphabetic'
     days.forEach(([day, n], i) => {
       const room = c.height - (text ? 44 : 4)
-      const h = Math.max(2, (n / max) * room)
+      // #710: the private projects show only that a day had work, never how much
+      const h = presence ? room : Math.max(2, (n / max) * room)
       const x = i * bw
       g.fillStyle = t.muted
       g.fillRect(x + 3, c.height - (text ? 22 : 0) - h, Math.max(1, bw - 6), h)
       if (!text) return
-      // the count over the bar, the date under it
+      // the count over the bar (not for the private projects), the date under it
       g.fillStyle = t.text
-      g.fillText(`${n}`, x + bw / 2, c.height - 24 - h)
+      if (!presence) g.fillText(`${n}`, x + bw / 2, c.height - 24 - h)
       g.fillStyle = t.muted
       g.fillText(day, x + bw / 2, c.height - 3)
     })
-  }, [days])
-  return <canvas ref={ref} className="spark" width={732} height={96} role="img" aria-label={`날짜별 점 수: ${days.map(([d, n]) => `${d} ${n}개`).join(', ')}`} />
+  }, [days, presence])
+  const label = presence ? `날짜별 활동: ${days.map(([d]) => `${d} 있음`).join(', ')}` : `날짜별 점 수: ${days.map(([d, n]) => `${d} ${n}개`).join(', ')}`
+  return <canvas ref={ref} className="spark" width={732} height={96} role="img" aria-label={label} />
 }
