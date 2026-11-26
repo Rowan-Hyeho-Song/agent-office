@@ -75,6 +75,9 @@ export const EDGES: [string, string][] = [
   ['hall_back', 'bulletin'],
   ['hall_back', 'shelf'],
   ['hall_back', 'hall_east'],
+  // #718 (3D #730): the tidy-up stand on the table's north side by the net
+  ['hall_back', 'pp_side'],
+  ['pp_side', 'hall_east'],
   ['bulletin', 'shelf'],
   ['hall_east', 'shelf'],
   ['hall_east', 'coffee'],
