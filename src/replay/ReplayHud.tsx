@@ -5,7 +5,7 @@ import { AGENT_INFO, type OfficeWorld } from '../office/world'
 import type { Point } from '../timeline/types'
 import { drawBar, nearest, projectKind, type BarLayout } from './barDraw'
 import { boardDistance, pointWaitMs } from './walk'
-import { ALL, LANES, LANE_NAME, SECRET_NOTE, isHidden, SPEEDS, atMs, describe, dayLabel, laneOf, remainingMs, shortName, stepMs, valueText, whenText, kst, type Lane } from './engine'
+import { ALL, LANES, LANE_NAME, SECRET_NOTE, isHidden, whenOf, SPEEDS, atMs, describe, dayLabel, laneOf, remainingMs, shortName, stepMs, valueText, kst, type Lane } from './engine'
 import { replay, useReplay } from './store'
 import { useLineSub } from './lineSub'
 import { minutesExtraMs, progressText, useMinutesProgress, useMinutesVersion } from './minutesInfo'
@@ -201,7 +201,8 @@ function OfficeBars({ world }: { world: OfficeWorld }) {
   if (!p) return null
   const d = describe(p)
   const lane = laneOf(p)
-  const when = whenText(atMs(p))
+  // #731: a private project's point shows its day, never its time
+  const when = whenOf(p)
   // an empty night step counts at x16 (#599 timelapse.md 13.2)
   const rateAt = (k: number) => replay.rateAt(k)
   const left = remainingMs(points, s.i, rateAt, (k, first) => pointWaitMs(points, k, (p) => stepMs(p, 1), boardDistance, first) + (points[k].kind === 'minutes' ? minutesExtraMs(points[k], rateAt(k)) : 0), s.ended) / 1000
@@ -331,7 +332,7 @@ function Tip({ point: p, x, wrap }: { point: Point; x: number; wrap: HTMLDivElem
       <div className="body">
         {isHidden(p) ? null : p.secret ? <span className="replay-redact wide" /> : d.title || '(제목 없음)'}
         <span className="meta">
-          {`${p2(k.m)}.${p2(k.d)} ${k.w} ${p2(k.h)}:${p2(k.mi)}`}
+          {isHidden(p) ? `${p2(k.m)}.${p2(k.d)} ${k.w}` : `${p2(k.m)}.${p2(k.d)} ${k.w} ${p2(k.h)}:${p2(k.mi)}`}
           {d.size ? ` · ${d.size}` : ''}
           {p.issue !== null && !p.secret ? ` · #${p.issue}` : ''}
         </span>

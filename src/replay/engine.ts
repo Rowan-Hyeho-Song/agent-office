@@ -40,6 +40,12 @@ export const whenText = (ms: number) => {
   const k = kst(ms)
   return `${k.y}.${p2(k.m)}.${p2(k.d)} ${k.w} ${p2(k.h)}:${p2(k.mi)}`
 }
+/** a point's time as shown: `2026.11.08 일 01:51`; a private project's day only (#731: `2026.11.08 일`) */
+export const whenOf = (p: Point) => {
+  if (p.project !== HIDDEN_PROJECT) return whenText(atMs(p))
+  const k = kst(atMs(p))
+  return `${k.y}.${p2(k.m)}.${p2(k.d)} ${k.w}`
+}
 /** `11.08 일` */
 export const dayLabel = (ms: number) => {
   const k = kst(ms)
@@ -52,10 +58,24 @@ export const ALL = 'all'
 export const shortName = (repo: string) => (repo === HIDDEN_PROJECT ? '비공개' : (repo.split('/').pop() ?? repo))
 export const byTime = (a: Point, b: Point) => atMs(a) - atMs(b) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
 
-/** the points of one project (or all), in play order: time, then key */
+/**
+ * The points of one project (or all), in play order: time, then key. #731 (timelapse.md 14): a private project's points are one per agent per KST day, the
+ * first of it (points stored per half hour before are folded the same way)
+ */
 export function prepare(points: readonly Point[], project: string = ALL): Point[] {
-  return points.filter((p) => project === ALL || p.project === project).sort(byTime)
+  const sorted = points.filter((p) => project === ALL || p.project === project).sort(byTime)
+  const seen = new Set<string>()
+  return sorted.filter((p) => {
+    if (p.project !== HIDDEN_PROJECT) return true
+    const k = `${p.agent}|${dayKey(p)}|${kst(atMs(p)).y}`
+    if (seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
 }
+
+/** #731: the points that count (every number shown leaves the private projects' out, so no subtraction tells how much they worked) */
+export const countable = (points: readonly Point[]) => points.filter((p) => p.project !== HIDDEN_PROJECT)
 
 /** the index of the last point at or before `t` (ms), or 0; -1 when there are no points */
 export function indexAt(points: readonly Point[], t: number): number {
@@ -395,7 +415,8 @@ export const whoKind = (p: Point) => (isDeploy(p) ? '▲ 배포' : `${whoName(p)
 
 /** the same sentence for the subtitle (screen reading uses it as the slider's text too) */
 export function describe(p: Point): { who: string; kind: string; title: string; size: string; head: string } {
-  if (isHidden(p)) return { who: whoName(p), kind: kindWord(p), head: whoKind(p), title: '', size: '' }
+  // #731: who and the day, never the time: `휴 · 비공개 작업 · 11.27`
+  if (isHidden(p)) return { who: whoName(p), kind: kindWord(p), head: `${whoKind(p)} · ${dayKey(p)}`, title: '', size: '' }
   return { who: whoName(p), kind: kindWord(p), head: whoKind(p), title: p.secret ? SECRET_NOTE : isDeploy(p) ? deployTitle(p) : p.title, size: sizeText(p) }
 }
 
@@ -405,5 +426,5 @@ export function valueText(points: readonly Point[], i: number): string {
   if (!p) return ''
   const d = describe(p)
   const lines = p.kind === 'work' && p.additions !== null && !isHidden(p) ? `, 줄 ${p.additions}개 더함 ${p.deletions ?? 0}개 뺌, 파일 ${p.files ?? 0}개` : ''
-  return `${i + 1}번째 점, ${whenText(atMs(p))}, ${isDeploy(p) ? d.head : `${d.who}, ${d.kind}`}${d.title ? `: ${d.title}` : ''}${lines}`
+  return `${i + 1}번째 점, ${whenOf(p)}, ${isDeploy(p) ? d.head : `${d.who}, ${d.kind}`}${d.title ? `: ${d.title}` : ''}${lines}`
 }

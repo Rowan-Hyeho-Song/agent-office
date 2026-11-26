@@ -119,6 +119,9 @@
 .replay-list .row .num { grid-column: 2; font-family: var(--font-pixel); font-size: var(--font-size-1); color: var(--color-text-muted); }
 .replay-list .row .num .add { color: var(--color-green); }
 .replay-list .row .num .del { color: var(--color-red); }
+/* #731: a day's private work, one line: no agent, no time; the private band's diagonal at its edge */
+.replay-list .row.private-day { border-left: 3px solid transparent; border-image: repeating-linear-gradient(135deg, rgb(0 0 0 / 0.45) 0 1px, transparent 1px 3px) 1; background-clip: padding-box; }
+.replay-list .row.private-day .ttl { color: var(--color-lock); }
 .replay-list .empty { padding: var(--space-4); color: var(--color-text-muted); }
 
 /* the docs viewer's button (on paper) */
