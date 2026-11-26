@@ -6,7 +6,7 @@ import { DESK_SIDES } from './nav'
 import { DOOR_LABEL, DOOR_ROUND, LEVER, doorAgent, doorDue, doorU, stepDoor, type DoorKind, type DoorRun } from './doorRound'
 import { nightDuty } from './duty'
 import { BROWSE, SHELF_MORE, nextShelf, SHELF_LABEL, SHELF_STAND, shelfTurn, callAway as shelfCallAway, holding as shelfHolding, startShelf, stepShelf, type ShelfRun, type ShelfStage } from './shelfRun'
-import { aloneChain, dayPlan, FILL_MIN_MS, fillChain, hallNear, planDay, playAt, PLAYS, restNear, schedulePose, soloAt, type FillKind, type GapKind, type PlayKind } from './play'
+import { aloneChain, dayPlan, FILL_MIN_MS, fillChain, GAP_LABEL, hallNear, TIDY_SPOT, planDay, playAt, PLAYS, restNear, schedulePose, soloAt, type FillKind, type GapKind, type PlayKind } from './play'
 import { gapPace } from './gapMotion'
 import type { Expression } from './faceModel'
 import { activityLabel, type AgentStatus, type OfficeMessage, type StatusMap } from './status'
@@ -19,6 +19,7 @@ import { NOTE_LABEL, NOTE_READ, noteU, stepNote, stillWaiting, type NoteRun, typ
 import { PATH_BLOCKERS, STAND_BLOCKERS, WATER_PLANTS } from './water'
 import { callAway, chooseSeat, holding as readHolding, placeOf as readPlace, READ_LABEL, readLen, startRead, stepRead, type ReadRun, type ReadStage } from './readRun'
 import { holding, placeOf, startWater, stepWater, WATER_LABEL, type WaterRun, type WaterStage } from './waterRun'
+import { other as otherSide, startTidy, stepTidy, tidyPlace, type Side, type TidyRun, type TidyStage } from './tidyRun'
 import { habitFor, type HabitKind } from './waterFx'
 import { startWrap, stepWrap, viewOf, WALKING_TO_DESK, type BeatKind, type PieceKind, type Shown, type WrapRun, type WrapStep } from './wrap'
 
@@ -57,6 +58,8 @@ export interface Goal {
   water?: { stage: WaterStage; plant: string; u: number; habit?: HabitKind | null }
   /** the reading errand (#280, readRun.ts): its stage, the seat it reads on, and how long (s) the stage has lasted: the hands are drawn from these */
   read?: { stage: ReadStage; seat: number; u: number; /** the seated reading's length, s (readRun.ts readLen, #715) */ len: number }
+  /** #718 ②-b the tidy-up of the ping-pong table (tidyRun.ts): its stage, how long it has lasted (s), and the agent's own paddle */
+  tidy?: { stage: TidyStage; u: number; own: Side }
   /** a lounge act (lounge.ts: the fridge, the dispenser, the turntable): which, how long since the agent reached its stand (s, -1 on the way), the turntable's mode and whether a record was on the platter */
   act?: { kind: ActKind; u: number; mode?: RecordMode; recordOn: boolean; pick?: DrinkKind }
   /** #457 the drink taken out of the fridge, in the left hand (fridgeDrink.ts): from the moment the hand has it until it has faded out */
@@ -136,6 +139,9 @@ export const ACT_WAIT_MAX_S = 15
 /** an act not started yet: its walk to the stand, guessed (s) */
 const ACT_WALK_S = 10
 
+/** #718 ②-b (3D #735): where the ball is picked up by the net on the north side: a stand before it, facing it */
+export const TIDY_BALL = { stand: { x: 1.7, z: -0.16 }, face: { x: 1.7, z: 0.27 } } as const
+
 export class Director {
   private queue: OfficeMessage[] = []
   private talks: Talk[] = []
@@ -150,6 +156,10 @@ export class Director {
   /** the reading errand in progress (readRun.ts; at most one: there is one book) and the block each agent has read in already */
   private reads: Record<string, ReadRun> = {}
   private readDone: Record<string, number> = {}
+  /** #718 ②-b the tidy-ups under way (tidyRun.ts), the stay each agent has tidied in already, and whether the table lies tidied (until a game takes the paddles up) */
+  private tidies: Record<string, TidyRun> = {}
+  private tidyDone: Record<string, number> = {}
+  private tidied = false
   /** the lounge acts in progress (actRun.ts; the fridge and the dispenser share one bar, the turntable has its own) and the block each agent has acted in already */
   private acts: Record<string, ActRun> = {}
   private actDone: Record<string, number> = {}
@@ -296,6 +306,11 @@ export class Director {
 
   clearReads() {
     for (const k of Object.keys(this.reads)) delete this.reads[k]
+  }
+
+  /** #718 ②-b the paddles and the ball lie tidied by the net (PlayStage rests them there) until a game at the table takes them up */
+  tableTidied() {
+    return this.tidied
   }
 
   /** #718 ?debug=1: `agent` is left alone at the ping-pong table now (its forced partner went to work): the stroll, then the fill chain, for `minutes` */
@@ -561,6 +576,28 @@ export class Director {
         }
       }
     }
+    // #718 ②-b (play.md 9.7 ①, tidyRun.ts): the one left at a broken ping-pong game tidies the table; called away, it simply stops (the paddles go home)
+    const tidySpot = (run: TidyRun, place: ReturnType<typeof tidyPlace>) => (place === 'own' ? `pingpong_${run.own}` : place === 'partner' ? `pingpong_${otherSide(run.own)}` : TIDY_SPOT)
+    for (const a of this.agents) {
+      const p = play[a]
+      if (p?.gap === 'tidy' && p.paddle && this.tidyDone[a] !== p.stay && !this.tidies[a] && resting(a)) {
+        this.tidies[a] = startTidy(p.paddle, p.stay, now)
+        this.tidyDone[a] = p.stay
+      }
+      const run = this.tidies[a]
+      if (!run) continue
+      if (!resting(a) || a in this.meet) {
+        delete this.tidies[a]
+        continue
+      }
+      const r = stepTidy(run, { now, arrived: (place) => arrivedAt(a) === tidySpot(run, place) })
+      if (r.done) {
+        delete this.tidies[a]
+        this.tidied = true
+      } else this.tidies[a] = r.run
+    }
+    // a game at the table takes the tidied paddles up again
+    if (this.agents.some((a) => play[a]?.kind === 'pingpong' && !!play[a]?.partner && play[a]?.pairAt !== undefined && now >= play[a]!.pairAt!)) this.tidied = false
     // #450 (lounge-props.md 6): the book from the second bookshelf, read standing before it and put back in its slot. Called away with it out, it is put
     // back first; on the way, nothing is out
     if (this.shelf) {
@@ -696,7 +733,7 @@ export class Director {
       }
     }
     // whoever is on an errand is not free for the schedule's other plays (a game partner left alone goes to a solo)
-    const away = [...Object.keys(this.waters), ...Object.keys(this.acts), ...Object.keys(this.reads), ...Object.keys(this.noteRuns), ...(this.door ? [this.door.agent] : []), ...(this.shelf ? [this.shelf.agent] : []), ...(this.shelfBrowse ? [this.shelfBrowse.agent] : [])]
+    const away = [...Object.keys(this.waters), ...Object.keys(this.acts), ...Object.keys(this.reads), ...Object.keys(this.tidies), ...Object.keys(this.noteRuns), ...(this.door ? [this.door.agent] : []), ...(this.shelf ? [this.shelf.agent] : []), ...(this.shelfBrowse ? [this.shelfBrowse.agent] : [])]
     if (away.length) {
       play = playAt(now, this.agents, new Set([...busy, ...away]), alone)
       fillLeft()
@@ -754,6 +791,15 @@ export class Director {
         shown[a] = free
           ? { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
           : { status: s, kind: s.state === 'working' ? 'work' : s.state === 'wrapping' ? 'wrap' : s.state === 'off' ? 'off' : 'duty', detail: WATER_LABEL[wr.stage], ...(s.state === 'wrapping' ? { step: 'seat' as const } : {}) }
+        continue
+      }
+      // #718 ②-b the tidy-up: the stage's place (its end, the ball by the net, the partner's end, pp_side), the hands drawn from the stage
+      const tr = this.tidies[a]
+      if (tr) {
+        const place = tidyPlace(tr)
+        out[a] = { spot: tidySpot(tr, place), pose: 'idle', ...(place === 'ball' ? { face: TIDY_BALL.face, ...standSlot(TIDY_BALL) } : {}), tidy: { stage: tr.stage, u: (now - tr.t0) / 1000, own: tr.own }, label: GAP_LABEL.tidy }
+        const free = (s.state === 'idle' && s.night !== 'duty') || (s.state === 'wrapping' && !this.runs[a])
+        shown[a] = free ? { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' } : { status: s, kind: s.state === 'working' ? 'work' : s.state === 'wrapping' ? 'wrap' : s.state === 'off' ? 'off' : 'duty', detail: GAP_LABEL.tidy }
         continue
       }
       // the reading errand: the stage's own place (the stand beside the table, or the sofa seat) and hands, until the book is back where it was taken from

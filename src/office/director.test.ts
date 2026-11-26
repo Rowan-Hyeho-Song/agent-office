@@ -605,24 +605,27 @@ describe('a ping-pong partner goes to work (#516)', () => {
       const d = new Director(AGENTS)
       const { fn } = makeArrived()
       const st = allIdle()
-      const seen: { t: number; mine: string; theirs?: string }[] = []
+      const seen: { t: number; mine: string; tidy: boolean; theirs?: string }[] = []
       const off = s.start + 60_000
       const back = off + 90_000
       for (let t = s.start + 1000; t < s.end - 1000; t += 250) {
         st[k] = t < off ? idle() : t < back ? { state: 'working', since: off, activity: 'test' } : idle(back)
         const g = d.goals(t, MINUTE, st, fn)
-        seen.push({ t, mine: `${g[a].spot}|${g[a].pose}`, theirs: t >= back ? `${g[k].spot}|${g[k].pose}` : undefined })
+        seen.push({ t, mine: `${g[a].spot}|${g[a].pose}`, tidy: !!g[a].tidy, theirs: t >= back ? `${g[k].spot}|${g[k].pose}` : undefined })
       }
       return { seen, off, back }
     }
     const { seen, off } = run()
     for (const x of seen) {
       if (x.t < off) expect(x.mine).toBe('pingpong_a|pingpong')
-      // #718 (play.md 9.7 ①): the tidy-up at the table's side by the net (standing, not playing), then away from the table
-      else if (x.t >= off + 1000 && x.t < off + TIDY_MS) expect(x.mine, `${x.t - off} ms after`).toBe(`${TIDY_SPOT}|idle`)
-      else if (x.t >= off + TIDY_MS + 1000) expect(x.mine, `${x.t - off} ms after`).not.toContain('pingpong')
+      // #718 (play.md 9.7 ①, tidyRun.ts): never playing again; the tidy-up goes round the table (its end, the ball, the partner's end, the side by the net)
+      else if (x.t >= off + 1000) expect(x.mine.endsWith('|pingpong'), `${x.t - off} ms after`).toBe(false)
       if (x.theirs) expect(x.theirs, 'back from work').not.toContain('pingpong')
     }
+    const tidy = seen.filter((x) => x.tidy)
+    expect(tidy.length, 'a tidy-up').toBeGreaterThan(0)
+    expect(tidy[0].t - off).toBeLessThan(1500)
+    expect(seen.some((x) => x.tidy && x.mine === `${TIDY_SPOT}|idle`), 'at the side by the net').toBe(true)
     expect(seen.some((x) => x.t >= off + TIDY_MS + 31_000 && !x.mine.includes('|idle')), 'a solo play after the stroll').toBe(true)
     // the same over the same statuses
     expect(run().seen).toEqual(seen)
