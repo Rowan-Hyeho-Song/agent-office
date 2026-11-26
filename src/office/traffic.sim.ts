@@ -166,7 +166,14 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
     if (minute !== lastMinute) {
       lastMinute = minute
       const kmin = Math.floor((now - DAY0) / 60000)
-      status = applyDuty(rawStatus(kmin, now), AGENTS, now)
+      const next = applyDuty(rawStatus(kmin, now), AGENTS, now)
+      // #718: an idle stretch keeps the since it began with, as the live statuses do (rawStatus gives idle the minute itself; a since that moves every minute
+      // restarted the stroll of an agent left alone at the ping-pong table every minute)
+      for (const a of AGENTS) {
+        const was = status[a]
+        if (was && was.state === 'idle' && next[a].state === 'idle' && was.night === next[a].night) next[a] = { ...next[a], since: was.since }
+      }
+      status = next
       // a talk now and then between two agents
       if (rand() < 0.12) {
         const m: OfficeMessage = { id: `m${msgId++}`, kind: 'talk', from: AGENTS[Math.floor(rand() * AGENTS.length)], to: AGENTS[Math.floor(rand() * AGENTS.length)], at: now }
