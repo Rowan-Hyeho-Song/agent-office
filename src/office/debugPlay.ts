@@ -70,6 +70,17 @@ export function makeTypingTools(world: OfficeWorld, typist: Typist) {
       }
       typist.forced[a] = activity
       world.fake?.set(a, 'working', activity)
+      // #718: a player of a forced ping-pong game sent to work: the game breaks as a scheduled one does (play.md 9.2), the other one left alone
+      const game = world.forcedSessions?.find((s) => s.kind === 'pingpong' && s.players.includes(a))
+      if (game) {
+        const other = game.players.find((p) => p !== a)!
+        world.forcedSessions = (world.forcedSessions ?? []).filter((s) => s !== game)
+        if (world.forceGoal) {
+          delete world.forceGoal[a]
+          delete world.forceGoal[other]
+        }
+        world.director.forceAlone(other, officeNow(world))
+      }
     },
     keys(agent: number | string, seconds = 3) {
       const a = id(agent)
@@ -200,6 +211,7 @@ export function makePlayTools(world: OfficeWorld) {
       world.director.clearWater()
       world.director.clearActs()
       world.director.clearReads()
+      world.director.clearAlone()
     },
   }
   const grip = {

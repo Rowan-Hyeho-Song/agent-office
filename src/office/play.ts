@@ -184,6 +184,8 @@ export interface PlayAssignment {
   pairAt?: number
   /** the board game (boardgame, boardgame_solo, or the one a watcher watches) */
   game?: BoardGameKind
+  /** #718 (play.md 9.7 ②): a face shown once as this begins (a watcher whose game broke: 의문 for 1 s); `key` says which time */
+  cue?: { expr: 'question'; key: string; dur: number }
 }
 
 /** one stretch of an agent's day in the plan */
@@ -552,7 +554,9 @@ export function playAt(ms: number, agents: string[], busy: ReadonlySet<string> =
       if (!game || broke !== undefined || busy.has(roster[k]) || busy.has(game.partner!)) {
         // #718 (play.md 9.7): the chain at once, watching left out
         const from = Math.max(s.start, broke ?? s.start)
-        made.set(a, { from, make: (skip) => fillChain(plan, ms, from, s.end, { agent: a, own: s.stay, exclude: ['watch'], skip }) })
+        // #718 (play.md 9.7 ②): 의문 for a second as the game breaks (only near that moment: a visitor arriving later does not see it)
+        const cue = ms - from < CUE_WINDOW_MS ? { cue: { expr: 'question' as const, key: `broke:${s.stay}:${from}`, dur: BROKE_QUESTION_S } } : {}
+        made.set(a, { from, make: (skip) => ({ ...fillChain(plan, ms, from, s.end, { agent: a, own: s.stay, exclude: ['watch'], skip }), ...cue }) })
         return
       }
     }
@@ -585,6 +589,26 @@ export function hallNear(near: string, skip: (spot: string) => boolean): string 
 export function restNear(ms: number, agents: string[], p: PlayAssignment): PlayAssignment {
   const plan = dayPlan(planDay(ms).day, [...agents].sort())
   return gapsFrom(plan, { kind: 'gap', start: p.since, end: p.until, spot: p.spot, stay: p.stay }, p.spot, p.since, p.until, ms)
+}
+
+/** #718 (play.md 9.7 ②): a watcher whose game breaks is puzzled (의문) this long, s; the cue is given only this long after the break, ms */
+export const BROKE_QUESTION_S = 1
+const CUE_WINDOW_MS = 5_000
+
+/**
+ * #718 (?debug=1, play.md 9.2 · 9.7): one left at the ping-pong table from `from` to `until` outside the plan (a forced game whose partner was sent to work): the
+ * stroll near the table for ALONE_GAP_MS, then the fill chain. The schedule's own broken games go through aloneAt
+ */
+export function aloneChain(ms: number, agents: string[], agent: string, from: number, until: number): PlayAssignment {
+  const plan = dayPlan(planDay(ms).day, [...agents].sort())
+  const used = usedIn(plan, -1)
+  const table = spotsAt.pingpong_a
+  const dist = (h: string) => (table ? Math.hypot(spotsAt[h].x - table.x, spotsAt[h].z - table.z) : 0)
+  if (ms < from + ALONE_GAP_MS) {
+    const spot = Object.keys(spotsAt).filter((h) => h.startsWith('hall_') && !WINDOW_SPOTS.includes(h) && dist(h) >= WANDER_M[0] && !used(h, from, from + ALONE_GAP_MS)).sort((x, y) => dist(x) - dist(y))[0] ?? 'hall_back'
+    return { kind: 'gap', gap: 'wander', label: GAP_LABEL.wander, spot, stay: -1, since: from, until: from + ALONE_GAP_MS }
+  }
+  return fillChain(plan, ms, from + ALONE_GAP_MS, until, { agent, own: -1 })
 }
 
 /** #715: an errand over at least this long before its stay ends is followed by the fill chain (fillChain), not one place for all of it */
