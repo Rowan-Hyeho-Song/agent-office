@@ -136,6 +136,9 @@ function setWant(rig: AgentRig, w: NonNullable<AgentRig['want']>) {
   else rig.want = w
 }
 
+/** #718 ②-b the tray (the own paddle, blade up) in the body's frame: right, up, − forward (m) */
+export const TRAY_AT = { x: -0.06, y: 0.86, z: -0.26 } as const
+
 export interface StageIn {
   /** #370 B3b sheets in the planner's IN pile now (props.ts inbox) */
   inbox?: number
@@ -2511,11 +2514,14 @@ export class PlayStage {
     const own = `prop_paddle_${g.own}`
     const oth = `prop_paddle_${g.own === 'a' ? 'b' : 'a'}`
     const root = rig.parts.root
+    // this frame's body: a target from last frame's trailed a turning body (designer, #736)
+    root.updateWorldMatrix(true, false)
     const right = new Vector3(Math.cos(rig.heading), 0, -Math.sin(rig.heading))
     const fwd = new Vector3(-Math.sin(rig.heading), 0, -Math.cos(rig.heading))
     // the paddle's blade runs along its +y from the handle, the red face along +z (3D #735): blade away from the body, face up
     const flat = (x: number, y: number, z: number) => new Matrix4().makeBasis(right, fwd, UP).setPosition(root.localToWorld(new Vector3(x, y, z)))
-    const tray = flat(-0.1, 0.9, -0.3)
+    // waist high, close before the body (designer, #736)
+    const tray = flat(TRAY_AT.x, TRAY_AT.y, TRAY_AT.z)
     const carry = flat(0.2, 0.82, -0.22)
     const tidyAt = (name: string) => {
       const n = this.nodes[`pp_tidy_${name.slice(5)}`]

@@ -5,6 +5,8 @@
 import { Vector3, type Object3D } from 'three'
 import { describe, expect, it } from 'vitest'
 import { IDS, Walk, world } from './errandWorld.fixture'
+import { TRAY_AT } from './playStage'
+import { TRAY_TURN_RATE } from './rig'
 
 const DT = 0.03
 
@@ -30,11 +32,23 @@ describe('the tidy-up on the stage (#718)', () => {
     const pos = (n: string) => (w.nodes as Record<string, Object3D>)[n].getWorldPosition(new Vector3())
     // the ball on the blade it rides, every frame from the lay to the put
     let off = 0
+    // #736: the body turns no faster than 120°/s while it holds the tray, and the tray stays before it (waist high), never swung out
+    let turn = 0
+    let tray = 0
+    let heading = w.rigs[me].heading
     const stages: string[] = []
     let ended = false
     for (let k = 0; k < 60 / DT; k++) {
       walk.step(DT)
       const st = walk.goals[me].tidy?.stage
+      const rig = w.rigs[me]
+      if (st) turn = Math.max(turn, Math.abs(Math.atan2(Math.sin(rig.heading - heading), Math.cos(rig.heading - heading))) / DT)
+      heading = rig.heading
+      if (st === 'toPartner' || st === 'grip' || st === 'toSide') {
+        rig.parts.root.updateWorldMatrix(true, false)
+        const want = rig.parts.root.localToWorld(new Vector3(TRAY_AT.x, TRAY_AT.y, TRAY_AT.z))
+        tray = Math.max(tray, pos('prop_paddle_a').distanceTo(want))
+      }
       if (st === 'toPartner' || st === 'grip' || st === 'toSide') off = Math.max(off, pos('pp_ball').distanceTo(pos('prop_paddle_a_ball')))
       if (st && stages[stages.length - 1] !== st) stages.push(st)
       if (!st && stages.length) {
@@ -48,6 +62,9 @@ describe('the tidy-up on the stage (#718)', () => {
     expect(ended).toBe(true)
     expect(walk.director.tableTidied()).toBe('a')
     expect(off, 'the ball stays on the blade').toBeLessThan(0.01)
+    expect(turn, 'turning slowly with the tray').toBeLessThanOrEqual(TRAY_TURN_RATE + 1e-6)
+    // the paddle node (its handle end) within reach of the tray point: the hand holds it there, turning with the body
+    expect(tray, 'the tray before the body').toBeLessThan(0.2)
     expect(pos('prop_paddle_a').distanceTo(pos('pp_tidy_paddle_a')), 'paddle a by the net').toBeLessThan(0.02)
     expect(pos('prop_paddle_b').distanceTo(pos('pp_tidy_paddle_b')), 'paddle b by the net').toBeLessThan(0.02)
     expect(pos('pp_ball').distanceTo(pos('prop_paddle_a_ball')), 'the ball on its own paddle').toBeLessThan(0.02)
