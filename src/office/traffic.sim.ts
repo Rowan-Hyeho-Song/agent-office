@@ -61,6 +61,9 @@ export function mismatch(a: string, sh: Shown | undefined, g: Goal, arrived: str
   }
 }
 
+/** #715: an unbroken run of standing about longer than this counts as a long one, s */
+export const IDLE_RUN_S = 90
+
 export const AGENTS = ['agent_0', 'agent_1', 'agent_2', 'agent_3', 'agent_4']
 export const DAY0 = Date.parse('2026-11-09T00:00:00+09:00')
 
@@ -145,6 +148,18 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
   let sweptBreaches = 0
   let first = true
   let samples = 0
+  // #715: free time (shown as rest) spent with no goal: standing still (pose idle: not watching a game, at a door, browsing the shelf) or idle at the desk, s; and the part of it in
+  // unbroken runs over IDLE_RUN_S (one standing about for minutes reads as staring into space)
+  const idle = { restS: 0, idleS: 0, longS: 0, longest: { s: 0, who: '', at: 0 } }
+  const idleFrom: Record<string, number | undefined> = {}
+  const endIdle = (a: string, at: number) => {
+    const from = idleFrom[a]
+    if (from === undefined) return
+    const d = at - from
+    if (d > IDLE_RUN_S) idle.longS += d
+    if (d > idle.longest.s) Object.assign(idle.longest, { s: d, who: a, at: from })
+    idleFrom[a] = undefined
+  }
   while (t < end) {
     const now = DAY0 + t * 1000
     const minute = Math.floor(now / 60000)
@@ -254,6 +269,16 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
     // is anyone still on the way? then step finely, otherwise coarsely
     const busy = AGENTS.some((a) => planner.settledAt(a) > t || planner.sample(a, t).moving)
     const step = busy ? 0.1 : 2
+    for (const a of AGENTS) {
+      const g = goals[a]
+      const resting = director.shown[a]?.kind === 'rest'
+      const still = resting && g.pose === 'idle' && !g.watching && !g.door && !g.browse
+      if (resting) idle.restS += step
+      if (still) {
+        idle.idleS += step
+        idleFrom[a] ??= t
+      } else endIdle(a, t)
+    }
     for (let k = 0; k < (busy ? 2 : 1); k++) {
       const tt = t + k * 0.05
       const s = AGENTS.map((a) => planner.sample(a, tt))
@@ -285,6 +310,7 @@ export function simulateDay(opts: { fromMin: number; toMin: number; onStep?: (t:
     }
     t += step
   }
+  for (const a of AGENTS) endIdle(a, t)
   planMs.sort((a, b) => a - b)
-  return { min, minExempt, minSeated, minSeatRest, maxSeatDrift, seatPassM: planner.seatPassM, replans, worst, samples, planMs, maxSpeed, fast, stats: planner.stats, mismatch: mism, frames, maxWait, longWaits, errands, errandsAtOnce, reads, readCancels, readsAtOnce, acts, actsAtOnce, sweptBreaches }
+  return { idle, min, minExempt, minSeated, minSeatRest, maxSeatDrift, seatPassM: planner.seatPassM, replans, worst, samples, planMs, maxSpeed, fast, stats: planner.stats, mismatch: mism, frames, maxWait, longWaits, errands, errandsAtOnce, reads, readCancels, readsAtOnce, acts, actsAtOnce, sweptBreaches }
 }

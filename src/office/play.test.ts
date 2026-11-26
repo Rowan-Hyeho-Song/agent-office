@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  BOARD_LABEL, BOARD_STAY, EXTEND_MAX_MS, GAME_WEIGHTS, GAP_S, LEAVE_CAP, LEAVE_WINDOW_MS, NIGHT_PLAYS, PAIR_SOON_MS, PLAYS, STAY_MIN, WATCH_LEAVE_MS, WATCH_LEFT_MS, chooseGame, dayPlan, nextChange, planDay, playAt, restNear, soloAt, stayRange, type Seg,
+  BOARD_LABEL, BOARD_STAY, EXTEND_MAX_MS, FILL_MIN_MS, GAME_WEIGHTS, GAP_S, LEAVE_CAP, LEAVE_WINDOW_MS, NIGHT_PLAYS, PAIR_SOON_MS, PLAYS, STAY_MIN, WATCH_LEAVE_MS, WATCH_LEFT_MS, chooseGame, dayPlan, nextChange, planDay, playAt, restAfter, restNear, soloAt, stayRange, type PlayAssignment, type Seg,
 } from './play'
 
 // #490 (docs/design/play.md 9): no blocks; each agent has its own run of stays and gaps, laid out once a day from KST 04:00, the same for every visitor.
@@ -337,6 +337,57 @@ describe('watching (#517)', () => {
         }
     }
     expect(seen).toBeGreaterThan(10)
+  })
+})
+
+// #715: an errand over with a minute or more of its stay left is followed by a fill, not one hall spot for minutes
+describe('after an errand (#715)', () => {
+  const stays = () => {
+    const out: { s: Seg; p: PlayAssignment }[] = []
+    for (const d of DAYS.slice(0, 2))
+      for (const segs of dayPlan(d, FIVE))
+        for (const s of segs) {
+          if (!['fridge', 'dispenser', 'record', 'water', 'books'].includes(s.kind) || s.end > dayStart(d) + 86_400_000) continue
+          out.push({ s, p: { kind: s.kind as 'fridge', label: '', spot: PLAYS.find((x) => x.kind === s.kind)!.spots[0], stay: s.stay, since: s.start, until: s.end } })
+        }
+    return out
+  }
+  const usedBy = (s: Seg, spot: string, a: number, b: number) =>
+    dayPlan(planDay(s.start).day, FIVE).some((segs) => segs.some((x) => x.spot === spot && x.stay !== s.stay && x.start < b && a < x.end))
+
+  it('under FILL_MIN_MS left: the one place restNear gives (#525)', () => {
+    for (const { s, p } of stays().slice(0, 40)) {
+      const from = s.end - FILL_MIN_MS / 2
+      expect(restAfter(from, FIVE, p, from)).toEqual(restNear(from, FIVE, p))
+    }
+  })
+
+  it('a minute or more left: coffee, watching a game or the window, on a place nobody plans to use then; never a hall spot', () => {
+    let seen = 0
+    const kinds = new Set<string>()
+    for (const { s, p } of stays()) {
+      if (s.end - s.start < FILL_MIN_MS + 10_000) continue
+      const from = s.start + 5_000
+      const r = restAfter(from, FIVE, p, from)
+      if (r.kind === 'gap' && r.gap !== 'window') {
+        // only when coffee and both windows are in the plan then
+        expect(['coffee', 'hall_north', 'hall_memo_back'].every((h) => usedBy(s, h, from, s.end)), `${s.kind} ${r.spot}`).toBe(true)
+        continue
+      }
+      const kind = r.kind === 'gap' ? 'window' : r.kind
+      kinds.add(kind)
+      expect(['coffee', 'watch', 'window']).toContain(kind)
+      expect(usedBy(s, r.spot, from, r.until), `${r.spot} taken`).toBe(false)
+      expect(r.until).toBeLessThanOrEqual(s.end)
+      seen++
+    }
+    expect(seen).toBeGreaterThan(10)
+    expect(kinds.has('coffee')).toBe(true)
+  })
+
+  it('a place the director has given another agent is skipped', () => {
+    const { s, p } = stays().find(({ s, p }) => s.end - s.start > 2 * FILL_MIN_MS && restAfter(s.start, FIVE, p, s.start).kind === 'coffee')!
+    expect(restAfter(s.start, FIVE, p, s.start, (h) => h === 'coffee').spot).not.toBe('coffee')
   })
 })
 

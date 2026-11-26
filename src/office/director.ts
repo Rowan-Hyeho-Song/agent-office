@@ -6,7 +6,7 @@ import { DESK_SIDES } from './nav'
 import { DOOR_LABEL, DOOR_ROUND, LEVER, doorAgent, doorDue, doorU, stepDoor, type DoorKind, type DoorRun } from './doorRound'
 import { nightDuty } from './duty'
 import { BROWSE, SHELF_MORE, nextShelf, SHELF_LABEL, SHELF_STAND, shelfTurn, callAway as shelfCallAway, holding as shelfHolding, startShelf, stepShelf, type ShelfRun, type ShelfStage } from './shelfRun'
-import { hallNear, playAt, PLAYS, restNear, schedulePose, soloAt, type GapKind, type PlayKind } from './play'
+import { hallNear, playAt, PLAYS, restAfter, restNear, schedulePose, soloAt, type GapKind, type PlayAssignment, type PlayKind } from './play'
 import { gapPace } from './gapMotion'
 import { activityLabel, type AgentStatus, type OfficeMessage, type StatusMap } from './status'
 import type { Request } from './traffic'
@@ -16,7 +16,7 @@ import { drinkPick, drinkView, stepDrink, type Drink, type DrinkView } from './f
 import { isNight } from './kst'
 import { NOTE_LABEL, NOTE_READ, noteU, stepNote, stillWaiting, type NoteRun, type NoteWait } from './noteRead'
 import { PATH_BLOCKERS, STAND_BLOCKERS, WATER_PLANTS } from './water'
-import { callAway, chooseSeat, holding as readHolding, placeOf as readPlace, READ_LABEL, startRead, stepRead, type ReadRun, type ReadStage } from './readRun'
+import { callAway, chooseSeat, holding as readHolding, placeOf as readPlace, READ_LABEL, readLen, startRead, stepRead, type ReadRun, type ReadStage } from './readRun'
 import { holding, placeOf, startWater, stepWater, WATER_LABEL, type WaterRun, type WaterStage } from './waterRun'
 import { habitFor, type HabitKind } from './waterFx'
 import { startWrap, stepWrap, viewOf, WALKING_TO_DESK, type BeatKind, type PieceKind, type Shown, type WrapRun, type WrapStep } from './wrap'
@@ -53,7 +53,7 @@ export interface Goal {
   /** the watering errand (#228): its stage, the plant, and how long (s) the stage has lasted: the hands are drawn from these, not from where the agent stands */
   water?: { stage: WaterStage; plant: string; u: number; habit?: HabitKind | null }
   /** the reading errand (#280, readRun.ts): its stage, the seat it reads on, and how long (s) the stage has lasted: the hands are drawn from these */
-  read?: { stage: ReadStage; seat: number; u: number }
+  read?: { stage: ReadStage; seat: number; u: number; /** the seated reading's length, s (readRun.ts readLen, #715) */ len: number }
   /** a lounge act (lounge.ts: the fridge, the dispenser, the turntable): which, how long since the agent reached its stand (s, -1 on the way), the turntable's mode and whether a record was on the platter */
   act?: { kind: ActKind; u: number; mode?: RecordMode; recordOn: boolean; pick?: DrinkKind }
   /** #457 the drink taken out of the fridge, in the left hand (fridgeDrink.ts): from the moment the hand has it until it has faded out */
@@ -145,6 +145,8 @@ export class Director {
   /** the lounge acts in progress (actRun.ts; the fridge and the dispenser share one bar, the turntable has its own) and the block each agent has acted in already */
   private acts: Record<string, ActRun> = {}
   private actDone: Record<string, number> = {}
+  /** #715: what each agent does with the rest of an errand stay once the errand is over (play.ts restAfter), chosen once per stay so it never flips */
+  private restPick: Record<string, { stay: number; r: PlayAssignment }> = {}
   /** #457 the drink each agent has in hand from the fridge (fridgeDrink.ts), and what it took out on which KST day (not the same one twice a day) */
   private drinks: Record<string, Drink> = {}
   private drank: Record<string, { day: number; kinds: DrinkKind[] }> = {}
@@ -479,13 +481,17 @@ export class Director {
       if (!resting(a) || a in this.meet) {
         if (!readHolding(run)) {
           delete this.reads[a]
+          // #715: not read yet: back in the same stay, it reads (the stay is not over because a call came on the way)
+          delete this.readDone[a]
           continue
         }
         cur = callAway(run, now)
       }
       const r = stepRead(cur, { now, at: (spot) => arrivedAt(a) === spot })
       if (r.done) {
-        this.readDone[a] = run.block
+        // #715: a reading cut short by a call (the book brought back before its end) is read again back in the same stay
+        if (!resting(a) || a in this.meet) delete this.readDone[a]
+        else this.readDone[a] = run.block
         delete this.reads[a]
       } else this.reads[a] = r.run
     }
@@ -496,9 +502,11 @@ export class Director {
         // #450: a book stay is read at the second bookshelf (one stand, one reader) or at the low table, by the stay's seed
         if (!this.shelf && shelfTurn(a, stayOf(a))) this.shelf = startShelf(a, stayOf(a), now, this.shelfLast[a])
         else {
-          // seat 0 when nobody rests on it or is heading for it, else seat 1, else this reading is skipped (the stay counts as read)
+          // seat 0 when nobody rests on it or is heading for it, else seat 1, else the second bookshelf (#715), else this reading is skipped (the stay counts as read)
           const seat = chooseSeat((spot) => this.agents.some((x) => x !== a && (this.lastGoal[x]?.spot === spot || arrivedAt(x) === spot)))
-          if (seat !== null) this.reads[a] = startRead(seat, stayOf(a), now)
+          if (seat !== null) this.reads[a] = startRead(seat, stayOf(a), now, play[a]?.until)
+          // #715: both seats taken: the second bookshelf when nobody is at it, rather than no reading at all and the whole stay standing about
+          else if (!this.shelf && !this.shelfBrowse) this.shelf = startShelf(a, stayOf(a), now, this.shelfLast[a])
         }
       }
     }
@@ -511,12 +519,18 @@ export class Director {
         if (!shelfHolding(cur)) cur = null as unknown as ShelfRun
         else cur = shelfCallAway(cur, now)
       }
-      if (!cur) this.shelf = null
+      if (!cur) {
+        this.shelf = null
+        // #715: nothing taken yet: back in the same stay, it reads
+        delete this.readDone[a]
+      }
       else {
         const r = stepShelf(cur, { now, arrived: arrivedAt(a) === SHELF_STAND.spot })
         if (r.done) {
           this.shelfLast[a] = cur.book
           this.shelf = null
+          // #715: put back because of a call: back in the same stay, it reads again
+          if (!resting(a) || a in this.meet) delete this.readDone[a]
           // #450 (designer): the stay goes on: another book, or the spines browsed till it ends
           const p = play[a]
           const left = r.run.stage === 'put' && p?.kind === 'books' && p.stay === cur.block && resting(a) && !(a in this.meet) ? (p.until - now) / 1000 : 0
@@ -680,7 +694,7 @@ export class Director {
       const rr = this.reads[a]
       if (rr) {
         const pl = readPlace(rr)
-        out[a] = { spot: pl.spot, pose: 'books', ...(pl.stand ? { face: pl.face, ...standSlot({ stand: pl.stand, face: pl.face }) } : {}), read: { stage: rr.stage, seat: rr.seat, u: (now - rr.t0) / 1000 }, label: `책 읽기 · ${READ_LABEL[rr.stage]}` }
+        out[a] = { spot: pl.spot, pose: 'books', ...(pl.stand ? { face: pl.face, ...standSlot({ stand: pl.stand, face: pl.face }) } : {}), read: { stage: rr.stage, seat: rr.seat, u: (now - rr.t0) / 1000, len: readLen(rr) }, label: `책 읽기 · ${READ_LABEL[rr.stage]}` }
         const free = (s.state === 'idle' && s.night !== 'duty') || (s.state === 'wrapping' && !this.runs[a])
         shown[a] = free
           ? { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
@@ -772,9 +786,22 @@ export class Director {
       // #517 (play.md 9.1): an errand waiting its turn (the can, the book, the bar or the turntable taken), or already done in this stay, does not send the agent
       // to sit at its desk: it rests near the errand's place, gaps by turns (play.ts restNear); the words say it waits its turn, or which gap it is
       const rest = (done: boolean, waiting: string) => {
-        const r = restNear(now, this.agents, p!)
         playing.push(a)
-        out[a] = { spot: r.spot, pose: 'idle', gap: r.gap, ...(r.face ? { face: r.face } : {}), label: done ? r.label : waiting }
+        if (!done) {
+          const r = restNear(now, this.agents, p!)
+          out[a] = { spot: r.spot, pose: 'idle', gap: r.gap, ...(r.face ? { face: r.face } : {}), label: waiting }
+          return
+        }
+        // #715: over with time to spare, a fill (coffee, watching, the window) rather than one hall spot for minutes; picked the first frame the errand is over,
+        // clear of the places the others are given now; a watch ends before its game does, and the window (or one place) is picked for what is left then
+        let pick = this.restPick[a]
+        if (!pick || pick.stay !== p!.stay || (pick.r.kind === 'watch' && now >= pick.r.until)) {
+          const from = pick?.stay === p!.stay ? pick.r.until : now
+          const held = new Set(this.agents.filter((x) => x !== a).map((x) => out[x]?.spot ?? this.lastGoal[x]?.spot))
+          pick = this.restPick[a] = { stay: p!.stay, r: restAfter(now, this.agents, p!, from, (s) => held.has(s)) }
+        }
+        const r = pick.r
+        out[a] = r.kind === 'gap' ? { spot: r.spot, pose: 'idle', gap: r.gap, ...(r.face ? { face: r.face } : {}), label: r.label } : { spot: r.spot, pose: schedulePose(r.kind), face: r.face, ...standSlot(r), ...(r.watch ? { watching: r.watch } : {}), label: r.label }
       }
       // water is an errand (above): an agent assigned to it that has not started waits for the can (or has already watered in this stay)
       if (p && isAct(p.kind)) {
