@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HIDDEN_PROJECT, HIDDEN_SLOT_MS, SEATS, handle, hiddenPointOf, matchRepo, nextStatus, parseSignal, sameToken, type Activity, type Signal, type StatusRow, type Store } from './events'
+import { HIDDEN_PROJECT, SEATS, handle, hiddenPointOf, matchRepo, nextStatus, parseSignal, sameToken, type Activity, type Signal, type StatusRow, type Store } from './events'
 
 describe('parseSignal', () => {
   it('accepts seats 0..3 for each kind', () => {
@@ -491,11 +491,13 @@ describe('a private project (#710)', () => {
     expect(parseSignal({ seat: 3, kind: 'activity', activity: 'private', hidden: true, repo: 'agent-office', issue: 1 })).toEqual({ seat: 3, kind: 'activity', activity: 'private', hidden: true })
   })
 
-  it('the point: the alias project, a review tier with no title, a key of the seat and the half hour; the same half hour gives the same key', () => {
+  it('the point: the alias project, a review tier with no title, a key of the seat and the KST day (#731); the same day gives the same key', () => {
     const a = hiddenPointOf(2, new Date('2026-11-26T03:05:00Z'))
-    expect(a).toEqual({ key: `review:${HIDDEN_PROJECT}:2-${Math.floor(Date.parse('2026-11-26T03:05:00Z') / HIDDEN_SLOT_MS)}`, project: 'private', at: '2026-11-26T03:05:00.000Z', kind: 'work', agent: 2, title: '', secret: true, tier: 'review' })
-    expect(hiddenPointOf(2, new Date('2026-11-26T03:29:59Z')).key).toBe(a.key)
-    expect(hiddenPointOf(2, new Date('2026-11-26T03:30:00Z')).key).not.toBe(a.key)
+    expect(a).toEqual({ key: `review:${HIDDEN_PROJECT}:2-20261126`, project: 'private', at: '2026-11-26T03:05:00.000Z', kind: 'work', agent: 2, title: '', secret: true, tier: 'review' })
+    // 14:59 UTC is 23:59 KST, the same day; 15:00 UTC is the next
+    expect(hiddenPointOf(2, new Date('2026-11-26T14:59:59Z')).key).toBe(a.key)
+    expect(hiddenPointOf(2, new Date('2026-11-25T15:00:00Z')).key).toBe(a.key)
+    expect(hiddenPointOf(2, new Date('2026-11-26T15:00:00Z')).key).not.toBe(a.key)
     expect(hiddenPointOf(3, new Date('2026-11-26T03:05:00Z')).key).not.toBe(a.key)
   })
 

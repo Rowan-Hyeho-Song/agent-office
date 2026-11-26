@@ -3,7 +3,7 @@ import { hiddenPointOf } from '../signal/events'
 import type { Point } from '../timeline/types'
 import privateFile from '../timeline/fixtures/private.json'
 import { projectKind } from './barDraw'
-import { HIDDEN_KIND, describe as describePoint, isHidden, shortName, statusAt, valueText } from './engine'
+import { HIDDEN_KIND, countable, describe as describePoint, isHidden, prepare, shortName, statusAt, valueText, whenOf } from './engine'
 import { byFirstPoint } from './store'
 
 // #710 (C안, timelapse.md 14): a private project's point says who and when, nothing else: `휴 · 비공개 작업`; its band is the diagonal; its button is
@@ -16,8 +16,10 @@ describe('a private project point (#710)', () => {
   it('says who and 비공개 작업, no title, number or size; screen reading the same', () => {
     expect(isHidden(p)).toBe(true)
     const d = describePoint(p)
-    expect(d).toEqual({ who: '휴', kind: HIDDEN_KIND, head: '휴 · 비공개 작업', title: '', size: '' })
-    expect(valueText([p], 0)).toMatch(/^1번째 점, .+, 휴, 비공개 작업$/)
+    // #731: the day, never the time
+    expect(d).toEqual({ who: '휴', kind: HIDDEN_KIND, head: '휴 · 비공개 작업 · 11.26', title: '', size: '' })
+    expect(valueText([p], 0)).toBe('1번째 점, 2026.11.26 목, 휴, 비공개 작업')
+    expect(whenOf(p)).toBe('2026.11.26 목')
   })
 
   it('the band and the button: the diagonal kind, 비공개, after every other project', () => {
@@ -33,6 +35,15 @@ describe('a private project point (#710)', () => {
 
   it('its agent works at the desk as "비공개 작업 중"', () => {
     expect(statusAt(p).agent_2).toMatchObject({ state: 'working', activity: 'private' })
+  })
+
+  it('#731: one point per agent per KST day (the first), however many were stored; no number counts them', () => {
+    const pts = [point(2, '2026-11-26T03:05:00Z'), point(2, '2026-11-26T09:40:00Z'), point(3, '2026-11-26T04:00:00Z'), point(2, '2026-11-26T15:30:00Z')]
+    const other = { key: 'k', project: 'o/agent-office', at: '2026-11-26T05:00:00Z', kind: 'work', agent: 1, title: 't', secret: false } as unknown as Point
+    const folded = prepare([...pts, other])
+    // agent 2 on the 26th (KST) once, agent 3 once, agent 2 on the 27th (15:30 UTC) once, and the public point
+    expect(folded.filter((x) => isHidden(x)).map((x) => x.at)).toEqual(['2026-11-26T03:05:00.000Z', '2026-11-26T04:00:00.000Z', '2026-11-26T15:30:00.000Z'])
+    expect(countable(folded)).toEqual([other])
   })
 
   it('the practice copy: contentless points of the alias project only', () => {

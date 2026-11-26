@@ -95,7 +95,7 @@ PR이 없는 직접 커밋과 역할 분담 전(`ROLES_FROM` 2026-11-07 15:30 UT
 | `public` | 제목·줄 수·파일 수·번호·에이전트 모두 |
 | `review` | 제목 비움 + `secret`. **시각·종류·에이전트·크기(줄·파일 수)만**. 원천 주소와 이슈·PR 번호도 없다. 결재 뒤 공개는 나중(9절) |
 | `private`(`OFFICE_PRIVATE_REPOS`) | 모으지 않는다(저장소를 읽지도 않는다) |
-| 비공개 프로젝트(#710, C안) | 저장소를 읽지 않는다. 훅의 `privateProjects` 세션이 `hidden` 신호를 보내면 `/api/events`가 에이전트별 30분 칸에 `review` 점 하나를 남긴다(`project: private`, `kind: work`, 제목 · 번호 · 크기 없음, key `review:private:<자리>-<칸>`, 첫 신호 시각). timelapse.md 14절 |
+| 비공개 프로젝트(#710, C안) | 저장소를 읽지 않는다. 훅의 `privateProjects` 세션이 `hidden` 신호를 보내면 `/api/events`가 에이전트별 하루(KST)에 `review` 점 하나를 남긴다(`project: private`, `kind: work`, 제목 · 번호 · 크기 없음, key `review:private:<자리>-<YYYYMMDD>`, 첫 신호 시각, #731). timelapse.md 14절 |
 
 - 제목은 문서와 같은 필터(`src/docs/filter.ts`: 경로·이메일·키 모양·금지어)를 거친다. 걸리면 제목을 비우고 그 점을 `review`로 내린다.
 - 일반 JS 쪽 필터(`scripts/timeline/filter.mjs`)는 `src/docs/filter.ts`의 복사본이다. node가 TypeScript를 못 읽어서이고, 테스트가 둘의 결과를 맞춰 본다. 고칠 땐 같이 고친다.

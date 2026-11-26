@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Point, PointKind } from '../timeline/types'
 import { dayId } from './days'
-import { ALL, AGENT_NAME, KIND_NAME, SECRET_NOTE, atMs, isHidden, dayKey, describe, isDeploy, kindWord, kst, laneOf, prepare, whoName, shortName, sizeText, type Lane } from './engine'
+import { ALL, AGENT_NAME, KIND_NAME, SECRET_NOTE, atMs, countable, isHidden, dayKey, describe, isDeploy, kindWord, kst, laneOf, prepare, whoName, shortName, sizeText, type Lane } from './engine'
 import { Glyph } from './Glyph'
 import { replay, useReplay } from './store'
 import { projectKind, tokens } from './barDraw'
@@ -25,9 +25,10 @@ export function ReplayList() {
   useEffect(() => root.current?.focus({ preventScroll: true }), [])
 
   const inProject = useMemo(() => prepare(everything, project), [everything, project])
-  // #710 (timelapse.md 2, #729): the private projects alone: no number anywhere (a point is a half hour of work), and nothing to filter by
+  // #710 (timelapse.md 2 · 14, #729 · #731): the private projects alone: no number anywhere, and nothing to filter by. Everywhere: no number counts them,
+  // and with an agent picked they are left out (one line a day has no agent)
   const hidden = isHidden({ project })
-  const shown = useMemo(() => (hidden ? inProject : inProject.filter((p) => (!kinds.size || kinds.has(p.kind)) && (!agents.size || (!isDeploy(p) && agents.has(laneOf(p)))))), [inProject, kinds, agents, hidden])
+  const shown = useMemo(() => (hidden ? inProject : inProject.filter((p) => (!kinds.size || kinds.has(p.kind)) && (!agents.size || (!isDeploy(p) && !isHidden(p) && agents.has(laneOf(p)))))), [inProject, kinds, agents, hidden])
   const days = useMemo(() => {
     const map = new Map<string, Point[]>()
     for (const p of shown) map.set(dayKey(p), [...(map.get(dayKey(p)) ?? []), p])
@@ -35,7 +36,8 @@ export function ReplayList() {
   }, [shown])
   const perDay = useMemo(() => {
     const map = new Map<string, number>()
-    for (const p of inProject) map.set(dayKey(p), (map.get(dayKey(p)) ?? 0) + 1)
+    // #731: a day with private work only is there (its date) with nothing counted
+    for (const p of inProject) map.set(dayKey(p), (map.get(dayKey(p)) ?? 0) + (isHidden(p) ? 0 : 1))
     return [...map]
   }, [inProject])
 
@@ -74,12 +76,12 @@ export function ReplayList() {
             <button key={pr} type="button" className="chip" aria-pressed={project === pr} onClick={() => setProject(pr)}>
               {pr !== ALL && <span className="replay-swatch" data-p={projectKind(pr)} aria-hidden="true" />}
               {/* #710 (timelapse.md 2): the private project's chip carries no count (no amount of work as a number) */}
-              {pr === ALL ? '전체' : shortName(pr)}{isHidden({ project: pr }) ? '' : ` ${prepare(everything, pr).length}`}
+              {pr === ALL ? '전체' : shortName(pr)}{isHidden({ project: pr }) ? '' : ` ${countable(prepare(everything, pr)).length}`}
             </button>
           ))}
         </div>
         <Spark days={perDay} presence={hidden} />
-        <div className="sum">{hidden ? `${range} · 최근이 위` : `${range} · 점 ${shown.length}개 · 최근이 위`}</div>
+        <div className="sum">{hidden ? `${range} · 최근이 위` : `${range} · 점 ${countable(shown).length}개 · 최근이 위`}</div>
         <div className="chips">
           <button type="button" className="chip" onClick={() => watch(null)}>▶ 사무실에서 보기</button>
         </div>
@@ -100,22 +102,29 @@ export function ReplayList() {
       </header>
       {days.map(([day, list]) => {
         const k = kst(atMs(list[0]))
-        const rows = [...list].reverse()
+        // #731: the private projects' points of the day are one line, after the others
+        const rows = countable(list).reverse()
+        const privateDay = list.some((p) => isHidden(p))
         const all = open.has(day)
         const id = dayId(atMs(list[0]))
         return (
           <section key={day} className={`day${mark === id ? ' mark' : ''}`} data-day={id} aria-label={`${k.m}월 ${k.d}일 ${k.w}요일`}>
             <div className="day-head">
-              <h3>{k.m}월 {k.d}일 {k.w}요일{hidden ? '' : ` · ${list.length}개`}</h3>
+              <h3>{k.m}월 {k.d}일 {k.w}요일{hidden || !rows.length ? '' : ` · ${rows.length}개`}</h3>
               <button type="button" className="watch" onClick={() => watch(id)}>▶ 이 날 보기</button>
             </div>
             <ol>
               {(all ? rows : rows.slice(0, PER_DAY)).map((p) => (
                 <Row key={p.key} p={p} />
               ))}
+              {privateDay && (
+                <li className="row private-day">
+                  <span className="ttl">{day} · 비공개 작업 있음</span>
+                </li>
+              )}
             </ol>
             {!all && rows.length > PER_DAY && (
-              <button type="button" className="chip more" onClick={() => setOpen(new Set(open).add(day))}>{hidden ? '더 보기' : `${rows.length - PER_DAY}개 더 보기`}</button>
+              <button type="button" className="chip more" onClick={() => setOpen(new Set(open).add(day))}>{`${rows.length - PER_DAY}개 더 보기`}</button>
             )}
           </section>
         )
@@ -174,19 +183,19 @@ function Spark({ days, presence = false }: { days: [string, number][]; presence?
     g.textBaseline = 'alphabetic'
     days.forEach(([day, n], i) => {
       const room = c.height - (text ? 44 : 4)
-      // #710: the private projects show only that a day had work, never how much
-      const h = presence ? room : Math.max(2, (n / max) * room)
+      // #710: the private projects show only that a day had work, never how much; #731: elsewhere they are not counted (a day of theirs only: no bar)
+      const h = presence ? room : n === 0 ? 0 : Math.max(2, (n / max) * room)
       const x = i * bw
       g.fillStyle = t.muted
       g.fillRect(x + 3, c.height - (text ? 22 : 0) - h, Math.max(1, bw - 6), h)
       if (!text) return
       // the count over the bar (not for the private projects), the date under it
       g.fillStyle = t.text
-      if (!presence) g.fillText(`${n}`, x + bw / 2, c.height - 24 - h)
+      if (!presence && n > 0) g.fillText(`${n}`, x + bw / 2, c.height - 24 - h)
       g.fillStyle = t.muted
       g.fillText(day, x + bw / 2, c.height - 3)
     })
   }, [days, presence])
-  const label = presence ? `날짜별 활동: ${days.map(([d]) => `${d} 있음`).join(', ')}` : `날짜별 점 수: ${days.map(([d, n]) => `${d} ${n}개`).join(', ')}`
+  const label = presence ? `날짜별 활동: ${days.map(([d]) => `${d} 있음`).join(', ')}` : `날짜별 점 수: ${days.map(([d, n]) => (n ? `${d} ${n}개` : d)).join(', ')}`
   return <canvas ref={ref} className="spark" width={732} height={96} role="img" aria-label={label} />
 }

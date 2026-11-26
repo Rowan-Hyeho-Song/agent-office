@@ -100,17 +100,17 @@ export interface Store {
   issueTitle?(repo: string, issue: number): Promise<string | null>
   /** drop events older than this (keeps the table small) */
   prune(before: string): Promise<void>
-  /** #710: a contentless timelapse point (HIDDEN_PROJECT), kept once per key: a second signal in the same half hour leaves the first one's time */
+  /** #710: a contentless timelapse point (HIDDEN_PROJECT), kept once per key: a second signal of the same day leaves the first one's time */
   hiddenPoint?(p: HiddenPoint): Promise<void>
 }
 
 /**
  * #710 (timelapse.md 14, docs-ui.md 2.1): the one project key every private project's work is shown under. Never a repo name: the work of a private
- * project leaves only this, a seat and a half hour
+ * project leaves only this, a seat and a day (timelapse.md 14, #731: a day, not a half hour, so no count of the points tells how long)
  */
 export const HIDDEN_PROJECT = 'private'
-/** one point per agent per this long, at the first signal in it */
-export const HIDDEN_SLOT_MS = 30 * 60_000
+/** the KST day of a time, YYYYMMDD: one point per agent per day, at the first signal of it */
+export const hiddenDayOf = (ms: number) => new Date(ms + 9 * 3_600_000).toISOString().slice(0, 10).replace(/-/g, '')
 
 export interface HiddenPoint {
   key: string
@@ -123,10 +123,9 @@ export interface HiddenPoint {
   tier: 'review'
 }
 
-/** the point a private project's signal leaves: the agent and the half hour it falls in (timeline.sql: a review point is opaque, its key review:…) */
+/** the point a private project's signal leaves: the agent and the KST day it falls in (timeline.sql: a review point is opaque, its key review:…) */
 export function hiddenPointOf(seat: number, now: Date): HiddenPoint {
-  const slot = Math.floor(now.getTime() / HIDDEN_SLOT_MS)
-  return { key: `review:${HIDDEN_PROJECT}:${seat}-${slot}`, project: HIDDEN_PROJECT, at: now.toISOString(), kind: 'work', agent: seat, title: '', secret: true, tier: 'review' }
+  return { key: `review:${HIDDEN_PROJECT}:${seat}-${hiddenDayOf(now.getTime())}`, project: HIDDEN_PROJECT, at: now.toISOString(), kind: 'work', agent: seat, title: '', secret: true, tier: 'review' }
 }
 
 const KEEP_DAYS = 14
