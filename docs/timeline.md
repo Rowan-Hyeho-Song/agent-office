@@ -31,6 +31,7 @@
 | `decision` | 회의록의 `**결정**` 부분, 설계 문서(`docs/*.md`)의 `결정 기록` 표 한 줄 | 댓글 시각 / 그 날짜 | 댓글 주소 + `#decision` / `저장소/#decision-날짜-본문해시` |
 
 - 머지된 PR은 따로 점이 되지 않는다. 그 PR의 커밋이 `work`이고, PR은 번호(`pr`)와 이슈 연결(`Closes #n`)로만 쓴다.
+- **dev가 없는 저장소**(#706, jank-lab): PR이 main에 바로 merge되고 main push마다 GitHub Pages가 배포된다. 그래서 main 커밋 하나가 `work`와 `deploy` 두 점이 된다. 시각은 같고, 키는 `work`가 커밋 주소, `deploy`가 커밋 주소 + `#deploy`다(그래서 작업 다음에 배포가 온다). 규칙은 `scripts/timeline/build.mjs`의 `REPO_BRANCHES`에 저장소별로 둔다.
 - 줄 수는 커밋 하나의 `stats`(GitHub API)다. 파일 수는 바뀐 파일 개수.
 - 작성자 거름은 #38과 같다. 이슈·댓글·PR은 `author_association`이 OWNER·COLLABORATOR인 것만, 커밋은 주인·협업자 로그인만, 결재는 주인만. 스크립트와 `/api/timeline`이 각각 한 번씩 거른다.
 
