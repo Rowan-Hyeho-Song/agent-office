@@ -141,8 +141,8 @@ export const WATCH_LEFT_MS = 2 * MIN
 export const WATCH_LEAVE_MS = MIN
 /** the gap between two stays (play.md 9.3), s */
 export const GAP_S: readonly [number, number] = [20, 50]
-export type GapKind = 'stretch' | 'wander' | 'window'
-export const GAP_LABEL: Record<GapKind, string> = { stretch: '쉬는 중 · 기지개', wander: '쉬는 중 · 서성이는 중', window: '쉬는 중 · 창밖 보는 중' }
+export type GapKind = 'stretch' | 'wander' | 'window' | 'spines'
+export const GAP_LABEL: Record<GapKind, string> = { stretch: '쉬는 중 · 기지개', wander: '쉬는 중 · 서성이는 중', window: '쉬는 중 · 창밖 보는 중', spines: '쉬는 중 · 책등 보는 중' }
 /** a pair's partner is whoever finishes its stay or gap first within this long after a pair game is drawn; the one that drew it goes on with its gap till then (play.md 9.2 ②, #516) */
 export const PAIR_SOON_MS = 30_000
 /** at most this many agents leave their play in any one minute; a stay is stretched up to EXTEND_MAX_MS to keep to it (play.md 9.4) */
@@ -530,8 +530,8 @@ export function playAt(ms: number, agents: string[], busy: ReadonlySet<string> =
   const roster = [...agents].sort()
   const plan = dayPlan(planDay(ms).day, roster)
   const out: Record<string, PlayAssignment> = {}
-  /** the ones whose place is picked here rather than in the plan */
-  const made = new Set<string>()
+  /** the ones whose place is picked here rather than in the plan: picked below, clear of the places given already (#718) */
+  const made = new Map<string, { from: number; make: (skip: (spot: string) => boolean) => PlayAssignment }>()
   roster.forEach((a, i) => {
     if (busy.has(a)) return
     const s = segAt(plan[i], ms)
@@ -540,8 +540,8 @@ export function playAt(ms: number, agents: string[], busy: ReadonlySet<string> =
     if (s.kind === 'pingpong' && s.partner && s.pairAt !== undefined && ms >= s.pairAt && (busy.has(s.partner) || alone?.broken.has(s.stay))) {
       const broke = alone?.broken.get(s.stay) ?? s.pairAt
       // never after now (the debug clock moves the office time; the statuses keep the real one, #524)
-      out[a] = aloneAt(plan, roster, a, s, broke, Math.min(ms, Math.max(broke, alone?.back?.[a] ?? -Infinity)), ms)
-      made.add(a)
+      const own = Math.min(ms, Math.max(broke, alone?.back?.[a] ?? -Infinity))
+      made.set(a, { from: own, make: (skip) => aloneAt(plan, roster, a, s, own, ms, skip) })
       return
     }
     // a watcher of a game broken by a player gone to work leaves it at once (#517): gaps near where it stood, for the rest of the watch
@@ -550,26 +550,18 @@ export function playAt(ms: number, agents: string[], busy: ReadonlySet<string> =
       const game = k >= 0 ? plan[k].find((x) => x.kind === s.watch && x.partner && x.pairAt! <= ms && ms < x.end) : undefined
       const broke = game ? alone?.broken.get(game.stay) : undefined
       if (!game || broke !== undefined || busy.has(roster[k]) || busy.has(game.partner!)) {
-        out[a] = gapsFrom(plan, s, s.spot, Math.max(s.start, broke ?? s.start), s.end, ms, 2)
-        made.add(a)
+        // #718 (play.md 9.7): the chain at once, watching left out
+        const from = Math.max(s.start, broke ?? s.start)
+        made.set(a, { from, make: (skip) => fillChain(plan, ms, from, s.end, { agent: a, own: s.stay, exclude: ['watch'], skip }) })
         return
       }
     }
     out[a] = assignmentOf(a, s, ms, (b) => !busy.has(b))
   })
-  // places picked here (a game left, a watcher off) give way to the plan's, and to each other in roster order: on a taken hall spot, the nearest one free
-  const taken = new Set<string>(roster.filter((a) => out[a] && !made.has(a)).map((a) => out[a].spot))
-  for (const a of roster) {
-    const o = out[a]
-    if (!o || !made.has(a)) continue
-    if (o.kind === 'gap' && o.spot.startsWith('hall_') && taken.has(o.spot)) {
-      const at = spotsAt[o.spot]
-      const used = (h: string) => taken.has(h) || Object.values(out).some((x) => x !== o && x.spot === h)
-      const next = Object.keys(spotsAt)
-        .filter((h) => h.startsWith('hall_') && !used(h) && !WINDOW_SPOTS.includes(h) && h !== WATCH.pingpong.spot && h !== WATCH.boardgame.spot)
-        .sort((x, y) => Math.hypot(spotsAt[x].x - at.x, spotsAt[x].z - at.z) - Math.hypot(spotsAt[y].x - at.x, spotsAt[y].z - at.z))[0]
-      if (next) out[a] = { ...o, gap: 'wander', label: GAP_LABEL.wander, spot: next, face: undefined }
-    }
+  // places picked here (a game left, a watcher off) give way to the plan's, and to each other: the one whose rest began first keeps its pick (then roster order)
+  const taken = new Set<string>(roster.filter((a) => out[a]).map((a) => out[a].spot))
+  for (const a of [...made.keys()].sort((x, y) => made.get(x)!.from - made.get(y)!.from || roster.indexOf(x) - roster.indexOf(y))) {
+    out[a] = made.get(a)!.make((spot) => taken.has(spot))
     taken.add(out[a].spot)
   }
   return out
@@ -595,36 +587,95 @@ export function restNear(ms: number, agents: string[], p: PlayAssignment): PlayA
   return gapsFrom(plan, { kind: 'gap', start: p.since, end: p.until, spot: p.spot, stay: p.stay }, p.spot, p.since, p.until, ms)
 }
 
-/** #715: an errand over at least this long before its stay ends is followed by a fill (restAfter), not one place for all of it */
+/** #715: an errand over at least this long before its stay ends is followed by the fill chain (fillChain), not one place for all of it */
 export const FILL_MIN_MS = 60_000
+/** #718 (play.md 9.7): the longest one place is stood at: the look-around takes turns at the window and the spines this long */
+export const LOOK_MS = 90_000
+/** the second bookshelf's stand (shelfRun.ts SHELF_STAND): the spines are looked over from it */
+export const SPINES = { spot: 'shelf', stand: { x: 4.66, z: -3.16 }, face: { x: 4.66, z: -3.764 } } as const
+/** #718: resting on a free sofa seat in the fill chain */
+export const FILL_SOFA_LABEL = '쉬는 중 · 소파'
+/** the sofa seats never given out together (dayPlan: the corner is reached in front of the middle one) */
+const SOFA_BESIDE: Record<string, string> = { sofa_1: 'sofa_2', sofa_2: 'sofa_1' }
+
+export type FillKind = 'coffee' | 'books' | 'boardgame_solo' | 'watch' | 'sofa'
+
+export interface FillOpts {
+  /** whose rest it is (a record placed alone is seeded by it) */
+  agent: string
+  /** the stay the rest belongs to: its own plan segments are not "used" */
+  own: number
+  /** the stay the fill is reported as (default `own`; an errand's leftover takes one of its own, so the errand's done mark does not cover it) */
+  stay?: number
+  /** the n-th free one (the two left at a ping-pong table: the second takes the next) */
+  n?: number
+  /** places given to others already (by playAt, or by the Director) */
+  skip?: (spot: string) => boolean
+  /** not these (a broken watcher does not watch again; a books stay's leftover does not read again) */
+  exclude?: readonly FillKind[]
+}
 
 /**
- * #715: the rest of an errand stay once the errand is over (`from`: when it ended, or was skipped). With under FILL_MIN_MS left it is restNear's one place
- * (a gap's length); with more, the first of these that nobody's plan uses from then on and `skip` does not rule out (the director's own picks for the
- * others): coffee; watching a pair game with WATCH_LEFT_MS or more left (gone WATCH_LEAVE_MS before it ends, the window after); the window. Standing at one
- * hall spot for minutes (a books stay is 6–14 min, its reading at the low table was one) read as staring into space.
+ * #718 (play.md 9.7): the rest of a stay from `from` to `until` with nothing of its own. The first of these nobody's plan uses then (and `skip` leaves):
+ * coffee; books (the low table or the second bookshelf, as the Director chooses); a record placed alone; watching a pair game with 2 min or more left (till
+ * 60 s before it ends, then the chain again); a free sofa seat. Last the look-around: the window and the spines in turns of LOOK_MS (the last turn keeps
+ * going when what is left is LOOK_MS or less), so nobody stands at one place longer than that. From the plan only: the same in every browser.
  */
-export function restAfter(ms: number, agents: string[], p: PlayAssignment, from: number, skip: (spot: string) => boolean = () => false): PlayAssignment {
-  if (p.until - from < FILL_MIN_MS) return restNear(ms, agents, p)
-  const plan = dayPlan(planDay(ms).day, [...agents].sort())
-  const used = usedIn(plan, p.stay)
-  const free = (spot: string, a: number, b: number) => !used(spot, a, b) && !skip(spot)
-  const base = { stay: p.stay, since: from }
-  const window = (at: number): PlayAssignment | null => {
-    const spot = WINDOW_SPOTS.find((h) => free(h, at, p.until))
-    return spot ? { kind: 'gap', gap: 'window', label: GAP_LABEL.window, spot, ...base, since: at, until: p.until, face: { x: spotsAt[spot].x, z: WINDOW_FACE_Z } } : null
-  }
+export function fillChain(plan: Seg[][], ms: number, from: number, until: number, o: FillOpts): PlayAssignment {
+  const used = usedIn(plan, o.own)
+  const skip = o.skip ?? (() => false)
+  const free = (spot: string, a = from, b = until) => !used(spot, a, b) && !skip(spot)
+  const no = new Set<FillKind>(o.exclude ?? [])
+  const stay = o.stay ?? o.own
+  const base = { stay, since: from, until }
+  const picks: PlayAssignment[] = []
   const coffee = PLAYS.find((x) => x.kind === 'coffee')!
-  if (free(coffee.spots[0], from, p.until)) return { kind: 'coffee', label: coffee.label, spot: coffee.spots[0], ...base, until: p.until }
-  for (const kind of ['pingpong', 'boardgame'] as const) {
-    const game = plan.flat().find((x) => x.kind === kind && x.partner && x.pairAt !== undefined && x.pairAt <= from && x.end >= from + WATCH_LEFT_MS)
-    if (!game) continue
-    const until = Math.min(p.until, game.end - WATCH_LEAVE_MS)
-    if (!free(WATCH[kind].spot, from, until)) continue
-    if (ms < until) return { kind: 'watch', watch: kind, label: kind === 'boardgame' && game.game ? BOARD_LABEL[game.game].watch : WATCH[kind].label, spot: WATCH[kind].spot, face: WATCH[kind].face, ...base, until, ...(game.game ? { game: game.game } : {}) }
-    return window(until) ?? restNear(ms, agents, p)
+  if (!no.has('coffee') && free(coffee.spots[0])) picks.push({ kind: 'coffee', label: coffee.label, spot: coffee.spots[0], ...base })
+  const books = PLAYS.find((x) => x.kind === 'books')!
+  if (!no.has('books') && free(books.spots[0])) picks.push({ kind: 'books', label: books.label, spot: books.spots[0], ...base, ...(books.face ? { face: books.face } : {}), ...(books.stand ? { stand: books.stand } : {}) })
+  if (!no.has('boardgame_solo') && free('game_a') && free('game_b')) {
+    const game = chooseGame(`fill|${stay}|${o.agent}`)
+    picks.push({ kind: 'boardgame_solo', label: BOARD_LABEL[game].solo, spot: 'game_a', ...base, game })
   }
-  return window(from) ?? restNear(ms, agents, p)
+  if (!no.has('watch'))
+    for (const kind of ['pingpong', 'boardgame'] as const) {
+      const game = plan.flat().find((x) => x.kind === kind && x.partner && x.stay !== o.own && x.pairAt !== undefined && x.pairAt <= from && x.end >= from + WATCH_LEFT_MS)
+      if (!game) continue
+      const end = Math.min(until, game.end - WATCH_LEAVE_MS)
+      if (!free(WATCH[kind].spot, from, end)) continue
+      // the watch over: the chain again for what is left (not watching twice)
+      if (ms >= end) return fillChain(plan, ms, end, until, { ...o, exclude: [...no, 'watch'] })
+      picks.push({ kind: 'watch', watch: kind, label: kind === 'boardgame' && game.game ? BOARD_LABEL[game.game].watch : WATCH[kind].label, spot: WATCH[kind].spot, face: WATCH[kind].face, ...base, until: end, ...(game.game ? { game: game.game } : {}) })
+      break
+    }
+  if (!no.has('sofa')) {
+    const sofa = PLAYS.find((x) => x.kind === 'sofa')!
+    const seat = sofa.spots.find((s) => free(s) && (!SOFA_BESIDE[s] || free(SOFA_BESIDE[s])))
+    if (seat) picks.push({ kind: 'sofa', label: FILL_SOFA_LABEL, spot: seat, ...base })
+  }
+  const n = o.n ?? 0
+  return picks[n] ?? lookAround(ms, from, until, n - picks.length, free, stay)
+}
+
+/** #718: the look-around: equal turns of LOOK_MS at most from `from`, the window first (`n` turns on for the n-th agent) */
+function lookAround(ms: number, from: number, until: number, n: number, free: (spot: string, a: number, b: number) => boolean, stay: number): PlayAssignment {
+  // equal turns of LOOK_MS at most: no short last turn, and none longer
+  const turns = Math.max(1, Math.ceil((until - from) / LOOK_MS))
+  const len = (until - from) / turns
+  const k = Math.min(turns - 1, Math.max(0, Math.floor((ms - from) / len)))
+  const t = from + k * len
+  const end = k === turns - 1 ? until : t + len
+  // the window on even turns, the spines on odd ones; a turn whose place is taken is a stroll (not the other one again: two turns at one place is too long)
+  if ((k + n) % 2 === 1) {
+    if (free(SPINES.spot, t, end)) return { kind: 'gap', gap: 'spines', label: GAP_LABEL.spines, spot: SPINES.spot, stand: SPINES.stand, face: SPINES.face, stay, since: t, until: end }
+  } else {
+    const w = WINDOW_SPOTS.find((h) => free(h, t, end))
+    if (w) return { kind: 'gap', gap: 'window', label: GAP_LABEL.window, spot: w, stay, since: t, until: end, face: { x: spotsAt[w].x, z: WINDOW_FACE_Z } }
+  }
+  // a stroll: another hall spot each turn (never one place for longer than a turn)
+  const halls = Object.keys(spotsAt).filter((h) => h.startsWith('hall_') && !WINDOW_SPOTS.includes(h) && h !== WATCH.pingpong.spot && h !== WATCH.boardgame.spot && free(h, t, end))
+  const spot = halls[(k + n) % Math.max(1, halls.length)] ?? 'hall_lounge'
+  return { kind: 'gap', gap: 'wander', label: GAP_LABEL.wander, spot, stay, since: t, until: end }
 }
 
 /**
@@ -639,16 +690,12 @@ export interface Alone {
 
 /** the stroll after the paddle is put down (play.md 9.2) */
 const ALONE_GAP_MS = 30_000
-/** the solo plays that fill the rest of a broken ping-pong stay, the first free one; then watching, then the window (play.md 9.2) */
-const ALONE_FILL: PlayKind[] = ['coffee', 'books', 'boardgame_solo']
 
 /**
- * One left at the ping-pong table (or back from work to a broken game), from `own`: a stroll (to a free hall spot near the table), then the first of these
- * nobody else's plan uses from the break's own stroll on (`broke`: the same for both players; the two in roster order, the second taking the next one):
- * coffee, books, a record alone, watching a game with WATCH_LEFT_MS or more left (till WATCH_LEAVE_MS before it ends, the window after), the window for all
- * the rest (#524: one place, not gaps by turns). Else the stroll's place for the rest. From the plan only: the same in every browser.
+ * One left at the ping-pong table (or back from work to a broken game), from `own`: a stroll (to a free hall spot near the table), then the fill chain for
+ * the rest (#718, play.md 9.7; the two in roster order, the second taking the next one). From the plan only: the same in every browser.
  */
-function aloneAt(plan: Seg[][], roster: string[], agent: string, s: Seg, broke: number, own: number, ms: number): PlayAssignment {
+function aloneAt(plan: Seg[][], roster: string[], agent: string, s: Seg, own: number, ms: number, skip: (spot: string) => boolean = () => false): PlayAssignment {
   const used = (spot: string, a: number, b: number) => plan.some((segs) => segs.some((x) => x.spot === spot && x.stay !== s.stay && x.start < b && a < x.end))
   const table = spotsAt[s.spot]
   const dist = (h: string) => (table ? Math.hypot(spotsAt[h].x - table.x, spotsAt[h].z - table.z) : 0)
@@ -656,40 +703,19 @@ function aloneAt(plan: Seg[][], roster: string[], agent: string, s: Seg, broke: 
   const second = roster.indexOf(agent) > roster.indexOf(s.partner!)
   const n = second ? 1 : 0
   const since = own + ALONE_GAP_MS
-  const window = (from: number): PlayAssignment | null => {
-    const spot = WINDOW_SPOTS.filter((h) => !used(h, from, s.end))[n]
-    return spot ? { kind: 'gap', gap: 'window', label: GAP_LABEL.window, spot, stay: s.stay, since: from, until: s.end, face: { x: spotsAt[spot].x, z: WINDOW_FACE_Z } } : null
-  }
   const stroll = (from: number, until: number): PlayAssignment => {
-    const spot = halls.filter((h) => !used(h, from, until))[n] ?? halls[0] ?? s.spot
+    const spot = halls.filter((h) => !used(h, from, until) && !skip(h))[n] ?? halls[0] ?? s.spot
     return { kind: 'gap', gap: 'wander', label: GAP_LABEL.wander, spot, stay: s.stay, since: from, until }
   }
   if (ms < since || since >= s.end) return stroll(own, Math.min(since, s.end))
-  const fillFrom = Math.max(broke, s.pairAt ?? s.start) + ALONE_GAP_MS
-  const fills: PlayAssignment[] = []
-  for (const p of ALONE_FILL.map((k) => PLAYS.find((x) => x.kind === k)!))
-    if (!used(p.spots[0], fillFrom, s.end)) {
-      // a record alone at a broken ping-pong stay: the game is chosen from the stay
-      const game = p.kind === 'boardgame_solo' ? chooseGame(`alone|${s.stay}|${agent}`) : undefined
-      fills.push({ kind: p.kind, label: game ? BOARD_LABEL[game].solo : p.label, spot: p.spots[0], stay: s.stay, since, until: s.end, ...(game ? { game } : {}), ...(p.face ? { face: p.face } : {}), ...(p.stand ? { stand: p.stand } : {}) })
-    }
-  for (const kind of ['pingpong', 'boardgame'] as const) {
-    const game = plan.flat().find((x) => x.kind === kind && x.partner && x.stay !== s.stay && x.pairAt !== undefined && x.pairAt <= fillFrom && x.end >= fillFrom + WATCH_LEFT_MS)
-    if (!game) continue
-    const until = Math.min(s.end, game.end - WATCH_LEAVE_MS)
-    if (!used(WATCH[kind].spot, fillFrom, until)) fills.push({ kind: 'watch', watch: kind, label: kind === 'boardgame' && game.game ? BOARD_LABEL[game.game].watch : WATCH[kind].label, spot: WATCH[kind].spot, face: WATCH[kind].face, stay: s.stay, since, until, ...(game.game ? { game: game.game } : {}) })
-  }
-  const last = window(since)
-  if (last) fills.push(last)
-  const mine = fills[n]
-  if (!mine) return stroll(since, s.end)
-  // a watch ends before the game does: the window (or the stroll's place) for the rest
-  if (mine.kind === 'watch' && ms >= mine.until) return window(mine.until) ?? stroll(mine.until, s.end)
-  return mine
+  // #718 (play.md 9.7): the fill chain for the rest; the second of the two left takes the next one
+  return fillChain(plan, ms, since, s.end, { agent, own: s.stay, n, skip })
 }
 
 /** whether a place is in anybody's plan (other than the stay `stay`) between a and b */
-const usedIn = (plan: Seg[][], stay: number) => (spot: string, a: number, b: number) => plan.some((segs) => segs.some((x) => x.spot === spot && x.stay !== stay && x.start < b && a < x.end))
+/** where a plan segment is in the room: an errand is planned from the desk but run at its own place (#718: the chain must not pick the bar while an errand is due there) */
+const segSpot = (x: Seg) => (x.spot === DESK ? (PLAYS.find((p) => p.kind === x.kind)?.spots[0] ?? DESK) : x.spot)
+const usedIn = (plan: Seg[][], stay: number) => (spot: string, a: number, b: number) => plan.some((segs) => segs.some((x) => segSpot(x) === spot && x.stay !== stay && x.start < b && a < x.end))
 
 /**
  * Resting near `near` from `from` to `until`: the hall spot nearest it (a window spot too) nobody's plan uses then, one place for all of it (#525: not

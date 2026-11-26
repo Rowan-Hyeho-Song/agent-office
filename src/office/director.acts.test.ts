@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Director } from './director'
+import { ACT_WAIT_MAX_S, Director } from './director'
 import { ACT_PLACE, actTotal, recordBeats } from './lounge'
 import { playAt } from './play'
 import type { StatusMap } from './status'
@@ -176,6 +176,52 @@ describe('the turntable through the Director', () => {
     const day = Date.UTC(2026, 10, 9, 0, 0, 0)
     for (let t = day; t < day + 86_400_000; t += 30_000) for (const a of Object.values(playAt(t, IDS))) kinds.add(a.kind)
     for (const k of ['fridge', 'dispenser', 'record']) expect(kinds.has(k), k).toBe(true)
+  })
+})
+
+// #718 (play.md 9.7 ③): a turn at the bar or the turntable is waited for only when it is near (ACT_WAIT_MAX_S); a longer wait, or the break music holding the
+// turntable, skips the act for that stay. Before, the one due stood at one hall spot for its whole stay (about 60 s, seen live at hall_back)
+describe('waiting for a lounge act (#718)', () => {
+  /** a moment an agent's plan starts a lounge act of `kinds` with a minute or more of the stay left */
+  const due = (kinds: string[]) => {
+    for (let t = Date.UTC(2026, 10, 9, 1, 0, 0); t < Date.UTC(2026, 10, 10, 1, 0, 0); t += 5_000) {
+      const hit = Object.entries(playAt(t, IDS)).find(([, o]) => kinds.includes(o.kind) && o.since > t - 5_000 && o.until - t > 60_000)
+      if (hit) return { t, a: hit[0], kind: hit[1].kind as 'fridge' | 'dispenser' | 'record' }
+    }
+    throw new Error('no act in the plan')
+  }
+  const goalsAt = (d: Director, now: number, where: (a: string) => string | null, wantsBreak?: boolean) =>
+    d.goals(now, Math.floor(now / 60000), idle(), where, wantsBreak === undefined ? {} : { wantsBreak })
+
+  it('the break music holds the turntable: the one due does not wait for it, it skips the record for this stay', () => {
+    const { t, a } = due(['record'])
+    const d = new Director(IDS)
+    const other = IDS.find((x) => x !== a)!
+    // the record goes on just before: the needle is down and the break music plays
+    d.forceAct(other, 'record', t - 20_000, 'put')
+    for (let k = -20; k < 0; k += 0.1) goalsAt(d, t + k * 1000, (x) => (x === other ? ACT_PLACE.record.spot : null), true)
+    expect(d.deckState().needle).toBe(true)
+    for (let k = 0; k < 30; k += 0.5) {
+      const g = goalsAt(d, t + k * 1000, () => null, true)[a]
+      expect(g.label, `${k} s`).not.toContain('차례 기다리는 중')
+      expect(g.act).toBeUndefined()
+    }
+  })
+
+  it('the bar taken by another (its act is a few seconds, well under ACT_WAIT_MAX_S): the one due waits beside it, facing it, then goes', () => {
+    const { t, a, kind } = due(['fridge', 'dispenser'])
+    const other = IDS.find((x) => x !== a)!
+    const d = new Director(IDS)
+    d.forceAct(other, 'fridge', t)
+    expect(actTotal('fridge') + 10).toBeLessThanOrEqual(ACT_WAIT_MAX_S)
+    const w = goalsAt(d, t + 100, () => null)[a]
+    expect(w.label).toContain('차례 기다리는 중')
+    expect(w.face).toEqual(ACT_PLACE[kind].face)
+    // the bar's user there and done: the one due is sent
+    let sent = false
+    for (let k = 0.2; k < 10 && !sent; k += 0.1) sent = !!goalsAt(d, t + k * 1000, (x) => (x === other ? ACT_PLACE.fridge.spot : null))[a].act
+    expect(sent).toBe(true)
+    expect(ACT_WAIT_MAX_S).toBe(15)
   })
 })
 
