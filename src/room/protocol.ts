@@ -19,8 +19,11 @@ export type DeskAudio = { muted: boolean; volume: number; music?: number; sfx?: 
 
 /** the desk site's origins: its deployment today, and the custom domain once it's attached (either may embed the office) */
 export const DEFAULT_PARENT_ORIGINS = 'https://rowansong-dev.vercel.app,https://rowansong.dev'
-/** where the standalone "← 책상으로" goes: the desk site that is live now */
-export const DEFAULT_DESK_URL = 'https://rowansong-dev.vercel.app/'
+/**
+ * where the standalone "← 책상으로" goes: the desk room of the site that is live now. `/room` (#739, rowansong.dev #39: `/` became
+ * the plain portfolio page); a desk site from before #39 opens the desk room on `/room` too, so either may deploy first.
+ */
+export const DEFAULT_DESK_URL = 'https://rowansong-dev.vercel.app/room'
 
 const originOf = (url: string) => {
   try {

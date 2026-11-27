@@ -40,7 +40,7 @@
 | 주소 | 누가 서빙 | 뭐가 보이나 |
 |---|---|---|
 | `/rooms/office` (정확히 이 경로, 끝 `/`만 허용) | 책상 방 앱(SPA 폴백) | 책상 방 + 오피스 iframe. 방문자가 보는 주소는 이것뿐 |
-| `/rooms/office/app/` (그 아래 전부) | 오피스 배포(리라이트) | 오피스 앱 자체. iframe의 `src`(`…/rooms/office/app/?embed=room`). 직접 열면 단독 오피스: "← 책상으로"가 책상 방 루트(`https://rowansong-dev.vercel.app/`, 도메인을 붙이면 `VITE_DESK_URL`로 바꿈)로 간다 |
+| `/rooms/office/app/` (그 아래 전부) | 오피스 배포(리라이트) | 오피스 앱 자체. iframe의 `src`(`…/rooms/office/app/?embed=room`). 직접 열면 단독 오피스: "← 책상으로"가 책상 방(`https://rowansong-dev.vercel.app/room`, 도메인을 붙이면 `VITE_DESK_URL`로 바꿈)으로 간다. 책상 사이트의 `/`는 일반 포트폴리오 페이지가 되었다(#739, rowansong.dev #39) |
 
 - 책상 방 라우터는 `/rooms/office/app`(과 그 아래)를 방 경로로 보지 않는다. 정확히 `/rooms/office`만 방이다.
 - 리라이트 초안(배포 때 `vercel.json`, 지금은 적용 안 함): **`/rooms/office/app/(.*)` → 오피스 배포가 먼저**, 그다음 책상 방 SPA 폴백(`/((?!api/).*)` → `/index.html`). 순서가 바뀌면 오피스 앱 주소가 책상 방으로 먹힌다.
