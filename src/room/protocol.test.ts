@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NS, allowedOrigins, envelope, parentOrigin, parseDeskAudio, parseDeskMessage } from './protocol'
+import { DEFAULT_DESK_URL, DEFAULT_PARENT_ORIGINS, NS, allowedOrigins, envelope, parentOrigin, parseDeskAudio, parseDeskMessage } from './protocol'
 
 const parent = {}
 const allowed = allowedOrigins('http://localhost:5186', 'http://localhost:5187')
@@ -15,6 +15,14 @@ describe('allowedOrigins', () => {
     expect(allowed).toEqual(['http://localhost:5186', 'http://localhost:5187'])
     expect(allowedOrigins('http://a.test', undefined)).toEqual(['http://a.test', 'https://rowansong-dev.vercel.app', 'https://rowansong.dev'])
     expect(allowedOrigins('http://a.test', ' , nonsense, https://x.test/path ')).toEqual(['http://a.test', 'https://x.test'])
+  })
+})
+
+describe('DEFAULT_DESK_URL (#739)', () => {
+  it("is the desk room's own address on the live desk site, not its home page", () => {
+    const u = new URL(DEFAULT_DESK_URL)
+    expect(u.pathname).toBe('/room')
+    expect(DEFAULT_PARENT_ORIGINS.split(',')).toContain(u.origin)
   })
 })
 
