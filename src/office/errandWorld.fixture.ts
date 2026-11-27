@@ -115,8 +115,10 @@ export class Guard {
       if (this.skip(n)) continue
       const p = (this.per[n.name] ??= emptyStats())
       const both = [this.stats, p]
-      const holder = Object.values(w.rigs).find((r) => r.want?.attached && (r.want.prefer === n.name || (r.want.kind === n.userData.prop && !r.want.prefer))) ?? null
-      const side = holder?.want?.side ?? 'r'
+      // a prop in either hand (#718 ②-b: the other hand's is the rig's want2)
+      const holds = (wt: AgentRig['want']) => !!wt?.attached && (wt.prefer === n.name || (wt.kind === n.userData.prop && !wt.prefer))
+      const holder = Object.values(w.rigs).find((r) => holds(r.want) || holds(r.want2)) ?? null
+      const side = (holds(holder?.want ?? null) ? holder?.want?.side : holder?.want2?.side) ?? 'r'
       const now = n.position.clone()
       const before = this.prev.get(n.name)
       const was = this.heldBy.get(n.name) ?? null
@@ -244,10 +246,11 @@ export class Walk {
     }
     // where the white bowl rests, as Agents.tsx gives it (#502: without it the stage kept it at home, a put at the corner slid it back home and the next
     // errand took it from 0.9 m)
-    w.stage.update({ now, t: this.t, dt, reduced: this.reduced, replaying: false, rigs: w.rigs, goals: this.goals, status: this.status, tablet: false, stamp: this.stamp, colors: {}, treats: this.treats, touches: this.touches, inbox: this.inbox })
+    w.stage.update({ now, t: this.t, dt, reduced: this.reduced, replaying: false, rigs: w.rigs, goals: this.goals, status: this.status, tablet: false, stamp: this.stamp, colors: {}, treats: this.treats, touches: this.touches, inbox: this.inbox, tidied: this.director.tableTidied() })
     this.before?.(this.t)
-    w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, r.want])))
+    w.props.hold(new Map(Object.values(w.rigs).map((r) => [r, [r.want, r.want2]])))
     w.props.update(dt)
+    w.stage.lateUpdate()
     w.scene.updateMatrixWorld(true)
     guard?.frame(this.t, true)
     this.t += dt

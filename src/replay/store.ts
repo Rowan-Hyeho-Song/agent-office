@@ -8,6 +8,7 @@
 // and everything on screen (walking, meetings, bubbles) is computed from tau, so x16 is x1 played faster.
 
 import { useSyncExternalStore } from 'react'
+import { HIDDEN_PROJECT } from '../signal/events'
 import type { Point } from '../timeline/types'
 import { adjacentDay, dayId, daysOf, openingDay, pickDay, type DayInfo } from './days'
 import { ALL, daybreakMs, flipText, nightKinds, nightRuns, indexAt, isDaybreak, openingIndex, prepare, projectFrom, sceneAt, shortName, stepMs, atMs, whenText, type NightKind, type Scene, type Speed } from './engine'
@@ -71,6 +72,8 @@ const PROJECT_ORDER = ['agent-office', 'rowansong.dev', 'jank-lab']
 export const byFirstPoint = (points: readonly Point[]): string[] => {
   const seen = [...new Set(points.map((p) => p.project))]
   const rank = (p: string) => {
+    // #710: the private projects always last, after any other
+    if (p === HIDDEN_PROJECT) return PROJECT_ORDER.length + 1
     const i = PROJECT_ORDER.indexOf(shortName(p))
     return i < 0 ? PROJECT_ORDER.length : i
   }
@@ -559,12 +562,14 @@ const narrow = () => typeof matchMedia === 'function' && matchMedia('(max-width:
 
 async function loadFixtures(): Promise<Point[]> {
   // #706 jank-lab: a public copy like rowansong.dev's (#424); the scheduled sync (sync-repos.yml) adds the newer points
-  const [office, hub, lab] = await Promise.all([
+  // #710: made-up contentless points of the private projects (practice mode)
+  const [office, hub, lab, hidden] = await Promise.all([
     import('../timeline/fixtures/agent-office.json'),
     import('../timeline/fixtures/rowansong.dev.json'),
     import('../timeline/fixtures/jank-lab.json'),
+    import('../timeline/fixtures/private.json'),
   ])
-  return [office, hub, lab].flatMap((f) => f.default.points as unknown as Point[])
+  return [office, hub, lab, hidden].flatMap((f) => f.default.points as unknown as Point[])
 }
 
 /** one store per page */

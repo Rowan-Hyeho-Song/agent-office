@@ -20,6 +20,7 @@ stubCanvas()
 const OBJECTS: [string, string, 'l' | 'r'][] = [
   ['prop_cup_0', 'cup', 'r'], ['prop_cup_1', 'cup', 'r'],
   ['prop_paddle_a', 'paddle', 'r'], ['prop_paddle_b', 'paddle', 'r'],
+  ['prop_paddle_a', 'paddle', 'l'], ['prop_paddle_b', 'paddle', 'l'], // #718: the tray carry
   ['prop_marker_0', 'marker', 'r'], ['prop_marker_1', 'marker', 'r'], ['prop_marker_2', 'marker', 'r'],
   ['prop_tablet_pen', 'tablet_pen', 'r'],
   ['prop_book', 'book', 'l'], ['prop_book', 'book', 'r'], ['prop_book', 'leaf', 'r'], ['prop_book', 'bookclosed', 'l'],

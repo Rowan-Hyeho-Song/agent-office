@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { StatusRow } from './events'
+import { hiddenPointOf, type StatusRow } from './events'
 import { createSupabaseStore, isMissingColumn } from './store'
 
 const NOW = '2026-01-01T00:00:00.000Z'
@@ -62,5 +62,21 @@ describe('createSupabaseStore before the SQL is applied (#182)', () => {
     await store.setStatus(row)
     expect(f.calls[0].path).toContain('task_repo')
     expect(f.calls[1].body).toMatchObject({ task_repo: 'agent-office', task_issue: 170 })
+  })
+})
+
+describe('a private project point (#710)', () => {
+  it('is upserted on its key keeping the first one (ignore-duplicates): a later signal of the half hour does not move it', async () => {
+    const seen: { path: string; init: RequestInit }[] = []
+    const store = createSupabaseStore(async <T,>(path: string, init: RequestInit = {}) => {
+      seen.push({ path, init })
+      return null as T
+    })
+    const p = hiddenPointOf(1, new Date(NOW))
+    await store.hiddenPoint!(p)
+    expect(seen).toHaveLength(1)
+    expect(seen[0].path).toBe('timeline?on_conflict=key')
+    expect((seen[0].init.headers as Record<string, string>).prefer).toBe('resolution=ignore-duplicates,return=minimal')
+    expect(JSON.parse(String(seen[0].init.body))).toEqual(p)
   })
 })

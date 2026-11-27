@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  BOARD_LABEL, BOARD_STAY, EXTEND_MAX_MS, FILL_MIN_MS, GAME_WEIGHTS, GAP_S, LEAVE_CAP, LEAVE_WINDOW_MS, NIGHT_PLAYS, PAIR_SOON_MS, PLAYS, STAY_MIN, WATCH_LEAVE_MS, WATCH_LEFT_MS, chooseGame, dayPlan, nextChange, planDay, playAt, restAfter, restNear, soloAt, stayRange, type PlayAssignment, type Seg,
+  BOARD_LABEL, BOARD_STAY, EXTEND_MAX_MS, LOOK_MS, SPINES, TIDY_MS, TIDY_SPOT, GAME_WEIGHTS, GAP_S, LEAVE_CAP, LEAVE_WINDOW_MS, NIGHT_PLAYS, PAIR_SOON_MS, PLAYS, STAY_MIN, WATCH_LEAVE_MS, WATCH_LEFT_MS, chooseGame, dayPlan, nextChange, planDay, playAt, fillChain, restNear, soloAt, stayRange, type FillKind, type PlayAssignment, type Seg,
 } from './play'
 
 // #490 (docs/design/play.md 9): no blocks; each agent has its own run of stays and gaps, laid out once a day from KST 04:00, the same for every visitor.
@@ -163,11 +163,12 @@ describe('at any moment (playAt)', () => {
       for (const a of FIVE) {
         if (a === 'agent_1') continue
         if (all[a].partner === 'agent_1') {
-          expect(['boardgame_solo', 'gap', 'coffee', 'books', 'watch']).toContain(less[a].kind) // aloneAt: a game to watch is one of the fills (play.md 9.2)
+          expect(['boardgame_solo', 'gap', 'coffee', 'books', 'watch', 'sofa']).toContain(less[a].kind) // aloneAt: the fill chain (play.md 9.7)
           expect(less[a].partner).toBeUndefined()
         } else if (all[a].kind === 'watch' && Object.entries(all).some(([b, o]) => o.kind === all[a].watch && o.partner && (b === 'agent_1' || o.partner === 'agent_1'))) {
-          // its game is broken: it leaves at once
-          expect(less[a]).toMatchObject({ kind: 'gap' })
+          // its game is broken: it leaves at once, for the fill chain without watching (#718)
+          expect(less[a].kind).not.toBe('watch')
+          expect(less[a].spot).not.toBe(all[a].spot)
         } else expect(less[a]).toEqual(all[a])
       }
     }
@@ -245,7 +246,7 @@ describe('a ping-pong pair broken by work (#516)', () => {
         for (const s of segs) if (s.kind === 'pingpong' && s.spot === 'pingpong_a' && s.end - s.start > 3 * MIN && s.end < dayStart(d) + 86_400_000) out.push({ d, s, a: FIVE[i] })
     return out
   }
-  it('the one left: a stroll from the moment the partner went, then the first free of coffee, books, a record, watching, the window; never back and forth, never the table', () => {
+  it('the one left: a stroll from the moment the partner went, then the fill chain (#718); never at one place over LOOK_MS but a fill, never back to a place but the look-around, never the table', () => {
     const list = games()
     expect(list.length).toBeGreaterThan(5)
     let filled = 0
@@ -254,18 +255,24 @@ describe('a ping-pong pair broken by work (#516)', () => {
       const alone = { broken: new Map([[s.stay, from]]) }
       const busy = new Set([s.partner!])
       const spots: string[] = []
+      let at = { spot: '', t: 0 }
       for (let t = from; t < s.end; t += 5_000) {
         const o = playAt(t, FIVE, busy, alone)[a]
         expect(o.kind, `${new Date(t).toISOString()}`).not.toBe('pingpong')
-        if (t < from + 30_000) expect(o).toMatchObject({ kind: 'gap', gap: 'wander' })
+        // #718 (play.md 9.7 ①): the tidy-up at the table's side by the net, then the stroll
+        if (t < from + TIDY_MS) expect(o).toMatchObject({ kind: 'gap', gap: 'tidy', label: '탁구 · 정리하는 중', spot: TIDY_SPOT })
+        else if (t < from + TIDY_MS + 30_000) expect(o).toMatchObject({ kind: 'gap', gap: 'wander' })
         else {
           if (o.kind !== 'gap') {
-            expect(['coffee', 'books', 'boardgame_solo', 'watch']).toContain(o.kind)
+            expect(['coffee', 'books', 'boardgame_solo', 'watch', 'sofa']).toContain(o.kind)
             filled++
           }
-          // #524: one place after another, never back to one it has left (no stroll to and fro)
+          if (at.spot !== o.spot) at = { spot: o.spot, t }
+          // #718: a gap is never one place for longer than a look-around turn
+          if (o.kind === 'gap') expect(t - at.t, `${o.spot} too long`).toBeLessThanOrEqual(LOOK_MS)
+          // #524: one place after another, never back to one it has left (no stroll to and fro); the look-around's window and spines take turns
           if (spots.at(-1) !== o.spot) {
-            expect(spots, `${o.spot} again`).not.toContain(o.spot)
+            if (!(o.kind === 'gap' && (o.gap === 'window' || o.gap === 'spines'))) expect(spots, `${o.spot} again`).not.toContain(o.spot)
             spots.push(o.spot)
           }
         }
@@ -315,7 +322,7 @@ describe('watching (#517)', () => {
     expect(watches).toBeGreaterThan(5)
   })
 
-  it('a game broken by a player gone to work: its watcher is off at once, near where it stood; the same at the same moment', () => {
+  it('a game broken by a player gone to work: its watcher is off at once to the fill chain, not watching again (#718); the same at the same moment', () => {
     let seen = 0
     for (const d of DAYS.slice(0, 3)) {
       const plan = dayPlan(d, FIVE)
@@ -329,7 +336,7 @@ describe('watching (#517)', () => {
           const busy = new Set([game.partner!])
           for (let t = broke; t < w.end; t += 4_000) {
             const o = playAt(t, FIVE, busy, alone)[FIVE[i]]
-            expect(o.kind, 'off at once').toBe('gap')
+            expect(o.kind, 'off at once').not.toBe('watch')
             expect(o.spot).not.toBe(w.spot)
             expect(playAt(t, FIVE, busy, alone)[FIVE[i]]).toEqual(o)
             seen++
@@ -340,54 +347,67 @@ describe('watching (#517)', () => {
   })
 })
 
-// #715: an errand over with a minute or more of its stay left is followed by a fill, not one hall spot for minutes
-describe('after an errand (#715)', () => {
-  const stays = () => {
-    const out: { s: Seg; p: PlayAssignment }[] = []
-    for (const d of DAYS.slice(0, 2))
-      for (const segs of dayPlan(d, FIVE))
-        for (const s of segs) {
-          if (!['fridge', 'dispenser', 'record', 'water', 'books'].includes(s.kind) || s.end > dayStart(d) + 86_400_000) continue
-          out.push({ s, p: { kind: s.kind as 'fridge', label: '', spot: PLAYS.find((x) => x.kind === s.kind)!.spots[0], stay: s.stay, since: s.start, until: s.end } })
-        }
+// #718 (play.md 9.7): the fill chain: the first free of coffee, books, a record alone, watching, a sofa seat; then the window and the spines by turns
+describe('the fill chain (#718)', () => {
+  const rests = () => {
+    const out: { s: Seg; plan: Seg[][] }[] = []
+    for (const d of DAYS.slice(0, 2)) {
+      const plan = dayPlan(d, FIVE)
+      for (const segs of plan) for (const s of segs) if (['fridge', 'dispenser', 'record', 'water', 'books'].includes(s.kind) && s.end - s.start > 70_000 && s.end <= dayStart(d) + 86_400_000) out.push({ s, plan })
+    }
     return out
   }
-  const usedBy = (s: Seg, spot: string, a: number, b: number) =>
-    dayPlan(planDay(s.start).day, FIVE).some((segs) => segs.some((x) => x.spot === spot && x.stay !== s.stay && x.start < b && a < x.end))
+  const usedBy = (plan: Seg[][], s: Seg, spot: string, a: number, b: number) => plan.some((segs) => segs.some((x) => x.spot === spot && x.stay !== s.stay && x.start < b && a < x.end))
+  const ORDER = ['coffee', 'books', 'boardgame_solo', 'watch', 'sofa', 'gap']
 
-  it('under FILL_MIN_MS left: the one place restNear gives (#525)', () => {
-    for (const { s, p } of stays().slice(0, 40)) {
-      const from = s.end - FILL_MIN_MS / 2
-      expect(restAfter(from, FIVE, p, from)).toEqual(restNear(from, FIVE, p))
-    }
-  })
-
-  it('a minute or more left: coffee, watching a game or the window, on a place nobody plans to use then; never a hall spot', () => {
-    let seen = 0
+  it('the first free one in order, on a place nobody plans to use then; skip and exclude are kept', () => {
     const kinds = new Set<string>()
-    for (const { s, p } of stays()) {
-      if (s.end - s.start < FILL_MIN_MS + 10_000) continue
+    for (const { s, plan } of rests()) {
       const from = s.start + 5_000
-      const r = restAfter(from, FIVE, p, from)
-      if (r.kind === 'gap' && r.gap !== 'window') {
-        // only when coffee and both windows are in the plan then
-        expect(['coffee', 'hall_north', 'hall_memo_back'].every((h) => usedBy(s, h, from, s.end)), `${s.kind} ${r.spot}`).toBe(true)
-        continue
-      }
-      const kind = r.kind === 'gap' ? 'window' : r.kind
-      kinds.add(kind)
-      expect(['coffee', 'watch', 'window']).toContain(kind)
-      expect(usedBy(s, r.spot, from, r.until), `${r.spot} taken`).toBe(false)
+      const r = fillChain(plan, from, from, s.end, { agent: 'agent_0', own: s.stay })
+      kinds.add(r.kind)
+      expect(usedBy(plan, s, r.spot, r.since, r.until), `${r.kind} ${r.spot} taken`).toBe(false)
       expect(r.until).toBeLessThanOrEqual(s.end)
-      seen++
+      // nothing earlier in the order was free
+      if (r.kind !== 'coffee') expect(usedBy(plan, s, 'coffee', from, s.end), 'coffee was free').toBe(true)
+      const skipped = fillChain(plan, from, from, s.end, { agent: 'agent_0', own: s.stay, skip: (h) => h === r.spot })
+      expect(skipped.spot).not.toBe(r.spot)
+      if (r.kind !== 'gap') expect(fillChain(plan, from, from, s.end, { agent: 'agent_0', own: s.stay, exclude: [r.kind as FillKind] }).kind).not.toBe(r.kind)
+      // the same at the same moment
+      expect(fillChain(plan, from, from, s.end, { agent: 'agent_0', own: s.stay })).toEqual(r)
     }
-    expect(seen).toBeGreaterThan(10)
     expect(kinds.has('coffee')).toBe(true)
+    expect(ORDER).toEqual(expect.arrayContaining([...kinds]))
   })
 
-  it('a place the director has given another agent is skipped', () => {
-    const { s, p } = stays().find(({ s, p }) => s.end - s.start > 2 * FILL_MIN_MS && restAfter(s.start, FIVE, p, s.start).kind === 'coffee')!
-    expect(restAfter(s.start, FIVE, p, s.start, (h) => h === 'coffee').spot).not.toBe('coffee')
+  it('the second of two takes the next one', () => {
+    for (const { s, plan } of rests().slice(0, 30)) {
+      const from = s.start + 5_000
+      const one = fillChain(plan, from, from, s.end, { agent: 'agent_0', own: s.stay })
+      const two = fillChain(plan, from, from, s.end, { agent: 'agent_1', own: s.stay, n: 1 })
+      if (one.kind !== 'gap') expect(two.spot).not.toBe(one.spot)
+    }
+  })
+
+  it('the look-around: the window and the spines by turns of LOOK_MS at most, equal, with labels; never a turn longer', () => {
+    // a stay with the shelf and a window free for the next 7 minutes
+    const { s, plan } = rests().find(({ s, plan }) => !usedBy(plan, s, 'shelf', s.start, s.start + 7 * 60_000) && !usedBy(plan, s, 'hall_north', s.start, s.start + 7 * 60_000))!
+    const all = ['coffee', 'books', 'boardgame_solo', 'watch', 'sofa'] as FillKind[]
+    const from = s.start
+    const until = from + 7 * 60_000
+    const turns: PlayAssignment[] = []
+    for (let t = from; t < until; t += 5_000) {
+      const r = fillChain(plan, t, from, until, { agent: 'agent_0', own: s.stay, exclude: all })
+      expect(r.kind).toBe('gap')
+      expect(r.label.length).toBeGreaterThan(0)
+      expect(r.until - r.since).toBeLessThanOrEqual(LOOK_MS)
+      if (turns.at(-1)?.since !== r.since) turns.push(r)
+    }
+    expect(turns.length).toBe(Math.ceil((until - from) / LOOK_MS))
+    expect(new Set(turns.map((r) => r.until - r.since)).size).toBe(1)
+    for (let k = 1; k < turns.length; k++) expect(turns[k].spot, 'another place each turn').not.toBe(turns[k - 1].spot)
+    expect(turns.some((r) => r.gap === 'spines') && turns.some((r) => r.gap === 'window')).toBe(true)
+    expect(SPINES.spot).toBe('shelf')
   })
 })
 

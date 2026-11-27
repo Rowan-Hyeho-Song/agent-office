@@ -268,3 +268,28 @@ describe('looking before throwing, turning to catch (#224)', () => {
     }
   })
 })
+
+// #726 (timelapse.md 12.3): a 1:1 minutes point sends a paper with each row. A paper that came down on the desk (the receiver not in, or its hands busy)
+// held the one plane until it faded (or for LAY_MAX_S), and the rows after it never got theirs. Now the next paper waiting takes over at once
+describe('a paper on the desk gives way to the next (#726)', () => {
+  it('two papers to a receiver that is not in: the first lies down, the second sets off as soon as it does; both are flown', () => {
+    const { planes } = world()
+    const rigs = Object.fromEntries(SEATS.map((n) => [`agent_${n}`, rig(n, n !== 1)]))
+    planes.receive({ id: 'a', kind: 'handoff', from: 'agent_0', to: 'agent_1' } as never)
+    planes.receive({ id: 'b', kind: 'handoff', from: 'agent_0', to: 'agent_1' } as never)
+    let landedAt = -1
+    let secondAt = -1
+    let prev: string | null = null
+    for (let t = 0; t < 12 && secondAt < 0; t += 1 / 60) {
+      planes.update(t, graph, rigs, false)
+      const ph = planes.phase
+      if (ph === 'landed' && landedAt < 0) landedAt = t
+      // a new flight after the first one had landed
+      if (landedAt >= 0 && prev === 'landed' && ph !== 'landed') secondAt = t
+      prev = ph
+    }
+    expect(landedAt).toBeGreaterThan(0)
+    expect(secondAt - landedAt, 'the second paper does not wait for the first to fade').toBeLessThan(0.1)
+    expect(planes['flown']).toBe(2)
+  })
+})

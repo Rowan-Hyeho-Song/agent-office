@@ -6,11 +6,12 @@ import { DESK_SIDES } from './nav'
 import { DOOR_LABEL, DOOR_ROUND, LEVER, doorAgent, doorDue, doorU, stepDoor, type DoorKind, type DoorRun } from './doorRound'
 import { nightDuty } from './duty'
 import { BROWSE, SHELF_MORE, nextShelf, SHELF_LABEL, SHELF_STAND, shelfTurn, callAway as shelfCallAway, holding as shelfHolding, startShelf, stepShelf, type ShelfRun, type ShelfStage } from './shelfRun'
-import { hallNear, playAt, PLAYS, restAfter, restNear, schedulePose, soloAt, type GapKind, type PlayAssignment, type PlayKind } from './play'
+import { aloneChain, dayPlan, FILL_MIN_MS, fillChain, GAP_LABEL, hallNear, TIDY_SPOT, planDay, playAt, PLAYS, restNear, schedulePose, soloAt, type FillKind, type GapKind, type PlayKind } from './play'
 import { gapPace } from './gapMotion'
+import type { Expression } from './faceModel'
 import { activityLabel, type AgentStatus, type OfficeMessage, type StatusMap } from './status'
 import type { Request } from './traffic'
-import { actSpot, actU, deckAfter, startAct, stepAct, type ActRun } from './actRun'
+import { actLength, actSpot, actU, deckAfter, startAct, stepAct, type ActRun } from './actRun'
 import { ACT_LABEL, ACT_PLACE, grabAt, isAct, type ActKind, type DrinkKind, type RecordMode } from './lounge'
 import { drinkPick, drinkView, stepDrink, type Drink, type DrinkView } from './fridgeDrink'
 import { isNight } from './kst'
@@ -18,6 +19,7 @@ import { NOTE_LABEL, NOTE_READ, noteU, stepNote, stillWaiting, type NoteRun, typ
 import { PATH_BLOCKERS, STAND_BLOCKERS, WATER_PLANTS } from './water'
 import { callAway, chooseSeat, holding as readHolding, placeOf as readPlace, READ_LABEL, readLen, startRead, stepRead, type ReadRun, type ReadStage } from './readRun'
 import { holding, placeOf, startWater, stepWater, WATER_LABEL, type WaterRun, type WaterStage } from './waterRun'
+import { other as otherSide, startTidy, stepTidy, tidyPlace, type Side, type TidyRun, type TidyStage } from './tidyRun'
 import { habitFor, type HabitKind } from './waterFx'
 import { startWrap, stepWrap, viewOf, WALKING_TO_DESK, type BeatKind, type PieceKind, type Shown, type WrapRun, type WrapStep } from './wrap'
 
@@ -37,6 +39,8 @@ export interface Goal {
   depart?: number
   /** an agent to turn only the head toward (the body keeps the spot's / slot's direction) */
   gaze?: string
+  /** #718: a face shown once when `key` changes (rig.faceEvent): a watcher puzzled as its game breaks */
+  faceCue?: { expr: Expression; key: string; dur: number }
   /** a short reaction, started once when `key` changes: a 5° nod, with a slight hand lift (skipped with reduced motion) */
   gesture?: { key: string; hand: boolean }
   /** placeholder speech bubble text (bubble design comes later) */
@@ -54,6 +58,8 @@ export interface Goal {
   water?: { stage: WaterStage; plant: string; u: number; habit?: HabitKind | null }
   /** the reading errand (#280, readRun.ts): its stage, the seat it reads on, and how long (s) the stage has lasted: the hands are drawn from these */
   read?: { stage: ReadStage; seat: number; u: number; /** the seated reading's length, s (readRun.ts readLen, #715) */ len: number }
+  /** #718 ②-b the tidy-up of the ping-pong table (tidyRun.ts): its stage, how long it has lasted (s), and the agent's own paddle */
+  tidy?: { stage: TidyStage; u: number; own: Side }
   /** a lounge act (lounge.ts: the fridge, the dispenser, the turntable): which, how long since the agent reached its stand (s, -1 on the way), the turntable's mode and whether a record was on the platter */
   act?: { kind: ActKind; u: number; mode?: RecordMode; recordOn: boolean; pick?: DrinkKind }
   /** #457 the drink taken out of the fridge, in the left hand (fridgeDrink.ts): from the moment the hand has it until it has faded out */
@@ -128,6 +134,14 @@ export const standSlot = (p: { stand?: { x: number; z: number }; face?: { x: num
 
 export const deskOf = (agent: string) => Number(agent.split('_')[1])
 
+/** #718 (play.md 9.7 ③): a lounge act's turn is waited for only this long (s); a longer wait skips the act for that stay */
+export const ACT_WAIT_MAX_S = 15
+/** an act not started yet: its walk to the stand, guessed (s) */
+const ACT_WALK_S = 10
+
+/** #718 ②-b (3D #735): where the ball is picked up by the net on the north side: a stand before it, facing it */
+export const TIDY_BALL = { stand: { x: 1.7, z: -0.16 }, face: { x: 1.7, z: 0.27 } } as const
+
 export class Director {
   private queue: OfficeMessage[] = []
   private talks: Talk[] = []
@@ -142,11 +156,20 @@ export class Director {
   /** the reading errand in progress (readRun.ts; at most one: there is one book) and the block each agent has read in already */
   private reads: Record<string, ReadRun> = {}
   private readDone: Record<string, number> = {}
+  /** #718 ②-b the tidy-ups under way (tidyRun.ts), the stay each agent has tidied in already, and whether the table lies tidied (until a game takes the paddles up) */
+  private tidies: Record<string, TidyRun> = {}
+  private tidyDone: Record<string, number> = {}
+  private tidied: Side | null = null
   /** the lounge acts in progress (actRun.ts; the fridge and the dispenser share one bar, the turntable has its own) and the block each agent has acted in already */
   private acts: Record<string, ActRun> = {}
   private actDone: Record<string, number> = {}
-  /** #715: what each agent does with the rest of an errand stay once the errand is over (play.ts restAfter), chosen once per stay so it never flips */
-  private restPick: Record<string, { stay: number; r: PlayAssignment }> = {}
+  /**
+   * #718 (play.md 9.7): an errand stay whose errand is over: when that was, and the places the others had then (kept, so the fill chain picks the same
+   * thing frame after frame)
+   */
+  private leftOf: Record<string, { stay: number; from: number; held: string[] }> = {}
+  /** #718 ?debug=1: one left at a forced ping-pong game whose partner was sent to work (debugPlay.ts typing.force): play.md 9.2's busy rule from `from` */
+  private forcedAlone: { agent: string; from: number; until: number } | null = null
   /** #457 the drink each agent has in hand from the fridge (fridgeDrink.ts), and what it took out on which KST day (not the same one twice a day) */
   private drinks: Record<string, Drink> = {}
   private drank: Record<string, { day: number; kinds: DrinkKind[] }> = {}
@@ -283,6 +306,20 @@ export class Director {
 
   clearReads() {
     for (const k of Object.keys(this.reads)) delete this.reads[k]
+  }
+
+  /** #718 ②-b the paddles and the ball lie tidied by the net (PlayStage rests them there) until a game at the table takes them up */
+  tableTidied() {
+    return this.tidied
+  }
+
+  /** #718 ?debug=1: `agent` is left alone at the ping-pong table now (its forced partner went to work): the stroll, then the fill chain, for `minutes` */
+  forceAlone(agent: string, now: number, minutes = 6) {
+    this.forcedAlone = { agent, from: now, until: now + minutes * 60_000 }
+  }
+
+  clearAlone() {
+    this.forcedAlone = null
   }
 
   /** ?debug=1: send an agent to read right now, on `seat` (0 when not said); the schedule's own readings take the first free seat */
@@ -427,6 +464,35 @@ export class Director {
       back: Object.fromEntries(this.agents.filter((a) => !busy.has(a) && status[a]).map((a) => [a, status[a]!.since])),
     }
     let play = playAt(now, this.agents, busy, alone)
+    // #715 · #718 (play.md 9.1 · 9.7): an errand over a minute or more before its stay ends: the rest of the stay is the fill chain, as its own stay (so the
+    // errand's done mark does not cover a reading in it). A record placed alone is left out: the hologram board is laid out from the plan (play/session.ts)
+    const fillLeft = () => {
+      for (const a of this.agents) {
+        const p = play[a]
+        if (!p) continue
+        const done = (p.kind === 'water' && this.waterDone[a] === p.stay) || (isAct(p.kind) && this.actDone[a] === p.stay) || (p.kind === 'books' && this.readDone[a] === p.stay)
+        if (!done || this.waters[a] || this.acts[a] || this.reads[a] || this.shelf?.agent === a || this.shelfBrowse?.agent === a) continue
+        let left = this.leftOf[a]
+        if (left?.stay !== p.stay) {
+          const held = this.agents.filter((x) => x !== a).flatMap((x) => [play[x]?.spot, this.lastGoal[x]?.spot]).filter((x): x is string => !!x)
+          left = this.leftOf[a] = { stay: p.stay, from: now, held }
+        }
+        if (p.until - left.from < FILL_MIN_MS) continue
+        const exclude: FillKind[] = p.kind === 'books' ? ['boardgame_solo', 'books'] : ['boardgame_solo']
+        const held = new Set(left.held)
+        play[a] = fillChain(dayPlan(planDay(now).day, [...this.agents].sort()), now, left.from, p.until, { agent: a, own: p.stay, stay: p.stay * 10 + 1, exclude, skip: (x) => held.has(x) })
+      }
+    }
+    fillLeft()
+    // #718 ?debug=1: the one left at a forced ping-pong game: the stroll, then the fill chain, as the schedule's own (play.ts aloneChain)
+    const fa = this.forcedAlone
+    const alonePlay = () => {
+      if (fa && now >= fa.from && now < fa.until && play[fa.agent]) play[fa.agent] = aloneChain(now, this.agents, fa.agent, fa.from, fa.until)
+    }
+    if (fa && now >= fa.until) this.forcedAlone = null
+    alonePlay()
+    // #718: the plan's face cues, kept before an errand takes its agent out of the schedule below
+    const cues = Object.fromEntries(this.agents.map((a) => [a, play[a]?.cue] as const))
     // #490: no blocks; each agent's errands count "done" per stay of its own plan (play.ts), the minute when it has none
     const stayOf = (a: string) => play[a]?.stay ?? minute
 
@@ -510,6 +576,28 @@ export class Director {
         }
       }
     }
+    // #718 ②-b (play.md 9.7 ①, tidyRun.ts): the one left at a broken ping-pong game tidies the table; called away, it simply stops (the paddles go home)
+    const tidySpot = (run: TidyRun, place: ReturnType<typeof tidyPlace>) => (place === 'own' ? `pingpong_${run.own}` : place === 'partner' ? `pingpong_${otherSide(run.own)}` : TIDY_SPOT)
+    for (const a of this.agents) {
+      const p = play[a]
+      if (p?.gap === 'tidy' && p.paddle && this.tidyDone[a] !== p.stay && !this.tidies[a] && resting(a)) {
+        this.tidies[a] = startTidy(p.paddle, p.stay, now)
+        this.tidyDone[a] = p.stay
+      }
+      const run = this.tidies[a]
+      if (!run) continue
+      if (!resting(a) || a in this.meet) {
+        delete this.tidies[a]
+        continue
+      }
+      const r = stepTidy(run, { now, arrived: (place) => arrivedAt(a) === tidySpot(run, place) })
+      if (r.done) {
+        delete this.tidies[a]
+        this.tidied = run.own
+      } else this.tidies[a] = r.run
+    }
+    // a game at the table takes the tidied paddles up again
+    if (this.agents.some((a) => play[a]?.kind === 'pingpong' && !!play[a]?.partner && play[a]?.pairAt !== undefined && now >= play[a]!.pairAt!)) this.tidied = null
     // #450 (lounge-props.md 6): the book from the second bookshelf, read standing before it and put back in its slot. Called away with it out, it is put
     // back first; on the way, nothing is out
     if (this.shelf) {
@@ -590,6 +678,17 @@ export class Director {
     for (const a of this.agents) {
       const k = play[a]?.kind
       // the break music is on and the needle is down: the schedule does not send anybody to lift the arm (that is for the end of the break, above)
+      // #718 (play.md 9.7 ③): nobody is sent while the break music plays, and a turn more than ACT_WAIT_MAX_S off is not waited for: this stay skips its act
+      // (marked done: the fill chain takes the rest)
+      if (k && isAct(k) && this.actDone[a] !== stayOf(a) && !this.acts[a] && resting(a)) {
+        const hold = k === 'record' && opts.wantsBreak && this.deck.needle
+        const ahead = Object.values(this.acts).find((r) => (r.kind === 'record') === (k === 'record'))
+        const wait = hold ? Infinity : ahead ? (ahead.t0 === null ? actLength(ahead) + ACT_WALK_S : actLength(ahead) - actU(ahead, now)) : 0
+        if (wait > ACT_WAIT_MAX_S) {
+          this.actDone[a] = stayOf(a)
+          continue
+        }
+      }
       if (k === 'record' && opts.wantsBreak && this.deck.needle) continue
       if (k && isAct(k) && this.actDone[a] !== stayOf(a) && !this.acts[a] && !this.waters[a] && !this.reads[a] && resting(a) && steady(a)) beginAct(a, k)
     }
@@ -634,8 +733,12 @@ export class Director {
       }
     }
     // whoever is on an errand is not free for the schedule's other plays (a game partner left alone goes to a solo)
-    const away = [...Object.keys(this.waters), ...Object.keys(this.acts), ...Object.keys(this.reads), ...Object.keys(this.noteRuns), ...(this.door ? [this.door.agent] : []), ...(this.shelf ? [this.shelf.agent] : []), ...(this.shelfBrowse ? [this.shelfBrowse.agent] : [])]
-    if (away.length) play = playAt(now, this.agents, new Set([...busy, ...away]), alone)
+    const away = [...Object.keys(this.waters), ...Object.keys(this.acts), ...Object.keys(this.reads), ...Object.keys(this.tidies), ...Object.keys(this.noteRuns), ...(this.door ? [this.door.agent] : []), ...(this.shelf ? [this.shelf.agent] : []), ...(this.shelfBrowse ? [this.shelfBrowse.agent] : [])]
+    if (away.length) {
+      play = playAt(now, this.agents, new Set([...busy, ...away]), alone)
+      fillLeft()
+      alonePlay()
+    }
     const out: Record<string, Goal> = {}
     const shown: Record<string, Shown> = {}
     const playing: string[] = []
@@ -688,6 +791,15 @@ export class Director {
         shown[a] = free
           ? { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' }
           : { status: s, kind: s.state === 'working' ? 'work' : s.state === 'wrapping' ? 'wrap' : s.state === 'off' ? 'off' : 'duty', detail: WATER_LABEL[wr.stage], ...(s.state === 'wrapping' ? { step: 'seat' as const } : {}) }
+        continue
+      }
+      // #718 ②-b the tidy-up: the stage's place (its end, the ball by the net, the partner's end, pp_side), the hands drawn from the stage
+      const tr = this.tidies[a]
+      if (tr) {
+        const place = tidyPlace(tr)
+        out[a] = { spot: tidySpot(tr, place), pose: 'idle', ...(place === 'ball' ? { face: TIDY_BALL.face, ...standSlot(TIDY_BALL) } : {}), tidy: { stage: tr.stage, u: (now - tr.t0) / 1000, own: tr.own }, label: GAP_LABEL.tidy }
+        const free = (s.state === 'idle' && s.night !== 'duty') || (s.state === 'wrapping' && !this.runs[a])
+        shown[a] = free ? { status: s.state === 'wrapping' ? { ...s, state: 'idle' } : s, kind: 'rest' } : { status: s, kind: s.state === 'working' ? 'work' : s.state === 'wrapping' ? 'wrap' : s.state === 'off' ? 'off' : 'duty', detail: GAP_LABEL.tidy }
         continue
       }
       // the reading errand: the stage's own place (the stand beside the table, or the sofa seat) and hands, until the book is back where it was taken from
@@ -785,27 +897,16 @@ export class Director {
       const p = play[a]
       // #517 (play.md 9.1): an errand waiting its turn (the can, the book, the bar or the turntable taken), or already done in this stay, does not send the agent
       // to sit at its desk: it rests near the errand's place, gaps by turns (play.ts restNear); the words say it waits its turn, or which gap it is
-      const rest = (done: boolean, waiting: string) => {
+      const rest = (done: boolean, waiting: string, face?: { x: number; z: number }) => {
+        // #718: what is left here is short (a wait of ACT_WAIT_MAX_S at most, or under a minute after the errand: fillLeft takes longer ones)
+        const r = restNear(now, this.agents, p!)
         playing.push(a)
-        if (!done) {
-          const r = restNear(now, this.agents, p!)
-          out[a] = { spot: r.spot, pose: 'idle', gap: r.gap, ...(r.face ? { face: r.face } : {}), label: waiting }
-          return
-        }
-        // #715: over with time to spare, a fill (coffee, watching, the window) rather than one hall spot for minutes; picked the first frame the errand is over,
-        // clear of the places the others are given now; a watch ends before its game does, and the window (or one place) is picked for what is left then
-        let pick = this.restPick[a]
-        if (!pick || pick.stay !== p!.stay || (pick.r.kind === 'watch' && now >= pick.r.until)) {
-          const from = pick?.stay === p!.stay ? pick.r.until : now
-          const held = new Set(this.agents.filter((x) => x !== a).map((x) => out[x]?.spot ?? this.lastGoal[x]?.spot))
-          pick = this.restPick[a] = { stay: p!.stay, r: restAfter(now, this.agents, p!, from, (s) => held.has(s)) }
-        }
-        const r = pick.r
-        out[a] = r.kind === 'gap' ? { spot: r.spot, pose: 'idle', gap: r.gap, ...(r.face ? { face: r.face } : {}), label: r.label } : { spot: r.spot, pose: schedulePose(r.kind), face: r.face, ...standSlot(r), ...(r.watch ? { watching: r.watch } : {}), label: r.label }
+        const at = !done && face ? face : r.face
+        out[a] = { spot: r.spot, pose: 'idle', gap: r.gap, ...(at ? { face: at } : {}), label: done ? r.label : waiting }
       }
       // water is an errand (above): an agent assigned to it that has not started waits for the can (or has already watered in this stay)
       if (p && isAct(p.kind)) {
-        rest(this.actDone[a] === stayOf(a), `${ACT_LABEL[p.kind]} 차례 기다리는 중`)
+        rest(this.actDone[a] === stayOf(a), `${ACT_LABEL[p.kind]} 차례 기다리는 중`, ACT_PLACE[p.kind].face)
         continue
       }
       if (p?.kind === 'water') {
@@ -819,9 +920,14 @@ export class Director {
       }
       if (p) playing.push(a)
       // a gap between two stays (a stretch where it was, a stroll, the window) and watching a game stand still: the label says which (#490)
-      out[a] = p ? { spot: p.spot, pose: schedulePose(p.kind), face: p.face, ...standSlot(p), ...(p.gap ? { gap: p.gap } : {}), ...(p.watch ? { watching: p.watch } : {}), ...(p.kind === 'pingpong' && p.partner && arrivedAt(p.partner) !== play[p.partner]?.spot ? { partnerWait: true } : {}), label: p.label } : deskIdle(desk)
+      out[a] = p ? { spot: p.spot, pose: schedulePose(p.kind), face: p.face, ...standSlot(p), ...(p.gap ? { gap: p.gap } : {}), ...(p.gap === 'spines' ? { browse: true } : {}), ...(p.watch ? { watching: p.watch } : {}), ...(p.kind === 'pingpong' && p.partner && arrivedAt(p.partner) !== play[p.partner]?.spot ? { partnerWait: true } : {}), label: p.label } : deskIdle(desk)
     }
     this.settle(out, playing, deskIdle)
+    // #718 (play.md 9.7 ②): a face cue of the plan (a watcher whose game broke: 의문) whatever its fill is run as (an errand builds its own goal)
+    for (const a of this.agents) {
+      const cue = cues[a] ?? play[a]?.cue
+      if (cue && out[a]) out[a] = { ...out[a], faceCue: cue }
+    }
     this.putAway(now, out)
     this.drinkStep(now, out, shown, arrivedAt, !!opts.reduced)
     this.baseShown = shown

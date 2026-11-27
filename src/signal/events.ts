@@ -60,7 +60,11 @@ export type Signal = (
   | { seat: number; kind: 'activity'; activity: Activity }
   | { seat: number; kind: 'result'; activity: ResultActivity; ok: boolean }
   | { seat: number; kind: 'handoff'; to: number }
-) & { task?: TaskRef }
+) & {
+  task?: TaskRef
+  /** #710: a private project's session (the hook's local `privateProjects`): only with activity `private`; it leaves a timelapse point with no content */
+  hidden?: true
+}
 
 /** a task as stored on the status row */
 export type StoredTask = Pick<StatusRow, 'task_repo' | 'task_issue' | 'task_title' | 'task_private'>
@@ -96,16 +100,46 @@ export interface Store {
   issueTitle?(repo: string, issue: number): Promise<string | null>
   /** drop events older than this (keeps the table small) */
   prune(before: string): Promise<void>
+  /** #710: a contentless timelapse point (HIDDEN_PROJECT), kept once per key: a second signal of the same day leaves the first one's time */
+  hiddenPoint?(p: HiddenPoint): Promise<void>
+}
+
+/**
+ * #710 (timelapse.md 14, docs-ui.md 2.1): the one project key every private project's work is shown under. Never a repo name: the work of a private
+ * project leaves only this, a seat and a day (timelapse.md 14, #731: a day, not a half hour, so no count of the points tells how long)
+ */
+export const HIDDEN_PROJECT = 'private'
+/** the KST day of a time, YYYYMMDD: one point per agent per day, at the first signal of it */
+export const hiddenDayOf = (ms: number) => new Date(ms + 9 * 3_600_000).toISOString().slice(0, 10).replace(/-/g, '')
+
+export interface HiddenPoint {
+  key: string
+  project: typeof HIDDEN_PROJECT
+  at: string
+  kind: 'work'
+  agent: number
+  title: ''
+  secret: true
+  tier: 'review'
+}
+
+/** the point a private project's signal leaves: the agent and the KST day it falls in (timeline.sql: a review point is opaque, its key review:…) */
+export function hiddenPointOf(seat: number, now: Date): HiddenPoint {
+  return { key: `review:${HIDDEN_PROJECT}:${seat}-${hiddenDayOf(now.getTime())}`, project: HIDDEN_PROJECT, at: now.toISOString(), kind: 'work', agent: seat, title: '', secret: true, tier: 'review' }
 }
 
 const KEEP_DAYS = 14
 
 export function parseSignal(body: unknown, repos: string[] = DEFAULT_TASK_CONFIG.repos): Signal | null {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null
-  const { seat, kind, activity, ok, to, repo, issue, ...rest } = body as Record<string, unknown>
+  const { seat, kind, activity, ok, to, repo, issue, hidden, ...rest } = body as Record<string, unknown>
   if (Object.keys(rest).length) return null // nothing else may ride along
-  const signal = parseKind({ seat, kind, activity, ok, to })
-  if (!signal) return null
+  const parsed = parseKind({ seat, kind, activity, ok, to })
+  if (!parsed) return null
+  // #710: only a private activity may say it is a private project's; and a private project names no task
+  if (hidden !== undefined && (hidden !== true || parsed.kind !== 'activity' || parsed.activity !== 'private')) return null
+  const signal: Signal = hidden ? { ...parsed, hidden: true } : parsed
+  if (signal.hidden) return signal
   // #182: the task is optional; a bad repo or number is ignored, it doesn't fail the event
   if (typeof repo === 'string' && typeof issue === 'number' && Number.isInteger(issue) && issue >= 1 && issue <= MAX_ISSUE && matchRepo(repo, repos) !== null) {
     return { ...signal, task: { repo, issue } }
@@ -224,6 +258,8 @@ export async function handle(request: Request, store: Store, token: string, now 
     const to_seat = signal.kind === 'handoff' ? signal.to : null
     await store.addEvent({ seat: row.seat, kind: signal.kind, activity, ok, to_seat, created_at: at })
   }
+  // #710: a private project's work is a point on the timelapse with nothing in it but who and the half hour
+  if (signal.hidden && store.hiddenPoint) await store.hiddenPoint(hiddenPointOf(signal.seat, now))
   if (signal.kind === 'start') await store.prune(new Date(now.getTime() - KEEP_DAYS * 86400000).toISOString())
   return Response.json({ ok: true, state: row.state, changed })
 }

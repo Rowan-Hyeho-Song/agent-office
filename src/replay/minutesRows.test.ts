@@ -1,5 +1,5 @@
 // A minutes point plays every row of its table (timelapse.md 11): the script, the timing per speed, the cap, the day view's text,
-// and a 1:1 row handing a paper between the two seats on the stage.
+// and a 1:1 handing a paper between the two with each row on the stage (#713).
 
 import { beforeAll, describe, expect, it } from 'vitest'
 import { conversations, type DocMeta } from '../docs/library'
@@ -58,13 +58,13 @@ describe('the rows of a minutes point', () => {
     expect(scriptFor(point, meta(), long, false).minutes!.rows).toHaveLength(11)
   })
 
-  it('3+ agents gather, exactly 2 walk (one row: a paper from the desk), the owner is not an agent', () => {
+  it('3+ agents gather, exactly 2 pass a paper with every row from where they are (12.3, #713), the owner is not an agent', () => {
     expect(scriptFor(point, meta(), three, false).minutes!.mode).toBe('gather')
-    // timelapse.md 12.3: a 1:1 of several rows is walked to, and hands one paper over with its last row; a one-row 1:1 passes it from the desk
-    const walk = scriptFor(point, meta(), two(3), false)
-    expect(walk.minutes!.mode).toBe('walk')
-    expect(walk.seats).toEqual([1, 2])
-    expect(walk.lines.map((l) => !!l.pass)).toEqual([false, false, true])
+    // #713: however many rows, nobody walks to the other; each row is a paper sent from where its sender is, as the live office's hand-offs
+    const several = scriptFor(point, meta(), two(3), false)
+    expect(several.minutes!.mode).toBe('pair')
+    expect(several.seats).toEqual([1, 2])
+    expect(several.lines.map((l) => !!l.pass)).toEqual([true, true, true])
     const pair = scriptFor(point, meta(), two(1), false)
     expect(pair.minutes!.mode).toBe('pair')
     expect(pair.lines.every((l) => l.pass)).toBe(true)
@@ -123,7 +123,7 @@ describe('the rows of a minutes point', () => {
     // 루프's own rows are gone; 휴's row to 루프 stays as a bubble (no receiver here, so no paper)
     expect(s.lines.map((l) => l.key)).toEqual(['1-1', '1-2', '1-3'])
     expect(s.lines.map((l) => !!l.pass)).toEqual([true, false, false])
-    expect(s.minutes!.mode).toBe('walk')
+    expect(s.minutes!.mode).toBe('pair')
   })
 })
 
@@ -151,7 +151,7 @@ describe('time per speed (11.4)', () => {
     const s = scriptFor(point, meta(), two(4), false, 16)
     expect(s.lines.every((l) => l.typeMs === 0 && l.holdMs === 4800 && !l.pass)).toBe(true)
     expect(s.lines[0].holdMs / 16).toBeCloseTo(300, 6)
-    expect(s.minutes!.mode).toBe('walk')
+    expect(s.minutes!.mode).toBe('pair')
   })
   it('1:1: a row is the pass plus 1.5 s of reading (x1 and x4: the same replay time, so a quarter of it on the wall at x4)', () => {
     for (const speed of [1, 4]) {
@@ -161,11 +161,9 @@ describe('time per speed (11.4)', () => {
         expect(l.typeMs + l.holdMs).toBe(PASS_MS + READ_MS + GAP)
         expect(l.readAt).toBe(PASS_MS)
       }
-      // a walking 1:1: only its last row is the hand-over; the rows before it are bubbles
+      // several rows: each one is a pass of its own (#713)
       const w = scriptFor(point, meta(), two(3), false, speed)
-      expect(w.lines.filter((l) => l.pass)).toHaveLength(1)
-      expect(w.lines[2].pass).toBe(true)
-      expect(w.lines[2].typeMs + w.lines[2].holdMs).toBe(PASS_MS + READ_MS + GAP)
+      expect(w.lines.every((l) => l.pass && l.typeMs + l.holdMs === PASS_MS + READ_MS + GAP)).toBe(true)
     }
   })
   it('reduced motion: no gathering, no passes, bubbles in turn with the x1 times', () => {
@@ -217,11 +215,10 @@ describe('the 60 s cap (11.4)', () => {
     expect(b.row).toBeNull()
     expect(b.seat).toBe(s.lines[7].from)
   })
-  it('1:1 rows: 40 rows do not fit, so the first 8 and the last 4 are played and the last one hands the paper over', () => {
+  it('1:1 rows: 40 rows do not fit, so the first 8 and the last 4 are played, each a paper of its own', () => {
     const s = scriptFor(point, meta(), two(40), false, 1)
     expect(s.lines.filter((l) => !l.gap)).toHaveLength(12)
-    expect(s.lines.filter((l) => l.pass)).toHaveLength(1)
-    expect(s.lines[s.lines.length - 1].pass).toBe(true)
+    expect(s.lines.filter((l) => l.pass)).toHaveLength(12)
     expect(s.lines[8].gap).toBe(28)
     expect(s.linesMs).toBeLessThanOrEqual(MINUTES_CAP_MS)
   })
@@ -291,37 +288,36 @@ describe('a 1:1 row hands a paper over on the stage', () => {
     stage.begin()
     const phases = new Set<string | null>()
     const spots = new Set<string>()
-    // the closest the two bodies were while the rows played (m)
-    let beside = Infinity
     while (stage.clock < until) {
       stage.frame(1000 / 60, until)
       phases.add(meeting.phase)
       if (meeting.phase === 'lines') {
         for (const id of ['agent_1', 'agent_2']) spots.add(`${id}:${stage.goals[id]?.spot}`)
-        const a = stage.sample('agent_1')
-        const b = stage.sample('agent_2')
-        if (a.arrived && b.arrived) beside = Math.min(beside, Math.hypot(a.x - b.x, a.z - b.z))
       }
     }
-    return { passes, phases, spots, beside: Number.isFinite(beside) ? beside : 0 }
+    return { passes, phases, spots }
   }
 
   // the two seats' own distance rule (paper-pass.md 1)
   const method = (a: number, b: number) => chooseMethod(GRAPH.spots[`work_${a}`] as never, GRAPH.spots[`work_${b}`] as never, env).method
 
-  it('a one-row 1:1 passes its paper from the desk (no walking, no gathering); a several-row one walks and hands one paper over with its last row (12.3)', async () => {
+  it('a 1:1 sends a paper with each row from where the two are; nobody walks to the other, whatever the number of rows (12.3, #713)', async () => {
     const one = await play(1, two(1), meta(), 70_000)
     expect(one.passes.map((p) => [p.from, p.to])).toEqual([['agent_1', 'agent_2']])
     expect(one.phases.has('gather')).toBe(false)
     expect(one.phases.has('lines')).toBe(true)
     const r = await play(1, two(4), meta(), 70_000)
-    // one hand-over, by the last row's sender (메시 asks first, 휴 answers last)
-    expect(r.passes.map((p) => [p.from, p.to])).toEqual([['agent_2', 'agent_1']])
-    // the first sender walks to the receiver: a gather phase, then the rows
-    expect(r.phases.has('gather')).toBe(true)
+    // a paper each row, back and forth (메시 asks first, 휴 answers)
+    expect(r.passes.map((p) => [p.from, p.to])).toEqual([
+      ['agent_1', 'agent_2'],
+      ['agent_2', 'agent_1'],
+      ['agent_1', 'agent_2'],
+      ['agent_2', 'agent_1'],
+    ])
+    // no gathering, and neither goes to a place beside the other
+    expect(r.phases.has('gather')).toBe(false)
     expect(r.phases.has('lines')).toBe(true)
-    expect(r.beside).toBeGreaterThan(0)
-    expect(r.beside).toBeLessThanOrEqual(1.0)
+    expect([...r.spots].some((x) => /desk_side_|beside_/.test(x)), [...r.spots].join(' ')).toBe(false)
     // the method PaperPasses.choose gives for these two seats is the distance rule's: 1.2 m apart is a hand-over
     expect(method(1, 2)).toBe('hand')
     expect(method(2, 1)).toBe('hand')
@@ -332,14 +328,14 @@ describe('a 1:1 row hands a paper over on the stage', () => {
     expect(method(2, 4)).toBe('toss')
   })
 
-  it('x4 runs on the replay clock too (the same passes); x16 is the caption line and passes nothing', async () => {
+  it('x4 runs on the replay clock too (the same passes, one a row); x16 is the caption line and passes nothing', async () => {
     const fast = await play(4, two(1), meta(), 60_000)
     expect(fast.passes).toHaveLength(1)
-    expect((await play(4, two(3), meta(), 60_000)).passes).toHaveLength(1)
+    expect((await play(4, two(3), meta(), 60_000)).passes).toHaveLength(3)
     const caption = await play(16, two(3), meta(), 60_000)
     expect(caption.passes).toHaveLength(0)
-    // ... and the sender still walks to the receiver at x16 (an event is walked, 12.2)
-    expect(caption.phases.has('gather')).toBe(true)
+    // ... and nobody walks at x16 either
+    expect(caption.phases.has('gather')).toBe(false)
   }, 60_000)
 
   it('the pass is read from the script: only a row between two different agents', () => {
@@ -347,7 +343,7 @@ describe('a 1:1 row hands a paper over on the stage', () => {
     expect(passOf(s, 0)).toEqual({ key: '41:1-1', from: 1, to: 2 })
     expect(passOf(s, 5)).toBeNull()
     const w = scriptFor(point, meta(), two(2), false)
-    expect(passOf(w, 0)).toBeNull()
+    expect(passOf(w, 0)).toEqual({ key: '41:1-1', from: 1, to: 2 })
     expect(passOf(w, 1)).toEqual({ key: '41:1-2', from: 2, to: 1 })
     expect(passOf(scriptFor(point, meta(), three, false), 0)).toBeNull()
   })

@@ -515,6 +515,15 @@ html[data-motion='reduce'] .doc-nav .doc-head h4 { transition: none; }
 }
 @media (prefers-reduced-motion: reduce) { :root:not([data-motion='full']) :is(.dg-tri, .dg-body, .doc-group[data-open] .dg-body) { transition: none; } }
 .doc-note { margin: var(--space-3) 0 0; font-size: 12px; line-height: 1.5; color: var(--color-text-muted); }
+/* #710 (docs-ui.md 2.1, C안): the private folder opened: a panel, not a file list. The days with work are hatched like the seat's "비공개 작업 중" */
+.doc-hidden { margin-top: var(--space-3); padding: 16px; background: var(--color-surface); border: 1px solid var(--color-line); }
+.doc-hidden-lead { display: flex; gap: var(--space-2); align-items: center; margin: 0; font-size: 15px; line-height: 1.5; color: var(--color-lock); }
+.doc-hidden-lead svg { width: 14px; height: 14px; flex: none; }
+.doc-hidden-last { margin: var(--space-2) 0 0; font-size: 13px; line-height: 1.5; color: var(--color-text-muted); }
+.doc-hidden-cal { display: flex; gap: 4px; margin: var(--space-3) 0 0; padding: 0; list-style: none; }
+.doc-hidden-cal li { width: 12px; height: 12px; flex: none; box-sizing: border-box; border: 1px solid var(--color-text-faint); }
+.doc-hidden-cal li[data-on] { background: repeating-linear-gradient(135deg, var(--color-lock) 0 1px, transparent 1px 3px); }
+.doc-hidden-ends { display: flex; justify-content: space-between; width: calc(14 * 12px + 13 * 4px); margin-top: 4px; font-size: 12px; line-height: 1.5; color: var(--color-text-muted); }
 .doc-empty { padding: var(--space-4); }
 .doc-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .doc-filehead { padding: var(--space-2) var(--space-4) var(--space-3); border-bottom: 1px solid var(--color-line); }

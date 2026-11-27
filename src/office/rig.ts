@@ -27,7 +27,7 @@ import { baseExpression, CallTracker, FaceMind, newInput, type FaceInput } from 
 import { WRITE_CARD, wrapBack, wrapHand, wrapHead, type HandSpec } from './wrapPose'
 import { WRAP } from './wrap'
 import { DOOR_ROUND, LEVER } from './doorRound'
-import { BROWSE } from './shelfRun'
+import { spineLook } from './shelfRun'
 import { isWaiting } from './screens'
 import type { Expression } from './faceModel'
 import { DESK_SIDES, dist, routeFromEdge, shortestPath, type NavGraph } from './nav'
@@ -70,6 +70,8 @@ const TURN_RATE = 4.5 * PACE // rad/s
 /** squaring up on a spot it has just stopped on: any way in (up to 180°) turns to the spot's facing in 0.35 s, inside the designer's 0.4 s (#333).
  * The walking rate (with its frame damping) took 0.8 s for a half turn: a body that came in from behind stood across the table for most of a second */
 const ARRIVE_TURN_RATE = Math.PI / 0.35 // rad/s
+/** #718 ②-b holding the ball on a paddle like a tray (the tidy-up): no faster than 120°/s, walking or squaring up (designer, #736) */
+export const TRAY_TURN_RATE = (120 * Math.PI) / 180 // rad/s
 // a meeting listener's nod (#141): how long it takes, how far the head dips, how long the addressee's hand stays up
 const NOD_S = 0.5
 /** #370 D a visitor's press (desk-props.md 7.4): the owner looks this long (s), and (resting) its nod starts this far in, ending with the look */
@@ -504,6 +506,9 @@ const toMatrix = (t: { pos?: number[]; rot?: number[] } | undefined) => {
   )
 }
 
+/** what a hand wants to hold this frame */
+type Want = { kind: string; side: 'l' | 'r'; prefer?: string; attached?: boolean }
+
 /** every prop in the office, who holds it, and how it moves between its home and a hand */
 export class PropBank {
   private props: Prop[] = []
@@ -537,17 +542,35 @@ export class PropBank {
     return free.find((p) => p.node.name === prefer) ?? free[0]
   }
 
-  /** set what each agent holds this frame: one prop per agent, everything else goes home */
-  hold(wants: Map<AgentRig, { kind: string; side: 'l' | 'r'; prefer?: string; attached?: boolean } | null>) {
+  /** set what each agent holds this frame: a prop per hand (#718 ②-b: two at most), everything else goes home */
+  hold(wants: Map<AgentRig, Want | readonly (Want | null)[] | null>) {
     const taken = new Set<Prop>()
-    for (const [rig, want] of wants) {
-      if (!want) continue
-      const p = this.pick(rig, want.kind, want.prefer)
-      if (!p || taken.has(p)) continue
-      p.holder = { rig, side: want.side, attached: want.attached ?? true }
-      taken.add(p)
+    for (const [rig, w] of wants) {
+      // a hand that has its prop goes first (two hands on one book, #450: the holding one, not the one still reaching)
+      const list = (Array.isArray(w) ? w : [w]).filter((x): x is Want => !!x).sort((x, y) => Number(y.attached ?? true) - Number(x.attached ?? true))
+      for (const want of list) {
+        const p = this.pickFree(rig, want.kind, want.prefer, taken)
+        if (!p) continue
+        p.holder = { rig, side: want.side, attached: want.attached ?? true }
+        taken.add(p)
+      }
     }
     for (const p of this.props) if (!taken.has(p)) p.holder = null
+  }
+
+  /** pick, but never a prop this frame has given out already (two of a kind in two hands: each its own) */
+  private pickFree(rig: AgentRig, kind: string, prefer: string | undefined, taken: ReadonlySet<Prop>) {
+    const named = prefer ? this.props.find((p) => p.node.name === prefer && p.kind === kind && !taken.has(p) && (!p.holder || p.holder.rig === rig) && !p.hidden) : undefined
+    if (named) return named
+    // the one asked for by name is in this rig's other hand already: not another of the kind
+    if (prefer && this.props.some((p) => p.node.name === prefer && taken.has(p))) return undefined
+    const p = this.pick(rig, kind, prefer)
+    return p && !taken.has(p) ? p : undefined
+  }
+
+  /** #718 ②-b whether the prop called `name` is in a hand now */
+  held(name: string) {
+    return !!this.props.find((x) => x.node.name === name)?.holder?.attached
   }
 
   /** the prop a rig would take for this kind (the one it holds, else a free one, preferring `prefer`) */
@@ -843,9 +866,13 @@ export class AgentRig {
   }
   /** what it is holding this frame (read by the PropBank) */
   want: { kind: string; side: 'l' | 'r'; prefer?: string; attached?: boolean } | null = null
+  /** #718 ②-b a second prop, in the other hand (PlayStage sets it when both hands hold one) */
+  want2: { kind: string; side: 'l' | 'r'; prefer?: string; attached?: boolean } | null = null
   /** the meeting reaction in progress (#141): when it started on the scene clock, whether a hand lifts with it; the key it answered last */
   private nod: { t0: number; hand: boolean } | null = null
   private nodKey = ''
+  /** #718: the last goal face cue shown */
+  private faceCueKey = ''
   /** #490 B: the goal it rests at (spot | pose | gap; empty on the way) and since when (scene clock, s) */
   private restKey = ''
   private restT0 = 0
@@ -1182,7 +1209,7 @@ export class AgentRig {
     // heading with a capped turn rate; the turn rate drives the lean
     const diff = wrap(wantHeading - this.heading)
     const squaring = !moving && !!this.arrived && this.arrived === this.goal.spot
-    const rate = squaring ? ARRIVE_TURN_RATE : TURN_RATE
+    const rate = Math.min(squaring ? ARRIVE_TURN_RATE : TURN_RATE, this.goal?.tidy ? TRAY_TURN_RATE : Infinity)
     const turn = MathUtils.clamp(diff, -rate * dt, rate * dt) * (squaring ? 1 : Math.min(1, dt * 12 + 0.4))
     this.heading = wrap(this.heading + turn)
     this.turnVel = damp(this.turnVel, turn / Math.max(dt, 1e-3), 8, dt)
@@ -1254,6 +1281,12 @@ export class AgentRig {
     const pl = this.propLookAt(t, pose)
     if (pl) Object.assign(lookTarget, pl)
     lookTarget.pitch -= this.nodDip(goal, t, reduced)
+    // #718: a goal's face cue, once per key (a watcher's game broke: 의문)
+    const fc = goal.faceCue
+    if (fc && fc.key !== this.faceCueKey) {
+      this.faceCueKey = fc.key
+      this.faceEvent(fc.expr, t, fc.dur)
+    }
     if (this.glance && pose !== 'move') {
       const dx = this.glance.at.x - this.x
       const dz = this.glance.at.z - this.z
@@ -1454,7 +1487,8 @@ export class AgentRig {
     const s = (f: number, o = 0) => Math.sin(t * f + this.phase + o) * m
     const idle = { pitch: 0, yaw: reduced ? 0 : s(0.35) * 0.25, roll: 0 }
     // #450 browsing the second bookshelf's spines: the head along the rows, ±12° in 6 s; reduced motion: still
-    if (pose === 'idle' && this.goal?.browse) return { pitch: 0.04, yaw: reduced ? 0 : Math.sin((t / BROWSE.periodS) * Math.PI * 2) * BROWSE.yawDeg * (Math.PI / 180), roll: 0 }
+    // #718 (play.md 9.7): row by row, left to right, top to bottom (shelfRun.ts spineLook); reduced motion: still
+    if (pose === 'idle' && this.goal?.browse) return spineLook(this.restKey ? t - this.restT0 : -1, reduced, { x: this.x, z: this.z, y: this.parts.headRestY + this.seat, heading: this.heading })
     // #490 B a gap (play.md 9.3): the head back with the stretch, breathing at the window, one look left and right after a stroll
     // #451 at the door with the lever: the head straight at the door's screen (0°), no idle glance
     if (pose === 'idle' && (this.goal?.door?.u ?? -1) >= 0) return { pitch: 0, yaw: 0, roll: 0 }

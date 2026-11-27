@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { TRAFFIC } from './traffic'
 import { IDLE_RUN_S, simulateDay } from './traffic.sim'
+import { LOOK_MS } from './play'
 
 /**
  * #715: the most of free time spent standing about with no goal, %: all of it, and in runs over IDLE_RUN_S. Under the level before #525 (21 · 10, the same rule over 09–18 h); the fixed day
- * measures 16.2 · 6.2, and 23.6 · 14.5 before #715
+ * measures 12.2 · 1.8 (16.2 · 6.2 after #715, 23.6 · 14.5 before it)
  */
 const IDLE_MAX_PCT = { all: 19, long: 9 }
 
@@ -89,6 +90,17 @@ describe('a whole day through the planner', () => {
     console.log(`day sim (#715): free time ${Math.round(idle.restS)} s; standing about ${pct(idle.idleS).toFixed(1)}%, in runs over ${IDLE_RUN_S} s ${pct(idle.longS).toFixed(1)}%; longest ${Math.round(idle.longest.s)} s (${idle.longest.who} from ${Math.round(idle.longest.at)} s)`)
     expect(pct(idle.idleS)).toBeLessThan(IDLE_MAX_PCT.all)
     expect(pct(idle.longS)).toBeLessThan(IDLE_MAX_PCT.long)
+  }, 120_000)
+
+  // #718 (play.md 9.7): nobody stands at one place (a gap, a wait, the window, the spines) longer than a look-around turn, and never without words. It was
+  // up to 400 s before: one left at the ping-pong table, a watcher of a broken game, an errand's leftover at one hall spot or window
+  it('nobody stands at one place in free time longer than LOOK_MS, and never without a label (#718)', () => {
+    const { place } = wholeDay()
+    const longest = [...place.runs].sort((x, y) => y.s - x.s)[0]
+    console.log(`day sim (#718): ${place.runs.length} runs of standing at one place; longest ${Math.round(longest.s)} s (${longest.who} at ${longest.spot}, "${longest.label}"); unlabeled ${place.unlabeled} s`)
+    // a coarse step (2 s) can stretch a run measured by the frames by one step
+    expect(place.runs.filter((r) => r.s > LOOK_MS / 1000 + 2)).toEqual([])
+    expect(place.unlabeled).toBe(0)
   }, 120_000)
 })
 

@@ -362,7 +362,7 @@ export function Agents({ world }: { world: OfficeWorld }) {
     // ?debug=1: window.__office.forceSpots = { agent_0: 'whiteboard', ... } sends agents to spots (head-on tests, screenshots)
     if (world.debug && world.forceSpots) for (const id in world.forceSpots) if (goals[id]) goals[id] = { ...goals[id], spot: world.forceSpots[id], pose: 'idle', label: 'debug' }
     // (the director's own place for it is dropped: its slot, facing, departure or gap would walk the body off the forced spot when its plan moves on, #654)
-    if (world.debug && world.forceGoal) for (const id in world.forceGoal) if (goals[id]) goals[id] = { ...goals[id], slot: undefined, face: undefined, depart: undefined, gap: undefined, ...world.forceGoal[id], label: 'debug' }
+    if (world.debug && world.forceGoal) for (const id in world.forceGoal) if (goals[id]) goals[id] = { ...goals[id], slot: undefined, face: undefined, depart: undefined, gap: undefined, ...world.forceGoal[id], label: world.forceGoal[id].label ?? 'debug' }
     // #601 (designer, #615) held at the visitor's game while called to work: this tab's tag and list show the real activity (파일 편집 중, no
     // "자리로 가는 중": it is not on its way); the other tabs keep the director's words, the body there does go to its desk. Read by the director's
     // next frame
@@ -484,7 +484,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
           r.drawAt = tk ? drawn.follow(id, tk.x, tk.z, replay.getSnapshot().playing && tauTotal > 0 ? (realDt * step.dt) / tauTotal : realDt) : null
           r.pace = REPLAY_PACE
           r.traffic = step.goals[id].pose !== 'leave'
-          r.setGoal(step.goals[id], graph)
+          // #428 (timelapse.md 12.4): the replay's faces come from its points, never from a live cue
+          r.setGoal(step.goals[id].faceCue ? { ...step.goals[id], faceCue: undefined } : step.goals[id], graph)
           r.track = step.tracks[id]
           r.update(step.dt, step.anim, graph, rigs, reduced, status[id])
         }
@@ -557,6 +558,8 @@ export function Agents({ world }: { world: OfficeWorld }) {
       visitorOmok: omokView(st ? null : now),
       visitorChess: chessVisitView(st ? null : now),
       visitorPingpong: pingpongView(!st),
+      // #718 ②-b the tidied ping-pong table (live only: the replay's paddles stay home)
+      tidied: st ? null : world.director.tableTidied(),
       // #455 the treats in a hand (not in the replay: a treat is a live visitor's)
       treats: st ? undefined : world.treats,
       gripDemo: world.debug ? world.gripDemo : null,
@@ -573,8 +576,10 @@ export function Agents({ world }: { world: OfficeWorld }) {
     }
     // a paper handed / slid / tossed (#262) sets who holds it (rig.want) after the stage reset it, before the bank reads it
     planes.update(st ? st.now / 1000 : state.clock.elapsedTime, graph, rigs, reduced)
-    props.hold(new Map(Object.values(rigs).map((r) => [r, r.want])))
+    props.hold(new Map(Object.values(rigs).map((r) => [r, [r.want, r.want2]])))
     props.update(Math.min(dt, 0.1))
+    // #718 ②-b the ball where a tidy-up has it, now that the paddles have moved
+    playStage.lateUpdate()
     // the monitors show what the director says each agent is doing now (#186); the timelapse shows its record's statuses
     const shownStatus = st ? status : world.director.shownStatus
     screens?.update({ t, now, status: shownStatus, reduced, camera: state.camera, forced: world.debug ? world.screens.force : undefined })

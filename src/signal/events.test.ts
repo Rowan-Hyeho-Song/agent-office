@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SEATS, handle, matchRepo, nextStatus, parseSignal, sameToken, type Activity, type Signal, type StatusRow, type Store } from './events'
+import { HIDDEN_PROJECT, SEATS, handle, hiddenPointOf, matchRepo, nextStatus, parseSignal, sameToken, type Activity, type Signal, type StatusRow, type Store } from './events'
 
 describe('parseSignal', () => {
   it('accepts seats 0..3 for each kind', () => {
@@ -478,5 +478,39 @@ describe('the fifth seat (#193)', () => {
     expect(parseSignal({ seat: 4, kind: 'start' })).toEqual({ seat: 4, kind: 'start' })
     expect(parseSignal({ seat: 0, kind: 'handoff', to: 4 })).toEqual({ seat: 0, kind: 'handoff', to: 4 })
     expect(parseSignal({ seat: 5, kind: 'start' })).toBeNull()
+  })
+})
+
+// #710 (C안, timelapse.md 14): a private project's session marks its private activity `hidden`; the server leaves one opaque point per agent per half hour
+describe('a private project (#710)', () => {
+  it('hidden only with activity private, and never with a task', () => {
+    expect(parseSignal({ seat: 3, kind: 'activity', activity: 'private', hidden: true })).toEqual({ seat: 3, kind: 'activity', activity: 'private', hidden: true })
+    expect(parseSignal({ seat: 3, kind: 'activity', activity: 'edit', hidden: true })).toBeNull()
+    expect(parseSignal({ seat: 3, kind: 'stop', hidden: true })).toBeNull()
+    expect(parseSignal({ seat: 3, kind: 'activity', activity: 'private', hidden: false })).toBeNull()
+    expect(parseSignal({ seat: 3, kind: 'activity', activity: 'private', hidden: true, repo: 'agent-office', issue: 1 })).toEqual({ seat: 3, kind: 'activity', activity: 'private', hidden: true })
+  })
+
+  it('the point: the alias project, a review tier with no title, a key of the seat and the KST day (#731); the same day gives the same key', () => {
+    const a = hiddenPointOf(2, new Date('2026-11-26T03:05:00Z'))
+    expect(a).toEqual({ key: `review:${HIDDEN_PROJECT}:2-20261126`, project: 'private', at: '2026-11-26T03:05:00.000Z', kind: 'work', agent: 2, title: '', secret: true, tier: 'review' })
+    // 14:59 UTC is 23:59 KST, the same day; 15:00 UTC is the next
+    expect(hiddenPointOf(2, new Date('2026-11-26T14:59:59Z')).key).toBe(a.key)
+    expect(hiddenPointOf(2, new Date('2026-11-25T15:00:00Z')).key).toBe(a.key)
+    expect(hiddenPointOf(2, new Date('2026-11-26T15:00:00Z')).key).not.toBe(a.key)
+    expect(hiddenPointOf(3, new Date('2026-11-26T03:05:00Z')).key).not.toBe(a.key)
+  })
+
+  it('handle: a hidden signal leaves the point and the "비공개 작업 중" status (no task); a plain private one (outside mode) leaves no point', async () => {
+    const points: unknown[] = []
+    const rows = new Map<number, StatusRow>()
+    const store: Store = { status: async (s) => rows.get(s) ?? null, setStatus: async (r) => void rows.set(r.seat, r), addEvent: async () => {}, prune: async () => {}, hiddenPoint: async (p) => void points.push(p) }
+    const post = (body: unknown) => new Request('http://x/api/events', { method: 'POST', headers: { authorization: 'Bearer t' }, body: JSON.stringify(body) })
+    const now = new Date('2026-11-26T03:05:00Z')
+    expect((await handle(post({ seat: 1, kind: 'activity', activity: 'private', hidden: true }), store, 't', now)).status).toBe(200)
+    expect(points).toEqual([hiddenPointOf(1, now)])
+    expect(rows.get(1)).toMatchObject({ state: 'working', activity: 'private', task_repo: null, task_issue: null })
+    await handle(post({ seat: 1, kind: 'activity', activity: 'private' }), store, 't', now)
+    expect(points).toHaveLength(1)
   })
 })
